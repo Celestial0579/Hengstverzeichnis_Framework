@@ -1,0 +1,77 @@
+# robots.txt - Hengstverzeichnis Framework
+# Allows search engine indexing while explicitly blocking AI training crawlers / scrapers
+
+User-agent: *
+Allow: /
+Allow: /katalog
+Allow: /hengst
+Disallow: /admin/
+Disallow: /login
+Disallow: /setup
+Disallow: /force-password-change
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /2fa/
+Disallow: /dsgvo
+
+# =====================================================================
+# Block AI Scraping & LLM Training Bots (OpenAI, Google Gemini, Anthropic, Meta, etc.)
+# =====================================================================
+
+# OpenAI
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+# Google Gemini / Vertex AI Training
+User-agent: Google-Extended
+Disallow: /
+
+# Anthropic (Claude)
+User-agent: Anthropic-AI
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+# Common Crawl (used by multiple LLM creators)
+User-agent: CCBot
+Disallow: /
+
+# ByteDance / TikTok AI
+User-agent: Bytespider
+Disallow: /
+
+# Meta / Facebook AI
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+User-agent: FacebookBot
+Disallow: /
+
+# Perplexity AI
+User-agent: PerplexityBot
+Disallow: /
+
+# Cohere AI
+User-agent: Cohere-ai
+Disallow: /
+
+# Amazon AI
+User-agent: Amazonbot
+Disallow: /
+
+# Diffbot & Webz.io
+User-agent: Diffbot
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+User-agent: Omgili
+Disallow: /

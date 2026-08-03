@@ -1,0 +1,130 @@
+-- database/schema.sql
+
+-- Settings for Branding / Theming
+CREATE TABLE IF NOT EXISTS `settings` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `setting_key` VARCHAR(50) NOT NULL UNIQUE,
+    `setting_value` TEXT,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Initial Settings
+INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES 
+('site_name', 'Hengstverzeichnis Framework'),
+('primary_color', '#2c3e50'),
+('secondary_color', '#18bc9c'),
+('logo_url', '/images/default-logo.png');
+
+-- Users Table
+CREATE TABLE IF NOT EXISTS `users` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `username` VARCHAR(50) NOT NULL UNIQUE,
+    `email` VARCHAR(100) NOT NULL UNIQUE,
+    `password_hash` VARCHAR(255) NOT NULL,
+    `role` ENUM('admin', 'editor') DEFAULT 'editor',
+    `totp_secret` VARCHAR(255) NULL,
+    `totp_enabled` TINYINT(1) DEFAULT 0,
+    `backup_codes` TEXT NULL,
+    `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Password Resets
+CREATE TABLE IF NOT EXISTS `password_resets` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `email` VARCHAR(100) NOT NULL,
+    `token` VARCHAR(64) NOT NULL UNIQUE,
+    `expires_at` DATETIME NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Persons (Breeders, Owners, Keepers)
+CREATE TABLE IF NOT EXISTS `persons` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `name` VARCHAR(100) NOT NULL,
+    `contact_info` TEXT,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Breeding Stations (Deckstationen / Gestüte)
+CREATE TABLE IF NOT EXISTS `breeding_stations` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `name` VARCHAR(150) NOT NULL,
+    `contact_person` VARCHAR(100) NULL,
+    `address` TEXT NULL,
+    `phone` VARCHAR(50) NULL,
+    `email` VARCHAR(100) NULL,
+    `website` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Horses
+CREATE TABLE IF NOT EXISTS `horses` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `name` VARCHAR(100) NOT NULL,
+    `ueln` VARCHAR(50) UNIQUE, -- Unique Equine Life Number (Deutschland / Haupt-UELN)
+    `foreign_ueln` VARCHAR(50) NULL DEFAULT NULL, -- Lebensnummer Ursprungsland / Ausländische UELN
+    `sire_id` INT NULL, -- Father (Stallion FK)
+    `sire_name` VARCHAR(100) NULL, -- Unlinked Father Name
+    `sire_ueln` VARCHAR(15) NULL, -- Unlinked Father UELN
+    `dam_id` INT NULL, -- Mother (Mare FK)
+    `dam_name` VARCHAR(100) NULL, -- Unlinked Mother Name
+    `dam_ueln` VARCHAR(15) NULL, -- Unlinked Mother UELN
+    `birth_year` SMALLINT UNSIGNED NULL,
+    `color` VARCHAR(50),
+    `breeding_station_id` INT NULL,
+    `breeding_station` VARCHAR(255) NULL,
+    `description` TEXT,
+    `status` ENUM('active', 'inactive', 'deceased') DEFAULT 'active',
+    `image_url` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `deleted_at` DATETIME NULL DEFAULT NULL,
+    FOREIGN KEY (`sire_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
+    FOREIGN KEY (`dam_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
+    FOREIGN KEY (`breeding_station_id`) REFERENCES `breeding_stations`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Horse Persons Relation (Ownership History & Roles)
+CREATE TABLE IF NOT EXISTS `horse_persons` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `horse_id` INT NOT NULL,
+    `person_id` INT NOT NULL,
+    `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
+    `from_year` SMALLINT UNSIGNED NULL,
+    `until_year` SMALLINT UNSIGNED NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- GDPR Requests
+CREATE TABLE IF NOT EXISTS `gdpr_requests` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `name` VARCHAR(100) NULL,
+    `email` VARCHAR(100) NOT NULL,
+    `request_type` ENUM('info', 'deletion') NOT NULL,
+    `message` TEXT NULL,
+    `status` ENUM('pending', 'processed', 'rejected') DEFAULT 'pending',
+    `admin_notes` TEXT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Audit Logs Table
+CREATE TABLE IF NOT EXISTS `audit_logs` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT NULL,
+    `username` VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
+    `action` VARCHAR(100) NOT NULL,
+    `category` VARCHAR(50) NOT NULL DEFAULT 'general',
+    `details` TEXT NULL,
+    `ip_address` VARCHAR(45) NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX (`created_at`),
+    INDEX (`category`),
+    INDEX (`username`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

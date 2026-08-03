@@ -1,0 +1,16 @@
+# Security .htaccess for Public Uploads Directory
+# Disables PHP script execution to prevent web shell / remote code execution attacks
+
+Options -Indexes -ExecCGI
+
+<FilesMatch "\.(php|php\d*|phtml|pl|py|jsp|asp|sh|cgi|phar)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>

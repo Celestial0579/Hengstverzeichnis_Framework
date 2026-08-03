@@ -202,12 +202,13 @@ class PublicController extends BaseController {
             $this->renderNotFound("Das angeforderte Pferd existiert nicht oder wurde aus dem Verzeichnis entfernt.");
         }
 
-        // Fetch ownership history and person roles (Züchter, Besitzer, Ehemalige Besitzer)
+        // Fetch ownership history, person roles and associated breeding stations/studs
         $stmt = $db->prepare("
-            SELECT hp.*, p.name as person_name, p.contact_info 
+            SELECT hp.*, p.name as person_name, p.contact_info, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp 
-            JOIN persons p ON hp.person_id = p.id 
-            WHERE hp.horse_id = ? AND p.deleted_at IS NULL
+            LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL
+            LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id AND bs.deleted_at IS NULL
+            WHERE hp.horse_id = ?
             ORDER BY hp.from_year ASC, hp.id ASC
         ");
         $stmt->execute([$id]);

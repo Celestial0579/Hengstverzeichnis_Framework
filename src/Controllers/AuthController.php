@@ -230,6 +230,7 @@ class AuthController extends BaseController {
     }
 
     public function logout(): void {
+        \App\Service\AuditLogger::log("Benutzer ausgeloggt", "auth", "Erfolgreich abgemeldet");
         session_destroy();
         header("Location: /");
         exit;

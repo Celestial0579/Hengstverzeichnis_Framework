@@ -3,7 +3,8 @@
 
 Options -Indexes -ExecCGI
 
-<FilesMatch "\.(php|php\d*|phtml|pl|py|jsp|asp|sh|cgi|phar)$">
+<FilesMatch "\.(php|php\d*|phtml|pl|py|jsp|asp|sh|cgi|phar|inc)$">
+    SetHandler default-handler
     Require all denied
 </FilesMatch>
 

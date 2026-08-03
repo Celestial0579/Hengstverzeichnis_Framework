@@ -103,10 +103,10 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                 <?php endif; ?>
             </table>
 
-            <!-- Züchter & Besitzerverlauf -->
+            <!-- Züchter, Besitzer & Deckstationenverlauf -->
             <div style="margin-top: 1.5rem;">
                 <h4 style="font-size: 1.1rem; color: var(--primary-color); margin-bottom: 0.8rem; border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
-                    👤 Züchter & Besitzerverlauf
+                    👤 Züchter-, Besitzer- & Deckstationenverlauf
                 </h4>
 
                 <?php if (empty($horsePersons)): ?>
@@ -125,14 +125,43 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                             if ($hp['role'] !== 'breeder' && ($hp['from_year'] || $hp['until_year'])) {
                                 $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . ($hp['until_year'] ?: 'heute') . ')';
                             }
+                            $stationDisplayName = $hp['station_name'] ?? $hp['breeding_station_text'] ?? '';
                         ?>
                             <div style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.3rem;">
-                                    <strong><?= htmlspecialchars($hp['person_name']) ?></strong>
+                                    <div>
+                                        <?php if (!empty($hp['person_name'])): ?>
+                                            <strong><?= htmlspecialchars($hp['person_name']) ?></strong>
+                                        <?php else: ?>
+                                            <strong>
+                                                <?php if (!empty($hp['station_id'])): ?>
+                                                    <a href="/station/<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
+                                                        🏠 <?= htmlspecialchars($stationDisplayName) ?>
+                                                    </a>
+                                                <?php else: ?>
+                                                    🏠 <?= htmlspecialchars($stationDisplayName) ?>
+                                                <?php endif; ?>
+                                            </strong>
+                                        <?php endif; ?>
+                                    </div>
                                     <span style="background: <?= $roleMeta[1] ?>; color: #fff; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">
                                         <?= $roleMeta[0] ?><?= htmlspecialchars($yearsText) ?>
                                     </span>
                                 </div>
+
+                                <?php if (!empty($hp['person_name']) && !empty($stationDisplayName)): ?>
+                                    <div style="font-size: 0.85rem; color: var(--primary-color); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
+                                        <span>🏠 Deckstation / Gestüt:</span>
+                                        <?php if (!empty($hp['station_id'])): ?>
+                                            <a href="/station/<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
+                                                <?= htmlspecialchars($stationDisplayName) ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <span><?= htmlspecialchars($stationDisplayName) ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+
                                 <?php if (!empty($hp['contact_info'])): ?>
                                     <div style="font-size: 0.85rem; color: #555; margin-top: 0.3rem;">
                                         <?= nl2br(htmlspecialchars($hp['contact_info'])) ?>

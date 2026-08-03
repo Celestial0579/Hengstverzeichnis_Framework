@@ -6,12 +6,37 @@ namespace App;
 use PDO;
 use PDOException;
 
+/**
+ * Class Database
+ * 
+ * Verwalte die PDO-Verbindung zur MySQL/MariaDB Datenbank im Singleton-Muster.
+ * Gewährleistet, dass während der gesamten Anfrage-Laufzeit nur eine einzige
+ * Datenbank-Verbindung aufgebaut wird, injiziert SSL/TLS-Optionen und prüft
+ * automatisch beim Verbindungsaufbau, ob alle Tabellen & Spalten vorhanden sind.
+ */
 class Database {
+    /**
+     * Statische Instanz des PDO-Datenbankverbindungsobjekts.
+     * @var PDO|null
+     */
     private static ?PDO $instance = null;
 
+    /**
+     * Privater Konstruktor zur Verinderung direkter Instanziierung (Singleton-Pattern).
+     */
     private function __construct() {}
+
+    /**
+     * Privater Klon-Konstruktor zur Verhinderung von Duplizierung.
+     */
     private function __clone() {}
 
+    /**
+     * Liefert die zentrale PDO-Datenbankinstanz zurück oder baut diese bei Erstaufruf auf.
+     *
+     * @return PDO Aktive PDO-Verbindung
+     * @throws PDOException Falls im Entwicklungsmodus ein Verbindungsfehler auftritt
+     */
     public static function getInstance(): PDO {
         if (self::$instance === null) {
             $host = DB_HOST;
@@ -23,11 +48,12 @@ class Database {
 
             $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=$charset";
             $options = [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // Throw exceptions on errors
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // Fetch associative arrays
-                PDO::ATTR_EMULATE_PREPARES   => false,                  // Use real prepared statements
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // Löst Exceptions bei Fehlern aus
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // Standard-Fetch: Assoziatives Array
+                PDO::ATTR_EMULATE_PREPARES   => false,                  // Verwendet echte vorbereitete Statements
             ];
 
+            // SSL/TLS-Verschlüsselung aktivieren, falls in den Einstellungen hinterlegt
             if (defined('DB_SSL') && DB_SSL) {
                 if (defined('PDO::MYSQL_ATTR_SSL_CA') && defined('DB_SSL_CA') && !empty(DB_SSL_CA)) {
                     $options[PDO::MYSQL_ATTR_SSL_CA] = DB_SSL_CA;
@@ -39,13 +65,14 @@ class Database {
 
             try {
                 self::$instance = new PDO($dsn, $user, $pass, $options);
+                
+                // Datenbank-Schema bei Verbindungsaufbau automatisch auf den neuesten Stand bringen
                 self::ensureSchemaUpToDate(self::$instance);
             } catch (PDOException $e) {
-                // In production, log this error securely instead of displaying it
                 if (APP_ENV === 'development') {
                     throw new PDOException($e->getMessage(), (int)$e->getCode());
                 } else {
-                    die("Database connection failed.");
+                    die("Datenbank-Verbindung fehlgeschlagen. Bitte überprüfen Sie die Einstellungen.");
                 }
             }
         }
@@ -53,12 +80,19 @@ class Database {
         return self::$instance;
     }
 
+    /**
+     * Stellt sicher, dass alle erforderlichen Tabellen und Spalten in der Datenbank existieren.
+     * Ermöglicht reibungslose Updates ohne manuelle SQL-Migrationsskripte.
+     *
+     * @param PDO $pdo Aktive Datenbankverbindung
+     */
     private static function ensureSchemaUpToDate(PDO $pdo): void {
         static $checked = false;
         if ($checked) return;
         $checked = true;
 
         try {
+            // Helper-Funktion zum schrittweisen Hinzufügen fehlender Spalten
             $addColumn = function($table, $column, $definition) use ($pdo) {
                 $stmt = $pdo->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
                 if ($stmt && $stmt->rowCount() === 0) {
@@ -66,13 +100,13 @@ class Database {
                 }
             };
 
-            // Ensure 2FA columns exist
+            // 1. 2-Faktor-Authentifizierung & Passkeys für Benutzer
             $addColumn('users', 'totp_secret', 'VARCHAR(64) NULL AFTER `role`');
             $addColumn('users', 'totp_enabled', 'TINYINT(1) DEFAULT 0 AFTER `totp_secret`');
             $addColumn('users', 'backup_codes', 'TEXT NULL AFTER `totp_enabled`');
             $addColumn('users', 'passkeys', 'TEXT NULL AFTER `backup_codes`');
 
-            // Ensure Sire, Dam & Breeding Station columns exist
+            // 2. Erweiterungen für Pferdeprofile (Ausländische UELN, Abstammung, Deckstation)
             $addColumn('horses', 'foreign_ueln', 'VARCHAR(50) NULL DEFAULT NULL AFTER `ueln`');
             $addColumn('horses', 'sire_id', 'INT NULL AFTER `foreign_ueln`');
             $addColumn('horses', 'sire_name', 'VARCHAR(100) NULL AFTER `sire_id`');
@@ -80,7 +114,8 @@ class Database {
             $addColumn('horses', 'dam_id', 'INT NULL AFTER `sire_ueln`');
             $addColumn('horses', 'dam_name', 'VARCHAR(100) NULL AFTER `dam_id`');
             $addColumn('horses', 'dam_ueln', 'VARCHAR(15) NULL AFTER `dam_name`');
-            // Ensure breeding_stations table exists
+
+            // 3. Deckstationen-Tabelle anlegen
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS `breeding_stations` (
                     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -99,7 +134,7 @@ class Database {
             $addColumn('horses', 'breeding_station', 'VARCHAR(255) NULL AFTER `breeding_station_id`');
             $addColumn('horses', 'image_url', 'VARCHAR(255) NULL AFTER `status`');
 
-            // Ensure horse_persons table exists
+            // 4. Zuordnungen zwischen Pferden & Personen/Besitzern anlegen
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS `horse_persons` (
                     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -114,7 +149,7 @@ class Database {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             ");
 
-            // Ensure password_resets table exists
+            // 5. Tabelle für Passwort-Zurücksetzen-Tokens
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS `password_resets` (
                     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -125,7 +160,7 @@ class Database {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
             ");
 
-            // Ensure gdpr_requests table exists and has new columns
+            // 6. DSGVO-Anfragen-Tabelle
             $pdo->exec("
                 CREATE TABLE IF NOT EXISTS `gdpr_requests` (
                     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -143,23 +178,23 @@ class Database {
             $addColumn('gdpr_requests', 'message', 'TEXT NULL AFTER `request_type`');
             $addColumn('gdpr_requests', 'admin_notes', 'TEXT NULL AFTER `status`');
 
-            // Soft Delete support across all main entities
+            // 7. Papierkorb-Unterstützung (Soft Delete)
             $addColumn('horses', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
             $addColumn('persons', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
             $addColumn('breeding_stations', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
             $addColumn('users', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
 
-            // Ensure must_change_password column exists on users table
+            // 8. Passwortänderungs-Zwang für neue/zurückgesetzte Benutzer
             try {
                 $pdo->exec("ALTER TABLE `users` ADD COLUMN `must_change_password` TINYINT(1) NOT NULL DEFAULT 0");
             } catch (\PDOException $e) {
-                // Ignore if column already exists
+                // Spalte existiert bereits
             }
 
-            // Upgrade birth_year from YEAR to SMALLINT UNSIGNED to support historical years (< 1901)
+            // 9. Historische Geburtsjahre vor 1901 unterstützen (SMALLINT statt YEAR)
             $pdo->exec("ALTER TABLE `horses` MODIFY COLUMN `birth_year` SMALLINT UNSIGNED NULL");
 
-            // Ensure audit_logs table exists
+            // 10. Audit-Log für Revisionssicherheit (30 Tage Speicherdauer)
             $pdo->exec("CREATE TABLE IF NOT EXISTS `audit_logs` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
                 `user_id` INT NULL,
@@ -174,7 +209,7 @@ class Database {
                 INDEX (`username`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (\Exception $e) {
-            // Ignore if tables don't exist yet
+            // Falls Tabellen noch nicht initialisiert wurden
         }
     }
 }

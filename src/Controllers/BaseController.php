@@ -6,16 +6,36 @@ namespace App\Controllers;
 use App\Database;
 use PDO;
 
+/**
+ * Class BaseController
+ * 
+ * Abstrakter Basis-Controller für alle Controller-Klassen der Anwendung.
+ * Stellt globale Funktionalitäten bereit:
+ * - Automatische Laden von Verbands- & Systemeinstellungen
+ * - Sicheres Rendern von View-Templates inkl. Layout
+ * - Anti-Infostealer & Session-Fingerprint Authentifizierungsprüfung (`checkAuth()`)
+ * - Rollen-basierte Rechteprüfung (`requireAdmin()`)
+ * - Individuelle Fehlerseiten (403 Forbidden, 404 Not Found, 500 Server Error)
+ * - Validierung reservierter System-Benutzernamen
+ */
 abstract class BaseController {
     
+    /**
+     * Aus der Datenbank geladene globale Systemeinstellungen.
+     * @var array
+     */
     protected array $settings = [];
 
+    /**
+     * Basis-Konstruktor. Lädt automatisch alle Einstellungen aus der Datenbank.
+     */
     public function __construct() {
         $this->loadSettings();
     }
 
     /**
-     * Loads all settings from the database into the $settings array.
+     * Lädt alle Key-Value Einstellungen aus der `settings`-Tabelle.
+     * Stellt Standardwerte bereit, falls die Datenbank noch nicht initialisiert wurde.
      */
     private function loadSettings(): void {
         try {
@@ -27,7 +47,7 @@ abstract class BaseController {
                 $this->settings[$row['setting_key']] = $row['setting_value'];
             }
         } catch (\Exception $e) {
-            // If the database isn't set up yet, provide defaults to avoid fatal errors during setup
+            // Im Setup-Modus oder bei nicht existierender Datenbank Fallback-Werte nutzen
             $this->settings = [
                 'site_name' => 'Hengstverzeichnis (Setup Mode)',
                 'primary_color' => '#2c3e50',
@@ -39,34 +59,35 @@ abstract class BaseController {
     }
 
     /**
-     * Renders a view file inside the main layout.
+     * Rendert ein View-Template innerhalb des zentralen Haupt-Layouts (`src/Views/layout.php`).
      * 
-     * @param string $view Name of the view file (without .php)
-     * @param array $data Data to extract into the view scope
+     * @param string $view Name der View-Datei (ohne Endung .php)
+     * @param array $data Variablen-Array, das in der View verfügbar gemacht wird
      */
     protected function render(string $view, array $data = []): void {
-        // Extract data to make variables available in the view
+        // Variablen aus dem Data-Array für die View extrahieren
         extract($data);
         
-        // Make settings available to all views automatically
+        // Globale Einstellungen automatisch in jeder View bereitstellen
         $settings = $this->settings;
 
-        // Capture the output of the specific view
+        // Inhalt der spezifischen View im Ausgabepuffer abfangen
         ob_start();
         $viewFile = __DIR__ . "/../Views/{$view}.php";
         if (file_exists($viewFile)) {
             require $viewFile;
         } else {
-            echo "View '{$view}' not found.";
+            echo "View '{$view}' nicht gefunden.";
         }
         $content = ob_get_clean();
 
-        // Include the main layout which will output the captured $content
+        // Haupt-Layout rendern und den abgefangenen $content injizieren
         require __DIR__ . "/../Views/layout.php";
     }
 
     /**
-     * Verifies authentication, validates anti-infostealer session fingerprint, handles inactivity timeout and forces password change if required.
+     * Überprüft die Benutzeranmeldung, schützt vor Session-Hijacking (Anti-Infostealer)
+     * erzwingt Inaktivitäts-Timeouts und prüft auf erforderliche Passwortänderungen.
      */
     protected function checkAuth(): void {
         if (!isset($_SESSION['user_id'])) {
@@ -74,11 +95,15 @@ abstract class BaseController {
             exit;
         }
 
-        // 1. Anti-Infostealer & Anti-Session-Hijacking: User-Agent Fingerprint Validation
+        // 1. Anti-Infostealer & Session-Hijacking Schutz: User-Agent Fingerprint Validierung
         $currentAgentHash = hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? '');
         if (isset($_SESSION['user_agent_hash']) && !hash_equals($_SESSION['user_agent_hash'], $currentAgentHash)) {
-            // Mismatched User-Agent (Stolen session cookie transferred to another browser/machine)
-            \App\Service\AuditLogger::log("Session-Hijacking Versuch abgefangen", "auth", "User-Agent Mismatch für User ID " . $_SESSION['user_id']);
+            // Abweichender User-Agent (Session-Cookie auf anderen Browser/Rechner übertragen)
+            \App\Service\AuditLogger::log(
+                "Session-Hijacking Versuch abgefangen",
+                "auth",
+                "User-Agent Mismatch für User ID " . $_SESSION['user_id']
+            );
             
             $_SESSION = [];
             if (ini_get("session.use_cookies")) {
@@ -90,11 +115,15 @@ abstract class BaseController {
             exit;
         }
 
-        // 2. Inactivity Timeout (2 Hours = 7200 seconds)
+        // 2. Inaktivitäts-Timeout (2 Stunden = 7200 Sekunden)
         $now = time();
         $maxInactivity = 7200;
         if (isset($_SESSION['last_activity']) && ($now - $_SESSION['last_activity'] > $maxInactivity)) {
-            \App\Service\AuditLogger::log("Session wegen Inaktivität beendet", "auth", "User ID " . $_SESSION['user_id']);
+            \App\Service\AuditLogger::log(
+                "Session wegen Inaktivität beendet",
+                "auth",
+                "User ID " . $_SESSION['user_id']
+            );
             
             $_SESSION = [];
             session_destroy();
@@ -103,7 +132,7 @@ abstract class BaseController {
         }
         $_SESSION['last_activity'] = $now;
 
-        // 3. Periodic Session Token Rotation (Regenerate ID every 15 minutes = 900 seconds)
+        // 3. Periodische Session-ID Rotation (Sicherheits-Regenerierung alle 15 Minuten)
         if (!isset($_SESSION['last_token_rotation'])) {
             $_SESSION['last_token_rotation'] = $now;
         } elseif ($now - $_SESSION['last_token_rotation'] > 900) {
@@ -111,7 +140,7 @@ abstract class BaseController {
             $_SESSION['last_token_rotation'] = $now;
         }
 
-        // 4. Force Password Change check
+        // 4. Zwang zur Passwortänderung prüfen (z. B. nach Admin-Passwort-Reset)
         if (!empty($_SESSION['must_change_password'])) {
             $uri = $_SERVER['REQUEST_URI'] ?? '';
             if (strpos($uri, '/force-password-change') === false && strpos($uri, '/logout') === false) {
@@ -122,16 +151,19 @@ abstract class BaseController {
     }
 
     /**
-     * Ensures current logged in user has admin role, otherwise aborts with 403 Forbidden.
+     * Stellt sicher, dass der angemeldete Benutzer Administrator-Rechte besitzt.
+     * Bricht andernfalls mit einer protokollierten 403-Forbidden Seite ab.
      */
     protected function requireAdmin(): void {
         if (($_SESSION['role'] ?? '') !== 'admin') {
-            $this->renderForbidden("Zugriff verweigert: Diese Funktion steht nur Administratoren zur Verfügung.");
+            $this->renderForbidden("Zugriff verweigert: Diese Funktion steht ausschließlich Administratoren zur Verfügung.");
         }
     }
 
     /**
-     * Renders a custom 403 Forbidden error page and logs the permission security event in AuditLog.
+     * Rendert eine individuelle 403 Forbidden Fehlerseite und protokolliert das Sicherheitsereignis im Audit-Log.
+     *
+     * @param string $message Benutzerfreundliche Fehlermeldung
      */
     public function renderForbidden(string $message = 'Zugriff verweigert: Sie besitzen keine Berechtigung für diese Aktion.'): void {
         $userId = $_SESSION['user_id'] ?? null;
@@ -154,7 +186,9 @@ abstract class BaseController {
     }
 
     /**
-     * Renders a custom 404 Not Found error page.
+     * Rendert eine individuelle 404 Not Found Fehlerseite.
+     *
+     * @param string $message Benutzerfreundliche Fehlermeldung
      */
     public function renderNotFound(string $message = 'Die angeforderte Seite wurde nicht gefunden.'): void {
         http_response_code(404);
@@ -166,7 +200,9 @@ abstract class BaseController {
     }
 
     /**
-     * Renders a custom 500 Internal Server Error page.
+     * Rendert eine individuelle 500 Internal Server Error Fehlerseite.
+     *
+     * @param string $message Benutzerfreundliche Fehlermeldung
      */
     public function renderServerError(string $message = 'Ein unerwarteter Serverfehler ist aufgetreten.'): void {
         http_response_code(500);
@@ -178,7 +214,10 @@ abstract class BaseController {
     }
 
     /**
-     * Checks if a username is in the list of reserved/privileged system verbs.
+     * Prüft, ob ein gewählter Benutzername in der Liste reservierter Systemnamen enthalten ist.
+     *
+     * @param string $username Zu prüfender Benutzername
+     * @return bool True, wenn der Name reserviert ist, sonst false
      */
     protected function isReservedUsername(string $username): bool {
         $reserved = [

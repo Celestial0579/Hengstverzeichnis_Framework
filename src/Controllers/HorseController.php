@@ -83,7 +83,7 @@ class HorseController extends BaseController {
         $this->saveHorsePersons($db, $newHorseId, $_POST['persons'] ?? []);
 
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
-        $this->autoLinkMatches($newHorseId, $name, $ueln);
+        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln);
 
         header("Location: /admin/horses?success=created");
         exit;
@@ -197,7 +197,7 @@ class HorseController extends BaseController {
         $this->saveHorsePersons($db, (int)$id, $_POST['persons'] ?? []);
 
         // Run auto-linking for matches
-        $this->autoLinkMatches((int)$id, $name, $ueln);
+        $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln);
 
         header("Location: /admin/horses?success=updated");
         exit;
@@ -242,19 +242,21 @@ class HorseController extends BaseController {
     }
 
     /**
-     * Auto-links unlinked placeholders matching $ueln or $name to $horseId
+     * Auto-links unlinked placeholders matching $ueln, $foreignUeln or $name to $horseId
      */
-    private function autoLinkMatches(int $horseId, string $name, string $ueln): void {
+    private function autoLinkMatches(int $horseId, string $name, string $ueln, string $foreignUeln = ''): void {
         $db = Database::getInstance();
 
-        if (!empty($ueln)) {
-            // Auto-link Sires matching UELN
-            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ?");
-            $stmt->execute([$horseId, $ueln]);
+        $uelnsToMatch = array_unique(array_filter([trim($ueln), trim($foreignUeln)]));
 
-            // Auto-link Dams matching UELN
+        foreach ($uelnsToMatch as $u) {
+            // Auto-link Sires matching UELN or Foreign UELN
+            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ?");
+            $stmt->execute([$horseId, $u]);
+
+            // Auto-link Dams matching UELN or Foreign UELN
             $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND dam_ueln = ?");
-            $stmt->execute([$horseId, $ueln]);
+            $stmt->execute([$horseId, $u]);
         }
 
         if (!empty($name)) {

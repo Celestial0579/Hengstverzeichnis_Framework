@@ -241,41 +241,75 @@ class PublicController extends BaseController {
 
         $horse['depth'] = $currentDepth;
 
-        // Sire resolution (FK or Text fallback)
+        // Sire resolution (FK or UELN/Foreign UELN/Name lookup fallback)
         if ($horse['sire_id']) {
             $horse['sire'] = $this->buildPedigree($horse['sire_id'], $currentDepth + 1, $maxDepth);
         } else if (!empty($horse['sire_name']) || !empty($horse['sire_ueln'])) {
-            $horse['sire'] = [
-                'id' => null,
-                'name' => $horse['sire_name'] ?: 'Unbekannter Vater',
-                'ueln' => $horse['sire_ueln'],
-                'depth' => $currentDepth + 1,
-                'is_placeholder' => true,
-                'sire' => null,
-                'dam' => null
-            ];
+            $parentSireId = $this->findParentByUelnOrName($db, $horse['sire_ueln'], $horse['sire_name']);
+            if ($parentSireId) {
+                $horse['sire'] = $this->buildPedigree($parentSireId, $currentDepth + 1, $maxDepth);
+            } else {
+                $horse['sire'] = [
+                    'id' => null,
+                    'name' => $horse['sire_name'] ?: 'Unbekannter Vater',
+                    'ueln' => $horse['sire_ueln'],
+                    'depth' => $currentDepth + 1,
+                    'is_placeholder' => true,
+                    'sire' => null,
+                    'dam' => null
+                ];
+            }
         } else {
             $horse['sire'] = null;
         }
 
-        // Dam resolution (FK or Text fallback)
+        // Dam resolution (FK or UELN/Foreign UELN/Name lookup fallback)
         if ($horse['dam_id']) {
             $horse['dam'] = $this->buildPedigree($horse['dam_id'], $currentDepth + 1, $maxDepth);
         } else if (!empty($horse['dam_name']) || !empty($horse['dam_ueln'])) {
-            $horse['dam'] = [
-                'id' => null,
-                'name' => $horse['dam_name'] ?: 'Unbekannte Mutter',
-                'ueln' => $horse['dam_ueln'],
-                'depth' => $currentDepth + 1,
-                'is_placeholder' => true,
-                'sire' => null,
-                'dam' => null
-            ];
+            $parentDamId = $this->findParentByUelnOrName($db, $horse['dam_ueln'], $horse['dam_name']);
+            if ($parentDamId) {
+                $horse['dam'] = $this->buildPedigree($parentDamId, $currentDepth + 1, $maxDepth);
+            } else {
+                $horse['dam'] = [
+                    'id' => null,
+                    'name' => $horse['dam_name'] ?: 'Unbekannte Mutter',
+                    'ueln' => $horse['dam_ueln'],
+                    'depth' => $currentDepth + 1,
+                    'is_placeholder' => true,
+                    'sire' => null,
+                    'dam' => null
+                ];
+            }
         } else {
             $horse['dam'] = null;
         }
 
         return $horse;
+    }
+
+    /**
+     * Searches for a matching parent horse by primary UELN, foreign UELN or Name if FK is NULL
+     */
+    private function findParentByUelnOrName(\PDO $db, ?string $ueln, ?string $name): ?int {
+        $cleanUeln = trim($ueln ?? '');
+        $cleanName = trim($name ?? '');
+
+        if (!empty($cleanUeln)) {
+            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL AND (ueln = ? OR foreign_ueln = ?) LIMIT 1");
+            $stmt->execute([$cleanUeln, $cleanUeln]);
+            $foundId = $stmt->fetchColumn();
+            if ($foundId) return (int)$foundId;
+        }
+
+        if (!empty($cleanName)) {
+            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL AND LOWER(name) = LOWER(?) LIMIT 1");
+            $stmt->execute([$cleanName]);
+            $foundId = $stmt->fetchColumn();
+            if ($foundId) return (int)$foundId;
+        }
+
+        return null;
     }
 
     public function impressum(): void {

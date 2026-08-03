@@ -1,0 +1,21 @@
+# Root .htaccess - Hengstverzeichnis Framework
+# Redirects public traffic to public/ and protects internal source files
+
+# 1. Disable Directory Indexing & Server Execution
+Options -Indexes -ExecCGI
+
+# 2. Block Direct Access to Sensitive Files and Configuration
+<FilesMatch "^\.|\.(json|lock|md|sql|log|sh|xml|yaml|yml|env|config)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Prevent direct access to internal framework directories
+    RewriteRule ^(src|config|database|vendor|scratch) - [F,L,NC]
+
+    # Redirect all public traffic to public/ directory
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>

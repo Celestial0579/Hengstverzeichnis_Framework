@@ -53,7 +53,8 @@ if (PHP_SAPI !== 'cli') {
         ini_set('session.cookie_samesite', 'Lax');
         ini_set('session.cookie_lifetime', 0); // In-memory session cookie (no persistent disk storage)
 
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
         if ($isHttps) {
             ini_set('session.cookie_secure', 1);
             // W3C Cookie Prefix: __Host- enforces Secure, Path=/, and no Domain attribute

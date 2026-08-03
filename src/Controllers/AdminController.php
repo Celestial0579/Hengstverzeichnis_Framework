@@ -328,8 +328,14 @@ class AdminController extends BaseController {
         $stmt->execute($params);
         $logs = $stmt->fetchAll();
 
+        // Fallback: If 30-day query yields 0 results and no explicit filter was supplied, show latest 500 logs
+        if (empty($logs) && empty($category) && empty($userFilter) && empty($search)) {
+            $stmt = $db->query("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 500");
+            $logs = $stmt->fetchAll();
+        }
+
         // Fetch distinct categories for filter dropdown
-        $stmt = $db->query("SELECT DISTINCT category FROM audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) ORDER BY category ASC");
+        $stmt = $db->query("SELECT DISTINCT category FROM audit_logs ORDER BY category ASC");
         $categories = $stmt->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_logs', [

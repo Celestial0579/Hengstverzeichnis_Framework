@@ -20,8 +20,15 @@ class SetupController extends BaseController {
             $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin'");
             $count = (int)$stmt->fetchColumn();
             return $count === 0;
-        } catch (\Exception $e) {
-            return true;
+        } catch (\PDOException $e) {
+            // Table 'users' does not exist yet -> needs setup
+            if ($e->getCode() === '42S02' || strpos($e->getMessage(), '42S02') !== false || strpos($e->getMessage(), "doesn't exist") !== false) {
+                return true;
+            }
+            // Connection error when db_config.php exists -> do NOT redirect to setup loop
+            return false;
+        } catch (\Throwable $e) {
+            return false;
         }
     }
 

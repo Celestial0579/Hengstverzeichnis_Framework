@@ -83,7 +83,7 @@ class HorseController extends BaseController {
         $this->saveHorsePersons($db, $newHorseId, $_POST['persons'] ?? []);
 
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
-        $this->autoLinkMatches($newHorseId, $name, $ueln);
+        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln);
 
         header("Location: /admin/horses?success=created");
         exit;
@@ -115,7 +115,7 @@ class HorseController extends BaseController {
         $stmt = $db->query("SELECT id, name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC");
         $allBreedingStations = $stmt->fetchAll();
 
-        $stmt = $db->prepare("SELECT hp.*, p.name FROM horse_persons hp JOIN persons p ON hp.person_id = p.id WHERE hp.horse_id = ? ORDER BY hp.id ASC");
+        $stmt = $db->prepare("SELECT hp.*, p.name, bs.name AS station_name FROM horse_persons hp LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id WHERE hp.horse_id = ? ORDER BY hp.id ASC");
         $stmt->execute([$id]);
         $horsePersons = $stmt->fetchAll();
 
@@ -197,7 +197,7 @@ class HorseController extends BaseController {
         $this->saveHorsePersons($db, (int)$id, $_POST['persons'] ?? []);
 
         // Run auto-linking for matches
-        $this->autoLinkMatches((int)$id, $name, $ueln);
+        $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln);
 
         header("Location: /admin/horses?success=updated");
         exit;
@@ -242,29 +242,47 @@ class HorseController extends BaseController {
     }
 
     /**
-     * Auto-links unlinked placeholders matching $ueln or $name to $horseId
+     * Auto-links unlinked placeholders matching $ueln, $foreignUeln or $name to $horseId
      */
-    private function autoLinkMatches(int $horseId, string $name, string $ueln): void {
+    private function autoLinkMatches(int $horseId, string $name, string $ueln, string $foreignUeln = ''): void {
         $db = Database::getInstance();
 
-        if (!empty($ueln)) {
-            // Auto-link Sires matching UELN
-            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ?");
-            $stmt->execute([$horseId, $ueln]);
+        $uelnsToMatch = array_unique(array_filter([trim($ueln), trim($foreignUeln)]));
 
-            // Auto-link Dams matching UELN
+        foreach ($uelnsToMatch as $u) {
+            // Auto-link Sires matching UELN or Foreign UELN
+            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ?");
+            $stmt->execute([$horseId, $u]);
+            $countSires = $stmt->rowCount();
+            if ($countSires > 0) {
+                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countSires} Nachkommen automatisch mit Vater ID {$horseId} (UELN: {$u}) verknüpft");
+            }
+
+            // Auto-link Dams matching UELN or Foreign UELN
             $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND dam_ueln = ?");
-            $stmt->execute([$horseId, $ueln]);
+            $stmt->execute([$horseId, $u]);
+            $countDams = $stmt->rowCount();
+            if ($countDams > 0) {
+                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countDams} Nachkommen automatisch mit Mutter ID {$horseId} (UELN: {$u}) verknüpft");
+            }
         }
 
         if (!empty($name)) {
             // Auto-link Sires matching exact Name (where sire_ueln is empty)
             $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?)");
             $stmt->execute([$horseId, $name]);
+            $countNameSires = $stmt->rowCount();
+            if ($countNameSires > 0) {
+                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameSires} Nachkommen anhand Name '{$name}' mit Vater ID {$horseId} verknüpft");
+            }
 
             // Auto-link Dams matching exact Name (where dam_ueln is empty)
             $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?)");
             $stmt->execute([$horseId, $name]);
+            $countNameDams = $stmt->rowCount();
+            if ($countNameDams > 0) {
+                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameDams} Nachkommen anhand Name '{$name}' mit Mutter ID {$horseId} verknüpft");
+            }
         }
     }
 
@@ -444,12 +462,29 @@ class HorseController extends BaseController {
 
         if ($childId && $parentHorseId && in_array($parentType, ['sire', 'dam'])) {
             $db = Database::getInstance();
+
+            // Fetch names for audit log
+            $stmt = $db->prepare("SELECT name FROM horses WHERE id = ?");
+            $stmt->execute([$childId]);
+            $childName = $stmt->fetchColumn() ?: "Pferd #{$childId}";
+
+            $stmt->execute([$parentHorseId]);
+            $parentName = $stmt->fetchColumn() ?: "Pferd #{$parentHorseId}";
+
+            $roleLabel = ($parentType === 'sire') ? 'Vater (Hengst)' : 'Mutter (Stute)';
+
             if ($parentType === 'sire') {
                 $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE id = ?");
             } else {
                 $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE id = ?");
             }
             $stmt->execute([$parentHorseId, $childId]);
+
+            \App\Service\AuditLogger::log(
+                "Abstammung zusammengeführt",
+                "horses",
+                "Kind '{$childName}' (ID {$childId}) mit {$roleLabel} '{$parentName}' (ID {$parentHorseId}) verknüpft"
+            );
         }
 
         header("Location: /admin/matches?success=linked");
@@ -464,8 +499,16 @@ class HorseController extends BaseController {
         $id = $_POST['id'] ?? null;
         if ($id) {
             $db = Database::getInstance();
+
+            // Fetch name for audit log
+            $stmt = $db->prepare("SELECT name FROM horses WHERE id = ?");
+            $stmt->execute([$id]);
+            $horseName = $stmt->fetchColumn() ?: 'Unbekannt';
+
             $stmt = $db->prepare("UPDATE horses SET deleted_at = NOW() WHERE id = ?");
             $stmt->execute([$id]);
+
+            \App\Service\AuditLogger::log("Pferd in Papierkorb verschoben", "horses", "Pferd ID {$id}: {$horseName}");
         }
 
         header("Location: /admin/horses?success=deleted");
@@ -480,13 +523,19 @@ class HorseController extends BaseController {
         $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
         $stmt->execute([$horseId]);
 
-        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, from_year, until_year) VALUES (?, ?, ?, ?, ?)");
+        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?)");
 
         $validRoles = ['breeder', 'owner', 'keeper'];
+
+        $currentStationId = null;
+        $currentStationText = null;
+        $highestScore = -1;
 
         foreach ($personsData as $item) {
             $personId = !empty($item['person_id']) ? (int)$item['person_id'] : null;
             $role = $item['role'] ?? 'owner';
+            $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
+            $stationText = trim($item['breeding_station_text'] ?? '');
             
             // Breeders do not have a time period!
             if ($role === 'breeder') {
@@ -497,9 +546,38 @@ class HorseController extends BaseController {
                 $untilYear = !empty($item['until_year']) ? (int)$item['until_year'] : null;
             }
 
-            if ($personId && in_array($role, $validRoles, true)) {
-                $insertStmt->execute([$horseId, $personId, $role, $fromYear, $untilYear]);
+            // Calculate score to identify the current/latest active breeding station
+            if ($stationId || $stationText) {
+                // If until_year IS NULL, the entry is currently active -> boost score with 99999 + from_year
+                $calcFrom = $fromYear ?: 0;
+                $score = ($untilYear === null && $role !== 'breeder') ? (99999 + $calcFrom) : ($untilYear ?: $calcFrom);
+
+                if ($score >= $highestScore) {
+                    $highestScore = $score;
+                    if ($stationId) {
+                        $currentStationId = $stationId;
+                        $stStmt = $db->prepare("SELECT name FROM breeding_stations WHERE id = ?");
+                        $stStmt->execute([$stationId]);
+                        $currentStationText = $stStmt->fetchColumn() ?: null;
+                    } else {
+                        $currentStationId = null;
+                        $currentStationText = $stationText;
+                    }
+                }
+            }
+
+            // Validation: Row must have a valid Role/Type AND at least one of Person OR Breeding Station (2 of the fields)
+            $hasPerson = !empty($personId);
+            $hasStation = !empty($stationId) || !empty($stationText);
+            $hasValidRole = in_array($role, $validRoles, true);
+
+            if ($hasValidRole && ($hasPerson || $hasStation)) {
+                $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $fromYear, $untilYear]);
             }
         }
+
+        // Automatically sync current/latest active breeding station onto the horse's main record
+        $syncStmt = $db->prepare("UPDATE horses SET breeding_station_id = ?, breeding_station = ? WHERE id = ?");
+        $syncStmt->execute([$currentStationId, $currentStationText, $horseId]);
     }
 }

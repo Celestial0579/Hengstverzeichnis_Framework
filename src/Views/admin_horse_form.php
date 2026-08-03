@@ -128,78 +128,94 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
             </div>
         </div>
 
-        <div class="form-group" style="background: #fafafa; padding: 1rem; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 1.5rem;">
-            <label for="breeding_station_id" style="font-weight: bold; color: var(--primary-color);">🏠 Deckstation / Gestüt</label>
-            <select id="breeding_station_id" name="breeding_station_id" class="form-control" style="margin-bottom: 0.5rem;">
-                <option value="">-- Zentrale Deckstation wählen (oder Freitext nutzen) --</option>
-                <?php if (!empty($allBreedingStations)): ?>
-                    <?php foreach ($allBreedingStations as $bs): ?>
-                        <option value="<?= $bs['id'] ?>" <?= ($horse['breeding_station_id'] ?? '') == $bs['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($bs['name']) ?>
-                        </option>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </select>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-                <input type="text" id="breeding_station" name="breeding_station" class="form-control" value="<?= htmlspecialchars($horse['breeding_station'] ?? '') ?>" placeholder="Oder Freitext / Abweichende Bezeichnung">
-                <a href="/admin/breeding-stations/create" target="_blank" style="font-size: 0.85rem; color: var(--primary-color); white-space: nowrap;">+ Deckstation anlegen (neues Tab)</a>
-            </div>
-            <small style="color: #666; margin-top: 0.3rem; display: block;">Wählen Sie eine im System gepflegte Deckstation aus oder geben Sie eine freie Bezeichnung ein.</small>
-        </div>
-
-        <!-- Personen & Besitzerverlauf -->
+        <!-- Personen, Besitzer & Deckstationenverlauf -->
         <div class="form-group" style="background: #fdfdfd; padding: 1.2rem; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 1.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-                <label style="font-weight: bold; color: var(--primary-color); margin-bottom: 0;">👤 Züchter & Besitzerverlauf</label>
-                <a href="/admin/persons/create" target="_blank" style="font-size: 0.85rem; color: var(--primary-color);">+ Neue Person anlegen (neues Tab)</a>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
+                <label style="font-weight: bold; color: var(--primary-color); margin-bottom: 0;">👤 Züchter-, Besitzer- & Deckstationenverlauf</label>
+                <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
+                    <a href="/admin/persons/create" target="_blank" style="color: var(--primary-color);">+ Neue Person anlegen</a>
+                    <a href="/admin/breeding-stations/create" target="_blank" style="color: var(--primary-color);">+ Neue Deckstation anlegen</a>
+                </div>
             </div>
             
             <div id="persons_container" style="display: flex; flex-direction: column; gap: 0.8rem;">
                 <?php if (empty($horsePersons)): ?>
                     <!-- Initial empty row if none -->
-                    <div class="person-row" style="display: flex; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.6rem; border-radius: 6px; border: 1px solid #eee;">
-                        <select name="persons[0][person_id]" class="form-control" style="flex: 2;">
-                            <option value="">-- Person auswählen --</option>
-                            <?php foreach ($allPersons as $p): ?>
-                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <select name="persons[0][role]" class="form-control" style="flex: 2;" onchange="toggleYears(this)">
-                            <option value="breeder">Züchter</option>
-                            <option value="owner" selected>Besitzer</option>
-                            <option value="keeper">Halter / Deckstation</option>
-                        </select>
-                        <div class="year-inputs" style="display: flex; gap: 0.5rem; flex: 2;">
+                    <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;">
+                        <div style="flex: 2; min-width: 180px;">
+                            <select name="persons[0][person_id]" class="form-control">
+                                <option value="">-- Person (Züchter/Besitzer) --</option>
+                                <?php foreach ($allPersons as $p): ?>
+                                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div style="flex: 1.5; min-width: 140px;">
+                            <select name="persons[0][role]" class="form-control" onchange="toggleYears(this)">
+                                <option value="breeder">Züchter</option>
+                                <option value="owner" selected>Besitzer</option>
+                                <option value="keeper">Halter / Deckstation</option>
+                            </select>
+                        </div>
+
+                        <div style="flex: 2; min-width: 180px;">
+                            <select name="persons[0][breeding_station_id]" class="form-control">
+                                <option value="">-- Deckstation / Gestüt (Optional) --</option>
+                                <?php foreach ($allBreedingStations as $bs): ?>
+                                    <option value="<?= $bs['id'] ?>"><?= htmlspecialchars($bs['name']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="year-inputs" style="display: flex; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                             <input type="number" name="persons[0][from_year]" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                             <input type="number" name="persons[0][until_year]" placeholder="Bis (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                         </div>
-                        <button type="button" class="btn" style="background: #dc3545; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
+
+                        <button type="button" class="btn" style="background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
                     </div>
                 <?php else: ?>
                     <?php foreach ($horsePersons as $idx => $hp): ?>
-                        <div class="person-row" style="display: flex; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.6rem; border-radius: 6px; border: 1px solid #eee;">
-                            <select name="persons[<?= $idx ?>][person_id]" class="form-control" style="flex: 2;">
-                                <option value="">-- Person auswählen --</option>
-                                <?php foreach ($allPersons as $p): ?>
-                                    <option value="<?= $p['id'] ?>" <?= $hp['person_id'] == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <select name="persons[<?= $idx ?>][role]" class="form-control" style="flex: 2;" onchange="toggleYears(this)">
-                                <option value="breeder" <?= $hp['role'] === 'breeder' ? 'selected' : '' ?>>Züchter</option>
-                                <option value="owner" <?= $hp['role'] === 'owner' ? 'selected' : '' ?>>Besitzer</option>
-                                <option value="keeper" <?= $hp['role'] === 'keeper' ? 'selected' : '' ?>>Halter / Deckstation</option>
-                            </select>
-                            <div class="year-inputs" style="display: <?= $hp['role'] === 'breeder' ? 'none' : 'flex' ?>; gap: 0.5rem; flex: 2;">
+                        <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;">
+                            <div style="flex: 2; min-width: 180px;">
+                                <select name="persons[<?= $idx ?>][person_id]" class="form-control">
+                                    <option value="">-- Person (Züchter/Besitzer) --</option>
+                                    <?php foreach ($allPersons as $p): ?>
+                                        <option value="<?= $p['id'] ?>" <?= $hp['person_id'] == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div style="flex: 1.5; min-width: 140px;">
+                                <select name="persons[<?= $idx ?>][role]" class="form-control" onchange="toggleYears(this)">
+                                    <option value="breeder" <?= $hp['role'] === 'breeder' ? 'selected' : '' ?>>Züchter</option>
+                                    <option value="owner" <?= $hp['role'] === 'owner' ? 'selected' : '' ?>>Besitzer</option>
+                                    <option value="keeper" <?= $hp['role'] === 'keeper' ? 'selected' : '' ?>>Halter / Deckstation</option>
+                                </select>
+                            </div>
+
+                            <div style="flex: 2; min-width: 180px;">
+                                <select name="persons[<?= $idx ?>][breeding_station_id]" class="form-control">
+                                    <option value="">-- Deckstation / Gestüt (Optional) --</option>
+                                    <?php foreach ($allBreedingStations as $bs): ?>
+                                        <option value="<?= $bs['id'] ?>" <?= ($hp['breeding_station_id'] ?? '') == $bs['id'] ? 'selected' : '' ?>><?= htmlspecialchars($bs['name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+
+                            <div class="year-inputs" style="display: <?= $hp['role'] === 'breeder' ? 'none' : 'flex' ?>; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                                 <input type="number" name="persons[<?= $idx ?>][from_year]" value="<?= htmlspecialchars((string)($hp['from_year'] ?? '')) ?>" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                                 <input type="number" name="persons[<?= $idx ?>][until_year]" value="<?= htmlspecialchars((string)($hp['until_year'] ?? '')) ?>" placeholder="Bis (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                             </div>
-                            <button type="button" class="btn" style="background: #dc3545; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
+
+                            <button type="button" class="btn" style="background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
                         </div>
                     <?php endforeach; ?>
                 <?php endif; ?>
             </div>
 
-            <button type="button" class="btn btn-secondary" style="margin-top: 0.8rem; font-size: 0.9rem;" onclick="addPersonRow();">+ Person / Besitzer hinzufügen</button>
+            <button type="button" class="btn btn-secondary" style="margin-top: 0.8rem; font-size: 0.9rem;" onclick="addPersonRow();">+ Verlaufseintrag hinzufügen</button>
         </div>
 
         <script>
@@ -219,24 +235,36 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
             const container = document.getElementById('persons_container');
             const div = document.createElement('div');
             div.className = 'person-row';
-            div.style = 'display: flex; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.6rem; border-radius: 6px; border: 1px solid #eee;';
+            div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;';
             div.innerHTML = `
-                <select name="persons[${personRowIndex}][person_id]" class="form-control" style="flex: 2;">
-                    <option value="">-- Person auswählen --</option>
-                    <?php foreach ($allPersons as $p): ?>
-                        <option value="<?= $p['id'] ?>"><?= htmlspecialchars(addslashes($p['name'])) ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <select name="persons[${personRowIndex}][role]" class="form-control" style="flex: 2;" onchange="toggleYears(this)">
-                    <option value="breeder">Züchter</option>
-                    <option value="owner" selected>Besitzer</option>
-                    <option value="keeper">Halter / Deckstation</option>
-                </select>
-                <div class="year-inputs" style="display: flex; gap: 0.5rem; flex: 2;">
+                <div style="flex: 2; min-width: 180px;">
+                    <select name="persons[${personRowIndex}][person_id]" class="form-control">
+                        <option value="">-- Person (Züchter/Besitzer) --</option>
+                        <?php foreach ($allPersons as $p): ?>
+                            <option value="<?= $p['id'] ?>"><?= htmlspecialchars(addslashes($p['name'])) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div style="flex: 1.5; min-width: 140px;">
+                    <select name="persons[${personRowIndex}][role]" class="form-control" onchange="toggleYears(this)">
+                        <option value="breeder">Züchter</option>
+                        <option value="owner" selected>Besitzer</option>
+                        <option value="keeper">Halter / Deckstation</option>
+                    </select>
+                </div>
+                <div style="flex: 2; min-width: 180px;">
+                    <select name="persons[${personRowIndex}][breeding_station_id]" class="form-control">
+                        <option value="">-- Deckstation / Gestüt (Optional) --</option>
+                        <?php foreach ($allBreedingStations as $bs): ?>
+                            <option value="<?= $bs['id'] ?>"><?= htmlspecialchars(addslashes($bs['name'])) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="year-inputs" style="display: flex; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                     <input type="number" name="persons[${personRowIndex}][from_year]" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                     <input type="number" name="persons[${personRowIndex}][until_year]" placeholder="Bis (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                 </div>
-                <button type="button" class="btn" style="background: #dc3545; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
+                <button type="button" class="btn" style="background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
             `;
             container.appendChild(div);
             personRowIndex++;

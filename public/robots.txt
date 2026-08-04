@@ -5,7 +5,7 @@ User-agent: *
 Allow: /
 Allow: /katalog
 Allow: /hengst
-Allow: /station/
+Allow: /station
 Disallow: /admin/
 Disallow: /login
 Disallow: /setup

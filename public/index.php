@@ -44,6 +44,7 @@ if ($parsedPath !== '/setup' && SetupController::needsSetup()) {
 $router->get('/', [App\Controllers\PublicController::class, 'index']);
 $router->get('/katalog', [App\Controllers\PublicController::class, 'catalog']);
 $router->get('/hengst', [App\Controllers\PublicController::class, 'horseDetail']); // Requires ?id=
+$router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
 
 // Compliance Routes
 $router->get('/impressum', [App\Controllers\PublicController::class, 'impressum']);

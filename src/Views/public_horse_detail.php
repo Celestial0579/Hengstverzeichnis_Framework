@@ -79,7 +79,13 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                     <tr style="border-bottom: 1px solid #eee;">
                         <th style="text-align: left; padding: 0.6rem 0; color: #666; vertical-align: top;">Deckstation / Gestüt</th>
                         <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);">
-                            <strong><?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?></strong>
+                            <strong>
+                                <?php if (!empty($horse['station_name']) && !empty($horse['breeding_station_id'])): ?>
+                                    <a href="/station?id=<?= $horse['breeding_station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
+                                <?php else: ?>
+                                    <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?>
+                                <?php endif; ?>
+                            </strong>
                             <?php if (!empty($horse['breeding_station']) && !empty($horse['station_name']) && $horse['breeding_station'] !== $horse['station_name']): ?>
                                 <br><small style="color: #666; font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
                             <?php endif; ?>
@@ -135,7 +141,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                                         <?php else: ?>
                                             <strong>
                                                 <?php if (!empty($hp['station_id'])): ?>
-                                                    <a href="/station/<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
+                                                    <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
                                                         🏠 <?= htmlspecialchars($stationDisplayName) ?>
                                                     </a>
                                                 <?php else: ?>
@@ -153,7 +159,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                                     <div style="font-size: 0.85rem; color: var(--primary-color); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
                                         <span>🏠 Deckstation / Gestüt:</span>
                                         <?php if (!empty($hp['station_id'])): ?>
-                                            <a href="/station/<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
+                                            <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
                                                 <?= htmlspecialchars($stationDisplayName) ?>
                                             </a>
                                         <?php else: ?>

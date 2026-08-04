@@ -95,6 +95,42 @@ abstract class BaseController {
             exit;
         }
 
+        // 0. Live-Abgleich mit der Datenbank: Ohne diesen Check bleibt einem Benutzer,
+        // dessen Account gelöscht/deaktiviert oder dessen Rolle geändert wurde, der
+        // volle Zugriff über seine bestehende Session erhalten - potenziell zeitlich
+        // unbegrenzt, da last_activity bei jedem Request erneuert wird (siehe unten,
+        // Punkt 2) und die Rolle sonst nur beim nächsten Login neu geladen würde.
+        // Fail-open bei DB-Fehlern (Ausfallsicherheit, wie auch bei RateLimiter).
+        try {
+            $db = Database::getInstance();
+            $stmt = $db->prepare("SELECT role, deleted_at FROM users WHERE id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $currentUser = $stmt->fetch();
+
+            if (!$currentUser || $currentUser['deleted_at'] !== null) {
+                \App\Service\AuditLogger::log(
+                    "Session beendet: Benutzerkonto gelöscht oder deaktiviert",
+                    "auth",
+                    "User ID " . $_SESSION['user_id']
+                );
+
+                $_SESSION = [];
+                if (ini_get("session.use_cookies")) {
+                    $params = session_get_cookie_params();
+                    setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
+                }
+                session_destroy();
+                header("Location: /login?error=account_disabled");
+                exit;
+            }
+
+            if (($_SESSION['role'] ?? null) !== $currentUser['role']) {
+                $_SESSION['role'] = $currentUser['role'];
+            }
+        } catch (\Throwable $e) {
+            // DB-Fehler dürfen bereits eingeloggte Nutzer nicht aussperren
+        }
+
         // 1. Anti-Infostealer & Session-Hijacking Schutz: User-Agent Fingerprint Validierung
         $currentAgentHash = hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? '');
         if (isset($_SESSION['user_agent_hash']) && !hash_equals($_SESSION['user_agent_hash'], $currentAgentHash)) {

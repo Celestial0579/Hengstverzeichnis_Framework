@@ -42,7 +42,22 @@ Neuen `APP_KEY` generieren:
 php -r "echo bin2hex(random_bytes(32)) . PHP_EOL;"
 ```
 
-Beispiel `.env` für Docker:
+#### Ersteinrichtung ganz ohne Wizard (optional)
+
+Zusätzlich zu den DB-Variablen können folgende optionale Variablen gesetzt werden, um auch den ersten Admin-Account automatisch anzulegen:
+
+| Variable | Pflicht | Beschreibung |
+|---|:---:|---|
+| `SITE_NAME` | – | Name des Verbands / der Seite |
+| `ADMIN_USERNAME` | – | Benutzername des ersten Admin-Accounts |
+| `ADMIN_EMAIL` | – | E-Mail-Adresse des ersten Admin-Accounts |
+| `ADMIN_PASSWORD` | – | Passwort des ersten Admin-Accounts (mind. 8 Zeichen) |
+
+Sind **alle vier** zusätzlich zur Datenbankverbindung gesetzt, wird der Setup-Wizard komplett übersprungen: Schema wird automatisch importiert, der Admin-Account angelegt, direkte Weiterleitung zu `/login`. Die 2FA-Pflicht bleibt bestehen — sie wird beim ersten Login des Admin-Accounts normal eingerichtet (Klarnamen/Passwort funktionieren erst danach vollständig).
+
+Ist nur ein Teil dieser Variablen gesetzt (z. B. `SITE_NAME`, aber keine `ADMIN_*`-Variablen), zeigt der Wizard nur noch die Abschnitte an, die noch nicht über Env-Variablen feststehen — so kann z. B. nur noch der erste Admin-Account manuell angelegt werden, ohne versehentlich bereits korrekte DB-/Verbandseinstellungen zu überschreiben.
+
+Beispiel `.env` für Docker (mit vollautomatischer Ersteinrichtung):
 ```env
 DB_HOST=db
 DB_PORT=3306
@@ -51,6 +66,11 @@ DB_USER=hengst_user
 DB_PASS=change-me
 APP_KEY=<generierter 64-stelliger Hex-Wert>
 APP_ENV=production
+
+SITE_NAME=Mein Verband
+ADMIN_USERNAME=admin
+ADMIN_EMAIL=admin@example.org
+ADMIN_PASSWORD=change-me-too
 ```
 
 ### Variante B: Ohne Umgebungsvariablen (Setup-Wizard, klassisches Webhosting)

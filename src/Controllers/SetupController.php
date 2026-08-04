@@ -11,7 +11,7 @@ class SetupController extends BaseController {
 
     public static function needsSetup(): bool {
         $dbConfigFile = __DIR__ . '/../../config/db_config.php';
-        $hasEnvConfig = getenv('DB_HOST') !== false || getenv('DB_USER') !== false || getenv('DB_PASS') !== false;
+        $hasEnvConfig = self::isDbConfiguredViaEnv();
         if (!file_exists($dbConfigFile) && !$hasEnvConfig) {
             return true;
         }
@@ -33,14 +33,94 @@ class SetupController extends BaseController {
         }
     }
 
+    private static function isDbConfiguredViaEnv(): bool {
+        return getenv('DB_HOST') !== false || getenv('DB_USER') !== false || getenv('DB_PASS') !== false;
+    }
+
+    /**
+     * @return array{username: string, email: string, password: string}|null
+     */
+    private static function envAdminCredentials(): ?array {
+        $username = getenv('ADMIN_USERNAME');
+        $email = getenv('ADMIN_EMAIL');
+        $password = getenv('ADMIN_PASSWORD');
+        if ($username === false || $email === false || $password === false) {
+            return null;
+        }
+
+        $username = trim($username);
+        $email = trim($email);
+        if ($username === '' || $email === '' || strlen($password) < 8) {
+            return null;
+        }
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return null;
+        }
+
+        return ['username' => $username, 'email' => $email, 'password' => $password];
+    }
+
+    private static function envSiteName(): ?string {
+        $siteName = getenv('SITE_NAME');
+        if ($siteName === false) {
+            return null;
+        }
+        $siteName = trim($siteName);
+        return $siteName !== '' ? $siteName : null;
+    }
+
     public function showSetup(): void {
         if (!self::needsSetup()) {
             header("Location: /login");
             exit;
         }
 
+        $dbFromEnv = self::isDbConfiguredViaEnv();
+        $siteFromEnv = self::envSiteName();
+        $adminFromEnv = self::envAdminCredentials();
+        if ($adminFromEnv !== null && $this->isReservedUsername($adminFromEnv['username'])) {
+            $adminFromEnv = null;
+        }
+
+        // Vollautomatische Ersteinrichtung: alle nötigen Werte kamen per Umgebungsvariable,
+        // der Wizard wird komplett übersprungen.
+        if ($dbFromEnv && $siteFromEnv !== null && $adminFromEnv !== null) {
+            if (empty(getenv('APP_KEY'))) {
+                $this->render('setup', [
+                    'title' => 'Einrichtung - Hengstverzeichnis Framework',
+                    'errors' => ['Automatische Ersteinrichtung übersprungen: APP_KEY ist nicht gesetzt. Bitte APP_KEY als Umgebungsvariable definieren und die Seite neu laden.'],
+                    'hideDb' => $dbFromEnv,
+                    'hideSite' => true,
+                ]);
+                return;
+            }
+
+            $this->provision(
+                getenv('DB_HOST') ?: '127.0.0.1',
+                getenv('DB_PORT') ?: '3306',
+                getenv('DB_NAME') ?: 'hengstverzeichnis',
+                getenv('DB_USER') ?: '',
+                getenv('DB_PASS') ?: '',
+                in_array(getenv('DB_SSL'), ['true', '1'], true),
+                in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true),
+                getenv('DB_SSL_CA') ?: '',
+                $siteFromEnv,
+                $adminFromEnv['username'],
+                $adminFromEnv['email'],
+                $adminFromEnv['password'],
+                false,
+                false,
+                ['hideDb' => $dbFromEnv, 'hideSite' => true]
+            );
+            return;
+        }
+
+        // Reduzierter Wizard: Abschnitte, die bereits per Env-Variable feststehen, werden
+        // ausgeblendet, damit nicht versehentlich bereits konfigurierte Werte überschrieben werden.
         $this->render('setup', [
-            'title' => 'Einrichtung - Hengstverzeichnis Framework'
+            'title' => 'Einrichtung - Hengstverzeichnis Framework',
+            'hideDb' => $dbFromEnv,
+            'hideSite' => $siteFromEnv !== null,
         ]);
     }
 
@@ -54,20 +134,23 @@ class SetupController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        // DB Fields
-        $dbHost = trim($_POST['db_host'] ?? '127.0.0.1');
-        $dbPort = trim($_POST['db_port'] ?? '3306');
-        $dbName = trim($_POST['db_name'] ?? 'hengstverzeichnis');
-        $dbUser = trim($_POST['db_user'] ?? 'root');
-        $dbPass = $_POST['db_pass'] ?? '';
+        $dbFromEnv = self::isDbConfiguredViaEnv();
+        $siteFromEnv = self::envSiteName();
+
+        // DB Fields (Umgebungsvariablen haben Vorrang, falls der DB-Abschnitt ausgeblendet war)
+        $dbHost = getenv('DB_HOST') ?: trim($_POST['db_host'] ?? '127.0.0.1');
+        $dbPort = getenv('DB_PORT') ?: trim($_POST['db_port'] ?? '3306');
+        $dbName = getenv('DB_NAME') ?: trim($_POST['db_name'] ?? 'hengstverzeichnis');
+        $dbUser = getenv('DB_USER') ?: trim($_POST['db_user'] ?? 'root');
+        $dbPass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : ($_POST['db_pass'] ?? '');
 
         // DB SSL/TLS Fields
-        $dbSsl = !empty($_POST['db_ssl']);
-        $dbSslVerify = !empty($_POST['db_ssl_verify']);
-        $dbSslCa = trim($_POST['db_ssl_ca'] ?? '');
+        $dbSsl = getenv('DB_SSL') !== false ? in_array(getenv('DB_SSL'), ['true', '1'], true) : !empty($_POST['db_ssl']);
+        $dbSslVerify = getenv('DB_SSL_VERIFY') !== false ? in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true) : !empty($_POST['db_ssl_verify']);
+        $dbSslCa = getenv('DB_SSL_CA') !== false ? getenv('DB_SSL_CA') : trim($_POST['db_ssl_ca'] ?? '');
 
         // App Fields
-        $siteName = trim($_POST['site_name'] ?? '');
+        $siteName = $siteFromEnv ?? trim($_POST['site_name'] ?? '');
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -75,29 +158,60 @@ class SetupController extends BaseController {
 
         $errors = [];
 
-        if (empty($dbHost)) $errors[] = "Bitte geben Sie den Datenbank-Server (Host) ein.";
-        if (empty($dbPort)) $errors[] = "Bitte geben Sie den Datenbank-Port ein.";
-        if (empty($dbName)) $errors[] = "Bitte geben Sie den Datenbank-Namen ein.";
-        if (empty($dbUser)) $errors[] = "Bitte geben Sie den Datenbank-Benutzer ein.";
+        if (!$dbFromEnv) {
+            if (empty($dbHost)) $errors[] = "Bitte geben Sie den Datenbank-Server (Host) ein.";
+            if (empty($dbPort)) $errors[] = "Bitte geben Sie den Datenbank-Port ein.";
+            if (empty($dbName)) $errors[] = "Bitte geben Sie den Datenbank-Namen ein.";
+            if (empty($dbUser)) $errors[] = "Bitte geben Sie den Datenbank-Benutzer ein.";
+        }
 
-        if (empty($siteName)) $errors[] = "Bitte geben Sie einen Namen für den Verband / die Seite ein.";
+        if ($siteFromEnv === null && empty($siteName)) $errors[] = "Bitte geben Sie einen Namen für den Verband / die Seite ein.";
         if (empty($username)) $errors[] = "Bitte geben Sie einen Benutzernamen ein.";
         if ($this->isReservedUsername($username)) $errors[] = "Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht verwendet werden.";
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = "Bitte geben Sie eine gültige E-Mail-Adresse ein.";
         if (strlen($password) < 8) $errors[] = "Das Passwort muss mindestens 8 Zeichen lang sein.";
         if ($password !== $passwordConfirm) $errors[] = "Die Passwörter stimmen nicht überein.";
 
+        $renderExtra = ['hideDb' => $dbFromEnv, 'hideSite' => $siteFromEnv !== null];
+
         if (!empty($errors)) {
-            $this->render('setup', [
+            $this->render('setup', array_merge([
                 'title' => 'Einrichtung - Hengstverzeichnis Framework',
                 'errors' => $errors,
-                'old' => $_POST
-            ]);
+                'old' => $_POST,
+            ], $renderExtra));
             return;
         }
 
         $overwriteDb = !empty($_POST['overwrite_db']);
 
+        $this->provision(
+            $dbHost, $dbPort, $dbName, $dbUser, $dbPass,
+            $dbSsl, $dbSslVerify, $dbSslCa,
+            $siteName, $username, $email, $password,
+            $overwriteDb,
+            !$dbFromEnv,
+            array_merge(['old' => $_POST], $renderExtra)
+        );
+    }
+
+    /**
+     * Führt die eigentliche Ersteinrichtung durch: DB anlegen, Schema importieren,
+     * Admin-Konto erstellen. Wird sowohl vom klassischen Formular (processSetup)
+     * als auch von der vollautomatischen Env-Var-Ersteinrichtung (showSetup) genutzt.
+     *
+     * @param bool $writeDbConfigFile Nur wahr, wenn die DB-Zugangsdaten NICHT bereits per
+     *   Umgebungsvariable vorliegen - sonst würde eine überflüssige config/db_config.php
+     *   entstehen, obwohl die App bereits rein über Env-Variablen lauffähig ist.
+     * @param array $errorRenderExtra Zusätzliche View-Variablen (alte Eingaben, hideDb/hideSite),
+     *   die bei einem Fehler zusammen mit der Fehlermeldung erneut gerendert werden.
+     */
+    private function provision(
+        string $dbHost, string $dbPort, string $dbName, string $dbUser, string $dbPass,
+        bool $dbSsl, bool $dbSslVerify, string $dbSslCa,
+        string $siteName, string $username, string $email, string $password,
+        bool $overwriteDb, bool $writeDbConfigFile, array $errorRenderExtra = []
+    ): void {
         // Build PDO Options including SSL if enabled
         $pdoOptions = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -129,35 +243,35 @@ class SetupController extends BaseController {
             $testPdo->exec("USE `$dbName`");
 
         } catch (PDOException $e) {
-            $this->render('setup', [
+            $this->render('setup', array_merge([
                 'title' => 'Einrichtung - Hengstverzeichnis Framework',
                 'errors' => ['Datenbank-Verbindung fehlgeschlagen: ' . $e->getMessage()],
-                'old' => $_POST
-            ]);
+            ], $errorRenderExtra));
             return;
         }
 
-        // Save DB Config File
-        $dbConfigFile = __DIR__ . '/../../config/db_config.php';
-        $configContent = "<?php\n// Auto-generated database configuration\nreturn " . var_export([
-            'host' => $dbHost,
-            'port' => $dbPort,
-            'name' => $dbName,
-            'user' => $dbUser,
-            'pass' => $dbPass,
-            'ssl'  => $dbSsl,
-            'ssl_verify' => $dbSslVerify,
-            'ssl_ca' => $dbSslCa,
-            'app_key' => bin2hex(random_bytes(32)),
-        ], true) . ";\n";
+        if ($writeDbConfigFile) {
+            // Save DB Config File
+            $dbConfigFile = __DIR__ . '/../../config/db_config.php';
+            $configContent = "<?php\n// Auto-generated database configuration\nreturn " . var_export([
+                'host' => $dbHost,
+                'port' => $dbPort,
+                'name' => $dbName,
+                'user' => $dbUser,
+                'pass' => $dbPass,
+                'ssl'  => $dbSsl,
+                'ssl_verify' => $dbSslVerify,
+                'ssl_ca' => $dbSslCa,
+                'app_key' => bin2hex(random_bytes(32)),
+            ], true) . ";\n";
 
-        if (file_put_contents($dbConfigFile, $configContent) === false) {
-            $this->render('setup', [
-                'title' => 'Einrichtung - Hengstverzeichnis Framework',
-                'errors' => ['Konnte config/db_config.php nicht schreiben. Bitte Schreibrechte im ordner config/ prüfen.'],
-                'old' => $_POST
-            ]);
-            return;
+            if (file_put_contents($dbConfigFile, $configContent) === false) {
+                $this->render('setup', array_merge([
+                    'title' => 'Einrichtung - Hengstverzeichnis Framework',
+                    'errors' => ['Konnte config/db_config.php nicht schreiben. Bitte Schreibrechte im ordner config/ prüfen.'],
+                ], $errorRenderExtra));
+                return;
+            }
         }
 
         // Import SQL Schema automatically
@@ -190,11 +304,10 @@ class SetupController extends BaseController {
             exit;
 
         } catch (\Exception $e) {
-            $this->render('setup', [
+            $this->render('setup', array_merge([
                 'title' => 'Einrichtung - Hengstverzeichnis Framework',
                 'errors' => ['Einrichtungsfehler: ' . $e->getMessage()],
-                'old' => $_POST
-            ]);
+            ], $errorRenderExtra));
         }
     }
 }

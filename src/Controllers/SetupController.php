@@ -11,7 +11,8 @@ class SetupController extends BaseController {
 
     public static function needsSetup(): bool {
         $dbConfigFile = __DIR__ . '/../../config/db_config.php';
-        if (!file_exists($dbConfigFile)) {
+        $hasEnvConfig = getenv('DB_HOST') !== false || getenv('DB_USER') !== false || getenv('DB_PASS') !== false;
+        if (!file_exists($dbConfigFile) && !$hasEnvConfig) {
             return true;
         }
 

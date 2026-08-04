@@ -52,7 +52,7 @@
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
                         <td style="padding: 0.5rem;">
                             <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
-                                <?= htmlspecialchars((string)$horse['status']) ?>
+                                <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : ($horse['status'] === 'inactive' ? 'Inaktiv' : 'Verstorben') ?>
                             </span>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">

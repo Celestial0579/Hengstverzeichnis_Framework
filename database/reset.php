@@ -18,12 +18,12 @@ echo "===============================================\n";
 try {
     $db = Database::getInstance();
 
+    // Audit-Log bleibt über Resets hinweg erhalten (analog zu AdminController::resetSystem())
     $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
     $db->exec("TRUNCATE TABLE horse_persons;");
     $db->exec("TRUNCATE TABLE breeding_stations;");
     $db->exec("TRUNCATE TABLE password_resets;");
     $db->exec("TRUNCATE TABLE gdpr_requests;");
-    $db->exec("TRUNCATE TABLE audit_logs;");
     $db->exec("TRUNCATE TABLE horses;");
     $db->exec("TRUNCATE TABLE persons;");
     $db->exec("TRUNCATE TABLE users;");

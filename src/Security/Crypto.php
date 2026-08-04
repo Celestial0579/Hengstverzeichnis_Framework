@@ -66,10 +66,26 @@ class Crypto {
      * Generiert aus der Anwendungs-Geheimnis-Konstante (APP_KEY) einen exakt 256-Bit (32 Byte)
      * langen kryptographischen Schlüssel mittels SHA-256.
      *
+     * Bewusst FAIL-CLOSED: Ohne konfigurierten APP_KEY wird eine Exception geworfen statt
+     * still auf einen im (öffentlichen Open-Source-)Quellcode bekannten Fallback-Schlüssel
+     * auszuweichen - ein Fallback-Schlüssel wäre für jeden mit Lesezugriff auf die Datenbank
+     * trivial nutzbar, um damit verschlüsselte TOTP-Secrets (2FA-Bypass!) und das SMTP-Passwort
+     * zu entschlüsseln. Über die unterstützten Einrichtungswege (Setup-Wizard, Docker via
+     * .env.example/docker-start.sh) ist APP_KEY immer gesetzt; dieser Pfad greift also nur bei
+     * einer fehlerhaften manuellen Konfiguration - dann soll die Verschlüsselung laut fehlschlagen,
+     * nicht still unsicher weiterlaufen.
+     *
      * @return string 32-Byte Rohdaten-Schlüssel
+     * @throws \RuntimeException Falls APP_KEY nicht konfiguriert ist
      */
     private static function getKey(): string {
-        $key = (defined('APP_KEY') && !empty(APP_KEY)) ? APP_KEY : 'unconfigured-secret-app-key-fallback';
-        return hash('sha256', $key, true);
+        if (!defined('APP_KEY') || empty(APP_KEY)) {
+            throw new \RuntimeException(
+                "APP_KEY ist nicht konfiguriert. Verschlüsselung/Entschlüsselung kann nicht sicher " .
+                "durchgeführt werden. Bitte APP_KEY als Umgebungsvariable setzen oder über den " .
+                "Setup-Wizard einrichten (siehe README, Abschnitt 'Konfiguration')."
+            );
+        }
+        return hash('sha256', APP_KEY, true);
     }
 }

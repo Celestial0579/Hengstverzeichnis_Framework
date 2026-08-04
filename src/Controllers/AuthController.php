@@ -25,12 +25,22 @@ class AuthController extends BaseController {
         $email = $_POST['email'] ?? '';
         $password = $_POST['password'] ?? '';
 
+        if (\App\Security\RateLimiter::tooManyAttempts($email, 'login')) {
+            $this->render('login', [
+                'title' => 'Login Fehlgeschlagen',
+                'error' => 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuchen Sie es in 15 Minuten erneut.'
+            ]);
+            return;
+        }
+
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, password_hash, role, totp_enabled, totp_secret FROM users WHERE email = ?");
+        $stmt = $db->prepare("SELECT id, password_hash, role, totp_enabled, totp_secret FROM users WHERE email = ? AND deleted_at IS NULL");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
         if ($user && password_verify($password, $user['password_hash'])) {
+            \App\Security\RateLimiter::clearAttempts($email, 'login');
+
             $_SESSION['pending_2fa_user_id'] = $user['id'];
             $_SESSION['pending_2fa_role'] = $user['role'];
 
@@ -44,6 +54,8 @@ class AuthController extends BaseController {
                 exit;
             }
         }
+
+        \App\Security\RateLimiter::recordAttempt($email, 'login');
 
         $this->render('login', [
             'title' => 'Login Fehlgeschlagen',
@@ -150,6 +162,14 @@ class AuthController extends BaseController {
 
         $code = trim($_POST['totp_code'] ?? '');
 
+        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+            $this->render('2fa_verify', [
+                'title' => '2FA Bestätigung',
+                'error' => 'Zu viele fehlgeschlagene Versuche. Bitte versuchen Sie es in 15 Minuten erneut.'
+            ]);
+            return;
+        }
+
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT totp_secret FROM users WHERE id = ?");
         $stmt->execute([$userId]);
@@ -163,10 +183,13 @@ class AuthController extends BaseController {
             }
 
             if (Totp::verifyCode($decryptedSecret, $code)) {
+                \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
                 $role = $_SESSION['pending_2fa_role'] ?? 'editor';
                 $this->completeLogin($userId, $role, '/admin');
             }
         }
+
+        \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
 
         $this->render('2fa_verify', [
             'title' => '2FA Bestätigung',
@@ -196,6 +219,14 @@ class AuthController extends BaseController {
 
         $inputCode = strtoupper(str_replace(['-', ' '], '', trim($_POST['backup_code'] ?? '')));
 
+        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, 'backup')) {
+            $this->render('2fa_backup', [
+                'title' => 'Backup-Code verwenden',
+                'error' => 'Zu viele fehlgeschlagene Versuche. Bitte versuchen Sie es in 15 Minuten erneut.'
+            ]);
+            return;
+        }
+
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT backup_codes FROM users WHERE id = ?");
         $stmt->execute([$userId]);
@@ -212,6 +243,8 @@ class AuthController extends BaseController {
         }
 
         if ($matchedKey !== null) {
+            \App\Security\RateLimiter::clearAttempts((string)$userId, 'backup');
+
             // Remove used backup code
             unset($backupCodes[$matchedKey]);
             $updatedCodes = array_values($backupCodes);
@@ -222,6 +255,8 @@ class AuthController extends BaseController {
             $role = $_SESSION['pending_2fa_role'] ?? 'editor';
             $this->completeLogin($userId, $role, '/admin?backup_code_used=1');
         }
+
+        \App\Security\RateLimiter::recordAttempt((string)$userId, 'backup');
 
         $this->render('2fa_backup', [
             'title' => 'Backup-Code verwenden',

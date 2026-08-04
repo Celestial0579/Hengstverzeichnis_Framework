@@ -60,6 +60,11 @@ class SetupController extends BaseController {
         $dbUser = trim($_POST['db_user'] ?? 'root');
         $dbPass = $_POST['db_pass'] ?? '';
 
+        // DB SSL/TLS Fields
+        $dbSsl = !empty($_POST['db_ssl']);
+        $dbSslVerify = !empty($_POST['db_ssl_verify']);
+        $dbSslCa = trim($_POST['db_ssl_ca'] ?? '');
+
         // App Fields
         $siteName = trim($_POST['site_name'] ?? '');
         $username = trim($_POST['username'] ?? '');

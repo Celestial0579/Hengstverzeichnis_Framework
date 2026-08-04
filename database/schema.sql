@@ -114,6 +114,17 @@ CREATE TABLE IF NOT EXISTS `gdpr_requests` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Login Attempts (Brute-Force-Schutz für Login, 2FA, Backup-Codes)
+CREATE TABLE IF NOT EXISTS `login_attempts` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `identifier` VARCHAR(255) NOT NULL,
+    `type` VARCHAR(20) NOT NULL DEFAULT 'login',
+    `ip_address` VARCHAR(45) NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX (`identifier`, `type`),
+    INDEX (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS `audit_logs` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,

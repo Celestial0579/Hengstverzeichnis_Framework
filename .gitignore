@@ -3,3 +3,7 @@ config/db_config.php
 
 # Docker/Env-Konfiguration mit lokalen Secrets
 .env
+
+# Von Nutzern hochgeladene Inhalte (Logos, Pferdefotos) - keine Repo-Inhalte
+public/uploads/*
+!public/uploads/.htaccess

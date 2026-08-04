@@ -7,3 +7,6 @@ config/db_config.php
 # Von Nutzern hochgeladene Inhalte (Logos, Pferdefotos) - keine Repo-Inhalte
 public/uploads/*
 !public/uploads/.htaccess
+
+# Lokale Claude-Code-Einstellungen (Tool-Berechtigungen, Dev-Server-Konfig)
+.claude/

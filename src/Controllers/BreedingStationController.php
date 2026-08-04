@@ -53,6 +53,9 @@ class BreedingStationController extends BaseController {
         if (empty($name)) {
             $errors[] = "Name der Deckstation / des Gestüts ist erforderlich.";
         }
+        if (!empty($website) && !str_starts_with($website, 'http://') && !str_starts_with($website, 'https://')) {
+            $errors[] = "Website muss eine gültige Adresse beginnend mit http:// oder https:// sein.";
+        }
 
         if (!empty($errors)) {
             $this->render('admin_breeding_station_form', [
@@ -112,6 +115,9 @@ class BreedingStationController extends BaseController {
         $errors = [];
         if (empty($name)) {
             $errors[] = "Name der Deckstation ist erforderlich.";
+        }
+        if (!empty($website) && !str_starts_with($website, 'http://') && !str_starts_with($website, 'https://')) {
+            $errors[] = "Website muss eine gültige Adresse beginnend mit http:// oder https:// sein.";
         }
 
         if (!empty($errors)) {

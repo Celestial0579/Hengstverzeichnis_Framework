@@ -109,7 +109,7 @@
                                     <?php foreach ($allHorses as $candidate): ?>
                                         <?php if ($candidate['id'] == $match['child_id']) continue; ?>
                                         <option value="<?= $candidate['id'] ?>">
-                                            <?= htmlspecialchars($candidate['name']) ?> <?= $candidate['ueln'] ? '[' . $candidate['ueln'] . ']' : '' ?>
+                                            <?= htmlspecialchars($candidate['name']) ?> <?= $candidate['ueln'] ? '[' . htmlspecialchars($candidate['ueln']) . ']' : '' ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>

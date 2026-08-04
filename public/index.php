@@ -54,7 +54,7 @@ $router->post('/dsgvo', [App\Controllers\PublicController::class, 'dsgvoSubmit']
 // Authentication Routes
 $router->get('/login', [App\Controllers\AuthController::class, 'loginForm']);
 $router->post('/login', [App\Controllers\AuthController::class, 'loginSubmit']);
-$router->get('/logout', [App\Controllers\AuthController::class, 'logout']);
+$router->post('/logout', [App\Controllers\AuthController::class, 'logout']);
 $router->get('/forgot-password', [App\Controllers\AuthController::class, 'forgotPassword']);
 $router->post('/forgot-password', [App\Controllers\AuthController::class, 'sendResetLink']);
 $router->get('/reset-password', [App\Controllers\AuthController::class, 'resetPassword']);

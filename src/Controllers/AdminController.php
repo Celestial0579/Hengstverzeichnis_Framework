@@ -188,9 +188,15 @@ class AdminController extends BaseController {
             $settings[$r['setting_key']] = $r['setting_value'];
         }
 
+        $errorMessages = [
+            'invalid_mail_from_email' => 'Ungültiges Format der Absender-E-Mail-Adresse. Es wurden keine Änderungen gespeichert.',
+            'invalid_admin_notification_email' => 'Ungültiges Format der Admin-Benachrichtigungs-E-Mail-Adresse. Es wurden keine Änderungen gespeichert.',
+        ];
+
         $this->render('admin_mail_settings', [
             'title' => 'E-Mail & SMTP Einstellungen',
-            'settings' => $settings
+            'settings' => $settings,
+            'error' => $errorMessages[$_GET['error'] ?? ''] ?? null
         ]);
     }
 
@@ -212,6 +218,15 @@ class AdminController extends BaseController {
         $mailFromEmail = trim($_POST['mail_from_email'] ?? '');
         $mailFromName = trim($_POST['mail_from_name'] ?? '');
         $adminNotificationEmail = trim($_POST['admin_notification_email'] ?? '');
+
+        if ($mailFromEmail !== '' && filter_var($mailFromEmail, FILTER_VALIDATE_EMAIL) === false) {
+            header("Location: /admin/mail-settings?error=invalid_mail_from_email");
+            exit;
+        }
+        if ($adminNotificationEmail !== '' && filter_var($adminNotificationEmail, FILTER_VALIDATE_EMAIL) === false) {
+            header("Location: /admin/mail-settings?error=invalid_admin_notification_email");
+            exit;
+        }
 
         $db = Database::getInstance();
 

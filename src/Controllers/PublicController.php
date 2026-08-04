@@ -351,7 +351,7 @@ class PublicController extends BaseController {
         $type = $_POST['request_type'] ?? 'info';
         $message = trim($_POST['message'] ?? '');
 
-        if ($email && in_array($type, ['info', 'deletion'])) {
+        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL) && in_array($type, ['info', 'deletion'])) {
             $db = Database::getInstance();
             $stmt = $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message) VALUES (?, ?, ?, ?)");
             $stmt->execute([$name ?: null, $email, $type, $message ?: null]);

@@ -1,6 +1,11 @@
 <?php
 // database/reset.php
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Dieses Skript darf nur über die CLI ausgeführt werden.');
+}
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Database.php';
 

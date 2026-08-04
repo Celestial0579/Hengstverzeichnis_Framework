@@ -59,7 +59,7 @@ class AdminController extends BaseController {
                 if (file_exists($filePath)) @unlink($filePath);
             }
 
-            $stmt = $db->prepare("DELETE FROM settings WHERE setting_key = 'site_logo'");
+            $stmt = $db->prepare("DELETE FROM settings WHERE setting_key IN ('site_logo', 'logo_url')");
             $stmt->execute();
         }
 

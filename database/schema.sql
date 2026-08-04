@@ -9,11 +9,13 @@ CREATE TABLE IF NOT EXISTS `settings` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Initial Settings
-INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES 
+-- Kein 'logo_url'-Default: ohne konfiguriertes Logo zeigt der Header nur den
+-- Vereinsnamen als Text (layout.php prüft auf !empty($logoUrl)), das vermeidet
+-- ein kaputtes Bild-Icon bei Neuinstallationen ohne eigenen Logo-Upload.
+INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES
 ('site_name', 'Hengstverzeichnis Framework'),
 ('primary_color', '#2c3e50'),
-('secondary_color', '#18bc9c'),
-('logo_url', '/images/default-logo.png');
+('secondary_color', '#18bc9c');
 
 -- Users Table
 CREATE TABLE IF NOT EXISTS `users` (

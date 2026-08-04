@@ -1,24 +1,34 @@
 # Hengstverzeichnis_Framework
 
-Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinien in der Pferdezucht zu erstellen. Ziel ist es ein Framework bereitzustellen, welches alle Usecases abdeckt, die für das IGF Hengstverzeichnis und vergleichbare Zuchtverzeichnisse nötig sind
+**Status: 🧪 Beta** — funktional vollständig für den Kern-Usecase und intern getestet, aber noch nicht in großem Umfang im Produktivbetrieb erprobt. Feedback und Fehlermeldungen über [Issues](../../issues) sind ausdrücklich erwünscht. Sicherheitsrelevante Funde bitte **nicht** öffentlich melden, siehe [SECURITY.md](SECURITY.md).
+
+Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinien in der Pferdezucht zu erstellen. Ziel ist es ein Framework bereitzustellen, welches alle Usecases abdeckt, die für das IGF Hengstverzeichnis und vergleichbare Zuchtverzeichnisse nötig sind.
 
 ## Dokumentation
 
 - **Entwicklerdokumentation** (Architektur, Datenmodell, Sicherheitskonzept, lokale Entwicklung): [`docs/`](docs/README.md)
 - **Installation, Administration & Benutzerhandbuch**: [GitHub Wiki](../../wiki)
+- **Änderungen zwischen Releases**: [CHANGELOG.md](CHANGELOG.md)
 
-Anforderungen an die Entwicklung:
-- EntraID SSO
-- Trackingfähigkeit für Weblinks
+## Bereits umgesetzt
 
-Breits umgesetzt:
-- Öffentlich zugängliches Frontend
-- Datenbank MySQL
-- HTML5, CSS, PHP
-- Multiuserfähigkeit
-- Formular für DSGVO anfragen
-- Impressum
-- Datenschutz Informationen
+- Öffentlich zugänglicher Hengstkatalog mit Blutlinien-/Pedigree-Ansicht
+- Pferde-, Personen- und Deckstationsverwaltung (CRUD) inkl. Papierkorb (Soft-Delete)
+- Automatische Blutlinien-Verknüpfung mit Match-/Merge-Vorschlagswerkzeug
+- Multiuserfähige Benutzerverwaltung mit Rollen (Admin/Editor)
+- Verpflichtende 2FA (TOTP), Session-Hardening, Rate-Limiting, revisionssicheres Audit-Log
+- DSGVO-Kontaktformular inkl. Verwaltung (Anonymisierung/Löschung) im Admin-Bereich
+- Impressum & Datenschutzinformationen
+- Docker-Deployment sowie klassisches Shared-Hosting über Setup-Wizard
+
+## Bekannte Einschränkungen (Beta)
+
+- **EntraID SSO** ist noch nicht implementiert (Login erfolgt aktuell über lokale Accounts + verpflichtende 2FA).
+- **Trackingfähigkeit für Weblinks** (Klick-Tracking auf externe Links) ist noch nicht implementiert.
+- Es gibt noch **keine automatisierte Testsuite** — Release-Verifikation erfolgt aktuell über manuelle/geskriptete Smoke-Tests, siehe [CHANGELOG.md](CHANGELOG.md).
+- Es gibt noch **keine CI-Pipeline**; Codequalität wird aktuell über Code-Review sichergestellt.
+
+Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 
 ## Konfiguration
 

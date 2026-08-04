@@ -1,0 +1,38 @@
+name: 💡 Feature Request / Feedback
+description: Eine Idee, Verbesserung oder allgemeines Feedback zum Beta-Release einreichen
+labels: ["enhancement", "beta-feedback"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem/Bedürfnis steckt dahinter?
+      description: Welchen Usecase aus der Pferdezucht-/Zuchtverbandsarbeit deckt das aktuell nicht ab?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Vorschlag
+      description: Wie könnte eine Lösung aussehen? (Optional)
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Bereich
+      options:
+        - Öffentlicher Katalog/Frontend
+        - Pferde-/Personen-/Deckstationsverwaltung
+        - Benutzerverwaltung/Auth/2FA
+        - DSGVO/Datenschutz
+        - Deployment/Betrieb
+        - Dokumentation
+        - Sonstiges
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Weiterer Kontext
+    validations:
+      required: false

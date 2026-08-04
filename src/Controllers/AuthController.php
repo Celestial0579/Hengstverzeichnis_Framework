@@ -171,7 +171,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT totp_secret FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT totp_secret FROM users WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -228,7 +228,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT backup_codes FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT backup_codes FROM users WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 

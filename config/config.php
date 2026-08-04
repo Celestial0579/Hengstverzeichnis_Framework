@@ -1,28 +1,19 @@
 <?php
 // config/config.php
 
-// Database Configuration (Loaded from db_config.php if Setup Wizard completed)
+// Database Configuration: Umgebungsvariablen haben Vorrang vor db_config.php
+// (welche vom Setup Wizard erzeugt wird und lokale Secrets enthalten kann)
 $dbConfigFile = __DIR__ . '/db_config.php';
-if (file_exists($dbConfigFile)) {
-    $dbConfig = require $dbConfigFile;
-    define('DB_HOST', $dbConfig['host'] ?? '127.0.0.1');
-    define('DB_PORT', $dbConfig['port'] ?? '3306');
-    define('DB_NAME', $dbConfig['name'] ?? 'hengstverzeichnis');
-    define('DB_USER', $dbConfig['user'] ?? 'root');
-    define('DB_PASS', $dbConfig['pass'] ?? '');
-    define('DB_SSL', !empty($dbConfig['ssl']));
-    define('DB_SSL_VERIFY', !empty($dbConfig['ssl_verify']));
-    define('DB_SSL_CA', $dbConfig['ssl_ca'] ?? '');
-} else {
-    define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
-    define('DB_PORT', getenv('DB_PORT') ?: '3306');
-    define('DB_NAME', getenv('DB_NAME') ?: 'hengstverzeichnis');
-    define('DB_USER', getenv('DB_USER') ?: '');
-    define('DB_PASS', getenv('DB_PASS') ?: '');
-    define('DB_SSL', getenv('DB_SSL') === 'true' || getenv('DB_SSL') === '1');
-    define('DB_SSL_VERIFY', getenv('DB_SSL_VERIFY') === 'true' || getenv('DB_SSL_VERIFY') === '1');
-    define('DB_SSL_CA', getenv('DB_SSL_CA') ?: '');
-}
+$dbConfig = file_exists($dbConfigFile) ? require $dbConfigFile : [];
+
+define('DB_HOST', getenv('DB_HOST') ?: ($dbConfig['host'] ?? '127.0.0.1'));
+define('DB_PORT', getenv('DB_PORT') ?: ($dbConfig['port'] ?? '3306'));
+define('DB_NAME', getenv('DB_NAME') ?: ($dbConfig['name'] ?? 'hengstverzeichnis'));
+define('DB_USER', getenv('DB_USER') ?: ($dbConfig['user'] ?? ''));
+define('DB_PASS', getenv('DB_PASS') ?: ($dbConfig['pass'] ?? ''));
+define('DB_SSL', getenv('DB_SSL') !== false ? in_array(getenv('DB_SSL'), ['true', '1'], true) : !empty($dbConfig['ssl']));
+define('DB_SSL_VERIFY', getenv('DB_SSL_VERIFY') !== false ? in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true) : !empty($dbConfig['ssl_verify']));
+define('DB_SSL_CA', getenv('DB_SSL_CA') ?: ($dbConfig['ssl_ca'] ?? ''));
 
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 $dynamicScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';

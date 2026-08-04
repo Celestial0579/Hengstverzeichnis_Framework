@@ -1,0 +1,43 @@
+# Semgrep SAST
+#
+# CodeQL does not support PHP, so it only scans the small amount of
+# client-side JavaScript in this repo. Semgrep's OSS engine does support
+# PHP and runs here with the free, public "p/php" and "p/security-audit"
+# rule packs - no account, token, or third-party service required. It
+# scans entirely inside the GitHub-hosted runner and uploads results as
+# SARIF to the same Code Scanning tab CodeQL uses.
+name: Semgrep
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "30 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Run Semgrep
+        run: semgrep scan --config=p/php --config=p/security-audit --config=p/owasp-top-ten --sarif --output=semgrep-results.sarif
+        continue-on-error: true
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          sarif_file: semgrep-results.sarif

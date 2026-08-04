@@ -1,0 +1,6 @@
+.git
+.claude
+.env
+config/db_config.php
+public/uploads/*
+!public/uploads/.htaccess

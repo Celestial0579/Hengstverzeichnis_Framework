@@ -378,6 +378,7 @@ class HorseController extends BaseController {
             }
 
             // 2. Name Similarity (Max 35 Points)
+            $hasStrongNameMatch = false;
             if (!empty($pNameClean) && !empty($candNameClean)) {
                 similar_text($pNameClean, $candNameClean, $percent);
                 $namePoints = round(($percent / 100) * 35);
@@ -385,6 +386,7 @@ class HorseController extends BaseController {
 
                 if ($percent >= 90) {
                     $reasons[] = "✓ Name nahezu identisch (" . round($percent) . "%)";
+                    $hasStrongNameMatch = true;
                 } else if ($percent >= 70) {
                     $reasons[] = "✓ Name hohe Ähnlichkeit (" . round($percent) . "%)";
                 } else if ($percent >= 50) {
@@ -431,7 +433,7 @@ class HorseController extends BaseController {
             // Calculate final percentage score (0% - 100%)
             $score = min(100, max(0, $points));
 
-            if ($score >= 45 || $hasUelnMatch) {
+            if ($score >= 45 || $hasUelnMatch || $hasStrongNameMatch) {
                 $suggestions[] = [
                     'horse' => $candidate,
                     'score' => $score,

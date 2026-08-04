@@ -10,6 +10,20 @@ Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinie
 - **Installation, Administration & Benutzerhandbuch**: [GitHub Wiki](../../wiki)
 - **Änderungen zwischen Releases**: [CHANGELOG.md](CHANGELOG.md)
 
+## Schnellstart (Docker)
+
+```bash
+git clone https://github.com/Celestial0579/Hengstverzeichnis_Framework.git
+cd Hengstverzeichnis_Framework
+./docker-start.sh
+```
+
+Das Skript legt beim ersten Aufruf automatisch eine `.env` an (inkl.
+generiertem `DB_PASS`/`APP_KEY`) und startet die Container. Die App ist
+danach unter `http://localhost:8080` erreichbar. Details, Alternativen ohne
+Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
+[Konfiguration](#konfiguration) unten und [docs/development.md](docs/development.md).
+
 ## Bereits umgesetzt
 
 - Öffentlich zugänglicher Hengstkatalog mit Blutlinien-/Pedigree-Ansicht

@@ -8,6 +8,22 @@ entweder Docker (empfohlen) oder ein klassischer lokaler PHP/MySQL-Stack.
 
 ## Schnellstart mit Docker
 
+Empfohlener Weg — das Skript [`docker-start.sh`](../docker-start.sh) legt
+beim ersten Aufruf automatisch eine `.env` aus `.env.example` an und
+generiert `DB_PASS`, `DB_ROOT_PASS` und `APP_KEY`:
+
+```bash
+./docker-start.sh
+```
+
+Weitere Kommandos: `./docker-start.sh logs` (Logs des App-Containers),
+`./docker-start.sh down` (Container stoppen). Ein erneuter Aufruf von
+`./docker-start.sh` verwendet die bestehende `.env` weiter, statt sie zu
+überschreiben.
+
+<details>
+<summary>Manuell, z. B. um Werte vorab selbst zu setzen</summary>
+
 ```bash
 cp .env.example .env
 ```
@@ -22,6 +38,8 @@ php -r "echo bin2hex(random_bytes(32)) . PHP_EOL;"   # für APP_KEY
 ```bash
 docker compose up --build
 ```
+
+</details>
 
 Die App ist danach unter `http://localhost:8080` erreichbar. Beim ersten
 Aufruf greift entweder der Setup-Wizard (`/setup`) oder – falls `SITE_NAME`

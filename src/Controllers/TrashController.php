@@ -64,20 +64,21 @@ class TrashController extends BaseController {
             die("Zugriff verweigert: Nur Administratoren können Benutzerkonten wiederherstellen.");
         }
 
-        $allowedTables = [
-            'horse' => 'horses',
-            'person' => 'persons',
-            'breeding_station' => 'breeding_stations',
-            'user' => 'users'
-        ];
-
-        if (isset($allowedTables[$type]) && $id > 0) {
-            $table = $allowedTables[$type];
+        if ($id > 0) {
             $db = Database::getInstance();
-            $stmt = $db->prepare("UPDATE {$table} SET deleted_at = NULL WHERE id = ?");
-            $stmt->execute([$id]);
+            $stmt = match ($type) {
+                'horse' => $db->prepare("UPDATE horses SET deleted_at = NULL WHERE id = ?"),
+                'person' => $db->prepare("UPDATE persons SET deleted_at = NULL WHERE id = ?"),
+                'breeding_station' => $db->prepare("UPDATE breeding_stations SET deleted_at = NULL WHERE id = ?"),
+                'user' => $db->prepare("UPDATE users SET deleted_at = NULL WHERE id = ?"),
+                default => null,
+            };
 
-            \App\Service\AuditLogger::log("Element aus Papierkorb wiederhergestellt", "trash", "Typ: {$type}, ID: {$id}");
+            if ($stmt !== null) {
+                $stmt->execute([$id]);
+
+                \App\Service\AuditLogger::log("Element aus Papierkorb wiederhergestellt", "trash", "Typ: {$type}, ID: {$id}");
+            }
         }
 
         header("Location: /admin/trash?success=restored");
@@ -98,28 +99,32 @@ class TrashController extends BaseController {
             die("Zugriff verweigert.");
         }
 
-        $allowedTables = [
-            'horse' => 'horses',
-            'person' => 'persons',
-            'breeding_station' => 'breeding_stations',
-            'user' => 'users'
-        ];
+        $validTypes = ['horse', 'person', 'breeding_station', 'user'];
 
-        if (isset($allowedTables[$type]) && $id > 0) {
-            $table = $allowedTables[$type];
+        if (in_array($type, $validTypes, true) && $id > 0) {
             $db = Database::getInstance();
 
             // Check if item is older than 30 days
-            $stmt = $db->prepare("SELECT deleted_at FROM {$table} WHERE id = ?");
-            $stmt->execute([$id]);
-            $deletedAt = $stmt->fetchColumn();
+            $selectStmt = match ($type) {
+                'horse' => $db->prepare("SELECT deleted_at FROM horses WHERE id = ?"),
+                'person' => $db->prepare("SELECT deleted_at FROM persons WHERE id = ?"),
+                'breeding_station' => $db->prepare("SELECT deleted_at FROM breeding_stations WHERE id = ?"),
+                'user' => $db->prepare("SELECT deleted_at FROM users WHERE id = ?"),
+            };
+            $selectStmt->execute([$id]);
+            $deletedAt = $selectStmt->fetchColumn();
 
             $isOlderThan30Days = $deletedAt && (strtotime($deletedAt) <= strtotime('-30 days'));
 
             // Rule: Permanent deletion allowed if user is Admin OR if item is older than 30 days
             if ($isAdmin || $isOlderThan30Days) {
-                $stmt = $db->prepare("DELETE FROM {$table} WHERE id = ?");
-                $stmt->execute([$id]);
+                $deleteStmt = match ($type) {
+                    'horse' => $db->prepare("DELETE FROM horses WHERE id = ?"),
+                    'person' => $db->prepare("DELETE FROM persons WHERE id = ?"),
+                    'breeding_station' => $db->prepare("DELETE FROM breeding_stations WHERE id = ?"),
+                    'user' => $db->prepare("DELETE FROM users WHERE id = ?"),
+                };
+                $deleteStmt->execute([$id]);
 
                 \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", "Typ: {$type}, ID: {$id}");
 

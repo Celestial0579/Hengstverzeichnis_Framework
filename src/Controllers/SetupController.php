@@ -297,7 +297,7 @@ class SetupController extends BaseController {
             if (file_put_contents(self::dbConfigFilePath(), $configContent) === false) {
                 $this->render('setup', array_merge([
                     'title' => 'Einrichtung - Hengstverzeichnis Framework',
-                    'errors' => ['Konnte config/db_config.php nicht schreiben. Bitte Schreibrechte im ordner config/ prüfen.'],
+                    'errors' => ['Konnte config/db_config.php nicht schreiben. Bitte Schreibrechte im Ordner config/ prüfen.'],
                 ], $errorRenderExtra));
                 return;
             }

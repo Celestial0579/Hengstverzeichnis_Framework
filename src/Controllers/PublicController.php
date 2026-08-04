@@ -336,6 +336,16 @@ class PublicController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
+        // Nach Absender-IP begrenzen: Ohne diese Sperre könnte jeder Client unbegrenzt oft
+        // eine echte Benachrichtigungs-E-Mail an den Admin auslösen sowie die
+        // gdpr_requests-Tabelle mit Datenmüll fluten.
+        $clientIp = \App\Security\ClientIp::resolve();
+        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'dsgvo_request')) {
+            header("Location: /dsgvo?error=rate_limited");
+            exit;
+        }
+        \App\Security\RateLimiter::recordAttempt($clientIp, 'dsgvo_request');
+
         $name = trim($_POST['name'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $type = $_POST['request_type'] ?? 'info';

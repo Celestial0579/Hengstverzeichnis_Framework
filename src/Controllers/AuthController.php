@@ -280,6 +280,20 @@ class AuthController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
+        // Nach Absender-IP begrenzen (nicht nach E-Mail): Ohne diese Sperre könnte jeder
+        // Client unbegrenzt oft echten SMTP-Versand auslösen (E-Mail-Bombing eines
+        // beliebigen Opfers, Missbrauch/Reputationsschaden des SMTP-Relays) - unabhängig
+        // davon, ob die eingegebene E-Mail-Adresse überhaupt existiert.
+        $clientIp = \App\Security\ClientIp::resolve();
+        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'password_reset')) {
+            $this->render('auth_forgot_password', [
+                'title' => 'Passwort vergessen',
+                'error' => 'Zu viele Anfragen. Bitte versuchen Sie es in 15 Minuten erneut.'
+            ]);
+            return;
+        }
+        \App\Security\RateLimiter::recordAttempt($clientIp, 'password_reset');
+
         $email = trim($_POST['email'] ?? '');
         if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $db = Database::getInstance();

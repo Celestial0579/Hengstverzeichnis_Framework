@@ -2,6 +2,11 @@
 
 Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinien in der Pferdezucht zu erstellen. Ziel ist es ein Framework bereitzustellen, welches alle Usecases abdeckt, die für das IGF Hengstverzeichnis und vergleichbare Zuchtverzeichnisse nötig sind
 
+## Dokumentation
+
+- **Entwicklerdokumentation** (Architektur, Datenmodell, Sicherheitskonzept, lokale Entwicklung): [`docs/`](docs/README.md)
+- **Installation, Administration & Benutzerhandbuch**: [GitHub Wiki](../../wiki)
+
 Anforderungen an die Entwicklung:
 - EntraID SSO
 - Trackingfähigkeit für Weblinks

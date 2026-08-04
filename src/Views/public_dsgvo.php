@@ -11,6 +11,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['error'] ?? '') === 'rate_limited'): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Zu viele Anfragen von Ihrer Adresse. Bitte versuchen Sie es in 15 Minuten erneut.
+        </div>
+    <?php endif; ?>
+
     <form action="/dsgvo" method="POST" style="margin-top: 1.5rem;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         

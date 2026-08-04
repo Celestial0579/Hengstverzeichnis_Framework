@@ -23,7 +23,7 @@
         <thead>
             <tr style="border-bottom: 2px solid #eee; text-align: left;">
                 <th style="padding: 0.5rem;">ID</th>
-                <th style="padding: 0.5rem;">Name / Zuchtstätte</th>
+                <th style="padding: 0.5rem;">Name</th>
                 <th style="padding: 0.5rem;">Kontakt & Ort</th>
                 <th style="padding: 0.5rem;">Zugeordnete Pferde</th>
                 <th style="padding: 0.5rem;">Aktionen</th>

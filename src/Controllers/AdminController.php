@@ -148,7 +148,7 @@ class AdminController extends BaseController {
 
         $settings = [];
         foreach ($rows as $r) {
-            $settings[$row['setting_key'] ?? $r['setting_key']] = $r['setting_value'];
+            $settings[$r['setting_key']] = $r['setting_value'];
         }
 
         $this->render('admin_mail_settings', [

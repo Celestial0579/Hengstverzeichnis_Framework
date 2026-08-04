@@ -1,9 +1,8 @@
 <?php
 // public/index.php
 
-require_once __DIR__ . '/../config/config.php';
-
-// Simple autoloader for our App namespace
+// Simple autoloader for our App namespace (vor config.php registriert, da diese
+// bereits App\Security\ClientIp für die Reverse-Proxy-Erkennung benötigt)
 spl_autoload_register(function ($class) {
     $prefix = 'App\\';
     $base_dir = __DIR__ . '/../src/';
@@ -20,6 +19,8 @@ spl_autoload_register(function ($class) {
         require $file;
     }
 });
+
+require_once __DIR__ . '/../config/config.php';
 
 use App\Router;
 use App\Controllers\SetupController;

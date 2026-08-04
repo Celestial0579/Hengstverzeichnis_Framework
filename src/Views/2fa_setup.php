@@ -33,12 +33,22 @@
         </p>
 
         <div style="text-align: center; margin: 1.5rem 0; background: #fff; padding: 1rem; border: 1px solid #ddd; border-radius: 8px;">
-            <!-- QR Code via Google Charts API -->
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=<?= urlencode($otpAuthUrl) ?>" alt="2FA QR Code" style="width: 200px; height: 200px;">
+            <!-- QR Code wird lokal im Browser gerendert (public/js/qrcode.js) - das TOTP-Secret
+                 verlässt dafür nie den Server/Client, anders als bei einem Drittanbieter-API-Aufruf -->
+            <div id="qrcode-canvas" role="img" aria-label="2FA QR Code" style="display: inline-block;"></div>
             <p style="margin-top: 1rem; font-family: monospace; font-size: 1.1rem; background: #f4f4f4; padding: 0.5rem; display: inline-block; border-radius: 4px;">
                 Geheimer Schlüssel: <strong><?= htmlspecialchars($secret) ?></strong>
             </p>
         </div>
+        <script src="/js/qrcode.js"></script>
+        <script>
+            new QRCode(document.getElementById('qrcode-canvas'), {
+                text: <?= json_encode($otpAuthUrl, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+                width: 200,
+                height: 200,
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        </script>
 
         <h3 style="color: #dc3545; margin-top: 2rem; margin-bottom: 0.5rem;">
             ⚠️ Schritt 2: WICHTIG – Ihre 10 Backup-Codes

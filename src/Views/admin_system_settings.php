@@ -17,6 +17,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (isset($_GET['error']) && $_GET['error'] === 'invalid_base_url'): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Ungültiges Format der Stamm-URL. Bitte eine gültige Adresse angeben (z. B. <code>https://hengstverzeichnis.de/</code>). Es wurden keine Änderungen gespeichert.
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['error']) && $_GET['error'] === 'trusted_proxies_invalid'): ?>
         <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Ungültiger Eintrag bei „Vertrauenswürdige Reverse-Proxy-IPs": <code><?= htmlspecialchars($_GET['invalid_entry'] ?? '') ?></code>.

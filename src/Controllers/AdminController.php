@@ -135,6 +135,12 @@ class AdminController extends BaseController {
             }
 
             $baseUrl = rtrim($baseUrl, '/') . '/';
+
+            $parsedUrl = parse_url($baseUrl);
+            if (filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL) === false || empty($parsedUrl['host'])) {
+                header("Location: /admin/system-settings?error=invalid_base_url");
+                exit;
+            }
         }
 
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('base_url', ?) ON DUPLICATE KEY UPDATE setting_value = ?");

@@ -153,6 +153,12 @@ $isLoggedIn = isset($_SESSION['user_id']);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
     </style>
+
+    <?php if (!empty($settings['tracking_code'])): ?>
+        <!-- Tracking-Code aus Admin > Systemeinstellungen - absichtlich unescaped,
+             siehe AdminController::updateSystemSettings() für die Begründung. -->
+        <?= $settings['tracking_code'] ?>
+    <?php endif; ?>
 </head>
 <body>
     <header>

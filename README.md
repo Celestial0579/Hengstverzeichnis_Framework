@@ -68,6 +68,7 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `APP_URL`        | –  | dynamisch aus Request | Feste Basis-URL, falls automatische Erkennung nicht passt |
 | `APP_ENV`        | –  | `development`         | `production` deaktiviert Fehlerausgaben im Browser |
 | `TRUSTED_PROXIES`| –  | – (kein Proxy vertraut) | Kommagetrennte Liste vertrauenswürdiger Reverse-Proxy-IPs/-Netze, siehe unten |
+| `TRACKING_DOMAINS`| – | – (kein Tracking) | Kommagetrennte Liste von `https://`-Origins (Matomo/Google Analytics o. Ä.), die in der Content-Security-Policy freigeschaltet werden. Alternative ohne Env-Var: Admin → Systemeinstellungen. |
 
 Neuen `APP_KEY` generieren:
 ```bash

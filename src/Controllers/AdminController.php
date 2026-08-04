@@ -107,10 +107,13 @@ class AdminController extends BaseController {
         $this->requireAdmin();
 
         $trustedProxiesFromEnv = getenv('TRUSTED_PROXIES') !== false;
+        $trackingDomainsFromEnv = getenv('TRACKING_DOMAINS') !== false;
         $this->render('admin_system_settings', [
             'title' => 'Systemeinstellungen',
             'trustedProxies' => $trustedProxiesFromEnv ? getenv('TRUSTED_PROXIES') : (SetupController::readDbConfig()['trusted_proxies'] ?? ''),
             'trustedProxiesFromEnv' => $trustedProxiesFromEnv,
+            'trackingDomains' => $trackingDomainsFromEnv ? getenv('TRACKING_DOMAINS') : (SetupController::readDbConfig()['tracking_domains'] ?? ''),
+            'trackingDomainsFromEnv' => $trackingDomainsFromEnv,
         ]);
     }
 
@@ -172,7 +175,41 @@ class AdminController extends BaseController {
             }
         }
 
-        $redirectUrl = "/admin/system-settings?success=1" . ($isHttpWarning ? "&warning=http_unencrypted" : "") . ($trustedProxiesError !== null ? "&error=trusted_proxies_invalid&invalid_entry=" . urlencode($trustedProxiesError) : "");
+        // Tracking-Code (Matomo/Google Analytics o. ä.): rohes HTML/JS-Snippet, wird
+        // absichtlich unescaped in layout.php ausgegeben - Admin-only vertrauenswürdige
+        // Eingabe (requireAdmin() oben), siehe layout.php für die Begründung.
+        $trackingCode = trim($_POST['tracking_code'] ?? '');
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('tracking_code', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$trackingCode, $trackingCode]);
+        \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Tracking-Code " . ($trackingCode !== '' ? 'gesetzt' : 'entfernt'));
+
+        // Tracking-Domains: nur verarbeiten, wenn nicht bereits per Env-Var vorgegeben
+        // (sonst hätte eine Änderung hier ohnehin keine Wirkung, siehe config/config.php).
+        // Nur echte https://-Origins ohne Pfad werden akzeptiert, da dieser Wert direkt
+        // in die Content-Security-Policy einfließt (siehe config/config.php).
+        $trackingDomainsError = null;
+        if (getenv('TRACKING_DOMAINS') === false) {
+            $trackingDomainsRaw = trim($_POST['tracking_domains'] ?? '');
+            $domainEntries = $trackingDomainsRaw === '' ? [] : array_map('trim', explode(',', $trackingDomainsRaw));
+            foreach ($domainEntries as $entry) {
+                if ($entry === '' || preg_match('#^https://[a-zA-Z0-9.-]+(:\d+)?$#', $entry) === 1) {
+                    continue;
+                }
+                $trackingDomainsError = $entry;
+                break;
+            }
+
+            if ($trackingDomainsError === null) {
+                $normalizedDomains = implode(',', array_filter($domainEntries, fn($e) => $e !== ''));
+                if (!SetupController::writeDbConfigValue('tracking_domains', $normalizedDomains)) {
+                    header("Location: /admin/system-settings?error=tracking_domains_write_failed");
+                    exit;
+                }
+                \App\Service\AuditLogger::log("Tracking-Domains aktualisiert", "security", "Wert: " . ($normalizedDomains !== '' ? $normalizedDomains : '(leer)'));
+            }
+        }
+
+        $redirectUrl = "/admin/system-settings?success=1" . ($isHttpWarning ? "&warning=http_unencrypted" : "") . ($trustedProxiesError !== null ? "&error=trusted_proxies_invalid&invalid_entry=" . urlencode($trustedProxiesError) : "") . ($trackingDomainsError !== null ? "&error=tracking_domains_invalid&invalid_entry=" . urlencode($trackingDomainsError) : "");
         header("Location: " . $redirectUrl);
         exit;
     }

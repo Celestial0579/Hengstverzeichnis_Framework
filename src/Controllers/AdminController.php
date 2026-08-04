@@ -260,14 +260,16 @@ class AdminController extends BaseController {
         }
 
         $db = Database::getInstance();
-        
+
+        // Reset-Vorgang protokollieren, bevor die Daten gelöscht werden (Audit-Log bleibt über Resets hinweg erhalten)
+        \App\Service\AuditLogger::log("System zurückgesetzt (Reset)", "settings", "Alle Daten außer dem Audit-Log wurden auf Werkseinstellungen zurückgesetzt.");
+
         // Disable foreign key checks to allow truncating/wiping tables cleanly
         $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
         $db->exec("TRUNCATE TABLE horse_persons;");
         $db->exec("TRUNCATE TABLE breeding_stations;");
         $db->exec("TRUNCATE TABLE password_resets;");
         $db->exec("TRUNCATE TABLE gdpr_requests;");
-        $db->exec("TRUNCATE TABLE audit_logs;");
         $db->exec("TRUNCATE TABLE horses;");
         $db->exec("TRUNCATE TABLE persons;");
         $db->exec("TRUNCATE TABLE users;");

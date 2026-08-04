@@ -67,11 +67,12 @@ class AdminController extends BaseController {
         if (!empty($_FILES['logo_file']) && $_FILES['logo_file']['error'] === UPLOAD_ERR_OK && $_FILES['logo_file']['size'] > 0) {
             $file = $_FILES['logo_file'];
             if ($file['size'] <= 5 * 1024 * 1024) {
+                // SVG bewusst nicht erlaubt: kann eingebettete <script>-Tags enthalten,
+                // die bei direktem Aufruf der Datei-URL im Browser ausgeführt würden.
                 $allowedMimeTypes = [
                     'image/jpeg' => 'jpg',
                     'image/png' => 'png',
                     'image/webp' => 'webp',
-                    'image/svg+xml' => 'svg'
                 ];
 
                 $finfo = new \finfo(FILEINFO_MIME_TYPE);

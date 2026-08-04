@@ -42,7 +42,7 @@ $actionUrl = $isEdit ? '/admin/users/update' : '/admin/users/store';
         <div class="form-group">
             <label for="role">Rolle *</label>
             <select id="role" name="role" class="form-control" required>
-                <option value="editor" <?= ($old['role'] ?? $user['role'] ?? '') === 'editor' ? 'selected' : '' ?>>Editor (Pferde, Personen & Deckstationen verwalten)</option>
+                <option value="editor" <?= ($old['role'] ?? $user['role'] ?? '') === 'editor' ? 'selected' : '' ?>>Editor</option>
                 <option value="admin" <?= ($old['role'] ?? $user['role'] ?? '') === 'admin' ? 'selected' : '' ?>>Administrator (Vollzugriff, Branding & Benutzer)</option>
             </select>
         </div>

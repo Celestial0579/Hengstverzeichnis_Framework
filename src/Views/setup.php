@@ -3,14 +3,22 @@
 /**
  * @var array|null $errors
  * @var array|null $old
+ * @var bool|null $hideDb Datenbank-Abschnitt ausblenden, weil DB_HOST/DB_USER/DB_PASS bereits per Env-Variable gesetzt sind
+ * @var bool|null $hideSite Verbandsname-Abschnitt ausblenden, weil SITE_NAME bereits per Env-Variable gesetzt ist
  */
+$hideDb = $hideDb ?? false;
+$hideSite = $hideSite ?? false;
 ?>
 <div class="card" style="max-width: 650px; margin: 3rem auto;">
     <h1 style="border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; margin-bottom: 1rem;">
         Willkommen beim Hengstverzeichnis Framework
     </h1>
     <p style="color: #666; margin-bottom: 1.5rem;">
-        Willkommen beim Erst-Einrichtungsassistenten. Bitte konfigurieren Sie Ihre Datenbankverbindung, die Verbandseinstellungen und erstellen Sie Ihr erstes Administrator-Konto.
+        <?php if ($hideDb && $hideSite): ?>
+            Willkommen beim Erst-Einrichtungsassistenten. Bitte erstellen Sie Ihr erstes Administrator-Konto.
+        <?php else: ?>
+            Willkommen beim Erst-Einrichtungsassistenten. Bitte konfigurieren Sie Ihre Datenbankverbindung, die Verbandseinstellungen und erstellen Sie Ihr erstes Administrator-Konto.
+        <?php endif; ?>
     </p>
 
     <?php if (!empty($errors)): ?>
@@ -23,14 +31,22 @@
         </div>
     <?php endif; ?>
 
+    <?php if ($hideDb || $hideSite): ?>
+        <div style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.9rem;">
+            <?= $hideDb && $hideSite ? 'Datenbankverbindung und Verbandsname sind bereits über Umgebungsvariablen konfiguriert.' : ($hideDb ? 'Die Datenbankverbindung ist bereits über Umgebungsvariablen konfiguriert.' : 'Der Verbandsname ist bereits über die Umgebungsvariable SITE_NAME konfiguriert.') ?>
+            Es wird nur noch das erste Administrator-Konto benötigt.
+        </div>
+    <?php endif; ?>
+
     <form action="/setup" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
+        <?php if (!$hideDb): ?>
         <!-- 1. Datenbank-Einstellungen -->
         <h3 style="margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
             1. Datenbank-Verbindung (MySQL/MariaDB)
         </h3>
-        
+
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 3;">
                 <label for="db_host">Server / Host *</label>
@@ -100,7 +116,9 @@
                 </span>
             </label>
         </div>
+        <?php endif; ?>
 
+        <?php if (!$hideSite): ?>
         <!-- 2. Verbandseinstellungen -->
         <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
             2. Verbandseinstellungen
@@ -109,6 +127,7 @@
             <label for="site_name">Name des Verbands / der Seite *</label>
             <input type="text" id="site_name" name="site_name" class="form-control" value="<?= htmlspecialchars($old['site_name'] ?? 'Hengstverzeichnis') ?>" required>
         </div>
+        <?php endif; ?>
 
         <!-- 3. Administrator-Konto -->
         <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">

@@ -16,7 +16,9 @@ define('DB_SSL_VERIFY', getenv('DB_SSL_VERIFY') !== false ? in_array(getenv('DB_
 define('DB_SSL_CA', getenv('DB_SSL_CA') ?: ($dbConfig['ssl_ca'] ?? ''));
 
 // Application Base URL (dynamic resolution based on HTTP request or environment)
-$dynamicScheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+// isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
+// als vertrauenswürdig gelisteten Reverse Proxy.
+$dynamicScheme = \App\Security\ClientIp::isHttps() ? 'https://' : 'http://';
 $dynamicHost = $_SERVER['HTTP_HOST'] ?? 'hengstverzeichnis.de';
 define('APP_URL', getenv('APP_URL') ?: ($dynamicScheme . $dynamicHost));
 
@@ -44,9 +46,7 @@ if (PHP_SAPI !== 'cli') {
         ini_set('session.cookie_samesite', 'Lax');
         ini_set('session.cookie_lifetime', 0); // In-memory session cookie (no persistent disk storage)
 
-        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
-        if ($isHttps) {
+        if (\App\Security\ClientIp::isHttps()) {
             ini_set('session.cookie_secure', 1);
             // W3C Cookie Prefix: __Host- enforces Secure, Path=/, and no Domain attribute
             session_name('__Host-HENGST_SESSID');

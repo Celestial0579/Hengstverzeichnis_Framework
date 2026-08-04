@@ -41,10 +41,7 @@ class RateLimiter {
     public static function recordAttempt(string $identifier, string $type): void {
         try {
             $db = Database::getInstance();
-            $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-            if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-                $ipAddress = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
-            }
+            $ipAddress = ClientIp::resolve();
 
             $stmt = $db->prepare("INSERT INTO login_attempts (identifier, type, ip_address) VALUES (?, ?, ?)");
             $stmt->execute([strtolower($identifier), $type, $ipAddress]);

@@ -4,6 +4,7 @@
 namespace App\Service;
 
 use App\Database;
+use App\Security\ClientIp;
 
 /**
  * Class AuditLogger
@@ -75,11 +76,9 @@ class AuditLogger {
                 $details = (string)$details;
             }
 
-            // Client-IP-Adresse ermitteln (berücksichtigt Reverse Proxies / Load Balancer)
-            $ipAddress = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-            if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-                $ipAddress = trim(explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])[0]);
-            }
+            // Client-IP-Adresse ermitteln (berücksichtigt Reverse Proxies / Load Balancer
+            // nur, wenn REMOTE_ADDR über TRUSTED_PROXIES als vertrauenswürdig gilt)
+            $ipAddress = ClientIp::resolve();
 
             // Log-Eintrag in der Datenbank speichern
             $stmt = $db->prepare("INSERT INTO audit_logs (user_id, username, action, category, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)");

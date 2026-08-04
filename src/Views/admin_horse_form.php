@@ -7,6 +7,20 @@
  */
 $isEdit = !empty($horse);
 $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
+
+// Für den client-seitigen "Verlaufseintrag hinzufügen"-Button: als reine JSON-Daten
+// einbetten und im JS per textContent rendern, statt Namen in HTML-/JS-Strings zu
+// interpolieren - verhindert Script-Injection über Personen-/Deckstationsnamen,
+// die Backticks oder andere Steuerzeichen enthalten könnten.
+$jsonOptions = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+$personsForJs = [];
+foreach (($allPersons ?? []) as $p) {
+    $personsForJs[] = ['id' => (int)$p['id'], 'name' => (string)$p['name']];
+}
+$stationsForJs = [];
+foreach (($allBreedingStations ?? []) as $bs) {
+    $stationsForJs[] = ['id' => (int)$bs['id'], 'name' => (string)$bs['name']];
+}
 ?>
 <div class="card">
     <h2><?= htmlspecialchars($title) ?></h2>
@@ -221,6 +235,12 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
         <script>
         let personRowIndex = <?= max(1, count($horsePersons ?? [])) ?>;
 
+        // Als reine JSON-Daten eingebettet (nicht als HTML/JS-String-Interpolation),
+        // damit Namen mit Sonderzeichen (inkl. Backticks) keine Script-Injection erlauben -
+        // Rendering erfolgt unten ausschließlich über textContent.
+        const allPersonsData = <?= json_encode($personsForJs, $jsonOptions) ?>;
+        const allBreedingStationsData = <?= json_encode($stationsForJs, $jsonOptions) ?>;
+
         function toggleYears(selectElem) {
             const row = selectElem.closest('.person-row');
             const yearInputs = row.querySelector('.year-inputs');
@@ -231,6 +251,20 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
             }
         }
 
+        function populateOptions(selectElem, items, placeholderText) {
+            const placeholderOpt = document.createElement('option');
+            placeholderOpt.value = '';
+            placeholderOpt.textContent = placeholderText;
+            selectElem.appendChild(placeholderOpt);
+
+            items.forEach(item => {
+                const opt = document.createElement('option');
+                opt.value = item.id;
+                opt.textContent = item.name;
+                selectElem.appendChild(opt);
+            });
+        }
+
         function addPersonRow() {
             const container = document.getElementById('persons_container');
             const div = document.createElement('div');
@@ -238,12 +272,7 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
             div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;';
             div.innerHTML = `
                 <div style="flex: 2; min-width: 180px;">
-                    <select name="persons[${personRowIndex}][person_id]" class="form-control">
-                        <option value="">-- Person (Züchter/Besitzer) --</option>
-                        <?php foreach ($allPersons as $p): ?>
-                            <option value="<?= $p['id'] ?>"><?= htmlspecialchars(addslashes($p['name'])) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <select name="persons[${personRowIndex}][person_id]" class="form-control"></select>
                 </div>
                 <div style="flex: 1.5; min-width: 140px;">
                     <select name="persons[${personRowIndex}][role]" class="form-control" onchange="toggleYears(this)">
@@ -253,12 +282,7 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
                     </select>
                 </div>
                 <div style="flex: 2; min-width: 180px;">
-                    <select name="persons[${personRowIndex}][breeding_station_id]" class="form-control">
-                        <option value="">-- Deckstation / Gestüt (Optional) --</option>
-                        <?php foreach ($allBreedingStations as $bs): ?>
-                            <option value="<?= $bs['id'] ?>"><?= htmlspecialchars(addslashes($bs['name'])) ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <select name="persons[${personRowIndex}][breeding_station_id]" class="form-control"></select>
                 </div>
                 <div class="year-inputs" style="display: flex; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                     <input type="number" name="persons[${personRowIndex}][from_year]" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
@@ -266,6 +290,8 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
                 </div>
                 <button type="button" class="btn" style="background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
             `;
+            populateOptions(div.querySelector(`select[name="persons[${personRowIndex}][person_id]"]`), allPersonsData, '-- Person (Züchter/Besitzer) --');
+            populateOptions(div.querySelector(`select[name="persons[${personRowIndex}][breeding_station_id]"]`), allBreedingStationsData, '-- Deckstation / Gestüt (Optional) --');
             container.appendChild(div);
             personRowIndex++;
         }

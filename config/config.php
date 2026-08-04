@@ -36,6 +36,22 @@ if (PHP_SAPI !== 'cli') {
         header("X-XSS-Protection: 1; mode=block");
         header("Referrer-Policy: strict-origin-when-cross-origin");
         header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
+
+        // Content-Security-Policy: 'unsafe-inline' bei script-/style-src ist aktuell nötig,
+        // da die Views durchgehend onclick=-Attribute und inline style= nutzen (kein
+        // Nonce-/Hash-basiertes Setup). object-src/base-uri/form-action/frame-ancestors
+        // bieten trotzdem echten Zusatzschutz ohne Änderungen an den Views.
+        header("Content-Security-Policy: " . implode('; ', [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+            "font-src 'self' https://fonts.gstatic.com",
+            "img-src 'self' data:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'self'",
+        ]));
     }
 
     if (session_status() === PHP_SESSION_NONE) {

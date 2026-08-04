@@ -22,7 +22,7 @@ class Database {
     private static ?PDO $instance = null;
 
     /**
-     * Privater Konstruktor zur Verinderung direkter Instanziierung (Singleton-Pattern).
+     * Privater Konstruktor zur Verhinderung direkter Instanziierung (Singleton-Pattern).
      */
     private function __construct() {}
 

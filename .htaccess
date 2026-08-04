@@ -13,7 +13,7 @@ Options -Indexes -ExecCGI
     RewriteEngine On
 
     # Prevent direct access to internal framework directories
-    RewriteRule ^(src|config|database|vendor|scratch) - [F,L,NC]
+    RewriteRule ^(src|config|database|storage|vendor|scratch) - [F,L,NC]
 
     # Redirect all public traffic to public/ directory
     RewriteCond %{REQUEST_URI} !^/public/

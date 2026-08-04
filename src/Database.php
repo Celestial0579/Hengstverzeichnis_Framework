@@ -254,6 +254,19 @@ class Database {
         try {
             $pdo->exec("ALTER TABLE `horses` MODIFY COLUMN `birth_year` SMALLINT UNSIGNED NULL");
         } catch (\Throwable $e) {}
+
+        // 11. Login-Versuche für Brute-Force-Schutz (Login, 2FA, Backup-Codes)
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `login_attempts` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `identifier` VARCHAR(255) NOT NULL,
+                `type` VARCHAR(20) NOT NULL DEFAULT 'login',
+                `ip_address` VARCHAR(45) NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX (`identifier`, `type`),
+                INDEX (`created_at`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

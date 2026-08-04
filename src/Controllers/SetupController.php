@@ -9,8 +9,34 @@ use PDOException;
 
 class SetupController extends BaseController {
 
+    private static function dbConfigFilePath(): string {
+        return __DIR__ . '/../../config/db_config.php';
+    }
+
+    /**
+     * Liest die aktuelle config/db_config.php ein (leeres Array, falls sie nicht
+     * existiert - z. B. bei rein Env-Var-basierten Deployments).
+     */
+    public static function readDbConfig(): array {
+        $file = self::dbConfigFilePath();
+        return file_exists($file) ? (require $file) : [];
+    }
+
+    /**
+     * Schreibt einen einzelnen Schlüssel in config/db_config.php, bestehende Werte
+     * bleiben erhalten. Für sicherheitsrelevante Einstellungen (z. B. TRUSTED_PROXIES),
+     * die auch ohne Umgebungsvariablen-Unterstützung (klassisches Webhosting) über den
+     * Admin-Bereich konfigurierbar sein müssen.
+     */
+    public static function writeDbConfigValue(string $key, $value): bool {
+        $config = self::readDbConfig();
+        $config[$key] = $value;
+        $content = "<?php\n// Auto-generated database configuration\nreturn " . var_export($config, true) . ";\n";
+        return file_put_contents(self::dbConfigFilePath(), $content) !== false;
+    }
+
     public static function needsSetup(): bool {
-        $dbConfigFile = __DIR__ . '/../../config/db_config.php';
+        $dbConfigFile = self::dbConfigFilePath();
         $hasEnvConfig = self::isDbConfiguredViaEnv();
         if (!file_exists($dbConfigFile) && !$hasEnvConfig) {
             return true;
@@ -252,7 +278,6 @@ class SetupController extends BaseController {
 
         if ($writeDbConfigFile) {
             // Save DB Config File
-            $dbConfigFile = __DIR__ . '/../../config/db_config.php';
             $configContent = "<?php\n// Auto-generated database configuration\nreturn " . var_export([
                 'host' => $dbHost,
                 'port' => $dbPort,
@@ -263,9 +288,13 @@ class SetupController extends BaseController {
                 'ssl_verify' => $dbSslVerify,
                 'ssl_ca' => $dbSslCa,
                 'app_key' => bin2hex(random_bytes(32)),
+                // Explizit 'production': eine per Setup-Wizard eingerichtete Instanz ist eine
+                // echte Installation, keine lokale Entwicklungsumgebung - PHP-Fehlerdetails
+                // dürfen Besuchern nicht angezeigt werden (siehe config/config.php).
+                'app_env' => 'production',
             ], true) . ";\n";
 
-            if (file_put_contents($dbConfigFile, $configContent) === false) {
+            if (file_put_contents(self::dbConfigFilePath(), $configContent) === false) {
                 $this->render('setup', array_merge([
                     'title' => 'Einrichtung - Hengstverzeichnis Framework',
                     'errors' => ['Konnte config/db_config.php nicht schreiben. Bitte Schreibrechte im ordner config/ prüfen.'],

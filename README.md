@@ -105,7 +105,7 @@ ADMIN_PASSWORD=change-me-too
 
 ### Variante B: Ohne Umgebungsvariablen (Setup-Wizard, klassisches Webhosting)
 
-Ohne gesetzte Umgebungsvariablen und ohne vorhandene `config/db_config.php` leitet die App beim ersten Aufruf automatisch auf `/setup` weiter. Dort werden DB-Zugangsdaten über ein Formular eingegeben; beim Absenden erzeugt die App `config/db_config.php` (inkl. eines frisch generierten `app_key`) und legt den ersten Admin-Account an.
+Ohne gesetzte Umgebungsvariablen und ohne vorhandene `config/db_config.php` leitet die App beim ersten Aufruf automatisch auf `/setup` weiter. Dort werden DB-Zugangsdaten über ein Formular eingegeben; beim Absenden erzeugt die App `config/db_config.php` (inkl. eines frisch generierten `app_key` sowie `app_env => 'production'`, damit keine PHP-Fehlerdetails an Besucher ausgegeben werden) und legt den ersten Admin-Account an.
 
 Voraussetzung: Der Webserver-Prozess braucht Schreibrechte auf den Ordner `config/`, sonst schlägt das Schreiben der Datei fehl.
 
@@ -122,6 +122,12 @@ Läuft die App hinter einem Reverse Proxy oder Load Balancer (nginx, Traefik, Cl
 TRUSTED_PROXIES=10.0.0.5
 TRUSTED_PROXIES=172.16.0.0/12,10.0.0.5
 ```
+
+**Ohne zuverlässige Umgebungsvariablen** (klassisches Webhosting, siehe Variante B
+oben, wo Env-Variablen oft nicht ankommen) lässt sich derselbe Wert alternativ
+unter **Admin → Systemeinstellungen → „Vertrauenswürdige Reverse-Proxy-IPs"**
+setzen — wird dann in `config/db_config.php` gespeichert. Eine gesetzte
+Umgebungsvariable hat weiterhin immer Vorrang vor diesem Wert.
 
 Typische Werte:
 - Reverse Proxy als eigener Container im selben Docker-Netzwerk: das Docker-Bridge-Subnetz (z. B. `172.16.0.0/12` für den Standard-Bridge-Bereich, oder das projektspezifische Subnetz — mit `docker network inspect` prüfen) oder die feste Container-IP

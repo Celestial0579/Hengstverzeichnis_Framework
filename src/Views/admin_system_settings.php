@@ -17,6 +17,19 @@
         </div>
     <?php endif; ?>
 
+    <?php if (isset($_GET['error']) && $_GET['error'] === 'trusted_proxies_invalid'): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Ungültiger Eintrag bei „Vertrauenswürdige Reverse-Proxy-IPs": <code><?= htmlspecialchars($_GET['invalid_entry'] ?? '') ?></code>.
+            Bitte einzelne IP-Adressen oder CIDR-Netze (z. B. <code>10.0.0.5</code> oder <code>172.16.0.0/12</code>), kommagetrennt, angeben. Stamm-URL wurde trotzdem gespeichert.
+        </div>
+    <?php endif; ?>
+
+    <?php if (isset($_GET['error']) && $_GET['error'] === 'trusted_proxies_write_failed'): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            „Vertrauenswürdige Reverse-Proxy-IPs" konnten nicht gespeichert werden: <code>config/db_config.php</code> ist nicht beschreibbar. Bitte Schreibrechte im Ordner <code>config/</code> prüfen.
+        </div>
+    <?php endif; ?>
+
     <form action="/admin/system-settings" method="POST" style="max-width: 600px;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
@@ -25,6 +38,30 @@
             <input type="url" id="base_url" name="base_url" class="form-control" placeholder="https://hengstverzeichnis.de/" value="<?= htmlspecialchars($settings['base_url'] ?? '') ?>">
             <small style="color: #666; display: block; margin-top: 0.3rem;">
                 Basis-Adresse der Instanz inklusive Protokoll (`https://`) und abschließendem Slash (`/`). Wird u. a. für E-Mail-Links, Canonical URLs und Systembenachrichtigungen genutzt.
+            </small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label for="trusted_proxies">🛡️ Vertrauenswürdige Reverse-Proxy-IPs (TRUSTED_PROXIES)</label>
+            <input
+                type="text"
+                id="trusted_proxies"
+                name="trusted_proxies"
+                class="form-control"
+                placeholder="z. B. 10.0.0.5,172.16.0.0/12"
+                value="<?= htmlspecialchars($trustedProxies ?? '') ?>"
+                <?= !empty($trustedProxiesFromEnv) ? 'disabled' : '' ?>
+            >
+            <small style="color: #666; display: block; margin-top: 0.3rem;">
+                <?php if (!empty($trustedProxiesFromEnv)): ?>
+                    Wird aktuell über die Umgebungsvariable <code>TRUSTED_PROXIES</code> gesetzt — diese hat Vorrang und kann hier nicht überschrieben werden.
+                <?php else: ?>
+                    Nur nötig, wenn ein Reverse Proxy/Load Balancer vor dieser Instanz läuft (nginx, Traefik, Cloudflare, CDN des Hosters o. Ä.).
+                    Kommagetrennte Liste vertrauenswürdiger Proxy-IPs/-Netze (CIDR). <strong>Ohne eigenen Reverse Proxy bitte leer lassen</strong> —
+                    eine falsche Angabe erlaubt es Besuchern, ihre eigene IP-Adresse über den <code>X-Forwarded-For</code>-Header vorzutäuschen und damit
+                    Login-Rate-Limiting sowie Audit-Log-Einträge zu manipulieren. Details siehe
+                    <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework#reverse-proxy--client-ip-erkennung" target="_blank" rel="noopener">README</a>.
+                <?php endif; ?>
             </small>
         </div>
 

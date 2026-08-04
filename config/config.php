@@ -15,6 +15,16 @@ define('DB_SSL', getenv('DB_SSL') !== false ? in_array(getenv('DB_SSL'), ['true'
 define('DB_SSL_VERIFY', getenv('DB_SSL_VERIFY') !== false ? in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true) : !empty($dbConfig['ssl_verify']));
 define('DB_SSL_CA', getenv('DB_SSL_CA') ?: ($dbConfig['ssl_ca'] ?? ''));
 
+// Trusted Reverse Proxies (siehe src/Security/ClientIp.php): Umgebungsvariable hat
+// Vorrang, sonst der über Admin > Systemeinstellungen in db_config.php gespeicherte
+// Wert. Damit lässt sich diese sicherheitsrelevante Einstellung auch auf klassischem
+// Webhosting konfigurieren, wo Umgebungsvariablen oft nicht zuverlässig ankommen
+// (siehe README, Abschnitt "Reverse Proxy & Client-IP-Erkennung").
+// WICHTIG: Muss VOR dem ersten Aufruf von ClientIp::isHttps()/resolve() definiert
+// werden (siehe unten) - ClientIp cached TRUSTED_PROXIES beim ersten Zugriff pro
+// Request; ein späteres define() käme für diesen Request zu spät.
+define('TRUSTED_PROXIES', getenv('TRUSTED_PROXIES') !== false ? getenv('TRUSTED_PROXIES') : ($dbConfig['trusted_proxies'] ?? ''));
+
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 // isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
 // als vertrauenswürdig gelisteten Reverse Proxy.
@@ -25,8 +35,12 @@ define('APP_URL', getenv('APP_URL') ?: ($dynamicScheme . $dynamicHost));
 // Application Secret Key for AES-256-GCM Encryption
 define('APP_KEY', getenv('APP_KEY') ?: ($dbConfig['app_key'] ?? ''));
 
-// Environment
-define('APP_ENV', getenv('APP_ENV') ?: 'development');
+// Environment: Existiert bereits eine config/db_config.php (App wurde über den
+// Setup-Wizard eingerichtet), handelt es sich um eine echte Installation - dann
+// ohne explizite Angabe sicherheitshalber IMMER 'production' annehmen (keine
+// Fehlerdetails an Besucher ausgeben). Nur ein komplett unkonfigurierter Checkout
+// (weder Env-Variable noch db_config.php) gilt als lokale Entwicklungsumgebung.
+define('APP_ENV', getenv('APP_ENV') ?: ($dbConfig['app_env'] ?? (file_exists($dbConfigFile) ? 'production' : 'development')));
 
 // Security Headers & Anti-Infostealer Session Security
 if (PHP_SAPI !== 'cli') {

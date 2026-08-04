@@ -105,7 +105,13 @@ class AdminController extends BaseController {
 
     public function systemSettings(): void {
         $this->requireAdmin();
-        $this->render('admin_system_settings', ['title' => 'Systemeinstellungen']);
+
+        $trustedProxiesFromEnv = getenv('TRUSTED_PROXIES') !== false;
+        $this->render('admin_system_settings', [
+            'title' => 'Systemeinstellungen',
+            'trustedProxies' => $trustedProxiesFromEnv ? getenv('TRUSTED_PROXIES') : (SetupController::readDbConfig()['trusted_proxies'] ?? ''),
+            'trustedProxiesFromEnv' => $trustedProxiesFromEnv,
+        ]);
     }
 
     public function updateSystemSettings(): void {
@@ -136,7 +142,31 @@ class AdminController extends BaseController {
 
         \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Stamm-URL: " . $baseUrl);
 
-        $redirectUrl = "/admin/system-settings?success=1" . ($isHttpWarning ? "&warning=http_unencrypted" : "");
+        // Trusted Proxies: nur verarbeiten, wenn nicht bereits per Env-Var vorgegeben
+        // (sonst hätte eine Änderung hier ohnehin keine Wirkung, siehe config/config.php).
+        $trustedProxiesError = null;
+        if (getenv('TRUSTED_PROXIES') === false) {
+            $trustedProxiesRaw = trim($_POST['trusted_proxies'] ?? '');
+            $entries = $trustedProxiesRaw === '' ? [] : array_map('trim', explode(',', $trustedProxiesRaw));
+            foreach ($entries as $entry) {
+                if ($entry === '' || \App\Security\ClientIp::isValidProxyEntry($entry)) {
+                    continue;
+                }
+                $trustedProxiesError = $entry;
+                break;
+            }
+
+            if ($trustedProxiesError === null) {
+                $normalized = implode(',', array_filter($entries, fn($e) => $e !== ''));
+                if (!SetupController::writeDbConfigValue('trusted_proxies', $normalized)) {
+                    header("Location: /admin/system-settings?error=trusted_proxies_write_failed");
+                    exit;
+                }
+                \App\Service\AuditLogger::log("Trusted Proxies aktualisiert", "security", "Wert: " . ($normalized !== '' ? $normalized : '(leer)'));
+            }
+        }
+
+        $redirectUrl = "/admin/system-settings?success=1" . ($isHttpWarning ? "&warning=http_unencrypted" : "") . ($trustedProxiesError !== null ? "&error=trusted_proxies_invalid&invalid_entry=" . urlencode($trustedProxiesError) : "");
         header("Location: " . $redirectUrl);
         exit;
     }

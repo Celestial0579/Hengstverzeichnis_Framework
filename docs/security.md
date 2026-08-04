@@ -68,12 +68,29 @@ Single-Use und selbst bei DB-Zugriff nicht im Klartext einsehbar.
 ## Reverse-Proxy- & Client-IP-Erkennung (`src/Security/ClientIp.php`)
 
 `X-Forwarded-For`/`X-Forwarded-Proto` werden **nur** ausgewertet, wenn die
-unmittelbar verbindende Gegenstelle (`REMOTE_ADDR`) über die Env-Variable
-`TRUSTED_PROXIES` (IPs/CIDR, kommagetrennt) als vertrauenswürdig gelistet ist.
+unmittelbar verbindende Gegenstelle (`REMOTE_ADDR`) über `TRUSTED_PROXIES`
+(IPs/CIDR, kommagetrennt) als vertrauenswürdig gelistet ist.
 Ohne diese Konfiguration wird immer `REMOTE_ADDR` verwendet – verhindert
 IP-Spoofing über gefälschte Header, die sonst Rate-Limiting und Audit-Log
 unterlaufen könnten. Betrifft auch die HTTPS-Erkennung für sichere
 Session-Cookies. Details siehe [README.md](../README.md#reverse-proxy--client-ip-erkennung).
+
+`TRUSTED_PROXIES` lässt sich sowohl per Umgebungsvariable setzen (Vorrang)
+als auch – für Deployments ohne zuverlässige Env-Var-Weitergabe, z. B.
+klassisches Webhosting – über **Admin → Systemeinstellungen** im Browser
+konfigurieren (`AdminController::updateSystemSettings()`, validiert über
+`ClientIp::isValidProxyEntry()`, gespeichert in `config/db_config.php` über
+`SetupController::writeDbConfigValue()`). `config/config.php` löst die
+Konstante `TRUSTED_PROXIES` aus Env-Variable **oder** `db_config.php` auf,
+bevor `ClientIp` sie liest.
+
+### `APP_ENV`-Default
+
+Existiert `config/db_config.php` (App wurde über den Setup-Wizard
+eingerichtet), gilt ohne explizite `APP_ENV`-Angabe automatisch `production`
+(keine PHP-Fehlerdetails an Besucher). Nur ein komplett unkonfigurierter
+Checkout ohne Env-Variable und ohne `db_config.php` gilt als lokale
+Entwicklungsumgebung (`development`, Fehler werden angezeigt).
 
 ## Security-Header & CSP (`config/config.php`)
 

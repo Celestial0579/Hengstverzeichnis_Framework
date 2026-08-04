@@ -85,10 +85,42 @@ class ClientIp {
     private static function getTrustedProxies(): array {
         static $trusted = null;
         if ($trusted === null) {
-            $raw = getenv('TRUSTED_PROXIES');
-            $trusted = $raw === false ? [] : array_values(array_filter(array_map('trim', explode(',', $raw))));
+            // TRUSTED_PROXIES wird in config/config.php aus der Umgebungsvariable ODER,
+            // falls diese nicht gesetzt ist (z. B. auf klassischem Webhosting ohne
+            // zuverlässige Env-Var-Weitergabe), aus config/db_config.php aufgelöst.
+            // Fallback auf getenv() direkt, falls die Konstante ausnahmsweise noch nicht
+            // definiert ist (z. B. in CLI-Skripten ohne config.php-Bootstrap).
+            $raw = defined('TRUSTED_PROXIES') ? TRUSTED_PROXIES : (getenv('TRUSTED_PROXIES') ?: '');
+            $trusted = $raw === '' ? [] : array_values(array_filter(array_map('trim', explode(',', $raw))));
         }
         return $trusted;
+    }
+
+    /**
+     * Prüft, ob ein einzelner Eintrag ein syntaktisch gültiger TRUSTED_PROXIES-Wert
+     * ist (einzelne IPv4/IPv6-Adresse oder CIDR-Notation). Für die Validierung von
+     * Nutzereingaben im Admin-Bereich (Systemeinstellungen).
+     */
+    public static function isValidProxyEntry(string $entry): bool {
+        if ($entry === '') {
+            return false;
+        }
+        if (strpos($entry, '/') === false) {
+            return filter_var($entry, FILTER_VALIDATE_IP) !== false;
+        }
+
+        $parts = explode('/', $entry, 2);
+        if (count($parts) !== 2 || !ctype_digit($parts[1])) {
+            return false;
+        }
+        [$subnet, $maskBits] = $parts;
+
+        $subnetBin = @inet_pton($subnet);
+        if ($subnetBin === false) {
+            return false;
+        }
+
+        return (int)$maskBits <= strlen($subnetBin) * 8;
     }
 
     private static function ipMatches(string $ip, string $entry): bool {

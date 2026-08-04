@@ -9,13 +9,13 @@
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
         <div>
-            <h2>📜 System Audit-Log (Letzte 30 Tage)</h2>
+            <h2>📜 System Audit-Log (Standardansicht: letzte 30 Tage)</h2>
             <p style="color: #666; font-size: 0.95rem; margin: 0;">
-                Revisionssicheres, unlöschbares Protokoll aller Systemaktivitäten und automatischen Aktionen.
+                Revisionssicheres, unlöschbares Protokoll aller Systemaktivitäten und automatischen Aktionen. Es gibt keine automatische Löschfrist - die 30 Tage betreffen nur diese Standardansicht, die Daten selbst bleiben dauerhaft erhalten.
             </p>
         </div>
         <div style="background: #e8f4fd; border: 1px solid #b6d4fe; color: #084298; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: bold;">
-            🔒 Revisionssicher & Unlöschbar (30 Tage Retention)
+            🔒 Revisionssicher & Unlöschbar (dauerhaft gespeichert)
         </div>
     </div>
 

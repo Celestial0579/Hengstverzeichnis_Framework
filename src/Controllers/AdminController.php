@@ -340,7 +340,9 @@ class AdminController extends BaseController {
     }
 
     /**
-     * Audit log viewer for Administrators (Immutable 30-day retention)
+     * Audit log viewer for Administrators. Entries are immutable and kept
+     * indefinitely (no automatic purge) - the "30 days" here is only the
+     * default display window, with a fallback to the latest 500 entries.
      */
     public function logs(): void {
         $this->requireAdmin();

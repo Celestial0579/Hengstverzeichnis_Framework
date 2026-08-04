@@ -127,7 +127,7 @@ class Database {
             }
         };
 
-        // 1. Audit-Log für Revisionssicherheit (30 Tage Speicherdauer)
+        // 1. Audit-Log für Revisionssicherheit (dauerhafte Speicherung, keine automatische Löschung)
         try {
             $pdo->exec("CREATE TABLE IF NOT EXISTS `audit_logs` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,

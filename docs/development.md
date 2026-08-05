@@ -82,23 +82,62 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 PHPUnit-Testsuite unter [`tests/`](../tests) (dev-only Composer-Abhängigkeit,
 siehe [`composer.json`](../composer.json) – betrifft nicht die
 Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main` automatisch über
-[`.github/workflows/tests.yml`](../.github/workflows/tests.yml).
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml), siehe
+[Issue #54](../../../issues/54). Drei Ebenen:
+
+### `tests/Unit` – reine Logik, keine Abhängigkeiten
+
+`Security\Totp`, `Security\Crypto`, `Security\ClientIp::isValidProxyEntry()`,
+`Helper\Markdown::parse()`. Läuft ohne weitere Voraussetzungen:
 
 ```bash
 composer install
-composer test
+composer test -- --testsuite Unit
 ```
 
-Aktuell abgedeckt: `tests/Unit` – reine Logik-Tests ohne Datenbank
-(`Security\Totp`, `Security\Crypto`, `Security\ClientIp::isValidProxyEntry()`,
-`Helper\Markdown::parse()`). `tests/Integration` ist als zweite Ebene für
-DB-gestützte Tests (Auth-Flow, CSRF, Blutlinien-Match-Logik,
-`Database::ensureSchemaUpToDate()`) vorgesehen, siehe
-[Issue #54](../../../issues/54) – benötigt einen MySQL-Service im
-CI-Workflow und ist noch nicht implementiert.
+### `tests/Integration` – `App\Database` direkt im PHPUnit-Prozess
+
+Ruft `Database::getInstance()`/`ensureSchemaUpToDate()` gegen eine echte
+MariaDB-Testdatenbank auf (siehe `tests/Integration/DatabaseTest.php`).
+Braucht `DB_HOST`/`DB_NAME`/`DB_USER`/`DB_PASS` als Umgebungsvariable (siehe
+`tests/bootstrap.php`) – ohne diese wird die Suite übersprungen:
+
+```bash
+DB_HOST=127.0.0.1 DB_NAME=hengst_integration DB_USER=hengst DB_PASS=hengst \
+  composer test -- --testsuite Integration
+```
+
+### `tests/Functional` – HTTP-Requests gegen eine echte, laufende Instanz
+
+Deckt Auth-Flow, CSRF-Schutz, Stamm-URL-SSRF-Härtung und die
+Blutlinien-Match-Logik ab. **Nicht** in-process testbar: praktisch jede
+Controller-Aktion, die Formulardaten verarbeitet, endet mit
+`header(...); exit;` – das würde den PHPUnit-Prozess selbst beenden. Die
+Suite startet daher automatisch einen `php -S`-Subprozess (siehe
+`tests/Support/PhpBuiltInServer.php`) und treibt ihn über einen minimalen
+curl-basierten HTTP-Client (`tests/Support/HttpClient.php`) an – kein
+Headless-Browser/WebDriver nötig, da die App serverseitig gerendertes PHP
+ohne clientseitige JS-Logik ist. Die App-Instanz provisioniert sich beim
+ersten Test selbst über die vollautomatische Ersteinrichtung (siehe README,
+Abschnitt „Ersteinrichtung ganz ohne Wizard“) – zusätzlich zu `DB_*` werden
+`APP_KEY`, `SITE_NAME`, `ADMIN_USERNAME`, `ADMIN_EMAIL` und `ADMIN_PASSWORD`
+als Umgebungsvariable benötigt:
+
+```bash
+DB_HOST=127.0.0.1 DB_NAME=hengst_functional DB_USER=hengst DB_PASS=hengst \
+  APP_KEY=lokaler-test-schluessel SITE_NAME="Testverband" \
+  ADMIN_USERNAME=e2eadmin ADMIN_EMAIL=e2e@example.com ADMIN_PASSWORD=Test1234! \
+  composer test -- --testsuite Functional
+```
+
+`Integration` und `Functional` brauchen **getrennte** Datenbanken (siehe
+`.github/workflows/tests.yml`) – die Integration-Suite legt sich ihr eigenes
+reduziertes Alt-Schema an, die Functional-Suite importiert `database/schema.sql`
+automatisch über den Setup-Wizard.
 
 Neue reine Logik (keine DB-/Session-/`$_SERVER`-Abhängigkeit) sollte nach
-Möglichkeit mit einem Unit-Test unter `tests/Unit` begleitet werden.
+Möglichkeit mit einem Unit-Test unter `tests/Unit` begleitet werden; neue
+Controller-Aktionen mit einem Functional-Test.
 
 ## Coding-Konventionen
 

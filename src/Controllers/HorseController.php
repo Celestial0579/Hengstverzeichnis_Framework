@@ -50,8 +50,12 @@ class HorseController extends BaseController {
         }
 
         $name = trim($_POST['name'] ?? '');
-        $ueln = trim($_POST['ueln'] ?? '');
-        $foreign_ueln = trim($_POST['foreign_ueln'] ?? '');
+        // NULL statt '' bei leerer UELN: die Spalte ist UNIQUE, mehrere Pferde ohne
+        // UELN würden sonst als doppelter Leerstring-Eintrag kollidieren (SQLSTATE
+        // 23000) - NULL-Werte sind für UNIQUE-Constraints in MySQL/MariaDB dagegen
+        // nie doppelt.
+        $ueln = trim($_POST['ueln'] ?? '') ?: null;
+        $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         $color = trim($_POST['color'] ?? '');
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
@@ -141,8 +145,12 @@ class HorseController extends BaseController {
         }
 
         $name = trim($_POST['name'] ?? '');
-        $ueln = trim($_POST['ueln'] ?? '');
-        $foreign_ueln = trim($_POST['foreign_ueln'] ?? '');
+        // NULL statt '' bei leerer UELN: die Spalte ist UNIQUE, mehrere Pferde ohne
+        // UELN würden sonst als doppelter Leerstring-Eintrag kollidieren (SQLSTATE
+        // 23000) - NULL-Werte sind für UNIQUE-Constraints in MySQL/MariaDB dagegen
+        // nie doppelt.
+        $ueln = trim($_POST['ueln'] ?? '') ?: null;
+        $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         $color = trim($_POST['color'] ?? '');
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
@@ -244,10 +252,10 @@ class HorseController extends BaseController {
     /**
      * Auto-links unlinked placeholders matching $ueln, $foreignUeln or $name to $horseId
      */
-    private function autoLinkMatches(int $horseId, string $name, string $ueln, string $foreignUeln = '', ?int $birthYear = null): void {
+    private function autoLinkMatches(int $horseId, string $name, ?string $ueln, ?string $foreignUeln = null, ?int $birthYear = null): void {
         $db = Database::getInstance();
 
-        $uelnsToMatch = array_unique(array_filter([trim($ueln), trim($foreignUeln)]));
+        $uelnsToMatch = array_unique(array_filter([trim($ueln ?? ''), trim($foreignUeln ?? '')]));
 
         foreach ($uelnsToMatch as $u) {
             // Auto-link Sires matching UELN or Foreign UELN (UELN ist eindeutig, keine Mehrdeutigkeit möglich)

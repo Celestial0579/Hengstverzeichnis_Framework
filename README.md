@@ -37,7 +37,7 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 ## Bekannte Einschränkungen (Beta)
 
-- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) deckt bisher nur reine Logik ohne Datenbank ab (Auth-Krypto, TOTP, Markdown-Rendering, IP-Validierung); DB-gestützte Integrationstests (Auth-Flow, Blutlinien-Matching) sind noch offen. Läuft in CI bei jedem PR, ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
+- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: reine Logik ohne DB, `Database::ensureSchemaUpToDate()` gegen eine echte Testdatenbank, sowie HTTP-Funktionstests (Login/2FA, CSRF-Schutz, Stamm-URL-SSRF-Härtung, Blutlinien-Matching) gegen eine automatisch gestartete Instanz. Noch nicht abgedeckt: DSGVO-Verwaltung, Papierkorb, Benutzerverwaltung. Ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
 Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B. EntraID SSO,
 Klick-Tracking für Weblinks) werden als Feature-Requests in den

@@ -1,4 +1,0 @@
-Reserviert für DB-gestützte Integrationstests (Auth-Flow, CSRF,
-Blutlinien-Match-Logik, Database::ensureSchemaUpToDate()) - siehe Issue #54
-und docs/development.md, Abschnitt "Tests". Benötigt einen MySQL-Service im
-CI-Workflow (.github/workflows/tests.yml) und ist noch nicht implementiert.

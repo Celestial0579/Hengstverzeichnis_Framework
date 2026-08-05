@@ -293,9 +293,8 @@ synchron innerhalb dieses einen Requests ausführt.
     `runCronNow()`) zeigt registrierte Aufgaben samt letztem Lauf und
     erlaubt einen sofortigen manuellen Lauf - Alternative für Betreiber ohne
     Zugriff auf einen System-Cron.
-- Erster Verbraucher: `App\Service\BackupService` (#59, siehe unten). Ein
-  E-Mail-Digest für Admins/Editoren (#52) kann sich künftig ebenso über
-  `Scheduler::register()` anmelden.
+- Verbraucher: `App\Service\BackupService` (#59, siehe unten) und
+  `App\Service\DigestService` (#52, siehe unten).
 
 ## Automatisierte externe Backups (`src/Service/BackupService.php`, `src/Service/DatabaseDumper.php`, `src/Service/S3Client.php`, #59)
 
@@ -334,3 +333,39 @@ Konfiguration selbst über `App\Service\Scheduler` (siehe oben).
 - Bewusst **nicht** enthalten: Sicherung hochgeladener Dateien
   (Logos/Pferdebilder) - im Issue nur als optional genannt, die
   Datenbank ist der eigentlich unwiederbringliche Teil.
+
+## E-Mail-Digest für Admins/Editoren (`src/Service/DigestService.php`, #52)
+
+Optionaler periodischer E-Mail-Digest an alle Admin-/Editor-Konten für
+Ereignisse, die bisher keine sofortige Benachrichtigung auslösen -
+DSGVO-Anfragen sind davon ausgenommen, da `Mailer::sendDsgvoNotification()`
+dafür bereits sofort informiert. Registriert sich analog zu
+`App\Service\BackupService` (siehe oben) bei Aktivierung selbst über
+`App\Service\Scheduler`.
+
+- `App\Service\MatchSuggestionFinder::findAll()`: die Blutlinien-Match-/
+  Merge-Vorschlagslogik (Bewertungsalgorithmus samt Schwellenwerten), aus
+  `HorseController::matches()`/`calculateSuggestions()` extrahiert -
+  unverändertes Verhalten, reine Verschiebung, damit sowohl die Admin-
+  Match-Seite als auch der Digest exakt dieselbe Anzahl offener Vorschläge
+  sehen.
+- Inhalt bewusst auf zwei Punkte beschränkt (siehe Issue): Anzahl offener
+  Match-Vorschläge sowie Anzahl Papierkorb-Einträge, die sich der
+  30-Tage-Löschfrist nähern (Warnfenster: 23-30 Tage seit `deleted_at`, bevor
+  ab Tag 30 auch Editoren - nicht nur Admins - endgültig löschen dürfen,
+  siehe `TrashController::permanentDelete()`). Meldet stets den aktuellen
+  Stand zum Laufzeitpunkt, kein Delta "neu seit letztem Digest" - Match-
+  Vorschläge sind reine Berechnung ohne eigenen Zeitstempel.
+- Gibt es nichts zu berichten, wird bewusst **nichts versendet** (kein
+  "alles ruhig"-Digest) - `run()` protokolliert diesen Fall dennoch als
+  erfolgreichen Lauf (`digest_last_status`/`digest_last_run_at`/
+  `digest_last_sent_count` in der `settings`-Tabelle).
+- Empfänger: alle nicht gelöschten Benutzerkonten mit `role IN ('admin',
+  'editor')`. Ein vollständiger Versandfehlschlag (keine Empfänger oder
+  Versand an niemanden erfolgreich) wirft eine Exception, die der
+  Scheduler zentral im Audit-Log protokolliert - ein NUR teilweiser
+  Fehlschlag (einzelne Empfänger nicht erreichbar) gilt als Erfolg des
+  Laufs.
+- Aktivierung/Intervall unter `/admin/digest` konfigurierbar
+  (`AdminController::digestSettings()`/`updateDigestSettings()`/
+  `testDigest()` für einen sofortigen manuellen Testlauf).

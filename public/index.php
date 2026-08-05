@@ -39,6 +39,7 @@ $pluginManager->boot();
 // über den Admin-Bereich konfiguriert/aktiviert wurde - registerScheduledTask()
 // ist dafür jeweils selbst verantwortlich (No-Op ohne Konfiguration).
 \App\Service\BackupService::registerScheduledTask();
+\App\Service\DigestService::registerScheduledTask();
 
 $router = new Router();
 
@@ -175,6 +176,11 @@ $router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
 $router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);
 $router->post('/admin/backups', [App\Controllers\AdminController::class, 'updateBackupSettings']);
 $router->post('/admin/backups/test', [App\Controllers\AdminController::class, 'testBackup']);
+
+// Admin E-Mail-Digest-Verwaltung (#52)
+$router->get('/admin/digest', [App\Controllers\AdminController::class, 'digestSettings']);
+$router->post('/admin/digest', [App\Controllers\AdminController::class, 'updateDigestSettings']);
+$router->post('/admin/digest/test', [App\Controllers\AdminController::class, 'testDigest']);
 
 // Plugin-Routen: von aktivierten Plugins über eine optionale routes()-Methode
 // deklariert (siehe App\Plugin\PluginManager::registerPluginRoute()). Der

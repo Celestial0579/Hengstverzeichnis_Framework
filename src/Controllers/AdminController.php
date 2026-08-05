@@ -563,6 +563,88 @@ class AdminController extends BaseController {
     }
 
     /**
+     * E-Mail-Digest-Verwaltung (#52, siehe App\Service\DigestService):
+     * periodische Zusammenfassung offener Blutlinien-Match-Vorschläge und
+     * bald ablaufender Papierkorb-Fristen an Admins/Editoren. Baut auf der
+     * Cron-/Scheduler-Infrastruktur (#67) auf.
+     */
+    public function digestSettings(): void {
+        $this->requireAdmin();
+
+        $db = Database::getInstance();
+        $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'digest_%'");
+        $settings = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
+
+        $schedulerTask = null;
+        foreach (\App\Service\Scheduler::registeredTasks() as $task) {
+            if ($task['name'] === 'digest.admin_editor') {
+                $schedulerTask = $task;
+                break;
+            }
+        }
+
+        $this->render('admin_digest_settings', [
+            'title' => 'E-Mail-Digest',
+            'settings' => $settings,
+            'schedulerTask' => $schedulerTask,
+        ]);
+    }
+
+    public function updateDigestSettings(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $db = Database::getInstance();
+
+        $settings = [
+            'digest_enabled' => !empty($_POST['digest_enabled']) ? '1' : '0',
+            'digest_interval_hours' => (string)max(1, (int)($_POST['digest_interval_hours'] ?? 24)),
+        ];
+
+        foreach ($settings as $key => $value) {
+            $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+            $stmt->execute([$key, $value, $value]);
+        }
+
+        \App\Service\AuditLogger::log("Digest-Einstellungen aktualisiert", "settings", "Aktiviert: {$settings['digest_enabled']}, Intervall: {$settings['digest_interval_hours']}h");
+
+        header("Location: /admin/digest?success=1");
+        exit;
+    }
+
+    /**
+     * Löst einen sofortigen Digest-Lauf aus, unabhängig vom konfigurierten
+     * Intervall - z. B. um die Mail-Konfiguration zu testen. Gibt es aktuell
+     * nichts zu berichten, wird (wie im regulären Lauf) bewusst kein
+     * "alles ruhig"-E-Mail versendet.
+     */
+    public function testDigest(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        try {
+            \App\Service\DigestService::run();
+
+            $db = Database::getInstance();
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'digest_last_sent_count'");
+            $stmt->execute();
+            $sentCount = (int)($stmt->fetchColumn() ?: 0);
+
+            header("Location: /admin/digest?" . ($sentCount > 0 ? "success=digest_run&sent={$sentCount}" : "success=digest_skipped"));
+        } catch (\Throwable $e) {
+            header("Location: /admin/digest?error=" . urlencode($e->getMessage()));
+        }
+        exit;
+    }
+
+    /**
      * Audit log viewer for Administrators. Entries are immutable and kept
      * indefinitely (no automatic purge) - the "30 days" here is only the
      * default display window, with a fallback to the latest 500 entries.

@@ -142,7 +142,9 @@ Controller-Aktionen mit einem Functional-Test.
 ## Branches
 
 - **`main`**: stabiler Branch. PRs brauchen 1 Review + grüne Pflicht-Checks
-  (CodeQL, PHPUnit, Merge Source Gate) und werden manuell gemerged. Quelle
+  (CodeQL, PHPUnit, Semgrep SAST, Merge Source Gate) und werden manuell
+  gemerged. Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
+  [semgrep.yml](../.github/workflows/semgrep.yml). Quelle
   für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
   Direkte Feature-/Fix-PRs nach `main` sind gesperrt – der
   [`Merge Source Gate`](../.github/workflows/merge-source-gate.yml)-Check

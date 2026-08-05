@@ -6,6 +6,14 @@
 # rule packs - no account, token, or third-party service required. It
 # scans entirely inside the GitHub-hosted runner and uploads results as
 # SARIF to the same Code Scanning tab CodeQL uses.
+#
+# Zwei getrennte Scans, bewusst nicht einer:
+#   1. Voller Scan (alle Severities inkl. INFO/WARNING) - rein informativ,
+#      landet als SARIF im Security-Tab, blockiert nie (continue-on-error).
+#   2. Gate-Scan, nur ERROR-Severity - kein continue-on-error, lässt den Job
+#      (und damit den Required Check "Semgrep SAST") fehlschlagen. Nur
+#      echte, hochsichere Funde blockieren einen Merge; die breiteren
+#      Audit-Treffer aus Scan 1 bleiben sichtbar, aber nicht blockierend.
 name: Semgrep
 
 on:
@@ -33,7 +41,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Run Semgrep
+      - name: Run Semgrep (voller Scan für Security-Tab)
         run: semgrep scan --config=p/php --config=p/security-audit --config=p/owasp-top-ten --sarif --output=semgrep-results.sarif
         continue-on-error: true
 
@@ -41,3 +49,6 @@ jobs:
         uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           sarif_file: semgrep-results.sarif
+
+      - name: Gate auf ERROR-Findings
+        run: semgrep scan --config=p/php --config=p/security-audit --config=p/owasp-top-ten --severity ERROR

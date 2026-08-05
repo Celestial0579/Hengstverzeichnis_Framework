@@ -6,7 +6,7 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [Unreleased]
+## [0.2.0-beta.1] – 2026-08-05
 
 ### Hinzugefügt
 
@@ -98,4 +98,5 @@ frischem Docker-Setup-Smoke-Test: Auto-Provisionierung, erzwungenes
 - CSP erlaubt aktuell noch `'unsafe-inline'` für Skripte/Styles (siehe
   [docs/security.md](docs/security.md))
 
+[0.2.0-beta.1]: ../../releases/tag/v0.2.0-beta.1
 [0.1.0-beta.1]: ../../releases/tag/v0.1.0-beta.1

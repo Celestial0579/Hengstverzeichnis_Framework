@@ -28,6 +28,14 @@ Breaking Changes sind jederzeit möglich).
   zurücksetzen) und die Fehlerseiten 403/404/500. Der Admin-Bereich bleibt
   bewusst deutsch (siehe [docs/architecture.md](docs/architecture.md),
   Abschnitt „Mehrsprachigkeit / i18n“).
+- `App\Service\PedigreeBuilder`: Pedigree-Baum-Aufbau (bisher private Logik
+  in `PublicController::horseDetail()`) als eigenständiger, statischer
+  Dienst extrahiert und für Plugins direkt aufrufbar gemacht — u. a.
+  Voraussetzung für einen Inzuchtkoeffizienten-Rechner mit größerer
+  Generationstiefe als die öffentliche Detailseite. Der `horse.detail_sections`-
+  Filter erhält zusätzlich den bereits berechneten Baum als vierten,
+  rückwärtskompatiblen Parameter (siehe
+  [docs/plugin-development.md](docs/plugin-development.md)).
 
 ## [0.2.0-beta.1] – 2026-08-05
 

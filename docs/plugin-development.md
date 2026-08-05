@@ -155,7 +155,7 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 |---|---|---|---|
 | `horse.before_save` | Action | Direkt vor `INSERT`/`UPDATE` in `HorseController::store()`/`update()` | `function(?int $horseId, array $postData): void` — `$horseId` ist `null` beim Anlegen |
 | `horse.after_save` | Action | Direkt nach dem erfolgreichen Speichern (inkl. Personen-/Match-Verknüpfung) | `function(int $horseId, array $postData, bool $isNew): void` |
-| `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben |
+| `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 4-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
 
 **Wichtig zu `horse.before_save`:** Da ein fehlgeschlagener Hook-Aufruf den
@@ -169,6 +169,35 @@ Erweiterungspunkts (bisher nicht Teil von Phase 1).
 Weitere Hooks werden nach Bedarf ergänzt (siehe
 [plugin-system-plan.md](plugin-system-plan.md), Phase 2) — Vorschläge gerne
 als Issue.
+
+## Wiederverwendbarer Dienst: `App\Service\PedigreeBuilder`
+
+Die Pedigree-Baum-Logik hinter `horse.detail_sections`' viertem Parameter
+steht Plugins auch unabhängig vom Hook zur Verfügung — z. B. für einen
+Inzuchtkoeffizienten-Rechner, der eine größere Generationstiefe braucht als
+die öffentliche Detailseite standardmäßig anzeigt (dort fest 4), oder für
+einen Pedigree-Export mit eigener Aufbereitung:
+
+```php
+$tree = \App\Service\PedigreeBuilder::build($horseId, $maxDepth);
+```
+
+- `$horseId`: ID des Wurzel-Pferdes (`?int`, `null`/`0` liefert `null` zurück).
+- `$maxDepth`: gewünschte Generationstiefe (Standard `4`, kann von Plugins
+  frei gewählt werden — unabhängig von der öffentlichen Seite).
+- Rückgabe: verschachteltes Array pro Knoten mit `id`, `name`, `ueln`,
+  `birth_year`, `color`, `depth`, `is_placeholder`, `sire`, `dam` (jeweils
+  wieder derselbe Knoten-Typ oder `null`), oder `null` insgesamt, wenn kein
+  passendes Pferd existiert.
+- Auflösung von Sire/Dam: primär über `sire_id`/`dam_id`, sonst Fallback auf
+  eine Suche nach `sire_ueln`/`sire_name` bzw. `dam_ueln`/`dam_name` gegen
+  UELN/Fremd-UELN/Name anderer Pferde-Datensätze. Bleibt der Fallback
+  erfolglos, wird ein synthetischer Platzhalter-Blattknoten erzeugt
+  (`id => null`, `is_placeholder => true`) — dieser kann `depth` von
+  `$maxDepth + 1` tragen (bestehendes, absichtlich unverändertes Verhalten).
+- Führt bei jedem Aufruf eigene DB-Abfragen aus (kein Caching) — bei
+  wiederholtem Zugriff auf denselben Baum im selben Request ggf. selbst
+  zwischenspeichern.
 
 ## Routen
 

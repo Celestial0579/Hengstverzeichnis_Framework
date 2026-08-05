@@ -49,6 +49,11 @@ define('APP_URL', getenv('APP_URL') ?: ($dynamicScheme . $dynamicHost));
 // Application Secret Key for AES-256-GCM Encryption
 define('APP_KEY', getenv('APP_KEY') ?: ($dbConfig['app_key'] ?? ''));
 
+// Kern-Version (siehe CHANGELOG.md) - wird von App\Plugin\PluginManager gegen das
+// 'core_compatibility'-Feld im plugin.json-Manifest jedes Plugins geprüft, bevor es
+// geladen wird (siehe docs/plugin-development.md).
+define('CORE_VERSION', '0.1.0-beta.1');
+
 // Environment: Existiert bereits eine config/db_config.php (App wurde über den
 // Setup-Wizard eingerichtet), handelt es sich um eine echte Installation - dann
 // ohne explizite Angabe sicherheitshalber IMMER 'production' annehmen (keine

@@ -217,12 +217,20 @@ class PublicController extends BaseController {
         // Build 4-generation pedigree tree
         $pedigreeTree = $this->buildPedigree((int)$id, 1, 4);
 
+        // Plugin-Hook (#56): Erweiterungspunkt für einen zusätzlichen Abschnitt auf der
+        // Pferde-Detailseite. Callbacks liefern bereits fertiges, selbst escapetes HTML
+        // zurück (Filter-Rückgabewert wird in der View absichtlich unescaped ausgegeben,
+        // siehe public_horse_detail.php) - Plugins sind für die eigene XSS-Vermeidung
+        // verantwortlich, analog zum bestehenden $settings['tracking_code']-Muster.
+        $pluginDetailSections = $this->hooks()->applyFilters('horse.detail_sections', [], $horse, $horsePersons);
+
         $this->render('public_horse_detail', [
             'title' => $horse['name'] . ' - Details',
             'horse' => $horse,
             'horsePersons' => $horsePersons,
             'pedigree' => $pedigreeTree,
-            'pedigreeTree' => $pedigreeTree
+            'pedigreeTree' => $pedigreeTree,
+            'pluginDetailSections' => $pluginDetailSections
         ]);
     }
 

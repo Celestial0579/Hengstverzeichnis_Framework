@@ -26,11 +26,16 @@ class PersonController extends BaseController {
 
         $this->render('admin_persons', [
             'title' => 'Personen verwalten',
-            'persons' => $persons
+            'persons' => $persons,
+            'canCreate' => $this->hasPermission('persons', 'create'),
+            'canEdit' => $this->hasPermission('persons', 'edit'),
+            'canDelete' => $this->hasPermission('persons', 'delete')
         ]);
     }
 
     public function create(): void {
+        $this->requirePermission('persons', 'create');
+
         $this->render('admin_person_form', [
             'title' => 'Neue Person anlegen',
             'person' => null
@@ -41,6 +46,7 @@ class PersonController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('persons', 'create');
 
         $name = trim($_POST['name'] ?? '');
         $contact_info = trim($_POST['contact_info'] ?? '');
@@ -67,6 +73,8 @@ class PersonController extends BaseController {
     }
 
     public function edit(): void {
+        $this->requirePermission('persons', 'edit');
+
         $id = $_GET['id'] ?? null;
         if (!$id) {
             header("Location: /admin/persons");
@@ -93,6 +101,7 @@ class PersonController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('persons', 'edit');
 
         $id = $_POST['id'] ?? null;
         if (!$id) {
@@ -126,6 +135,7 @@ class PersonController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('persons', 'delete');
 
         $id = $_POST['id'] ?? null;
         if ($id) {

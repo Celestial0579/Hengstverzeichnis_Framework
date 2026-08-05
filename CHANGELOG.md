@@ -6,6 +6,43 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Hinzugefügt
+
+- Plugin-/Erweiterungssystem (#56): Zusatzfunktionen lassen sich jetzt über
+  lokal in `plugins/` abgelegte Plugins ergänzen, ohne Kern-Dateien zu
+  ändern. Manifest-Validierung samt Kompatibilitätsprüfung, Hook-/Filter-
+  System mit try/catch-Isolation je Aufruf, Admin-UI zum Aktivieren/
+  Deaktivieren (`/admin/plugins`), erste Erweiterungspunkte (`horse.before_save`/
+  `horse.after_save`, `horse.detail_sections`, `admin.dashboard_tiles`) sowie
+  optionale, zwingend unter `/plugin/<slug>/...` laufende Plugin-Routen.
+  Siehe [docs/plugin-development.md](docs/plugin-development.md).
+- Gruppen-/Berechtigungssystem (#66): Admin-konfigurierbare Rechtevergabe je
+  Modul × Aktion (Erstellen/Bearbeiten/Löschen/Veröffentlichen) für Pferde,
+  Personen und Deckstationen. Drei feste Gruppen (Admin mit stets allen
+  Rechten, Editor standardmäßig wie bisher, Öffentlich/Gäste ohne
+  Möglichkeit für schreibende Rechte) sowie beliebig viele eigene Gruppen,
+  denen Benutzer im Benutzer-Formular zugeordnet werden können. Verwaltung
+  unter `/admin/groups`. Siehe [docs/user-groups-plan.md](docs/user-groups-plan.md).
+- Plugins können jetzt eigene Berechtigungen im Gruppen-/Berechtigungssystem
+  registrieren (`permissions()`-Methode): entweder eine neue Aktion an einem
+  bestehenden Modul (z. B. eine "Exportieren"-Berechtigung für Pferde) oder
+  ein komplett neues eigenes Modul. Siehe
+  [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
+  „Berechtigungen“.
+- Plugins erhalten jetzt eine eindeutige, versionsgebundene Kennung
+  (Manifest-Version + SHA-256-Fingerabdruck über den Plugin-Ordner) statt
+  sich allein über den Verzeichnisnamen zu identifizieren. Verhindert, dass
+  unter demselben Slug ausgetauschter Code stillschweigend unter einer alten
+  Freigabe weiterläuft. Reguläre Updates (neue Versionsnummer im Manifest)
+  werden automatisch akzeptiert und unterbrechen den Betrieb nicht; bleibt
+  die Version gleich, weicht aber der Code ab, wird das Plugin nicht
+  geladen, bis ein Admin es unter `/admin/plugins` mit einem Klick erneut
+  freigibt - nicht-destruktiv, es geht dabei nie Konfiguration verloren.
+  Siehe [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
+  „Update-Erkennung“.
+
 ## [0.1.0-beta.1] – 2026-08-04
 
 Erstes öffentliches Beta-Release. Nach internem Testdurchlauf (inkl.

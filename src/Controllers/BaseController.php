@@ -27,6 +27,12 @@ abstract class BaseController {
     protected array $settings = [];
 
     /**
+     * Request-lokaler Cache der Gruppen-IDs des aktuellen Benutzers (#66).
+     * @var array<int, int>|null
+     */
+    private ?array $groupIdsCache = null;
+
+    /**
      * Basis-Konstruktor. Lädt automatisch alle Einstellungen aus der Datenbank.
      */
     public function __construct() {
@@ -88,6 +94,15 @@ abstract class BaseController {
     /**
      * Überprüft die Benutzeranmeldung, schützt vor Session-Hijacking (Anti-Infostealer)
      * erzwingt Inaktivitäts-Timeouts und prüft auf erforderliche Passwortänderungen.
+     *
+     * Bleibt die alleinige, vom Gruppen-/Berechtigungssystem (#66) unabhängige
+     * Zugriffsschranke für den gesamten Backend-Bereich (/admin/...): Nicht
+     * angemeldete Besucher ("public", siehe Gruppe `public` in der Tabelle `groups`)
+     * erreichen keine geschützte Controller-Methode, unabhängig davon, ob/welche
+     * Berechtigungen aktuell in group_permissions stehen. Die Gruppe `public`
+     * erhält zusätzlich nie eigene Berechtigungs-Zeilen (siehe
+     * GroupController::updatePermissions() und BaseController::userGroupIds()) -
+     * beide Mechanismen wirken unabhängig voneinander, keiner ersetzt den anderen.
      */
     protected function checkAuth(): void {
         if (!isset($_SESSION['user_id'])) {
@@ -197,6 +212,95 @@ abstract class BaseController {
     }
 
     /**
+     * Gruppen-Zugehörigkeit des aktuellen Session-Benutzers (#66, siehe
+     * docs/user-groups-plan.md). Admin-/Editor-Mitgliedschaft ergibt sich aus der
+     * bestehenden Spalte users.role, zusätzlich kann ein Benutzer beliebig vielen
+     * eigenen (nicht eingebauten) Gruppen zugeordnet sein. Innerhalb eines Requests
+     * gecacht, da mehrere hasPermission()-Aufrufe pro Seite üblich sind.
+     *
+     * @return array<int, int> IDs aller Gruppen, denen der aktuelle Benutzer angehört
+     */
+    protected function userGroupIds(): array {
+        if ($this->groupIdsCache !== null) {
+            return $this->groupIdsCache;
+        }
+
+        $this->groupIdsCache = [];
+        if (empty($_SESSION['user_id'])) {
+            // Nicht angemeldet: keine expliziten Gruppen-Zeilen (siehe 'public' in groups,
+            // die nie eine user_groups-Zuordnung braucht/erhält).
+            return $this->groupIdsCache;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $ids = [];
+
+            $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug = ?");
+            $stmt->execute([$_SESSION['role'] ?? 'editor']);
+            $roleGroupId = $stmt->fetchColumn();
+            if ($roleGroupId) {
+                $ids[] = (int)$roleGroupId;
+            }
+
+            $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $groupId) {
+                $ids[] = (int)$groupId;
+            }
+
+            $this->groupIdsCache = array_values(array_unique($ids));
+        } catch (\Throwable $e) {
+            $this->groupIdsCache = [];
+        }
+
+        return $this->groupIdsCache;
+    }
+
+    /**
+     * Prüft, ob der aktuelle Benutzer eine Berechtigung für ein Modul × Aktion aus
+     * App\Permission\PermissionRegistry besitzt (#66). Reine Prüfung ohne
+     * Seiten-Abbruch, z. B. um einen Button bedingt anzuzeigen - für den erzwingenden
+     * Abbruch siehe requirePermission().
+     *
+     * Sicherheits-Leitplanken:
+     * - `admin` hat IMMER alle Rechte, hart codiert - unabhängig vom DB-Inhalt und
+     *   nicht über die Admin-UI entziehbar (siehe docs/user-groups-plan.md, Abschnitt 8).
+     * - Fail-closed: fehlt eine passende group_permissions-Zeile oder schlägt die
+     *   DB-Abfrage fehl, wird der Zugriff verweigert, nie gewährt.
+     */
+    protected function hasPermission(string $module, string $action): bool {
+        if (($_SESSION['role'] ?? '') === 'admin') {
+            return true;
+        }
+
+        $groupIds = $this->userGroupIds();
+        if (empty($groupIds)) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+            $stmt = $db->prepare("SELECT COUNT(*) FROM group_permissions WHERE module = ? AND action = ? AND group_id IN ({$placeholders})");
+            $stmt->execute(array_merge([$module, $action], $groupIds));
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Erzwingt eine Modul × Aktion-Berechtigung (#66) und bricht andernfalls mit einer
+     * protokollierten 403-Seite ab - im selben Stil wie requireAdmin().
+     */
+    protected function requirePermission(string $module, string $action): void {
+        if (!$this->hasPermission($module, $action)) {
+            $this->renderForbidden("Zugriff verweigert: Für diese Aktion fehlt Ihnen die Berechtigung '{$action}' im Bereich '{$module}'.");
+        }
+    }
+
+    /**
      * Rendert eine individuelle 403 Forbidden Fehlerseite und protokolliert das Sicherheitsereignis im Audit-Log.
      *
      * @param string $message Benutzerfreundliche Fehlermeldung
@@ -247,6 +351,16 @@ abstract class BaseController {
             'message' => $message
         ]);
         exit;
+    }
+
+    /**
+     * Zugriff auf die zentrale Hook-/Filter-Registry des Plugin-Systems (#56).
+     * Wird von Controllern genutzt, um definierten Erweiterungspunkten Plugins
+     * die Möglichkeit zu geben, sich einzuklinken (siehe App\Plugin\HookManager
+     * für die Sicherheits-Isolation pro Hook-Aufruf).
+     */
+    protected function hooks(): \App\Plugin\HookManager {
+        return \App\Plugin\PluginManager::getInstance()->getHooks();
     }
 
     /**

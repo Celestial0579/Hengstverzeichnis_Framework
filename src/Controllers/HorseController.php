@@ -19,11 +19,16 @@ class HorseController extends BaseController {
 
         $this->render('admin_horses', [
             'title' => 'Pferde verwalten',
-            'horses' => $horses
+            'horses' => $horses,
+            'canCreate' => $this->hasPermission('horses', 'create'),
+            'canEdit' => $this->hasPermission('horses', 'edit'),
+            'canDelete' => $this->hasPermission('horses', 'delete')
         ]);
     }
 
     public function create(): void {
+        $this->requirePermission('horses', 'create');
+
         $db = Database::getInstance();
         $stmt = $db->query("SELECT id, name, ueln, birth_year FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
         $allHorses = $stmt->fetchAll();
@@ -40,7 +45,8 @@ class HorseController extends BaseController {
             'allHorses' => $allHorses,
             'allPersons' => $allPersons,
             'allBreedingStations' => $allBreedingStations,
-            'horsePersons' => []
+            'horsePersons' => [],
+            'canPublish' => $this->hasPermission('horses', 'publish')
         ]);
     }
 
@@ -48,6 +54,7 @@ class HorseController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('horses', 'create');
 
         $name = trim($_POST['name'] ?? '');
         // NULL statt '' bei leerer UELN: die Spalte ist UNIQUE, mehrere Pferde ohne
@@ -63,6 +70,15 @@ class HorseController extends BaseController {
         $description = trim($_POST['description'] ?? '');
         $status = $_POST['status'] ?? 'active';
 
+        // Berechtigung 'horses.publish' (#66): ohne sie darf ein neues Pferd nie direkt
+        // als 'active' (im öffentlichen Katalog sichtbar) angelegt werden - die
+        // übermittelte Statuswahl wird in diesem Fall stillschweigend auf 'inactive'
+        // heruntergestuft, alle anderen Status-Werte (inactive/deceased) bleiben erlaubt,
+        // da sie die öffentliche Sichtbarkeit nicht erhöhen.
+        if ($status === 'active' && !$this->hasPermission('horses', 'publish')) {
+            $status = 'inactive';
+        }
+
         // Sire handling
         $sire_id = !empty($_POST['sire_id']) ? (int)$_POST['sire_id'] : null;
         $sire_name = $sire_id ? null : (trim($_POST['sire_name'] ?? '') ?: null);
@@ -75,6 +91,12 @@ class HorseController extends BaseController {
 
         // Handle Photo Upload
         $imageUrl = $this->handleImageUpload($_FILES['horse_image'] ?? null);
+
+        // Plugin-Hook (#56): Erweiterungspunkt VOR dem Anlegen eines Pferdes, z. B. für
+        // zusätzliche verbandsspezifische Prüfungen. Kann das Anlegen selbst nicht
+        // blockieren (siehe HookManager-Isolation) - ein fehlerhaftes Plugin darf den
+        // Kern-Workflow nie verhindern.
+        $this->hooks()->doAction('horse.before_save', null, $_POST);
 
         $db = Database::getInstance();
         $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, color, breeding_station_id, breeding_station, description, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -89,11 +111,17 @@ class HorseController extends BaseController {
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
         $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year);
 
+        // Plugin-Hook (#56): Erweiterungspunkt NACH dem Anlegen, z. B. für Folgeaktionen
+        // in einem Plugin (Benachrichtigung, verknüpfte Zusatzdaten anlegen etc.).
+        $this->hooks()->doAction('horse.after_save', $newHorseId, $_POST, true);
+
         header("Location: /admin/horses?success=created");
         exit;
     }
 
     public function edit(): void {
+        $this->requirePermission('horses', 'edit');
+
         $id = $_GET['id'] ?? null;
         if (!$id) {
             header("Location: /admin/horses");
@@ -129,7 +157,8 @@ class HorseController extends BaseController {
             'allHorses' => $allHorses,
             'allPersons' => $allPersons,
             'allBreedingStations' => $allBreedingStations,
-            'horsePersons' => $horsePersons
+            'horsePersons' => $horsePersons,
+            'canPublish' => $this->hasPermission('horses', 'publish')
         ]);
     }
 
@@ -137,6 +166,7 @@ class HorseController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('horses', 'edit');
 
         $id = $_POST['id'] ?? null;
         if (!$id) {
@@ -173,10 +203,17 @@ class HorseController extends BaseController {
         if ($dam_id === (int)$id) $dam_id = null;
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT image_url FROM horses WHERE id = ?");
+        $stmt = $db->prepare("SELECT image_url, status FROM horses WHERE id = ?");
         $stmt->execute([$id]);
         $existing = $stmt->fetch();
         $currentImageUrl = $existing['image_url'] ?? null;
+
+        // Berechtigung 'horses.publish' (#66): siehe store() für die Begründung -
+        // ohne sie bleibt der bisherige Status erhalten, ein Veröffentlichungswunsch
+        // (Status -> 'active') wird stillschweigend ignoriert statt gespeichert.
+        if ($status === 'active' && !$this->hasPermission('horses', 'publish')) {
+            $status = $existing['status'] ?? 'inactive';
+        }
 
         // Check for remove image request
         if (!empty($_POST['remove_image']) && $currentImageUrl) {
@@ -196,6 +233,9 @@ class HorseController extends BaseController {
             $currentImageUrl = $newUploadedUrl;
         }
 
+        // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
+        $this->hooks()->doAction('horse.before_save', (int)$id, $_POST);
+
         $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, color = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, image_url = ? WHERE id = ?");
         $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $currentImageUrl, $id]);
 
@@ -206,6 +246,9 @@ class HorseController extends BaseController {
 
         // Run auto-linking for matches
         $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln, $birth_year);
+
+        // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
+        $this->hooks()->doAction('horse.after_save', (int)$id, $_POST, false);
 
         header("Location: /admin/horses?success=updated");
         exit;
@@ -526,6 +569,7 @@ class HorseController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('horses', 'delete');
 
         $id = $_POST['id'] ?? null;
         if ($id) {

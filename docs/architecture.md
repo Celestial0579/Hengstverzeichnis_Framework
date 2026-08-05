@@ -16,6 +16,7 @@ Request → public/index.php → Router::dispatch() → Controller::method() →
 ```
 config/             Konfigurationsdatei (config.php) + optional generierte db_config.php
 database/           schema.sql (Erststand), migrate.php, seed.php, reset.php
+plugins/             Lokal aktivierte Plugins (siehe unten, nicht versioniert außer .gitkeep)
 public/             Docroot des Webservers (Apache DocumentRoot zeigt hierher)
   index.php          Front-Controller: Autoloader, Routing-Tabelle, Dispatch
   css/, js/          Statische Assets
@@ -27,6 +28,7 @@ src/
   Views/                Ein PHP-Template pro Seite + layout.php als Rahmen
   Security/             Crypto, Totp, RateLimiter, ClientIp
   Service/               AuditLogger, Mailer
+  Plugin/                 PluginManager, HookManager (Plugin-System, siehe unten)
   Helper/                 Markdown (einfacher Markdown→HTML-Parser für Freitext)
 ```
 
@@ -133,3 +135,74 @@ sind bewusst ausführlich gehalten.
 Wird zentral beim Bootstrap gesetzt (nicht pro Controller) – siehe
 [security.md](security.md) für Details zu CSP, Session-Cookie-Konfiguration
 und Trusted-Proxy-Handling.
+
+## Plugin-System (`src/Plugin/`, #56)
+
+Erlaubt Zusatzfunktionalität, ohne Kern-Dateien zu ändern – siehe
+[plugin-development.md](plugin-development.md) für die vollständige
+Entwickler-Referenz (Manifest-Format, Hooks, Routen-Konvention,
+Sicherheitsgrenzen) und [plugin-system-plan.md](plugin-system-plan.md) für
+die zugrundeliegenden Architekturentscheidungen.
+
+- `App\Plugin\PluginManager` (Singleton, gebootet in `public/index.php` vor
+  der Routen-Registrierung): scannt `plugins/*/plugin.json`, validiert
+  Manifeste, prüft Kompatibilität gegen `CORE_VERSION` und lädt nur zuvor
+  über `/admin/plugins` aktivierte Plugins (Tabelle `plugins`, per
+  `ensureSchemaUpToDate()`-Pattern wie der Rest des Schemas).
+- `App\Plugin\HookManager`: Action-/Filter-Registry mit try/catch-Isolation
+  pro Hook-Aufruf – ein fehlerhaftes Plugin bricht nie den gesamten Request
+  ab. Zugriff aus Controllern über `BaseController::hooks()`.
+- Definierte Erweiterungspunkte (Phase 1): `horse.before_save`/
+  `horse.after_save` (`HorseController`), `horse.detail_sections`
+  (`PublicController::horseDetail`), `admin.dashboard_tiles`
+  (`AdminController::dashboard`).
+- Zusätzliche Plugin-Routen (optionale `routes()`-Methode je Plugin) werden
+  zwingend unter `/plugin/<slug>/...` registriert – der Präfix wird vom
+  `PluginManager` selbst vorangestellt, ein Plugin kann daher nie eine
+  Kern-Route überschreiben.
+- `plugins/` ist bewusst nicht Teil des Kern-Repositories (nur
+  `plugins/.gitkeep` versioniert) – Plugins werden separat gepflegt, siehe
+  Referenz-/Beispielplugin unter `docs/examples/demo-plugin/`.
+- Optionale `permissions()`-Methode je Plugin registriert eigene Aktionen im
+  Gruppen-/Berechtigungssystem (#66) – neue Aktion an einem bestehenden
+  Modul (z. B. `horses`/`export`) oder komplett neues eigenes Modul, siehe
+  `App\Permission\PermissionRegistry::registerAction()` und
+  plugin-development.md → Abschnitt „Berechtigungen“.
+- Eindeutige Kennung pro Plugin-Version (`installed_version`/`content_hash`
+  in der Tabelle `plugins`, SHA-256-Fingerabdruck über den gesamten
+  Plugin-Ordner): verhindert, dass unter demselben Slug ausgetauschter Code
+  stillschweigend unter einer alten Freigabe weiterläuft. Reguläre Updates
+  (neue Manifest-`version`) werden automatisch akzeptiert; gleiche Version
+  mit abweichendem Code blockiert das Laden, bis ein Admin erneut freigibt
+  – nicht-destruktiv (nie Datenverlust), siehe plugin-development.md →
+  Abschnitt „Update-Erkennung“.
+
+## Gruppen-/Berechtigungssystem (`src/Permission/`, `groups`/`user_groups`/`group_permissions`, #66)
+
+Granulare, admin-konfigurierbare Rechtevergabe je Modul × Aktion (Erstellen/
+Bearbeiten/Löschen/Veröffentlichen) – siehe
+[user-groups-plan.md](user-groups-plan.md) für die Architekturentscheidungen.
+
+- Drei feste (`is_builtin`) Gruppen: `admin` (hart codiert immer alle
+  Rechte), `editor` (standardmäßig alle Rechte wie vor Einführung dieses
+  Systems, über die Admin-UI granular einschränkbar), `public` (die nicht
+  angemeldeten Besucher – erhält serverseitig mehrfach unabhängig
+  abgesichert niemals Zugriff auf das Backend oder irgendeine Berechtigung,
+  siehe user-groups-plan.md Abschnitt 8 für die drei unabhängigen
+  Mechanismen). admin/editor-Mitgliedschaft ergibt sich weiter
+  aus `users.role`; zusätzlich können Benutzer beliebig vielen eigenen,
+  frei anlegbaren Gruppen zugeordnet werden (`user_groups`, Verwaltung
+  unter `/admin/groups` bzw. im Benutzer-Formular).
+- `App\Permission\PermissionRegistry`: Katalog der verfügbaren Module/
+  Aktionen – fester Kern-Anteil (`horses` inkl. `publish`, `persons`,
+  `breeding_stations`) plus zur Laufzeit von aktivierten Plugins
+  registrierte Ergänzungen (`registerAction()`, #56-Integration, "wer
+  zuerst registriert, gewinnt" gegen Überschreiben). Bewusst als PHP-Array,
+  keine DB-Katalogtabelle.
+- `BaseController::hasPermission()`/`requirePermission()`: Prüfung fail-closed
+  (fehlende Zuordnung oder DB-Fehler → Zugriff verweigert), Admin-Bypass hart
+  codiert. Eingesetzt in `HorseController`/`PersonController`/
+  `BreedingStationController` anstelle eines reinen `checkAuth()`.
+- Benutzerverwaltung, DSGVO, System-/Mail-Einstellungen, Papierkorb und
+  Plugin-Aktivierung bleiben bewusst weiterhin ausschließlich admin-only
+  (`requireAdmin()`), nicht Teil der Modul-Tabelle.

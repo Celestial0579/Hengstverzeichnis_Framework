@@ -5,9 +5,13 @@
  * @var array|null $errors
  * @var array|null $old
  * @var string $title
+ * @var array $customGroups Eigene (nicht eingebaute) Gruppen, siehe #66
+ * @var array $userGroupIds IDs der aktuell zugewiesenen eigenen Gruppen
  */
 $isEdit = !empty($user);
 $actionUrl = $isEdit ? '/admin/users/update' : '/admin/users/store';
+$customGroups = $customGroups ?? [];
+$userGroupIds = $userGroupIds ?? [];
 ?>
 <div class="card" style="max-width: 600px;">
     <h2><?= htmlspecialchars($title) ?></h2>
@@ -52,6 +56,24 @@ $actionUrl = $isEdit ? '/admin/users/update' : '/admin/users/store';
                 Passwort <?= $isEdit ? '(Leer lassen, um unverändert zu lassen)' : '*' ?>
             </label>
             <input type="password" id="password" name="password" class="form-control" minlength="8" <?= $isEdit ? '' : 'required' ?>>
+        </div>
+
+        <div class="form-group">
+            <label>Zusätzliche Gruppen (optional)</label>
+            <?php if (empty($customGroups)): ?>
+                <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0 0;">
+                    Noch keine eigenen Gruppen angelegt - siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
+                </p>
+            <?php else: ?>
+                <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.3rem;">
+                    <?php foreach ($customGroups as $group): ?>
+                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
+                            <input type="checkbox" name="groups[]" value="<?= (int)$group['id'] ?>" style="width: auto;" <?= in_array((int)$group['id'], $userGroupIds, true) ? 'checked' : '' ?>>
+                            <?= htmlspecialchars($group['name']) ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
 
         <?php if (!$isEdit): ?>

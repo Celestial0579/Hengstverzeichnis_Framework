@@ -26,11 +26,16 @@ class BreedingStationController extends BaseController {
 
         $this->render('admin_breeding_stations', [
             'title' => 'Deckstationen verwalten',
-            'stations' => $stations
+            'stations' => $stations,
+            'canCreate' => $this->hasPermission('breeding_stations', 'create'),
+            'canEdit' => $this->hasPermission('breeding_stations', 'edit'),
+            'canDelete' => $this->hasPermission('breeding_stations', 'delete')
         ]);
     }
 
     public function create(): void {
+        $this->requirePermission('breeding_stations', 'create');
+
         $this->render('admin_breeding_station_form', [
             'title' => 'Neue Deckstation anlegen',
             'station' => null
@@ -41,6 +46,7 @@ class BreedingStationController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('breeding_stations', 'create');
 
         $name = trim($_POST['name'] ?? '');
         $contactPerson = trim($_POST['contact_person'] ?? '');
@@ -82,6 +88,8 @@ class BreedingStationController extends BaseController {
     }
 
     public function edit(): void {
+        $this->requirePermission('breeding_stations', 'edit');
+
         $id = (int)($_GET['id'] ?? 0);
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ?");
@@ -103,6 +111,7 @@ class BreedingStationController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('breeding_stations', 'edit');
 
         $id = (int)($_POST['id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
@@ -147,6 +156,7 @@ class BreedingStationController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
+        $this->requirePermission('breeding_stations', 'delete');
 
         $id = (int)($_POST['id'] ?? 0);
         if ($id > 0) {

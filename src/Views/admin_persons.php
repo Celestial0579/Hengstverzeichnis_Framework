@@ -2,6 +2,9 @@
 // src/Views/admin_persons.php
 /**
  * @var array $persons
+ * @var bool $canCreate
+ * @var bool $canEdit
+ * @var bool $canDelete
  */
 ?>
 <div class="card">
@@ -10,7 +13,9 @@
             <h2>👤 Personen verwalten</h2>
             <p style="color: #666; font-size: 0.95rem;">Verwaltung von Züchtern, Besitzern und früheren Eigentümern.</p>
         </div>
-        <a href="/admin/persons/create" class="btn">Neue Person anlegen</a>
+        <?php if ($canCreate): ?>
+            <a href="/admin/persons/create" class="btn">Neue Person anlegen</a>
+        <?php endif; ?>
     </div>
 
     <?php if (isset($_GET['success'])): ?>
@@ -48,12 +53,16 @@
                             </span>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">
-                            <a href="/admin/persons/edit?id=<?= $p['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
-                            <form action="/admin/persons/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben.');" style="display:inline;">
-                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                <input type="hidden" name="id" value="<?= $p['id'] ?>">
-                                <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #dc3545;">Löschen</button>
-                            </form>
+                            <?php if ($canEdit): ?>
+                                <a href="/admin/persons/edit?id=<?= $p['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
+                            <?php endif; ?>
+                            <?php if ($canDelete): ?>
+                                <form action="/admin/persons/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben.');" style="display:inline;">
+                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                    <input type="hidden" name="id" value="<?= $p['id'] ?>">
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #dc3545;">Löschen</button>
+                                </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

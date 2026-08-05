@@ -159,7 +159,12 @@ Controller-Aktionen mit einem Functional-Test.
 - **Promotion nach `main`**: einmal im Monat öffnet
   [`beta-promote.yml`](../.github/workflows/beta-promote.yml) automatisch
   eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar
-  im Workflow).
+  im Workflow). **Wichtig: Diese PR immer per „Create a merge commit"
+  mergen, niemals per Squash.** Ein Squash-Merge kappt die gemeinsame
+  Historie zwischen `beta` und `main` – der nächste Promote bekommt dann
+  einen unnötigen (wenn auch harmlosen) Merge-Konflikt in allen seither auf
+  `beta` geänderten Dateien, weil Git keinen gemeinsamen Vorfahren mehr
+  findet.
 - Beta-Releases für die IGFjordpferd werden als `vX.Y.Z-beta.N`-Tag von
   `beta` aus geschnitten – wöchentlich automatisch (falls es Änderungen
   gibt) über [`beta-release.yml`](../.github/workflows/beta-release.yml),

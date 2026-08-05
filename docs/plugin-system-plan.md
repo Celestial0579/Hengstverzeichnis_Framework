@@ -272,3 +272,16 @@ Phase 1 (Abschnitt 3) ist umgesetzt. Mögliche nächste Schritte: Rückmeldung
 zu den in Abschnitt 4 getroffenen Entscheidungen, Priorisierung konkreter
 Phase-2-Hooks anhand der in #58 gesammelten Ideen, oder Start von Phase 3
 (externe Registry) sobald ein separates Plugin-Repository existiert.
+
+## 6. Nachträgliche Anforderung: Benutzergruppen-Konzept (#66)
+
+Nach Umsetzung von Phase 1 wurde in den Issue-Kommentaren zu #56 (05.08.,
+09:52–09:57 Uhr) ergänzt, dass das generelle Benutzergruppen-/
+Berechtigungskonzept aus dem neuen Vorgänger-Issue
+[#66](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/66)
+vor bzw. zusammen mit dem Plugin-System stehen soll, damit Plugins ihre
+Funktionen/Hooks granular auf admin-definierte Benutzergruppen einschränken
+können, statt das später nachzurüsten. Separate Planung dazu:
+[user-groups-plan.md](user-groups-plan.md) (Abschnitt 4.2 dort beschreibt
+konkret die geplante, additive Anbindung an das hier umgesetzte
+Plugin-System - **kein** Bruch des bestehenden Manifest-Formats).

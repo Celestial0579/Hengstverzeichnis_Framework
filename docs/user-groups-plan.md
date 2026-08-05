@@ -1,0 +1,272 @@
+# Benutzergruppen-/Berechtigungskonzept — Umsetzungsplanung
+
+**Status:** Planungsphase (noch keine Implementierung)
+**Bezug:** [#66](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/66) (Kern-Anforderung, Vorgänger-Issue), [#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56) (Plugin-System, wartet laut Issue-Kommentaren auf dieses Konzept), [#57](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/57) (Rolle „Mitglied“, erster konkreter Anwendungsfall)
+
+Dieses Dokument bricht #66 auf eine konkrete, mit der bestehenden
+Architektur kompatible Umsetzung herunter — analog zu
+[plugin-system-plan.md](plugin-system-plan.md) für #56. Es ist die
+Planungsgrundlage für die eigentliche Implementierung, noch kein fertiges
+Design.
+
+## 1. Ausgangslage & Ziel
+
+Laut Kommentaren an #56 und #57 (05.08., 09:49–09:57 Uhr) soll dieses
+generelle Benutzergruppen-Konzept **vor bzw. zusammen mit** dem
+Plugin-System (#56) stehen, statt später nachgerüstet zu werden — Plugins
+sollen eigene Funktionen/Hooks von Anfang an granular auf
+admin-definierte Benutzergruppen einschränkbar machen können. Gleichzeitig
+ist es Grundlage für #57 (Rolle „Mitglied“ mit admin-konfigurierbaren
+Premium-Funktionen, erster Anwendungsfall: Verpaarungsrechner aus #55).
+
+**Wichtige Klarstellung aus den Kommentaren:** „Premium“/gruppenbasierte
+Einschränkung meint ausschließlich admin-/verbandsseitig steuerbare
+**Sichtbarkeit**, keine kostenpflichtige Freischaltung.
+
+**Ziel:** Statt einer festen Rolle `member` oder einer binären
+öffentlich/mitgliederexklusiv-Unterscheidung: beliebige, vom Admin selbst
+benannte Gruppen, denen Benutzer zugeordnet werden, und auf die einzelne
+Funktionen (Kern- **und** Plugin-Funktionen) eingeschränkt werden können.
+
+## 2. Verhältnis zu #56 und #57 — was #66 bewusst NICHT entscheidet
+
+Um den Scope sauber zu halten, entscheidet dieses Konzept bewusst **nicht**:
+
+- **Wie Benutzerkonten für Nicht-Admin/Editor-Nutzer entstehen** (aus #57:
+  admin-only Anlage vs. Self-Service-Registrierung) — bleibt offene
+  Design-Frage von #57. Das Gruppen-Konzept funktioniert unabhängig davon,
+  wie ein Konto entsteht.
+- **Ob/welche 2FA-Pflicht für welche Kontoart gilt** — ebenfalls #57.
+- **Welche konkreten Gruppen ein Verband anlegt** oder welche Funktion
+  welcher Gruppe zugeordnet wird — reine Admin-/Laufzeit-Konfiguration,
+  kein Code.
+
+Damit bleibt #66 eine reine **Mechanik** (Datenmodell + Zuordnung +
+Prüfung), die #57 und #56 beide nutzen können, ohne deren jeweils eigene
+offene Fragen vorwegzunehmen.
+
+**Wichtige Abgrenzung zur bestehenden `role`-Spalte:** Die feste Rolle
+(`admin`/`editor`, `users.role`) steuert weiterhin **System-/Backend-
+Berechtigungen** (CRUD-Zugriff auf Pferde/Personen/Deckstationen,
+Benutzerverwaltung etc., siehe `BaseController::requireAdmin()`) und bleibt
+von diesem Konzept **unangetastet**. Gruppen sind eine rein additive,
+orthogonale Ebene für die Sichtbarkeit von **optionalen/Premium-/Plugin-
+Funktionen**, nicht für administrative Rechte. Ein `admin`- oder
+`editor`-Konto kann zusätzlich Mitglied beliebiger Gruppen sein (z. B. um
+eine Premium-Funktion selbst zu testen), das ändert aber nichts an seinen
+CRUD-Rechten.
+
+## 3. Architektur-Grundentscheidungen
+
+### 3.1 Datenmodell
+
+Drei neue Tabellen über das bestehende `ensureSchemaUpToDate()`-Pattern
+(siehe `src/Database.php`), konsistent mit dem Rest des Kerns:
+
+```sql
+CREATE TABLE IF NOT EXISTS `groups` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `slug` VARCHAR(50) NOT NULL UNIQUE,
+    `name` VARCHAR(100) NOT NULL,
+    `description` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `user_groups` (
+    `user_id` INT NOT NULL,
+    `group_id` INT NOT NULL,
+    PRIMARY KEY (`user_id`, `group_id`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Admin-konfigurierte Sichtbarkeit pro "Feature-Key" (siehe 3.2)
+CREATE TABLE IF NOT EXISTS `feature_access` (
+    `feature_key` VARCHAR(100) NOT NULL PRIMARY KEY,
+    `mode` ENUM('public', 'authenticated', 'groups') NOT NULL DEFAULT 'public',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `feature_access_groups` (
+    `feature_key` VARCHAR(100) NOT NULL,
+    `group_id` INT NOT NULL,
+    PRIMARY KEY (`feature_key`, `group_id`),
+    FOREIGN KEY (`feature_key`) REFERENCES `feature_access`(`feature_key`) ON DELETE CASCADE,
+    FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+Bewusst **kein** neuer Wert in `users.role` (kein `ENUM('admin','editor',
+'member')`) — Gruppenzugehörigkeit ist rollenunabhängig (siehe 2.).
+Ob/wie ein zukünftiges leichtgewichtiges Konto ohne Backend-Zugriff
+(`member` aus #57) aussieht, bleibt dortige Entscheidung; es müsste hier
+lediglich als weiterer gültiger `users.role`-Wert ergänzt werden, ändert
+aber nichts an `groups`/`user_groups`.
+
+### 3.2 Feature-Keys: die Verbindung zwischen „was wird geschützt“ und „wer darf“
+
+Ein **Feature-Key** ist ein frei gewählter, sprechender String (z. B.
+`core.breeding_calculator` für den Verpaarungsrechner aus #55/#57, oder
+`plugin.<slug>.<name>` für eine Plugin-Funktion), den Code an genau der
+Stelle deklariert, an der der Zugriff geprüft wird — analog zu bestehenden
+`AuditLogger`-Kategorien (freier String, keine zentrale Registry-Datei
+nötig). `feature_access` wird **lazy** befüllt: Ruft Code erstmals
+`requireFeatureAccess('core.breeding_calculator')` auf und existiert dafür
+noch kein Eintrag, gilt der sichere Default `mode = 'public'` **nicht**
+automatisch — siehe Sicherheits-Hinweis in 3.4 zu Fail-Closed/Fail-Open.
+
+### 3.3 Neue Helfer in `BaseController`
+
+Analog zu `checkAuth()`/`requireAdmin()`:
+
+```php
+/**
+ * Prüft, ob der aktuelle Benutzer (oder Gast) auf ein per Admin
+ * konfigurierbares Feature zugreifen darf, und bricht andernfalls mit
+ * einer protokollierten 403-Seite ab - bewusst im selben Stil wie
+ * requireAdmin(), damit Kern- und Plugin-Code sie identisch verwenden.
+ */
+protected function requireFeatureAccess(string $featureKey): void { /* ... */ }
+
+/** Reine Prüfung ohne Seiten-Abbruch, z. B. um einen Link bedingt anzuzeigen. */
+protected function hasFeatureAccess(string $featureKey): bool { /* ... */ }
+
+/** Gruppenzugehörigkeit des aktuellen Benutzers (Session-gecacht wie $_SESSION['role']). */
+protected function userGroups(): array { /* ... */ }
+```
+
+`hasFeatureAccess()`/`requireFeatureAccess()` Logik:
+1. `mode = 'public'` → immer erlaubt (auch Gäste).
+2. `mode = 'authenticated'` → wie `checkAuth()`: jeder eingeloggte Benutzer,
+   unabhängig von Rolle/Gruppe.
+3. `mode = 'groups'` → Benutzer muss eingeloggt sein UND mindestens einer
+   der in `feature_access_groups` hinterlegten Gruppen angehören (ODER-
+   Verknüpfung zwischen mehreren zugelassenen Gruppen). `admin`-Accounts
+   haben zusätzlich **immer** Zugriff (siehe offene Frage 5.1) - Editoren
+   nur, wenn sie selbst der Gruppe zugeordnet wurden.
+
+### 3.4 Sicherheits-Leitplanke: Fail-Closed statt Fail-Open
+
+Anders als z. B. `RateLimiter` (dokumentiert fail-open bei DB-Ausfall) muss
+`requireFeatureAccess()` bei fehlendem `feature_access`-Eintrag oder
+DB-Fehler **fail-closed** verhalten (Zugriff verweigern, nicht gewähren) -
+eine neu deklarierte, aber vom Admin noch nicht konfigurierte
+Premium-/Plugin-Funktion darf nie versehentlich öffentlich sichtbar sein.
+Erst eine explizite Admin-Entscheidung (Eintrag in `feature_access`)
+schaltet sie frei. Das ist die Umkehrung des Standard-Zustands "öffentlich"
+bei den bestehenden statischen Kern-Seiten, aber konsistent mit "Plugin
+wird nie automatisch aktiviert" aus dem Sicherheitsmodell von #56.
+
+### 3.5 Admin-UI
+
+- **`/admin/groups`** (neuer `GroupController`, admin-only): Gruppen
+  anlegen/umbenennen/löschen (Name, Slug, Beschreibung). Löschen einer
+  Gruppe entfernt referenzierende `user_groups`-/`feature_access_groups`-
+  Zeilen per `ON DELETE CASCADE` - ein Feature mit `mode = 'groups'`, dem
+  dadurch keine Gruppe mehr zugeordnet ist, wird faktisch für alle
+  Nicht-Admins gesperrt (fail-closed, siehe 3.4), nicht automatisch
+  `public`.
+- **Erweiterung `admin_user_form.php`/`UserController`**: Mehrfachauswahl
+  der Gruppen für den bearbeiteten Benutzer (Checkbox-Liste, analog zum
+  bestehenden Rollen-Radiobutton), gespeichert über `user_groups`.
+- **`/admin/feature-access`**: Tabelle aller bisher **bekannten**
+  Feature-Keys (aus `feature_access`, befüllt sobald ein Feature zum ersten
+  Mal geprüft wurde, siehe 3.2) mit Auswahl `Öffentlich` /
+  `Nur angemeldete Benutzer` / `Nur folgende Gruppen: [...]`. Für #56:
+  zeigt Feature-Keys aktivierter Plugins über deren Manifest mit an (siehe
+  4.2), auch bevor die Funktion das erste Mal aufgerufen wurde.
+
+## 4. Integration mit #57 und #56
+
+### 4.1 #57 (Rolle „Mitglied“, Verpaarungsrechner aus #55)
+
+Der Verpaarungsrechner ruft in seinem Controller
+`$this->requireFeatureAccess('core.breeding_calculator')` auf, genau wie
+heute `requireAdmin()` aufgerufen wird. Ob dafür eine eigene `member`-Rolle
+nötig ist, oder ob z. B. auch `editor`-Accounts einer Gruppe zugeordnet
+werden können, entscheidet #57 unabhängig von diesem Konzept (siehe 2.).
+
+### 4.2 #56 (Plugin-System)
+
+Ergänzung zum bereits umgesetzten Plugin-System (siehe
+[plugin-development.md](plugin-development.md)), **ohne** das bestehende
+Manifest-Format zu brechen:
+
+- Optionales neues Manifest-Feld `"gated_features"` (Array von
+  Feature-Keys, die das Plugin selbst intern per
+  `requireFeatureAccess()`/`hasFeatureAccess()` prüft) - rein deklarativ
+  für die Admin-Übersicht (`/admin/feature-access` zeigt sie bereits vor
+  dem ersten Aufruf an), keine technische Durchsetzung durch den Kern
+  (gleiche Grenze wie das bestehende `hooks`-Feld, siehe
+  plugin-development.md → Sicherheitsmodell).
+- Für Plugin-Routen (`routes()`-Methode): Empfehlung in der Doku, den
+  Zugriffsschutz in der eigenen Handler-Methode über
+  `requireFeatureAccess()` zu prüfen - analog zur bestehenden Empfehlung,
+  `checkAuth()`/`requireAdmin()` selbst aufzurufen (siehe
+  plugin-development.md → Abschnitt „Routen“). Kein Auto-Enforcement durch
+  den `PluginManager`, aus demselben Grund, aus dem auch
+  `checkAuth()`/`requireAdmin()` nicht automatisch erzwungen werden: der
+  Kern kann nicht wissen, mit welcher Granularität eine Plugin-Route
+  geschützt werden soll (z. B. nur der GET-Teil einer Seite öffentlich,
+  der POST-Teil gruppenbeschränkt).
+- Die vier in Phase 1 umgesetzten Hooks (`horse.before_save`/
+  `horse.after_save`, `horse.detail_sections`, `admin.dashboard_tiles`)
+  benötigen **keine** Änderung: Sie laufen bereits ausschließlich in
+  Controller-Methoden, die ihrerseits ggf. `requireFeatureAccess()`
+  aufrufen können, bevor der Hook feuert - kein neuer Mechanismus im
+  `HookManager` selbst nötig.
+
+## 5. Offene Punkte für Rücksprache mit dem Repo-Owner
+
+1. **Admin-Bypass:** Sollen `admin`-Accounts grundsätzlich immer Zugriff
+   auf gruppenbeschränkte Features haben (zur Kontrolle/zum Testen), auch
+   ohne eigene Gruppenzugehörigkeit? (Empfehlung: ja, siehe 3.3 Punkt 3 -
+   analog dazu, dass Admins bereits jede Backend-Funktion sehen können.)
+   Gilt das auch für `editor`?
+2. **UND/ODER-Semantik bei mehreren Gruppen:** Reicht "Benutzer ist in
+   mindestens einer der zugelassenen Gruppen" (ODER, wie in 3.3
+   vorgeschlagen), oder wird für manche Funktionen "muss in allen
+   zugeordneten Gruppen sein" (UND) gebraucht? (Empfehlung: nur ODER für
+   Phase 1 - deckt den beschriebenen Anwendungsfall vollständig ab, UND
+   wirkt konstruiert für "Sichtbarkeit einer Funktion".)
+3. **`authenticated`-Modus:** Sinnvoll schon in Phase 1, obwohl es aktuell
+   außer `admin`/`editor` keine weitere Kontoart gibt (Vorgriff auf #57)?
+   Oder erst einführen, sobald #57 eine leichtgewichtige Kontoart schafft,
+   für die dieser Modus einen Unterschied macht?
+4. **Umfang der Erstumsetzung:** Reicht die generische Mechanik
+   (Gruppen-CRUD, Benutzer-Zuordnung, `feature_access`-Steuerung,
+   `requireFeatureAccess()`) für #66 selbst, oder soll direkt ein erstes
+   reales Feature (z. B. der Verpaarungsrechner aus #55/#57) als
+   Referenz-/Testfall mit umgesetzt werden? (Empfehlung: #66 liefert nur
+   die Mechanik + evtl. einen trivialen Demo-Anwendungsfall, analog zum
+   Demo-Plugin bei #56 - der Verpaarungsrechner selbst ist fachlich
+   Aufgabe von #55/#57.)
+
+## 6. Phasenplan
+
+**Phase 1 (dieses Issue, #66):**
+1. Tabellen `groups`, `user_groups`, `feature_access`,
+   `feature_access_groups` (Punkt 3.1) + `database/schema.sql`-Ergänzung
+2. `BaseController::requireFeatureAccess()`/`hasFeatureAccess()`/
+   `userGroups()` (Punkt 3.3), fail-closed (Punkt 3.4)
+3. `GroupController` + Admin-UI für Gruppen-CRUD (`/admin/groups`)
+4. Erweiterung `UserController`/`admin_user_form.php` um Gruppenzuweisung
+5. `/admin/feature-access`-Übersicht mit Zugriffsmodus-Auswahl pro
+   bekanntem Feature-Key
+6. Entwickler-Doku (`docs/feature-access.md` o. ä.): Konvention für
+   Feature-Keys, Nutzung von `requireFeatureAccess()`, Fail-Closed-Hinweis
+7. Ergänzung in `docs/architecture.md`
+
+**Phase 2 (Folge-Arbeit in #56):** optionales `gated_features`-Manifestfeld
+für Plugins (Punkt 4.2), Doku-Ergänzung in `plugin-development.md`.
+
+**Phase 3 (Folge-Arbeit in #57):** eigentliche `member`-Kontoart samt
+offener Design-Fragen (Account-Erstellung, 2FA-Pflicht), Verpaarungsrechner
+aus #55 als erster produktiver `requireFeatureAccess()`-Anwendungsfall.
+
+## 7. Nächste Schritte
+
+Nach Freigabe dieser Planung (insbesondere der offenen Punkte in Abschnitt
+5): Umsetzung gemäß Phase 1, beginnend mit dem Datenmodell und
+`requireFeatureAccess()` (Punkte 1–2), da alle weiteren Punkte darauf
+aufbauen - analog zum Vorgehen bei #56.

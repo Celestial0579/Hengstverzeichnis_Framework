@@ -31,6 +31,17 @@ Breaking Changes sind jederzeit möglich).
   ein komplett neues eigenes Modul. Siehe
   [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
   „Berechtigungen“.
+- Plugins erhalten jetzt eine eindeutige, versionsgebundene Kennung
+  (Manifest-Version + SHA-256-Fingerabdruck über den Plugin-Ordner) statt
+  sich allein über den Verzeichnisnamen zu identifizieren. Verhindert, dass
+  unter demselben Slug ausgetauschter Code stillschweigend unter einer alten
+  Freigabe weiterläuft. Reguläre Updates (neue Versionsnummer im Manifest)
+  werden automatisch akzeptiert und unterbrechen den Betrieb nicht; bleibt
+  die Version gleich, weicht aber der Code ab, wird das Plugin nicht
+  geladen, bis ein Admin es unter `/admin/plugins` mit einem Klick erneut
+  freigibt - nicht-destruktiv, es geht dabei nie Konfiguration verloren.
+  Siehe [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
+  „Update-Erkennung“.
 
 ## [0.1.0-beta.1] – 2026-08-04
 

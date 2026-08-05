@@ -276,10 +276,18 @@ class Database {
                 `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
                 `enabled` TINYINT(1) NOT NULL DEFAULT 0,
                 `installed_version` VARCHAR(20) NOT NULL DEFAULT '0.0.0',
+                `content_hash` VARCHAR(64) NULL DEFAULT NULL,
                 `activated_at` DATETIME NULL DEFAULT NULL,
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (\Throwable $e) {}
+
+        // content_hash: eindeutiger Inhalts-Fingerabdruck (SHA-256 über alle Dateien des
+        // Plugin-Verzeichnisses) der bei Aktivierung freigegebenen Version - verhindert,
+        // dass ein nachträglich unter demselben Slug ausgetauschter Plugin-Code stillschweigend
+        // unter der alten Freigabe weiterläuft (siehe PluginManager::loadEnabledPlugins()).
+        // Für Bestandsinstallationen von vor Einführung dieser Spalte nachgerüstet.
+        $addColumn('plugins', 'content_hash', "VARCHAR(64) NULL DEFAULT NULL AFTER `installed_version`");
 
         // 13. Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
         // BaseController::hasPermission()). Drei feste Gruppen admin/editor/public

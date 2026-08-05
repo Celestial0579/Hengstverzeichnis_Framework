@@ -38,6 +38,32 @@ use PDO;
  *   App\Permission\PermissionRegistry::registerAction() für die dortige
  *   "wer zuerst registriert, gewinnt"-Leitplanke gegen Überschreiben
  *   bestehender Berechtigungen.
+ * - Eindeutige Kennung pro Plugin-**Version**: Bei Aktivierung wird die
+ *   Manifest-Version zusammen mit einem SHA-256-Fingerabdruck über den
+ *   gesamten Plugin-Ordner in der Tabelle `plugins` gespeichert
+ *   (`installed_version`/`content_hash`). Der Verzeichnisname/Slug allein
+ *   ist damit keine ausreichende Identität mehr, um eine einmal erteilte
+ *   Freigabe zu behalten:
+ *   - Hebt das Manifest beim nächsten Request eine NEUE Versionsnummer
+ *     aus (normales Plugin-Update), wird das automatisch akzeptiert und
+ *     die Freigabe auf die neue Version/den neuen Fingerabdruck
+ *     aktualisiert - ein reguläres Update verliert dadurch nie seine
+ *     Aktivierung.
+ *   - Bleibt die Versionsnummer GLEICH, weicht aber der Fingerabdruck vom
+ *     zuletzt freigegebenen ab (Code wurde ausgetauscht, ohne die Version
+ *     zu erhöhen - untypisch für ein reguläres Update), wird das Plugin
+ *     NICHT geladen, bis ein Admin es über /admin/plugins erneut freigibt.
+ *   Siehe computeFingerprint()/needsReapproval().
+ * - Nicht-destruktive Fail-Closed-Garantie: Wird ein Plugin als "muss erneut
+ *   freigegeben werden" markiert (needsReapproval()), wird dafür NIE die
+ *   `plugins`-Zeile verändert oder gelöscht - nur eine reine Laufzeit-Markierung
+ *   "für diesen Request nicht laden" gesetzt. Selbst ein Bug in der
+ *   Fingerabdruck-/Versionsprüfung kann daher höchstens fälschlich diese
+ *   Markierung auslösen, aber nie die bisherige Aktivierung, Konfiguration
+ *   oder zugewiesene Berechtigungen (Tabelle `group_permissions`, unabhängig
+ *   vom Plugin-Aktivierungsstatus) zerstören. Die Wiederherstellung ist immer
+ *   ein einzelner Klick auf "Mit bisherigem Status erneut freigeben" unter
+ *   /admin/plugins (ruft lediglich erneut setEnabled() auf).
  */
 final class PluginManager {
 
@@ -50,6 +76,15 @@ final class PluginManager {
 
     /** @var array<int, string> */
     private array $enabledSlugs = [];
+
+    /** @var array<string, string|null> slug => zuletzt freigegebene Manifest-Version */
+    private array $approvedVersions = [];
+
+    /** @var array<string, string|null> slug => zuletzt freigegebener content_hash */
+    private array $approvedHashes = [];
+
+    /** @var array<string, bool> slug => true, wenn der aktuelle Code vom freigegebenen Fingerabdruck abweicht */
+    private array $needsReapproval = [];
 
     /** @var array<int, array{method:string, path:string, callback:mixed, slug:string}> */
     private array $pluginRoutes = [];
@@ -134,10 +169,51 @@ final class PluginManager {
                 'manifest' => is_array($manifest) ? $manifest : [],
                 'error' => $error,
                 'compatible' => $error === null && $this->isCompatible((string)($manifest['core_compatibility'] ?? '')),
+                // Eindeutiger Inhalts-Fingerabdruck dieser Plugin-Version (siehe Klassen-PHPDoc) -
+                // nur für Manifest-valide Plugins relevant, sonst wird ohnehin nie geladen.
+                'fingerprint' => $error === null ? $this->computeFingerprint($pluginDir) : null,
             ];
         }
 
         ksort($this->discovered);
+    }
+
+    /**
+     * Berechnet einen SHA-256-Fingerabdruck über den gesamten Inhalt eines
+     * Plugin-Verzeichnisses (alle Dateien rekursiv, Pfad + Inhalt), unabhängig von
+     * Dateisystem-Metadaten wie Zeitstempeln - identischer Code liefert immer
+     * denselben Fingerabdruck, jede inhaltliche Änderung einen anderen. Dient als
+     * eindeutige Kennung der freigegebenen Plugin-Version (siehe Klassen-PHPDoc).
+     */
+    private function computeFingerprint(string $dir): string {
+        $files = [];
+
+        try {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                if (!$file->isFile()) {
+                    continue;
+                }
+                $relativePath = substr($file->getPathname(), strlen($dir) + 1);
+                $fileHash = hash_file('sha256', $file->getPathname());
+                if ($fileHash !== false) {
+                    $files[$relativePath] = $fileHash;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Verzeichnis nicht lesbar o. Ä. - liefert unten einen Fingerabdruck über eine
+            // leere Dateiliste, was beim Vergleich zuverlässig als "abweichend" auffällt.
+        }
+
+        ksort($files);
+        $summary = '';
+        foreach ($files as $relativePath => $fileHash) {
+            $summary .= $relativePath . ':' . $fileHash . "\n";
+        }
+
+        return hash('sha256', $summary);
     }
 
     /**
@@ -190,18 +266,29 @@ final class PluginManager {
     private function loadEnabledStates(): void {
         try {
             $db = Database::getInstance();
-            $stmt = $db->query("SELECT slug FROM plugins WHERE enabled = 1");
-            $this->enabledSlugs = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            $stmt = $db->query("SELECT slug, installed_version, content_hash FROM plugins WHERE enabled = 1");
+            $rows = $stmt->fetchAll();
+            $this->enabledSlugs = array_column($rows, 'slug');
+            foreach ($rows as $row) {
+                $this->approvedVersions[$row['slug']] = $row['installed_version'];
+                $this->approvedHashes[$row['slug']] = $row['content_hash'];
+            }
         } catch (\Throwable $e) {
             // Fail-closed: Ohne DB-Zugriff bleiben alle Plugins deaktiviert (Ausfallsicherheit
             // für den Kern hat Vorrang vor Plugin-Funktionalität).
             $this->enabledSlugs = [];
+            $this->approvedVersions = [];
+            $this->approvedHashes = [];
         }
     }
 
     /**
-     * Lädt und registriert nur Plugins, die aktiviert UND kompatibel UND
-     * fehlerfrei validiert sind. Jedes Plugin wird einzeln in try/catch
+     * Lädt und registriert nur Plugins, die aktiviert UND kompatibel UND fehlerfrei
+     * validiert sind. Unterscheidet dabei zwei Fälle bei abweichendem Code
+     * (siehe Klassen-PHPDoc, "eindeutige Kennung pro Plugin-Version"):
+     * regulläres Update (neue Manifest-Version -> automatisch akzeptiert) vs.
+     * unverändert deklarierte Version mit abweichendem Fingerabdruck (fail-closed,
+     * erneute Admin-Freigabe nötig). Jedes Plugin wird einzeln in try/catch
      * isoliert geladen, damit ein defektes Plugin nicht den gesamten
      * Bootstrap-Vorgang verhindert.
      */
@@ -214,12 +301,69 @@ final class PluginManager {
                 continue;
             }
 
+            $currentVersion = (string)($info['manifest']['version'] ?? '');
+            $approvedVersion = $this->approvedVersions[$slug] ?? null;
+            $approvedHash = $this->approvedHashes[$slug] ?? null;
+
+            if ($approvedVersion !== null && $currentVersion !== '' && $currentVersion !== $approvedVersion) {
+                // Manifest weist eine neue Versionsnummer aus - reguläres Update, wird
+                // automatisch akzeptiert, damit ein normales Plugin-Update nie die
+                // Aktivierung verliert. Freigabe-Fingerabdruck wandert auf die neue Version.
+                $this->acceptPluginUpdate($slug, $currentVersion, $info['fingerprint']);
+                AuditLogger::log(
+                    "Plugin automatisch aktualisiert",
+                    "plugin",
+                    "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} (Versionsnummer im Manifest erhöht, automatisch akzeptiert)."
+                );
+            } elseif ($approvedHash === null || $approvedHash !== $info['fingerprint']) {
+                // Versionsnummer unverändert (oder Freigabe noch nie mit Fingerabdruck
+                // erfolgt), aber der Code weicht ab - untypisch für ein reguläres Update,
+                // typisch für einen unter demselben Slug ausgetauschten Plugin-Ordner.
+                // Fail-closed: NICHT laden, bis ein Admin die aktuelle Version explizit
+                // erneut freigibt (siehe setEnabled()).
+                $this->needsReapproval[$slug] = true;
+                AuditLogger::log(
+                    "Plugin-Code seit Aktivierung geändert",
+                    "plugin",
+                    "Slug: {$slug} - gleiche Version ({$currentVersion}), aber abweichender Code. Wurde für diesen Request nicht geladen. Erneute Freigabe über /admin/plugins erforderlich."
+                );
+                continue;
+            }
+
             try {
                 $this->loadPlugin($slug, $info);
             } catch (\Throwable $e) {
                 AuditLogger::log("Plugin konnte nicht geladen werden: {$slug}", "plugin", $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
             }
         }
+    }
+
+    /**
+     * Akzeptiert ein reguläres Plugin-Update (neue Manifest-Version) automatisch,
+     * ohne dass ein Admin erneut aktiv werden muss - siehe loadEnabledPlugins().
+     */
+    private function acceptPluginUpdate(string $slug, string $version, ?string $fingerprint): void {
+        $this->approvedVersions[$slug] = $version;
+        $this->approvedHashes[$slug] = $fingerprint;
+
+        try {
+            $db = Database::getInstance();
+            $stmt = $db->prepare("UPDATE plugins SET installed_version = ?, content_hash = ? WHERE slug = ?");
+            $stmt->execute([$version, $fingerprint, $slug]);
+        } catch (\Throwable $e) {
+            // Schreibfehler blockiert das Laden für DIESEN Request nicht - beim nächsten
+            // Request wird die Aktualisierung erneut versucht (idempotent).
+        }
+    }
+
+    /**
+     * True, wenn ein Plugin aktiviert ist, sein aktueller Code-Fingerabdruck bei
+     * unveränderter Manifest-Version aber vom zuletzt freigegebenen abweicht - wird
+     * deshalb für den aktuellen Request NICHT geladen, bis ein Admin es erneut
+     * freigibt. Für die Admin-UI (/admin/plugins).
+     */
+    public function needsReapproval(string $slug): bool {
+        return $this->needsReapproval[$slug] ?? false;
     }
 
     /**
@@ -349,11 +493,16 @@ final class PluginManager {
 
         $db = Database::getInstance();
         $version = (string)($this->discovered[$slug]['manifest']['version'] ?? '0.0.0');
+        // Bei (erneuter) Aktivierung wird die aktuell vorgefundene Version + ihr
+        // Fingerabdruck als neue Freigabe-Baseline gespeichert (siehe Klassen-PHPDoc)
+        // - deckt sowohl die Erstaktivierung als auch eine bewusste manuelle
+        // Re-Freigabe nach einer als verdächtig erkannten Änderung ab.
+        $hash = $enabled ? ($this->discovered[$slug]['fingerprint'] ?? null) : null;
 
         $stmt = $db->prepare(
-            "INSERT INTO plugins (slug, enabled, installed_version, activated_at) VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), installed_version = VALUES(installed_version), activated_at = VALUES(activated_at)"
+            "INSERT INTO plugins (slug, enabled, installed_version, content_hash, activated_at) VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), installed_version = VALUES(installed_version), content_hash = VALUES(content_hash), activated_at = VALUES(activated_at)"
         );
-        $stmt->execute([$slug, $enabled ? 1 : 0, $version, $enabled ? date('Y-m-d H:i:s') : null]);
+        $stmt->execute([$slug, $enabled ? 1 : 0, $version, $hash, $enabled ? date('Y-m-d H:i:s') : null]);
     }
 }

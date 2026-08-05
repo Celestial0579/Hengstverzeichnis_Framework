@@ -52,7 +52,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 |---|:---:|---|
 | `slug` | ✅ | Muss exakt dem Verzeichnisnamen entsprechen. |
 | `name` | ✅ | Anzeigename im Admin-Bereich. |
-| `version` | ✅ | Frei wählbar (z. B. SemVer), wird nur angezeigt/gespeichert. |
+| `version` | ✅ | Frei wählbar (z. B. SemVer). Bei jedem Update **muss** sie sich ändern - siehe Abschnitt "Update-Erkennung" unten, sonst wird ein reguläres Update fälschlich als verdächtige Änderung erkannt. |
 | `core_compatibility` | ✅ | Vergleichsausdruck gegen `CORE_VERSION` (siehe unten). |
 | `description` | – | Anzeigetext im Admin-Bereich. |
 | `author` | – | Anzeigetext im Admin-Bereich. |
@@ -76,6 +76,37 @@ Manifest"/"Inkompatibel") und lässt sich nicht aktivieren.
 Suffix). `>=0.1.0` wäre gegen `0.1.0-beta.1` daher `false`. Solange der Kern
 sich im Beta-Stadium befindet, den Suffix in `core_compatibility` mit
 angeben (z. B. `>=0.1.0-beta.1`).
+
+### Update-Erkennung: eindeutige Kennung pro Plugin-Version
+
+Ein Plugin wird nicht allein über seinen Verzeichnisnamen (Slug) identifiziert
+- bei Aktivierung speichert `App\Plugin\PluginManager` zusätzlich die
+Manifest-`version` und einen SHA-256-Fingerabdruck über den **gesamten**
+Plugin-Ordner (`installed_version`/`content_hash` in der Tabelle `plugins`).
+Bei jedem folgenden Request wird beides neu berechnet und verglichen:
+
+- **Neue Versionsnummer im Manifest** → reguläres Update, wird automatisch
+  akzeptiert (Freigabe wandert auf die neue Version/den neuen
+  Fingerabdruck) - ein normales Plugin-Update verliert dadurch **nie** seine
+  Aktivierung, auch nicht durch eine erneute manuelle Freigabe.
+- **Gleiche Versionsnummer, aber abweichender Code** → wird als verdächtig
+  behandelt (Code wurde unter demselben Slug ausgetauscht, ohne ein
+  reguläres Update mit neuer Versionsnummer zu sein). Das Plugin wird für
+  diesen Request **nicht geladen**, bis ein Admin es unter `/admin/plugins`
+  über den Button "Mit bisherigem Status erneut freigeben" bestätigt.
+
+**Deshalb: Bei jeder inhaltlichen Änderung am Plugin-Code die `version` im
+Manifest erhöhen** - sonst zeigt `/admin/plugins` nach dem nächsten Request
+fälschlich "Code geändert - erneute Freigabe nötig" an, obwohl es sich um
+ein gewolltes Update handelt.
+
+**Nicht-destruktive Garantie:** Die Erkennung einer verdächtigen Änderung
+verändert oder löscht nie die bestehende `plugins`-Zeile, zugewiesene
+Berechtigungen (`group_permissions`) oder sonstige Konfiguration - sie
+markiert das Plugin nur für den aktuellen Request als "nicht laden". Ein
+Bug in der Fingerabdruck-Berechnung kann daher höchstens fälschlich diese
+Markierung auslösen, nie Daten zerstören; die Wiederherstellung ist immer
+ein einzelner Klick.
 
 ## Plugin-Klasse (`Plugin.php`)
 

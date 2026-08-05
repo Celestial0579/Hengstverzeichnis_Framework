@@ -168,6 +168,14 @@ die zugrundeliegenden Architekturentscheidungen.
   Modul (z. B. `horses`/`export`) oder komplett neues eigenes Modul, siehe
   `App\Permission\PermissionRegistry::registerAction()` und
   plugin-development.md → Abschnitt „Berechtigungen“.
+- Eindeutige Kennung pro Plugin-Version (`installed_version`/`content_hash`
+  in der Tabelle `plugins`, SHA-256-Fingerabdruck über den gesamten
+  Plugin-Ordner): verhindert, dass unter demselben Slug ausgetauschter Code
+  stillschweigend unter einer alten Freigabe weiterläuft. Reguläre Updates
+  (neue Manifest-`version`) werden automatisch akzeptiert; gleiche Version
+  mit abweichendem Code blockiert das Laden, bis ein Admin erneut freigibt
+  – nicht-destruktiv (nie Datenverlust), siehe plugin-development.md →
+  Abschnitt „Update-Erkennung“.
 
 ## Gruppen-/Berechtigungssystem (`src/Permission/`, `groups`/`user_groups`/`group_permissions`, #66)
 

@@ -5,27 +5,11 @@ Release-**Notes** bleiben bewusst manuell kuratiert (siehe
 [Releases](../../../releases)) – nur die **Artefakte** werden automatisch
 gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
-## Beta-Releases: wöchentlich automatisch
-
-Zusätzlich zu manuell gesetzten Tags erstellt
-[`beta-release.yml`](../.github/workflows/beta-release.yml) einmal pro Woche
-(montags) automatisch einen neuen `vX.Y.Z-beta.N`-Tag auf `beta` – aber nur,
-falls seit dem letzten Tag tatsächlich neue Commits dazugekommen sind. Das
-ist der laufende Testkanal für die IGFjordpferd (siehe
-[development.md](development.md#branches)), **kein** kuratiertes Release:
-`CHANGELOG.md` wird dafür bewusst nicht automatisch ergänzt. Die
-Versionsbasis (`X.Y.Z`) wird dabei vom letzten Tag übernommen, nur die
-Beta-Nummer läuft hoch – ein Versionssprung (z. B. `0.1.0` → `0.2.0`) bleibt
-weiterhin ein manueller Tag.
-
-## Ablauf für kuratierte Releases (stabil, oder gezielt gesetzte Beta-Meilensteine)
+## Ablauf für Releases
 
 1. [CHANGELOG.md](../CHANGELOG.md) um einen neuen Versionsabschnitt ergänzen
    (PR wie gewohnt).
-2. Tag pushen:
-   - Stabiler Release: `vX.Y.Z` auf `main`.
-   - Beta-Release für die IGFjordpferd (siehe [development.md](development.md#branches)):
-     `vX.Y.Z-beta.N` auf `beta`.
+2. Tag pushen (`vX.Y.Z`) auf `main`:
    ```bash
    git tag v0.2.0
    git push github v0.2.0
@@ -35,10 +19,8 @@ weiterhin ein manueller Tag.
      [development.md](development.md#tests)) als Gate – bricht ohne Release ab,
      falls etwas fehlschlägt.
    - Docker-Image aus dem [Dockerfile](../Dockerfile), gepusht nach
-     `ghcr.io/celestial0579/hengstverzeichnis_framework`. Stabile Tags
-     bekommen `<version>` + `latest`; Beta-Tags (`-beta.N`) bekommen
-     `<version>` + `beta` – **niemals** `latest`, damit bestehende
-     Installationen anderer Nutzer nicht ungefragt Beta-Code ziehen.
+     `ghcr.io/celestial0579/hengstverzeichnis_framework` (Tags `<version>` +
+     `latest`).
    - Bereinigtes Source-Zip für klassisches Shared-Hosting (ohne
      Dev-Tooling wie `tests/`, `composer.json`, `vendor/`, `.github/`) als
      Release-Asset.
@@ -47,8 +29,7 @@ weiterhin ein manueller Tag.
    anzulegen), erstellt der Workflow einen mit angehängten Artefakten, aber
    **ohne Beschreibung** – dann Titel/Text im Nachgang manuell aus dem
    CHANGELOG-Abschnitt ergänzen (wie bei den bisherigen Releases, siehe
-   [Release-Historie](../../../releases)). Beta-Tags werden dabei
-   automatisch als **Pre-Release** markiert.
+   [Release-Historie](../../../releases)).
 
 ## Einmalig: GHCR-Sichtbarkeit
 

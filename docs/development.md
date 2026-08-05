@@ -81,7 +81,7 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 
 PHPUnit-Testsuite unter [`tests/`](../tests) (dev-only Composer-Abhängigkeit,
 siehe [`composer.json`](../composer.json) – betrifft nicht die
-Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main` oder `beta`
+Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main`
 automatisch über [`.github/workflows/tests.yml`](../.github/workflows/tests.yml),
 siehe [Issue #54](../../../issues/54). Drei Ebenen:
 
@@ -141,37 +141,23 @@ Controller-Aktionen mit einem Functional-Test.
 
 ## Branches
 
-- **`main`**: stabiler Branch. PRs brauchen grüne Pflicht-Checks (CodeQL,
-  PHPUnit, Semgrep SAST, Merge Source Gate) und werden manuell gemerged.
-  **Kein** Pflicht-Review (0 Required Reviews) – bei einem Solo-/
-  Kleinteam-Projekt kann man eigene PRs ohnehin nicht selbst genehmigen
-  (GitHub verbietet Self-Approval), die eigentliche Kontrollinstanz ist der
-  manuelle Merge-Klick plus die Pflicht-Checks. Semgrep blockiert dabei nur
-  bei ERROR-Severity-Funden, siehe [semgrep.yml](../.github/workflows/semgrep.yml).
-  Quelle für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
-  Direkte Feature-/Fix-PRs nach `main` sind gesperrt – der
-  [`Merge Source Gate`](../.github/workflows/merge-source-gate.yml)-Check
-  lässt nur PRs vom `beta`-Branch (regulärer Promote-Weg) oder von
-  Dependabot durch, alles andere muss zuerst nach `beta`.
-- **`beta`**: laufender Entwicklungsstand, den die IGFjordpferd parallel zur
-  bestehenden Umgebung testet. Gleiche Pflicht-Checks wie `main`, aber
-  **kein** Pflicht-Review – PRs von Projektmitgliedern mergen automatisch
-  (GitHub Auto-Merge), sobald die Checks grün sind. Neue Feature-/Fix-PRs
-  zielen im laufenden Betrieb auf `beta`. Gegen Löschen geschützt (auch nach
-  dem monatlichen Merge nach `main` bleibt `beta` bestehen und läuft weiter).
-- **Promotion nach `main`**: einmal im Monat öffnet
-  [`beta-promote.yml`](../.github/workflows/beta-promote.yml) automatisch
-  eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar
-  im Workflow). **Wichtig: Diese PR immer per „Create a merge commit"
-  mergen, niemals per Squash.** Ein Squash-Merge kappt die gemeinsame
-  Historie zwischen `beta` und `main` – der nächste Promote bekommt dann
-  einen unnötigen (wenn auch harmlosen) Merge-Konflikt in allen seither auf
-  `beta` geänderten Dateien, weil Git keinen gemeinsamen Vorfahren mehr
-  findet.
-- Beta-Releases für die IGFjordpferd werden als `vX.Y.Z-beta.N`-Tag von
-  `beta` aus geschnitten – wöchentlich automatisch (falls es Änderungen
-  gibt) über [`beta-release.yml`](../.github/workflows/beta-release.yml),
-  siehe [releasing.md](releasing.md).
+Single-Branch-Modell: `main` ist der einzige lang laufende Branch, alle
+Feature-/Fix-Arbeit passiert über PRs direkt gegen `main`. Der frühere
+`beta`-Zwischenbranch (samt Merge-Source-Gate, monatlichem Promote und
+wöchentlichem Beta-Release-Tag) wurde aufgelöst, weil Feature-Branches in
+der Praxis regelmäßig vom (dann veralteten) `main`-Stand statt von `beta`
+abgezweigt wurden und das laufend unnötige Merge-Konflikte beim Promote
+verursacht hat.
+
+- **`main`**: PRs brauchen grüne Pflicht-Checks (CodeQL, PHPUnit,
+  Semgrep SAST) **und** mindestens 1 genehmigendes Review, bevor gemergt
+  werden kann. Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
+  [semgrep.yml](../.github/workflows/semgrep.yml). Quelle für die
+  öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
+  Solo-Hinweis: GitHub verbietet Self-Approval eigener PRs – da
+  `enforce_admins` deaktiviert ist, kann ein Repo-Admin eigene PRs trotz
+  fehlendem Review über den „Merge without waiting for requirements to be
+  met"-Bypass mergen, sofern die Checks grün sind.
 
 ## Coding-Konventionen
 

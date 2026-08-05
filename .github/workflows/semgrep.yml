@@ -18,9 +18,9 @@ name: Semgrep
 
 on:
   push:
-    branches: ["main", "beta"]
+    branches: ["main"]
   pull_request:
-    branches: ["main", "beta"]
+    branches: ["main"]
   schedule:
     - cron: "30 6 * * 1"
 

@@ -8,10 +8,7 @@
 #   1. Testsuite (Unit/Integration/Functional, siehe tests.yml) als Gate -
 #      kein Release, wenn irgendetwas fehlschlägt.
 #   2. Docker-Image, gebaut aus dem Dockerfile und nach GHCR gepusht
-#      (ghcr.io/<repo>, Tags: Versionsnummer + "latest"). Bei Beta-Tags
-#      (vX.Y.Z-beta.N, siehe docs/releasing.md) wird NICHT "latest"
-#      überschrieben, sondern ein separater, mitlaufender "beta"-Tag
-#      gepusht - "latest" bleibt für alle anderen Nutzer stabil.
+#      (ghcr.io/<repo>, Tags: Versionsnummer + "latest").
 #   3. Bereinigtes Source-Archiv für klassisches Shared-Hosting (ohne
 #      Dev-Tooling wie tests/, composer.json, vendor/, .github/) als
 #      herunterladbares Release-Asset.
@@ -19,8 +16,7 @@
 # Falls für den Tag bereits ein (manuell erstellter) GitHub Release
 # existiert, werden nur die Artefakte angehängt - Titel/Beschreibung bleiben
 # unangetastet. Existiert noch keiner, wird ein leerer Release-Entwurf mit
-# den Artefakten angelegt (Beschreibung dann manuell nachtragen), bei
-# Beta-Tags als Pre-Release markiert.
+# den Artefakten angelegt (Beschreibung dann manuell nachtragen).
 #
 # Hinweis: GHCR-Pakete sind über ein Repository-GITHUB_TOKEN standardmäßig
 # privat sichtbar - nach dem ersten Release einmalig unter
@@ -32,10 +28,6 @@ on:
   push:
     tags:
       - "v*"
-  # Manuell/programmatisch auslösbar für einen bestimmten Tag - nötig, weil
-  # beta-release.yml seinen Tag über GITHUB_TOKEN pusht und GitHub für
-  # GITHUB_TOKEN-Pushes bewusst keine Folge-Workflows auslöst (siehe
-  # beta-release.yml). Dieser Trigger schließt die Lücke.
   workflow_dispatch:
 
 permissions:
@@ -66,13 +58,9 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository }}
-          # Beta-Tags (vX.Y.Z-beta.N) dürfen niemals "latest" überschreiben -
-          # das ist der stabile Kanal für alle anderen Nutzer. Sie bekommen
-          # stattdessen einen eigenen, mitlaufenden "beta"-Tag.
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-beta') }}
-            type=raw,value=beta,enable=${{ contains(steps.version.outputs.version, '-beta') }}
+            type=raw,value=latest
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -105,6 +93,5 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           files: dist/*.zip
-          prerelease: ${{ contains(steps.version.outputs.version, '-beta') }}
           # body/name absichtlich nicht gesetzt: bereits existierende,
           # manuell kuratierte Release-Beschreibung bleibt unangetastet.

@@ -142,13 +142,18 @@ Controller-Aktionen mit einem Functional-Test.
 ## Branches
 
 - **`main`**: stabiler Branch. PRs brauchen 1 Review + grüne Pflicht-Checks
-  (CodeQL, PHPUnit) und werden manuell gemerged. Quelle für die
-  öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
+  (CodeQL, PHPUnit, Merge Source Gate) und werden manuell gemerged. Quelle
+  für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
+  Direkte Feature-/Fix-PRs nach `main` sind gesperrt – der
+  [`Merge Source Gate`](../.github/workflows/merge-source-gate.yml)-Check
+  lässt nur PRs vom `beta`-Branch (regulärer Promote-Weg) oder von
+  Dependabot durch, alles andere muss zuerst nach `beta`.
 - **`beta`**: laufender Entwicklungsstand, den die IGFjordpferd parallel zur
   bestehenden Umgebung testet. Gleiche Pflicht-Checks wie `main`, aber
   **kein** Pflicht-Review – PRs von Projektmitgliedern mergen automatisch
   (GitHub Auto-Merge), sobald die Checks grün sind. Neue Feature-/Fix-PRs
-  zielen im laufenden Betrieb auf `beta`.
+  zielen im laufenden Betrieb auf `beta`. Gegen Löschen geschützt (auch nach
+  dem monatlichen Merge nach `main` bleibt `beta` bestehen und läuft weiter).
 - **Promotion nach `main`**: einmal im Monat öffnet
   [`beta-promote.yml`](../.github/workflows/beta-promote.yml) automatisch
   eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar

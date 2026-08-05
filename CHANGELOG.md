@@ -61,6 +61,16 @@ Breaking Changes sind jederzeit möglich).
   Testlauf) - siehe [docs/architecture.md](docs/architecture.md), Abschnitt
   „Automatisierte externe Backups“. Enthält bewusst nur die Datenbank, keine
   hochgeladenen Dateien.
+- Optionaler E-Mail-Digest für Admins/Editoren (#52): periodische
+  Zusammenfassung offener Blutlinien-Match-/Merge-Vorschläge und bald
+  ablaufender Papierkorb-Fristen, aufbauend auf der Cron-/Scheduler-
+  Infrastruktur (#67). Wird nur versendet, wenn tatsächlich etwas zu
+  berichten ist. `App\Service\MatchSuggestionFinder` (aus
+  `HorseController` extrahiert, unverändertes Verhalten) sorgt dafür, dass
+  Digest und Admin-Match-Seite dieselbe Anzahl sehen. Konfigurierbar unter
+  `/admin/digest` (Aktivierung, Intervall, manueller Testlauf) - siehe
+  [docs/architecture.md](docs/architecture.md), Abschnitt „E-Mail-Digest
+  für Admins/Editoren“.
 
 ## [0.2.0-beta.1] – 2026-08-05
 

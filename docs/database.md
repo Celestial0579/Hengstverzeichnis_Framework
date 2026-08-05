@@ -89,7 +89,8 @@ heraus befüllt. Siehe [security.md](security.md#audit-log).
 
 ### `settings`
 Generisches Key/Value-Store für Branding (`site_name`, `primary_color`,
-`secondary_color`, `logo_url`) sowie SMTP-/Mail-Konfiguration
+`secondary_color`, `site_logo` - Pfad zum hochgeladenen Logo, `logo_url` nur
+als Legacy-Fallback für ältere Installationen) sowie SMTP-/Mail-Konfiguration
 (`mail_driver`, `smtp_host`, `smtp_pass` verschlüsselt via `Crypto`, …) und
 sonstige Systemeinstellungen. Wird bei jedem Request in
 `BaseController::__construct()` komplett geladen.

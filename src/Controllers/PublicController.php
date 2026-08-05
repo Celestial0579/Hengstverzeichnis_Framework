@@ -226,6 +226,38 @@ class PublicController extends BaseController {
         ]);
     }
 
+    public function stationDetail(): void {
+        $id = $_GET['id'] ?? null;
+        if (!$id) {
+            header("Location: /katalog");
+            exit;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$id]);
+        $station = $stmt->fetch();
+
+        if (!$station) {
+            $this->renderNotFound("Die angeforderte Deckstation existiert nicht oder wurde aus dem Verzeichnis entfernt.");
+        }
+
+        $stmt = $db->prepare("
+            SELECT id, name, ueln, birth_year, color, status, image_url
+            FROM horses
+            WHERE breeding_station_id = ? AND deleted_at IS NULL
+            ORDER BY name ASC
+        ");
+        $stmt->execute([$id]);
+        $horses = $stmt->fetchAll();
+
+        $this->render('public_station_detail', [
+            'title' => $station['name'] . ' - Deckstation',
+            'station' => $station,
+            'horses' => $horses
+        ]);
+    }
+
     private function buildPedigree(?int $horseId, int $currentDepth = 1, int $maxDepth = 4): ?array {
         if (!$horseId || $currentDepth > $maxDepth) {
             return null;
@@ -351,7 +383,7 @@ class PublicController extends BaseController {
         $type = $_POST['request_type'] ?? 'info';
         $message = trim($_POST['message'] ?? '');
 
-        if ($email && in_array($type, ['info', 'deletion'])) {
+        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL) && in_array($type, ['info', 'deletion'])) {
             $db = Database::getInstance();
             $stmt = $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message) VALUES (?, ?, ?, ?)");
             $stmt->execute([$name ?: null, $email, $type, $message ?: null]);

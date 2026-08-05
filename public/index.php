@@ -44,6 +44,7 @@ if ($parsedPath !== '/setup' && SetupController::needsSetup()) {
 $router->get('/', [App\Controllers\PublicController::class, 'index']);
 $router->get('/katalog', [App\Controllers\PublicController::class, 'catalog']);
 $router->get('/hengst', [App\Controllers\PublicController::class, 'horseDetail']); // Requires ?id=
+$router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
 
 // Compliance Routes
 $router->get('/impressum', [App\Controllers\PublicController::class, 'impressum']);
@@ -54,7 +55,7 @@ $router->post('/dsgvo', [App\Controllers\PublicController::class, 'dsgvoSubmit']
 // Authentication Routes
 $router->get('/login', [App\Controllers\AuthController::class, 'loginForm']);
 $router->post('/login', [App\Controllers\AuthController::class, 'loginSubmit']);
-$router->get('/logout', [App\Controllers\AuthController::class, 'logout']);
+$router->post('/logout', [App\Controllers\AuthController::class, 'logout']);
 $router->get('/forgot-password', [App\Controllers\AuthController::class, 'forgotPassword']);
 $router->post('/forgot-password', [App\Controllers\AuthController::class, 'sendResetLink']);
 $router->get('/reset-password', [App\Controllers\AuthController::class, 'resetPassword']);

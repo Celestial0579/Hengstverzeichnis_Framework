@@ -79,7 +79,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <?php foreach ($allHorses as $h): ?>
                         <?php if ($isEdit && $h['id'] == $horse['id']) continue; ?>
                         <option value="<?= $h['id'] ?>" <?= ($horse['sire_id'] ?? '') == $h['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . $h['ueln'] . ']' : '' ?>
+                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -110,7 +110,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <?php foreach ($allHorses as $h): ?>
                         <?php if ($isEdit && $h['id'] == $horse['id']) continue; ?>
                         <option value="<?= $h['id'] ?>" <?= ($horse['dam_id'] ?? '') == $h['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . $h['ueln'] . ']' : '' ?>
+                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>

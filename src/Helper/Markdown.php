@@ -21,18 +21,25 @@ class Markdown {
         $text = preg_replace('/^## (.*?)$/m', '<h2 style="margin-top: 1.5rem; margin-bottom: 0.6rem; color: var(--primary-color);">$1</h2>', $text);
         $text = preg_replace('/^# (.*?)$/m', '<h1 style="margin-top: 1.8rem; margin-bottom: 0.8rem; color: var(--primary-color);">$1</h1>', $text);
 
-        // 3. Bold & Italic
+        // 3. Unordered Lists (- item or * item) - MUSS vor Bold/Italic laufen:
+        // die Kursiv-Regel (*...*) matcht dank /s-Flag auch über Zeilenumbrüche
+        // hinweg und würde sonst bei mehrzeiligen *-Listen die Listenmarker der
+        // Folgezeilen als Kursiv-Begrenzer verschlucken (siehe #38). Ein Zeilen-
+        // anfang wie "**Bold**" matcht hier nicht, da nach dem Marker ein
+        // Leerzeichen verlangt wird (\s+); Bold/Italic innerhalb eines
+        // Listenpunkts funktioniert unverändert, da die Regeln unten einfach
+        // auf den Text in den bereits erzeugten <li>-Tags weiterlaufen.
+        $text = preg_replace('/^\s*[\-\*]\s+(.*?)$/m', '<li>$1</li>', $text);
+        $text = preg_replace('/((?:<li>.*?<\/li>\s*)+)/s', '<ul style="margin: 0.8rem 0 0.8rem 1.5rem; padding-left: 1rem;">$1</ul>', $text);
+
+        // 4. Bold & Italic
         $text = preg_replace('/\*\*(.*?)\*\*/s', '<strong>$1</strong>', $text);
         $text = preg_replace('/__(.*?)__/s', '<strong>$1</strong>', $text);
         $text = preg_replace('/\*(.*?)\*/s', '<em>$1</em>', $text);
         $text = preg_replace('/_(.*?)_/s', '<em>$1</em>', $text);
 
-        // 4. Links [Text](http://example.com)
+        // 5. Links [Text](http://example.com)
         $text = preg_replace('/\[(.*?)\]\((https?:\/\/.*?)\)/s', '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: underline;">$1</a>', $text);
-
-        // 5. Unordered Lists (- item or * item)
-        $text = preg_replace('/^\s*[\-\*]\s+(.*?)$/m', '<li>$1</li>', $text);
-        $text = preg_replace('/((?:<li>.*?<\/li>\s*)+)/s', '<ul style="margin: 0.8rem 0 0.8rem 1.5rem; padding-left: 1rem;">$1</ul>', $text);
 
         // 6. Paragraphs and Line breaks
         // Convert double newlines to paragraphs

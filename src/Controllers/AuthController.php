@@ -232,6 +232,13 @@ class AuthController extends BaseController {
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
+        if (!$user) {
+            // Account wurde vermutlich zwischen 2FA-Pending und Backup-Code-Eingabe gelöscht
+            unset($_SESSION['pending_2fa_user_id']);
+            header("Location: /login");
+            exit;
+        }
+
         $backupCodes = json_decode($user['backup_codes'] ?? '[]', true);
         $matchedKey = null;
 
@@ -265,6 +272,9 @@ class AuthController extends BaseController {
     }
 
     public function logout(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
         \App\Service\AuditLogger::log("Benutzer ausgeloggt", "auth", "Erfolgreich abgemeldet");
         session_destroy();
         header("Location: /");

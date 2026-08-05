@@ -49,7 +49,7 @@ class PersonController extends BaseController {
             $this->render('admin_person_form', [
                 'title' => 'Neue Person anlegen',
                 'person' => null,
-                'error' => 'Der Name der Person / Zuchtstätte ist erforderlich.',
+                'error' => 'Der Name der Person ist erforderlich.',
                 'old' => $_POST
             ]);
             return;

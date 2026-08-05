@@ -36,6 +36,19 @@
         </div>
     <?php endif; ?>
 
+    <?php if (isset($_GET['error']) && $_GET['error'] === 'tracking_domains_invalid'): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Ungültiger Eintrag bei „Tracking-Domains": <code><?= htmlspecialchars($_GET['invalid_entry'] ?? '') ?></code>.
+            Bitte nur vollständige <code>https://</code>-Adressen ohne Pfad, kommagetrennt, angeben (z. B. <code>https://analytics.example.com</code>). Übrige Einstellungen wurden trotzdem gespeichert.
+        </div>
+    <?php endif; ?>
+
+    <?php if (isset($_GET['error']) && $_GET['error'] === 'tracking_domains_write_failed'): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            „Tracking-Domains" konnten nicht gespeichert werden: <code>config/db_config.php</code> ist nicht beschreibbar. Bitte Schreibrechte im Ordner <code>config/</code> prüfen.
+        </div>
+    <?php endif; ?>
+
     <form action="/admin/system-settings" method="POST" style="max-width: 600px;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
@@ -68,6 +81,38 @@
                     Login-Rate-Limiting sowie Audit-Log-Einträge zu manipulieren. Details siehe
                     <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework#reverse-proxy--client-ip-erkennung" target="_blank" rel="noopener">README</a>.
                 <?php endif; ?>
+            </small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label for="tracking_domains">📊 Tracking-Domains (für Matomo/Google Analytics o. Ä.)</label>
+            <input
+                type="text"
+                id="tracking_domains"
+                name="tracking_domains"
+                class="form-control"
+                placeholder="z. B. https://www.googletagmanager.com,https://www.google-analytics.com"
+                value="<?= htmlspecialchars($trackingDomains ?? '') ?>"
+                <?= !empty($trackingDomainsFromEnv) ? 'disabled' : '' ?>
+            >
+            <small style="color: #666; display: block; margin-top: 0.3rem;">
+                <?php if (!empty($trackingDomainsFromEnv)): ?>
+                    Wird aktuell über die Umgebungsvariable <code>TRACKING_DOMAINS</code> gesetzt — diese hat Vorrang und kann hier nicht überschrieben werden.
+                <?php else: ?>
+                    Kommagetrennte Liste von <code>https://</code>-Origins (ohne Pfad), die für den unten eingetragenen Tracking-Code in der
+                    Content-Security-Policy freigeschaltet werden müssen. <strong>Ohne Eintrag hier wird der Tracking-Code vom Browser lautlos
+                    blockiert</strong>, da die Policy standardmäßig nur Ressourcen von dieser Seite selbst erlaubt.
+                <?php endif; ?>
+            </small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label for="tracking_code">📈 Tracking-Code (Matomo-/Google-Analytics-Snippet)</label>
+            <textarea id="tracking_code" name="tracking_code" class="form-control" rows="5" placeholder="&lt;script&gt;...&lt;/script&gt;" style="font-family: monospace; font-size: 0.85rem;"><?= htmlspecialchars($settings['tracking_code'] ?? '') ?></textarea>
+            <small style="color: #666; display: block; margin-top: 0.3rem;">
+                Wird unverändert vor <code>&lt;/head&gt;</code> auf jeder Seite eingefügt. Nur für vertrauenswürdigen Code von Matomo, Google Analytics
+                o. Ä. verwenden — der Inhalt wird bewusst nicht escaped, damit <code>&lt;script&gt;</code>-Tags funktionieren. Denken Sie an Ihre
+                DSGVO-Pflichten (z. B. Cookie-Consent), bevor Sie Tracking aktivieren.
             </small>
         </div>
 

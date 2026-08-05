@@ -25,7 +25,7 @@ frischem Docker-Setup-Smoke-Test: Auto-Provisionierung, erzwungenes
   CSRF-Schutz auf allen zustandsändernden Routen
 - Datenbankgestütztes Rate-Limiting (Login/2FA/Backup-Codes)
 - Verschlüsselung sensibler Werte (AES-256-GCM: SMTP-Passwort, TOTP-Secrets)
-- Revisionssicheres, unlöschbares Audit-Log (30 Tage Retention)
+- Revisionssicheres, unlöschbares Audit-Log (dauerhaft gespeichert, Standardansicht zeigt die letzten 30 Tage)
 - DSGVO-Kontaktformular inkl. Verwaltung (Anonymisierung/Löschung) im Admin-Bereich
 - Impressum & Datenschutzinformationen
 - Branding-Einstellungen (Site-Name, Farben, Logo), SMTP-Konfiguration mit

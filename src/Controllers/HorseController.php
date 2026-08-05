@@ -83,7 +83,7 @@ class HorseController extends BaseController {
         $this->saveHorsePersons($db, $newHorseId, $_POST['persons'] ?? []);
 
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
-        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln);
+        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year);
 
         header("Location: /admin/horses?success=created");
         exit;
@@ -197,7 +197,7 @@ class HorseController extends BaseController {
         $this->saveHorsePersons($db, (int)$id, $_POST['persons'] ?? []);
 
         // Run auto-linking for matches
-        $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln);
+        $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln, $birth_year);
 
         header("Location: /admin/horses?success=updated");
         exit;
@@ -244,13 +244,13 @@ class HorseController extends BaseController {
     /**
      * Auto-links unlinked placeholders matching $ueln, $foreignUeln or $name to $horseId
      */
-    private function autoLinkMatches(int $horseId, string $name, string $ueln, string $foreignUeln = ''): void {
+    private function autoLinkMatches(int $horseId, string $name, string $ueln, string $foreignUeln = '', ?int $birthYear = null): void {
         $db = Database::getInstance();
 
         $uelnsToMatch = array_unique(array_filter([trim($ueln), trim($foreignUeln)]));
 
         foreach ($uelnsToMatch as $u) {
-            // Auto-link Sires matching UELN or Foreign UELN
+            // Auto-link Sires matching UELN or Foreign UELN (UELN ist eindeutig, keine Mehrdeutigkeit möglich)
             $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ?");
             $stmt->execute([$horseId, $u]);
             $countSires = $stmt->rowCount();
@@ -268,20 +268,41 @@ class HorseController extends BaseController {
         }
 
         if (!empty($name)) {
-            // Auto-link Sires matching exact Name (where sire_ueln is empty)
-            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?)");
-            $stmt->execute([$horseId, $name]);
-            $countNameSires = $stmt->rowCount();
-            if ($countNameSires > 0) {
-                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameSires} Nachkommen anhand Name '{$name}' mit Vater ID {$horseId} verknüpft");
-            }
+            // Namensbasiertes Auto-Linking nur, wenn der Name in der Datenbank eindeutig ist -
+            // bei mehreren gleichnamigen Pferden kann nicht sicher bestimmt werden, welches
+            // davon tatsächlich gemeint ist (siehe #41). Mehrdeutige Fälle bleiben als
+            // Platzhalter stehen und tauchen stattdessen im manuellen Match-Tool auf.
+            $stmt = $db->prepare("SELECT COUNT(*) FROM horses WHERE deleted_at IS NULL AND LOWER(name) = LOWER(?) AND id != ?");
+            $stmt->execute([$name, $horseId]);
+            $nameIsAmbiguous = (int)$stmt->fetchColumn() > 0;
 
-            // Auto-link Dams matching exact Name (where dam_ueln is empty)
-            $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?)");
-            $stmt->execute([$horseId, $name]);
-            $countNameDams = $stmt->rowCount();
-            if ($countNameDams > 0) {
-                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameDams} Nachkommen anhand Name '{$name}' mit Mutter ID {$horseId} verknüpft");
+            if (!$nameIsAmbiguous) {
+                // Zusätzlich nur bei plausiblem Elternalter verknüpfen (3-30 Jahre älter als
+                // das Kind), analog zur "plausibel"-Schwelle im manuellen Match-Tool
+                // (calculateSuggestions()). Fehlt ein Geburtsjahr, ist keine Prüfung möglich -
+                // dann wie bisher ohne Alters-Einschränkung verknüpfen.
+                $ageCondition = '';
+                $ageParams = [];
+                if ($birthYear !== null) {
+                    $ageCondition = " AND (birth_year IS NULL OR (birth_year - ?) BETWEEN 3 AND 30)";
+                    $ageParams = [$birthYear];
+                }
+
+                // Auto-link Sires matching exact Name (where sire_ueln is empty)
+                $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?){$ageCondition}");
+                $stmt->execute([$horseId, $name, ...$ageParams]);
+                $countNameSires = $stmt->rowCount();
+                if ($countNameSires > 0) {
+                    \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameSires} Nachkommen anhand Name '{$name}' mit Vater ID {$horseId} verknüpft");
+                }
+
+                // Auto-link Dams matching exact Name (where dam_ueln is empty)
+                $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?){$ageCondition}");
+                $stmt->execute([$horseId, $name, ...$ageParams]);
+                $countNameDams = $stmt->rowCount();
+                if ($countNameDams > 0) {
+                    \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameDams} Nachkommen anhand Name '{$name}' mit Mutter ID {$horseId} verknüpft");
+                }
             }
         }
     }

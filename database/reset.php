@@ -1,6 +1,11 @@
 <?php
 // database/reset.php
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Dieses Skript darf nur über die CLI ausgeführt werden.');
+}
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Database.php';
 
@@ -13,12 +18,12 @@ echo "===============================================\n";
 try {
     $db = Database::getInstance();
 
+    // Audit-Log bleibt über Resets hinweg erhalten (analog zu AdminController::resetSystem())
     $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
     $db->exec("TRUNCATE TABLE horse_persons;");
     $db->exec("TRUNCATE TABLE breeding_stations;");
     $db->exec("TRUNCATE TABLE password_resets;");
     $db->exec("TRUNCATE TABLE gdpr_requests;");
-    $db->exec("TRUNCATE TABLE audit_logs;");
     $db->exec("TRUNCATE TABLE horses;");
     $db->exec("TRUNCATE TABLE persons;");
     $db->exec("TRUNCATE TABLE users;");

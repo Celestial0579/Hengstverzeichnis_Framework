@@ -25,6 +25,20 @@ define('DB_SSL_CA', getenv('DB_SSL_CA') ?: ($dbConfig['ssl_ca'] ?? ''));
 // Request; ein späteres define() käme für diesen Request zu spät.
 define('TRUSTED_PROXIES', getenv('TRUSTED_PROXIES') !== false ? getenv('TRUSTED_PROXIES') : ($dbConfig['trusted_proxies'] ?? ''));
 
+// Tracking-Domains (siehe Admin > Systemeinstellungen): kommagetrennte Liste von
+// https://-Origins (z. B. für Matomo/Google Analytics), die in der weiter unten
+// gesetzten CSP freigeschaltet werden - ohne das würde die bewusst strikte
+// default-src 'self'-Policy jedes eingebundene externe Tracking-Skript lautlos
+// blockieren. Env-Variable hat Vorrang, sonst der über den Admin-Bereich
+// gespeicherte Wert (analog zu TRUSTED_PROXIES). Nur echte https://-Origins ohne
+// Pfad werden akzeptiert - alles andere wird verworfen (Schutz vor CSP-Header-
+// Injection über einen korrupten Konfigurationswert).
+$trackingDomainsRaw = getenv('TRACKING_DOMAINS') !== false ? getenv('TRACKING_DOMAINS') : ($dbConfig['tracking_domains'] ?? '');
+$trackingDomainsList = array_values(array_filter(array_map('trim', explode(',', $trackingDomainsRaw)), function ($d) {
+    return $d !== '' && preg_match('#^https://[a-zA-Z0-9.-]+(:\d+)?$#', $d) === 1;
+}));
+define('TRACKING_DOMAINS', implode(',', $trackingDomainsList));
+
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 // isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
 // als vertrauenswürdig gelisteten Reverse Proxy.
@@ -55,12 +69,16 @@ if (PHP_SAPI !== 'cli') {
         // da die Views durchgehend onclick=-Attribute und inline style= nutzen (kein
         // Nonce-/Hash-basiertes Setup). object-src/base-uri/form-action/frame-ancestors
         // bieten trotzdem echten Zusatzschutz ohne Änderungen an den Views.
+        // TRACKING_DOMAINS wird nur bei aktiv konfiguriertem Tracking-Code angehängt -
+        // ohne Konfiguration bleibt die Policy unverändert streng.
+        $trackingDomainsForCsp = TRACKING_DOMAINS !== '' ? ' ' . str_replace(',', ' ', TRACKING_DOMAINS) : '';
         header("Content-Security-Policy: " . implode('; ', [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline'",
+            "script-src 'self' 'unsafe-inline'" . $trackingDomainsForCsp,
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
-            "img-src 'self' data:",
+            "img-src 'self' data:" . $trackingDomainsForCsp,
+            "connect-src 'self'" . $trackingDomainsForCsp,
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",

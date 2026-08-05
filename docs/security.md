@@ -102,6 +102,16 @@ aktuell nötig, da Views durchgehend `onclick=`/inline `style=` nutzen (kein
 Nonce-/Hash-Setup) – `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`,
 `frame-ancestors 'self'` bieten trotzdem echten Zusatzschutz.
 
+**Tracking-Domains** (`TRACKING_DOMAINS`, siehe README): Admin → Systemeinstellungen
+erlaubt das Freischalten externer `https://`-Origins (z. B. Matomo/Google Analytics)
+in `script-src`/`img-src`/`connect-src`, damit ein dort konfiguriertes Tracking-Snippet
+(`tracking_code`-Setting, wird unescaped vor `</head>` in `layout.php` ausgegeben)
+funktioniert. Ohne konfigurierte Domain bleibt die Policy unverändert streng – die
+Lockerung ist opt-in und nur admin-auslösbar (`requireAdmin()`), jeder Eintrag wird
+vor der Übernahme in den CSP-Header gegen eine strikte `https://host(:port)`-Regex
+validiert (keine Pfade, keine Sonderzeichen), um CSP-Header-Injection über einen
+korrupten Konfigurationswert auszuschließen.
+
 ## XSS-Schutz
 
 Views nutzen konsequent `htmlspecialchars()` bei Ausgabe von Nutzereingaben.

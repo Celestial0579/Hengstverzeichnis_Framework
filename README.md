@@ -26,7 +26,7 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 ## Bereits umgesetzt
 
-- Öffentlich zugänglicher Hengstkatalog mit Blutlinien-/Pedigree-Ansicht
+- Öffentlich zugänglicher Hengstkatalog mit Suche, Filtern und Blutlinien-/Pedigree-Ansicht
 - Pferde-, Personen- und Deckstationsverwaltung (CRUD) inkl. Papierkorb (Soft-Delete)
 - Automatische Blutlinien-Verknüpfung mit Match-/Merge-Vorschlagswerkzeug
 - Multiuserfähige Benutzerverwaltung mit Rollen (Admin/Editor)
@@ -37,10 +37,12 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 ## Bekannte Einschränkungen (Beta)
 
-- **EntraID SSO** ist noch nicht implementiert (Login erfolgt aktuell über lokale Accounts + verpflichtende 2FA).
-- **Trackingfähigkeit für Weblinks** (Klick-Tracking auf externe Links) ist noch nicht implementiert.
 - Es gibt noch **keine automatisierte Testsuite** — Release-Verifikation erfolgt aktuell über manuelle/geskriptete Smoke-Tests, siehe [CHANGELOG.md](CHANGELOG.md).
-- Es gibt noch **keine CI-Pipeline**; Codequalität wird aktuell über Code-Review sichergestellt.
+- Es gibt noch **keine Test-/Build-CI**; Codequalität wird über Code-Review sowie automatisiertes SAST (Semgrep) und Dependency-Review in der CI sichergestellt (siehe [.github/workflows](.github/workflows)).
+
+Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B. EntraID SSO,
+Klick-Tracking für Weblinks) werden als Feature-Requests in den
+[Issues](../../issues) verwaltet.
 
 Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 
@@ -66,6 +68,7 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `APP_URL`        | –  | dynamisch aus Request | Feste Basis-URL, falls automatische Erkennung nicht passt |
 | `APP_ENV`        | –  | `development`         | `production` deaktiviert Fehlerausgaben im Browser |
 | `TRUSTED_PROXIES`| –  | – (kein Proxy vertraut) | Kommagetrennte Liste vertrauenswürdiger Reverse-Proxy-IPs/-Netze, siehe unten |
+| `TRACKING_DOMAINS`| – | – (kein Tracking) | Kommagetrennte Liste von `https://`-Origins (Matomo/Google Analytics o. Ä.), die in der Content-Security-Policy freigeschaltet werden. Alternative ohne Env-Var: Admin → Systemeinstellungen. |
 
 Neuen `APP_KEY` generieren:
 ```bash

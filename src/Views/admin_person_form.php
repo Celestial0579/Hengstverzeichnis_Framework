@@ -26,8 +26,8 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
         <?php endif; ?>
 
         <div class="form-group">
-            <label for="name">Name der Person / Zuchtstätte *</label>
-            <input type="text" id="name" name="name" class="form-control" value="<?= htmlspecialchars($old['name'] ?? $person['name'] ?? '') ?>" placeholder="z. B. Max Mustermann / Gestüt Fjordblick" required>
+            <label for="name">Name der Person *</label>
+            <input type="text" id="name" name="name" class="form-control" value="<?= htmlspecialchars($old['name'] ?? $person['name'] ?? '') ?>" placeholder="z. B. Max Mustermann" required>
         </div>
 
         <div class="form-group">

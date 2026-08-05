@@ -13,7 +13,10 @@ $trashCount = \App\Controllers\TrashController::getTrashCount();
                 (<span style="color: var(--secondary-color); font-weight: bold;"><?= $isAdmin ? 'Administrator' : 'Editor' ?></span>)
             </p>
         </div>
-        <a href="/logout" class="btn btn-secondary" style="border-color: #dc3545; color: #dc3545; padding: 0.5rem 1rem;">🚪 Abmelden</a>
+        <form action="/logout" method="POST" style="margin: 0;">
+            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+            <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: #dc3545; padding: 0.5rem 1rem;">🚪 Abmelden</button>
+        </form>
     </div>
 
     <!-- Section 1: Verwaltung -->

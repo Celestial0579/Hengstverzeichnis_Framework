@@ -16,7 +16,7 @@
         </div>
     <?php endif; ?>
 
-    <form action="/login/backup-code" method="POST">
+    <form action="/2fa/backup" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         
         <div class="form-group" style="text-align: center;">

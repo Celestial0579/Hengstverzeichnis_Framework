@@ -59,7 +59,7 @@ class AdminController extends BaseController {
                 if (file_exists($filePath)) @unlink($filePath);
             }
 
-            $stmt = $db->prepare("DELETE FROM settings WHERE setting_key = 'site_logo'");
+            $stmt = $db->prepare("DELETE FROM settings WHERE setting_key IN ('site_logo', 'logo_url')");
             $stmt->execute();
         }
 
@@ -107,10 +107,13 @@ class AdminController extends BaseController {
         $this->requireAdmin();
 
         $trustedProxiesFromEnv = getenv('TRUSTED_PROXIES') !== false;
+        $trackingDomainsFromEnv = getenv('TRACKING_DOMAINS') !== false;
         $this->render('admin_system_settings', [
             'title' => 'Systemeinstellungen',
             'trustedProxies' => $trustedProxiesFromEnv ? getenv('TRUSTED_PROXIES') : (SetupController::readDbConfig()['trusted_proxies'] ?? ''),
             'trustedProxiesFromEnv' => $trustedProxiesFromEnv,
+            'trackingDomains' => $trackingDomainsFromEnv ? getenv('TRACKING_DOMAINS') : (SetupController::readDbConfig()['tracking_domains'] ?? ''),
+            'trackingDomainsFromEnv' => $trackingDomainsFromEnv,
         ]);
     }
 
@@ -172,7 +175,41 @@ class AdminController extends BaseController {
             }
         }
 
-        $redirectUrl = "/admin/system-settings?success=1" . ($isHttpWarning ? "&warning=http_unencrypted" : "") . ($trustedProxiesError !== null ? "&error=trusted_proxies_invalid&invalid_entry=" . urlencode($trustedProxiesError) : "");
+        // Tracking-Code (Matomo/Google Analytics o. ä.): rohes HTML/JS-Snippet, wird
+        // absichtlich unescaped in layout.php ausgegeben - Admin-only vertrauenswürdige
+        // Eingabe (requireAdmin() oben), siehe layout.php für die Begründung.
+        $trackingCode = trim($_POST['tracking_code'] ?? '');
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('tracking_code', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$trackingCode, $trackingCode]);
+        \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Tracking-Code " . ($trackingCode !== '' ? 'gesetzt' : 'entfernt'));
+
+        // Tracking-Domains: nur verarbeiten, wenn nicht bereits per Env-Var vorgegeben
+        // (sonst hätte eine Änderung hier ohnehin keine Wirkung, siehe config/config.php).
+        // Nur echte https://-Origins ohne Pfad werden akzeptiert, da dieser Wert direkt
+        // in die Content-Security-Policy einfließt (siehe config/config.php).
+        $trackingDomainsError = null;
+        if (getenv('TRACKING_DOMAINS') === false) {
+            $trackingDomainsRaw = trim($_POST['tracking_domains'] ?? '');
+            $domainEntries = $trackingDomainsRaw === '' ? [] : array_map('trim', explode(',', $trackingDomainsRaw));
+            foreach ($domainEntries as $entry) {
+                if ($entry === '' || preg_match('#^https://[a-zA-Z0-9.-]+(:\d+)?$#', $entry) === 1) {
+                    continue;
+                }
+                $trackingDomainsError = $entry;
+                break;
+            }
+
+            if ($trackingDomainsError === null) {
+                $normalizedDomains = implode(',', array_filter($domainEntries, fn($e) => $e !== ''));
+                if (!SetupController::writeDbConfigValue('tracking_domains', $normalizedDomains)) {
+                    header("Location: /admin/system-settings?error=tracking_domains_write_failed");
+                    exit;
+                }
+                \App\Service\AuditLogger::log("Tracking-Domains aktualisiert", "security", "Wert: " . ($normalizedDomains !== '' ? $normalizedDomains : '(leer)'));
+            }
+        }
+
+        $redirectUrl = "/admin/system-settings?success=1" . ($isHttpWarning ? "&warning=http_unencrypted" : "") . ($trustedProxiesError !== null ? "&error=trusted_proxies_invalid&invalid_entry=" . urlencode($trustedProxiesError) : "") . ($trackingDomainsError !== null ? "&error=tracking_domains_invalid&invalid_entry=" . urlencode($trackingDomainsError) : "");
         header("Location: " . $redirectUrl);
         exit;
     }
@@ -188,9 +225,15 @@ class AdminController extends BaseController {
             $settings[$r['setting_key']] = $r['setting_value'];
         }
 
+        $errorMessages = [
+            'invalid_mail_from_email' => 'Ungültiges Format der Absender-E-Mail-Adresse. Es wurden keine Änderungen gespeichert.',
+            'invalid_admin_notification_email' => 'Ungültiges Format der Admin-Benachrichtigungs-E-Mail-Adresse. Es wurden keine Änderungen gespeichert.',
+        ];
+
         $this->render('admin_mail_settings', [
             'title' => 'E-Mail & SMTP Einstellungen',
-            'settings' => $settings
+            'settings' => $settings,
+            'error' => $errorMessages[$_GET['error'] ?? ''] ?? null
         ]);
     }
 
@@ -212,6 +255,15 @@ class AdminController extends BaseController {
         $mailFromEmail = trim($_POST['mail_from_email'] ?? '');
         $mailFromName = trim($_POST['mail_from_name'] ?? '');
         $adminNotificationEmail = trim($_POST['admin_notification_email'] ?? '');
+
+        if ($mailFromEmail !== '' && filter_var($mailFromEmail, FILTER_VALIDATE_EMAIL) === false) {
+            header("Location: /admin/mail-settings?error=invalid_mail_from_email");
+            exit;
+        }
+        if ($adminNotificationEmail !== '' && filter_var($adminNotificationEmail, FILTER_VALIDATE_EMAIL) === false) {
+            header("Location: /admin/mail-settings?error=invalid_admin_notification_email");
+            exit;
+        }
 
         $db = Database::getInstance();
 
@@ -325,7 +377,9 @@ class AdminController extends BaseController {
     }
 
     /**
-     * Audit log viewer for Administrators (Immutable 30-day retention)
+     * Audit log viewer for Administrators. Entries are immutable and kept
+     * indefinitely (no automatic purge) - the "30 days" here is only the
+     * default display window, with a fallback to the latest 500 entries.
      */
     public function logs(): void {
         $this->requireAdmin();

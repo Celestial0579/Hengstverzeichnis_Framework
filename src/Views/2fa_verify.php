@@ -28,7 +28,7 @@
     </form>
 
     <div style="text-align: center; margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem;">
-        <a href="/login/backup-code" style="font-size: 0.9rem; color: #666; text-decoration: none;">
+        <a href="/2fa/backup" style="font-size: 0.9rem; color: #666; text-decoration: none;">
             🔑 Smartphone verloren? Mit Backup-Code anmelden
         </a>
     </div>

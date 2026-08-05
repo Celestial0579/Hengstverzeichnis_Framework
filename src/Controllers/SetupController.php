@@ -188,6 +188,7 @@ class SetupController extends BaseController {
             if (empty($dbHost)) $errors[] = "Bitte geben Sie den Datenbank-Server (Host) ein.";
             if (empty($dbPort)) $errors[] = "Bitte geben Sie den Datenbank-Port ein.";
             if (empty($dbName)) $errors[] = "Bitte geben Sie den Datenbank-Namen ein.";
+            elseif (!preg_match('/^[A-Za-z0-9_]+$/', $dbName)) $errors[] = "Der Datenbank-Name darf nur Buchstaben, Ziffern und Unterstriche enthalten.";
             if (empty($dbUser)) $errors[] = "Bitte geben Sie den Datenbank-Benutzer ein.";
         }
 

@@ -472,6 +472,179 @@ class AdminController extends BaseController {
     }
 
     /**
+     * Backup-Verwaltung (#59, siehe App\Service\BackupService): S3-Zugangsdaten,
+     * Intervall/Aufbewahrung konfigurieren, letzten Lauf einsehen, manuellen
+     * Testlauf anstoßen. Baut auf der Cron-/Scheduler-Infrastruktur (#67) auf.
+     */
+    public function backupSettings(): void {
+        $this->requireAdmin();
+
+        $db = Database::getInstance();
+        $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'backup_%'");
+        $settings = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
+
+        $schedulerTask = null;
+        foreach (\App\Service\Scheduler::registeredTasks() as $task) {
+            if ($task['name'] === 'backup.external') {
+                $schedulerTask = $task;
+                break;
+            }
+        }
+
+        $this->render('admin_backup_settings', [
+            'title' => 'Backups',
+            'settings' => $settings,
+            'schedulerTask' => $schedulerTask,
+        ]);
+    }
+
+    public function updateBackupSettings(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $db = Database::getInstance();
+
+        $settings = [
+            'backup_enabled' => !empty($_POST['backup_enabled']) ? '1' : '0',
+            'backup_s3_endpoint' => trim($_POST['backup_s3_endpoint'] ?? ''),
+            'backup_s3_region' => trim($_POST['backup_s3_region'] ?? ''),
+            'backup_s3_bucket' => trim($_POST['backup_s3_bucket'] ?? ''),
+            'backup_s3_access_key' => trim($_POST['backup_s3_access_key'] ?? ''),
+            'backup_s3_path_style' => !empty($_POST['backup_s3_path_style']) ? '1' : '0',
+            'backup_s3_use_https' => !empty($_POST['backup_s3_use_https']) ? '1' : '0',
+            'backup_interval_hours' => (string)max(1, (int)($_POST['backup_interval_hours'] ?? 24)),
+            'backup_retention_count' => (string)max(1, (int)($_POST['backup_retention_count'] ?? 14)),
+        ];
+
+        // Secret Key nur überschreiben, wenn tatsächlich ein neuer Wert eingegeben
+        // wurde (analog zum SMTP-Passwort in updateMailSettings()) - ein leeres Feld
+        // bedeutet "unverändert lassen", nicht "Secret löschen".
+        if (!empty($_POST['backup_s3_secret_key'])) {
+            $settings['backup_s3_secret_key'] = \App\Security\Crypto::encrypt($_POST['backup_s3_secret_key']);
+        }
+
+        foreach ($settings as $key => $value) {
+            $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+            $stmt->execute([$key, $value, $value]);
+        }
+
+        \App\Service\AuditLogger::log(
+            "Backup-Einstellungen aktualisiert",
+            "settings",
+            "Aktiviert: {$settings['backup_enabled']}, Endpoint: {$settings['backup_s3_endpoint']}, Bucket: {$settings['backup_s3_bucket']}"
+        );
+
+        header("Location: /admin/backups?success=1");
+        exit;
+    }
+
+    /**
+     * Löst einen sofortigen Backup-Lauf aus, unabhängig vom konfigurierten
+     * Intervall - z. B. um eine neue S3-Konfiguration direkt zu testen.
+     */
+    public function testBackup(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        try {
+            \App\Service\BackupService::run();
+            header("Location: /admin/backups?success=backup_run");
+        } catch (\Throwable $e) {
+            header("Location: /admin/backups?error=" . urlencode($e->getMessage()));
+        }
+        exit;
+    }
+
+    /**
+     * E-Mail-Digest-Verwaltung (#52, siehe App\Service\DigestService):
+     * periodische Zusammenfassung offener Blutlinien-Match-Vorschläge und
+     * bald ablaufender Papierkorb-Fristen an Admins/Editoren. Baut auf der
+     * Cron-/Scheduler-Infrastruktur (#67) auf.
+     */
+    public function digestSettings(): void {
+        $this->requireAdmin();
+
+        $db = Database::getInstance();
+        $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'digest_%'");
+        $settings = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
+
+        $schedulerTask = null;
+        foreach (\App\Service\Scheduler::registeredTasks() as $task) {
+            if ($task['name'] === 'digest.admin_editor') {
+                $schedulerTask = $task;
+                break;
+            }
+        }
+
+        $this->render('admin_digest_settings', [
+            'title' => 'E-Mail-Digest',
+            'settings' => $settings,
+            'schedulerTask' => $schedulerTask,
+        ]);
+    }
+
+    public function updateDigestSettings(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $db = Database::getInstance();
+
+        $settings = [
+            'digest_enabled' => !empty($_POST['digest_enabled']) ? '1' : '0',
+            'digest_interval_hours' => (string)max(1, (int)($_POST['digest_interval_hours'] ?? 24)),
+        ];
+
+        foreach ($settings as $key => $value) {
+            $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+            $stmt->execute([$key, $value, $value]);
+        }
+
+        \App\Service\AuditLogger::log("Digest-Einstellungen aktualisiert", "settings", "Aktiviert: {$settings['digest_enabled']}, Intervall: {$settings['digest_interval_hours']}h");
+
+        header("Location: /admin/digest?success=1");
+        exit;
+    }
+
+    /**
+     * Löst einen sofortigen Digest-Lauf aus, unabhängig vom konfigurierten
+     * Intervall - z. B. um die Mail-Konfiguration zu testen. Gibt es aktuell
+     * nichts zu berichten, wird (wie im regulären Lauf) bewusst kein
+     * "alles ruhig"-E-Mail versendet.
+     */
+    public function testDigest(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        try {
+            \App\Service\DigestService::run();
+
+            $db = Database::getInstance();
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'digest_last_sent_count'");
+            $stmt->execute();
+            $sentCount = (int)($stmt->fetchColumn() ?: 0);
+
+            header("Location: /admin/digest?" . ($sentCount > 0 ? "success=digest_run&sent={$sentCount}" : "success=digest_skipped"));
+        } catch (\Throwable $e) {
+            header("Location: /admin/digest?error=" . urlencode($e->getMessage()));
+        }
+        exit;
+    }
+
+    /**
      * Audit log viewer for Administrators. Entries are immutable and kept
      * indefinitely (no automatic purge) - the "30 days" here is only the
      * default display window, with a fallback to the latest 500 entries.

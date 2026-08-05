@@ -320,4 +320,51 @@ class Mailer {
 
         return $this->send($userEmail, $subject, $html);
     }
+
+    /**
+     * Periodischer E-Mail-Digest an Admins/Editoren (#52, siehe
+     * App\Service\DigestService): fasst Ereignisse zusammen, für die es
+     * keine sofortige Benachrichtigung gibt (offene Blutlinien-Match-
+     * Vorschläge, bald ablaufende Papierkorb-Fristen).
+     */
+    public function sendAdminDigest(string $recipientEmail, int $matchSuggestionCount, int $expiringTrashCount): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $matchesUrl = $this->getBaseUrl() . 'admin/matches';
+        $trashUrl = $this->getBaseUrl() . 'admin/trash';
+
+        $subject = "📋 Digest: Offene Aufgaben - {$siteName}";
+
+        $items = '';
+        if ($matchSuggestionCount > 0) {
+            $items .= "
+                <tr>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee;'>🔗 Offene Blutlinien-Match-Vorschläge</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>{$matchSuggestionCount}</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right;'><a href='{$matchesUrl}'>Ansehen</a></td>
+                </tr>
+            ";
+        }
+        if ($expiringTrashCount > 0) {
+            $items .= "
+                <tr>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee;'>🗑️ Papierkorb-Einträge nahe der 30-Tage-Frist</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>{$expiringTrashCount}</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right;'><a href='{$trashUrl}'>Ansehen</a></td>
+                </tr>
+            ";
+        }
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                <h2 style='color: #2a52be;'>Offene Aufgaben bei {$siteName}</h2>
+                <p>Dieser periodische Digest fasst Ereignisse zusammen, die aktuell auf Ihre Prüfung warten:</p>
+                <table style='width: 100%; border-collapse: collapse; margin: 20px 0;'>
+                    {$items}
+                </table>
+                <p style='color: #888; font-size: 0.85rem; margin-top: 20px;'>Sie erhalten diesen Digest, weil Sie als Admin oder Editor bei {$siteName} registriert sind. Der Digest wird nur versendet, wenn es tatsächlich etwas zu berichten gibt.</p>
+            </div>
+        ";
+
+        return $this->send($recipientEmail, $subject, $html);
+    }
 }

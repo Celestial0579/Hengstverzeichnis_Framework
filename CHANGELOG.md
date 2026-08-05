@@ -50,6 +50,27 @@ Breaking Changes sind jederzeit möglich).
   ohne konkret registrierte Aufgaben (siehe
   [docs/architecture.md](docs/architecture.md), Abschnitt
   „Cron-/Scheduler-Infrastruktur“).
+- Automatisierte externe Backups (#59): periodische Sicherung der Datenbank
+  an einen S3-kompatiblen Speicher (AWS S3, MinIO, Hetzner Object Storage
+  o. Ä.) als Kernfunktion, aufbauend auf der neuen Cron-/Scheduler-
+  Infrastruktur (#67). `App\Service\DatabaseDumper` erzeugt den Dump als
+  reine PHP-Alternative zu `mysqldump`, `App\Service\S3Client` signiert den
+  Upload selbst mit AWS Signature Version 4 ohne AWS-SDK/Composer-
+  Laufzeitabhängigkeit. Konfigurierbar unter `/admin/backups`
+  (Zugangsdaten, Intervall, Aufbewahrungsanzahl/Rotation, manueller
+  Testlauf) - siehe [docs/architecture.md](docs/architecture.md), Abschnitt
+  „Automatisierte externe Backups“. Enthält bewusst nur die Datenbank, keine
+  hochgeladenen Dateien.
+- Optionaler E-Mail-Digest für Admins/Editoren (#52): periodische
+  Zusammenfassung offener Blutlinien-Match-/Merge-Vorschläge und bald
+  ablaufender Papierkorb-Fristen, aufbauend auf der Cron-/Scheduler-
+  Infrastruktur (#67). Wird nur versendet, wenn tatsächlich etwas zu
+  berichten ist. `App\Service\MatchSuggestionFinder` (aus
+  `HorseController` extrahiert, unverändertes Verhalten) sorgt dafür, dass
+  Digest und Admin-Match-Seite dieselbe Anzahl sehen. Konfigurierbar unter
+  `/admin/digest` (Aktivierung, Intervall, manueller Testlauf) - siehe
+  [docs/architecture.md](docs/architecture.md), Abschnitt „E-Mail-Digest
+  für Admins/Editoren“.
 
 ## [0.2.0-beta.1] – 2026-08-05
 

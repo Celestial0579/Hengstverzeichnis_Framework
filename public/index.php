@@ -33,6 +33,14 @@ use App\Plugin\PluginManager;
 $pluginManager = PluginManager::getInstance();
 $pluginManager->boot();
 
+// Kern-Cron-Aufgaben registrieren (#67, siehe App\Service\Scheduler): jede
+// Aufgabe meldet sich bei jedem Request-Bootstrap selbst an (kein dauerhaft
+// laufender Prozess) und wird nur tatsächlich fällig, wenn sie zusätzlich
+// über den Admin-Bereich konfiguriert/aktiviert wurde - registerScheduledTask()
+// ist dafür jeweils selbst verantwortlich (No-Op ohne Konfiguration).
+\App\Service\BackupService::registerScheduledTask();
+\App\Service\DigestService::registerScheduledTask();
+
 $router = new Router();
 
 // Setup Routes
@@ -163,6 +171,16 @@ $router->post('/admin/cron/run-now', [App\Controllers\AdminController::class, 'r
 // Admin-Login erreichbar, da System-Cron keine Session mitbringen kann.
 $router->get('/cron/run', [App\Controllers\CronController::class, 'run']);
 $router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
+
+// Admin Backup-Verwaltung (#59)
+$router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);
+$router->post('/admin/backups', [App\Controllers\AdminController::class, 'updateBackupSettings']);
+$router->post('/admin/backups/test', [App\Controllers\AdminController::class, 'testBackup']);
+
+// Admin E-Mail-Digest-Verwaltung (#52)
+$router->get('/admin/digest', [App\Controllers\AdminController::class, 'digestSettings']);
+$router->post('/admin/digest', [App\Controllers\AdminController::class, 'updateDigestSettings']);
+$router->post('/admin/digest/test', [App\Controllers\AdminController::class, 'testDigest']);
 
 // Plugin-Routen: von aktivierten Plugins über eine optionale routes()-Methode
 // deklariert (siehe App\Plugin\PluginManager::registerPluginRoute()). Der

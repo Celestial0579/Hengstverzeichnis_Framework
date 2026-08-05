@@ -43,6 +43,21 @@ Breaking Changes sind jederzeit möglich).
   Siehe [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
   „Update-Erkennung“.
 
+### Geändert
+
+- Gruppen-/Berechtigungssystem (#66): Gruppenmitgliedschaft ist jetzt für
+  jede Gruppe außer `admin` ausschließlich explizit (Security-by-Design) -
+  auch die eingebaute `editor`-Gruppe wird nicht mehr automatisch anhand der
+  Benutzerrolle zugewiesen, sondern muss wie jede eigene Gruppe im
+  Benutzer-Formular bewusst angehakt werden. Neue Gruppen und neue Benutzer
+  starten dadurch standardmäßig ohne jede Berechtigung (wie `public`) statt
+  implizit mit den Editor-Standardrechten. `editor` bleibt als Komfort-Gruppe
+  mit denselben Rechten wie bisher bestehen, ist aber kein automatischer
+  Standard mehr. Bestehende Installationen: Editoren behalten beim Update
+  automatisch ihre bisherigen Rechte (einmalige, dauerhaft abgesicherte
+  Migration). Siehe [docs/user-groups-plan.md](docs/user-groups-plan.md),
+  Abschnitt 10.
+
 ## [0.1.0-beta.1] – 2026-08-04
 
 Erstes öffentliches Beta-Release. Nach internem Testdurchlauf (inkl.

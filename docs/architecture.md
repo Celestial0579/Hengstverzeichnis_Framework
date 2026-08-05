@@ -184,15 +184,21 @@ Bearbeiten/Löschen/Veröffentlichen) – siehe
 [user-groups-plan.md](user-groups-plan.md) für die Architekturentscheidungen.
 
 - Drei feste (`is_builtin`) Gruppen: `admin` (hart codiert immer alle
-  Rechte), `editor` (standardmäßig alle Rechte wie vor Einführung dieses
-  Systems, über die Admin-UI granular einschränkbar), `public` (die nicht
-  angemeldeten Besucher – erhält serverseitig mehrfach unabhängig
-  abgesichert niemals Zugriff auf das Backend oder irgendeine Berechtigung,
-  siehe user-groups-plan.md Abschnitt 8 für die drei unabhängigen
-  Mechanismen). admin/editor-Mitgliedschaft ergibt sich weiter
-  aus `users.role`; zusätzlich können Benutzer beliebig vielen eigenen,
-  frei anlegbaren Gruppen zugeordnet werden (`user_groups`, Verwaltung
-  unter `/admin/groups` bzw. im Benutzer-Formular).
+  Rechte, komplett separat über `users.role` geregelt, nie über
+  `user_groups`), `editor` (Komfort-Gruppe mit denselben Standardrechten
+  wie vor Einführung dieses Systems, über die Admin-UI frei editierbar),
+  `public` (die nicht angemeldeten Besucher – erhält serverseitig mehrfach
+  unabhängig abgesichert niemals Zugriff auf das Backend oder irgendeine
+  Berechtigung, siehe user-groups-plan.md Abschnitt 8 für die drei
+  unabhängigen Mechanismen). **Security-by-Design (Abschnitt 10):**
+  Mitgliedschaft ist für JEDE Gruppe außer `admin` ausschließlich explizit
+  über `user_groups` – auch `editor` ist keine automatisch zugewiesene
+  Standardgruppe mehr, sondern verhält sich identisch zu jeder eigenen
+  Gruppe (frei zuweisbar/entziehbar, startet bei Anlage ohne Rechte wie
+  `public`). `admin`/`public` sind damit die einzigen beiden Sonderfälle
+  im gesamten Gruppensystem (`GroupController::PROTECTED_PERMISSION_SLUGS`).
+  Verwaltung unter `/admin/groups` bzw. Gruppenzuordnung im
+  Benutzer-Formular.
 - `App\Permission\PermissionRegistry`: Katalog der verfügbaren Module/
   Aktionen – fester Kern-Anteil (`horses` inkl. `publish`, `persons`,
   `breeding_stations`) plus zur Laufzeit von aktivierten Plugins

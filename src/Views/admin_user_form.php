@@ -5,12 +5,12 @@
  * @var array|null $errors
  * @var array|null $old
  * @var string $title
- * @var array $customGroups Eigene (nicht eingebaute) Gruppen, siehe #66
- * @var array $userGroupIds IDs der aktuell zugewiesenen eigenen Gruppen
+ * @var array $assignableGroups Alle zuweisbaren Gruppen (jede außer admin/public), siehe #66
+ * @var array $userGroupIds IDs der aktuell zugewiesenen Gruppen
  */
 $isEdit = !empty($user);
 $actionUrl = $isEdit ? '/admin/users/update' : '/admin/users/store';
-$customGroups = $customGroups ?? [];
+$assignableGroups = $assignableGroups ?? [];
 $userGroupIds = $userGroupIds ?? [];
 ?>
 <div class="card" style="max-width: 600px;">
@@ -46,9 +46,12 @@ $userGroupIds = $userGroupIds ?? [];
         <div class="form-group">
             <label for="role">Rolle *</label>
             <select id="role" name="role" class="form-control" required>
-                <option value="editor" <?= ($old['role'] ?? $user['role'] ?? '') === 'editor' ? 'selected' : '' ?>>Editor</option>
+                <option value="editor" <?= ($old['role'] ?? $user['role'] ?? '') === 'editor' ? 'selected' : '' ?>>Editor (kein Admin)</option>
                 <option value="admin" <?= ($old['role'] ?? $user['role'] ?? '') === 'admin' ? 'selected' : '' ?>>Administrator (Vollzugriff, Branding & Benutzer)</option>
             </select>
+            <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0 0;">
+                "Editor" allein gewährt keinerlei Rechte mehr - erst die unten zugewiesenen Gruppen bestimmen, was dieser Benutzer darf (siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>). Ohne jede Gruppe entspricht der Zugriff dem eines nicht angemeldeten Besuchers.
+            </p>
         </div>
 
         <div class="form-group">
@@ -59,17 +62,17 @@ $userGroupIds = $userGroupIds ?? [];
         </div>
 
         <div class="form-group">
-            <label>Zusätzliche Gruppen (optional)</label>
-            <?php if (empty($customGroups)): ?>
+            <label>Gruppen (bestimmen die Rechte)</label>
+            <?php if (empty($assignableGroups)): ?>
                 <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0 0;">
-                    Noch keine eigenen Gruppen angelegt - siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
+                    Noch keine Gruppen vorhanden - siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
                 </p>
             <?php else: ?>
                 <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.3rem;">
-                    <?php foreach ($customGroups as $group): ?>
+                    <?php foreach ($assignableGroups as $group): ?>
                         <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
                             <input type="checkbox" name="groups[]" value="<?= (int)$group['id'] ?>" style="width: auto;" <?= in_array((int)$group['id'], $userGroupIds, true) ? 'checked' : '' ?>>
-                            <?= htmlspecialchars($group['name']) ?>
+                            <?= htmlspecialchars($group['name']) ?><?= $group['is_builtin'] ? ' (eingebaut)' : '' ?>
                         </label>
                     <?php endforeach; ?>
                 </div>

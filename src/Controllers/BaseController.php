@@ -213,10 +213,17 @@ abstract class BaseController {
 
     /**
      * Gruppen-Zugehörigkeit des aktuellen Session-Benutzers (#66, siehe
-     * docs/user-groups-plan.md). Admin-/Editor-Mitgliedschaft ergibt sich aus der
-     * bestehenden Spalte users.role, zusätzlich kann ein Benutzer beliebig vielen
-     * eigenen (nicht eingebauten) Gruppen zugeordnet sein. Innerhalb eines Requests
-     * gecacht, da mehrere hasPermission()-Aufrufe pro Seite üblich sind.
+     * docs/user-groups-plan.md). Security-by-Design: Mitgliedschaft ist
+     * ausschließlich explizit über `user_groups` - es gibt KEINE implizite
+     * Ableitung aus users.role mehr. Insbesondere ist `editor` eine ganz normale
+     * Gruppe wie jede eigene: ein Benutzer mit role='editor' aber ohne
+     * `user_groups`-Zeilen hat exakt dieselben (keine) Rechte wie `public` und
+     * muss der Editor-Gruppe (oder einer eigenen Gruppe) bewusst zugeordnet
+     * werden. Neue Gruppen/Benutzer erben so standardmäßig nichts, statt
+     * versehentlich Editor-Rechte zu erhalten. `admin` bleibt davon unberührt
+     * komplett separat über den hart codierten Bypass in hasPermission()
+     * geregelt und taucht hier nie auf. Innerhalb eines Requests gecacht, da
+     * mehrere hasPermission()-Aufrufe pro Seite üblich sind.
      *
      * @return array<int, int> IDs aller Gruppen, denen der aktuelle Benutzer angehört
      */
@@ -234,20 +241,9 @@ abstract class BaseController {
 
         try {
             $db = Database::getInstance();
-            $ids = [];
-
-            $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug = ?");
-            $stmt->execute([$_SESSION['role'] ?? 'editor']);
-            $roleGroupId = $stmt->fetchColumn();
-            if ($roleGroupId) {
-                $ids[] = (int)$roleGroupId;
-            }
-
             $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
             $stmt->execute([$_SESSION['user_id']]);
-            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $groupId) {
-                $ids[] = (int)$groupId;
-            }
+            $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 
             $this->groupIdsCache = array_values(array_unique($ids));
         } catch (\Throwable $e) {

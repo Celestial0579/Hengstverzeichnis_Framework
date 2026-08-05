@@ -11,67 +11,94 @@ namespace Tests\Functional;
  * BaseController::hasPermission() - ein reiner DB-/Unit-Test würde die
  * eigentliche Durchsetzung in requirePermission() nicht abdecken), sowie die
  * serverseitigen Sicherheits-Leitplanken aus GroupController (eingebaute
- * Gruppen unlöschbar, admin/public nie editierbar, CSRF-Pflicht).
+ * Gruppen unlöschbar, admin/public nie editierbar, CSRF-Pflicht) und das
+ * Security-by-Design-Prinzip: role='editor' allein gewährt KEINE Rechte mehr,
+ * Mitgliedschaft in JEDER Gruppe (auch der eingebauten `editor`-Gruppe) ist
+ * ausschließlich explizit über eigene Gruppen (siehe
+ * BaseController::userGroupIds()).
  */
 class GroupPermissionEnforcementTest extends FunctionalTestCase {
+
+    public function testEditorRoleAloneGrantsNoPermissions(): void {
+        $admin = $this->authenticatedClient();
+
+        // Bewusst OHNE jede Gruppenzuweisung - role='editor' allein darf seit der
+        // Security-by-Design-Umstellung keinerlei Rechte mehr gewähren, exakt wie
+        // 'public' (siehe BaseController::userGroupIds()).
+        $unique = uniqid();
+        $editor = $this->createAndLoginEditor($admin, "norights{$unique}", "no-rights-{$unique}@example.com");
+
+        $denied = $editor->get('/admin/horses/create');
+        $this->assertSame(403, $denied->statusCode);
+    }
+
+    public function testAssigningBuiltinEditorGroupGrantsItsDefaultPermissions(): void {
+        $admin = $this->authenticatedClient();
+
+        // Die eingebaute Editor-Gruppe ist seit der Security-by-Design-Umstellung
+        // eine ganz normale, bewusst zuzuweisende Gruppe wie jede eigene (siehe
+        // UserController::assignableGroups()) - hier wird sie einem Benutzer
+        // EXPLIZIT zugewiesen, um zu verifizieren, dass ihre vordefinierten
+        // Standardrechte (siehe FunctionalTestCase::EDITOR_DEFAULT_PERMISSIONS)
+        // dadurch tatsächlich wirken.
+        $editorGroupId = $this->findBuiltinGroupId($admin, 'Editor');
+
+        $unique = uniqid();
+        $editor = $this->createAndLoginEditor(
+            $admin,
+            "realeditor{$unique}",
+            "real-editor-{$unique}@example.com",
+            [$editorGroupId]
+        );
+
+        $allowed = $editor->get('/admin/horses/create');
+        $this->assertSame(200, $allowed->statusCode);
+    }
 
     public function testGrantingAndRevokingGroupPermissionTakesEffect(): void {
         $admin = $this->authenticatedClient();
 
-        // Jeder Editor hat horses.create standardmäßig schon über seine
-        // Rollen-Gruppe (siehe EDITOR_DEFAULT_PERMISSIONS) - für einen
-        // eindeutigen Nachweis, dass die GLEICH getestete EIGENE Gruppe die
-        // Berechtigung tatsächlich steuert, wird sie der Editor-Gruppe hier
-        // testweise entzogen und danach wiederhergestellt.
-        $editorGroupId = $this->findBuiltinGroupId($admin, 'Editor');
-        $editorWithoutHorseCreate = self::EDITOR_DEFAULT_PERMISSIONS;
-        $editorWithoutHorseCreate['horses'] = array_values(array_diff($editorWithoutHorseCreate['horses'], ['create']));
-        $this->setGroupPermissions($admin, $editorGroupId, $editorWithoutHorseCreate);
+        // 1. Eigene Gruppe anlegen.
+        $groupsPage = $admin->get('/admin/groups');
+        $createResponse = $admin->post('/admin/groups/create', [
+            'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
+            'name' => 'QA Tester ' . uniqid(),
+            'description' => 'Für Funktionstests der Berechtigungsdurchsetzung',
+        ]);
+        $location = (string)$createResponse->location();
+        $this->assertMatchesRegularExpression(
+            '#^/admin/groups\?group=\d+&success=created$#',
+            $location,
+            "Gruppe anlegen fehlgeschlagen, Body: {$createResponse->body}"
+        );
+        preg_match('/group=(\d+)/', $location, $matches);
+        $groupId = (int)$matches[1];
 
-        try {
-            // 1. Eigene Gruppe anlegen.
-            $groupsPage = $admin->get('/admin/groups');
-            $createResponse = $admin->post('/admin/groups/create', [
-                'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
-                'name' => 'QA Tester ' . uniqid(),
-                'description' => 'Für Funktionstests der Berechtigungsdurchsetzung',
-            ]);
-            $location = (string)$createResponse->location();
-            $this->assertMatchesRegularExpression(
-                '#^/admin/groups\?group=\d+&success=created$#',
-                $location,
-                "Gruppe anlegen fehlgeschlagen, Body: {$createResponse->body}"
-            );
-            preg_match('/group=(\d+)/', $location, $matches);
-            $groupId = (int)$matches[1];
+        // 2. Editor-Benutzer anlegen, Mitglied der neuen Gruppe, noch ohne eigene Rechte.
+        // Erbt bewusst NICHT von der eingebauten Editor-Gruppe (Security-by-Design:
+        // neue Gruppen starten bei null Rechten wie 'public', nicht bei den
+        // Editor-Standardrechten - siehe BaseController::userGroupIds()).
+        $unique = uniqid();
+        $editor = $this->createAndLoginEditor($admin, "permtester{$unique}", "perm-test-{$unique}@example.com", [$groupId]);
 
-            // 2. Editor-Benutzer anlegen, Mitglied der neuen Gruppe, noch ohne eigene Rechte.
-            $unique = uniqid();
-            $editor = $this->createAndLoginEditor($admin, "permtester{$unique}", "perm-test-{$unique}@example.com", [$groupId]);
+        // 3. Ohne Berechtigung: verwehrt.
+        $denied = $editor->get('/admin/horses/create');
+        $this->assertSame(403, $denied->statusCode);
 
-            // 3. Ohne Berechtigung (weder über Editor-Rolle noch eigene Gruppe): verwehrt.
-            $denied = $editor->get('/admin/horses/create');
-            $this->assertSame(403, $denied->statusCode);
+        // 4. Admin vergibt horses.create an die eigene Gruppe.
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['create']]);
 
-            // 4. Admin vergibt horses.create an die eigene Gruppe.
-            $this->setGroupPermissions($admin, $groupId, ['horses' => ['create']]);
+        // 5. Jetzt gewährt - wirkt sofort auf die laufende Editor-Sitzung, ohne
+        // erneuten Login, da hasPermission() bei jedem Request neu geprüft wird.
+        $allowed = $editor->get('/admin/horses/create');
+        $this->assertSame(200, $allowed->statusCode);
 
-            // 5. Jetzt gewährt - wirkt sofort auf die laufende Editor-Sitzung, ohne
-            // erneuten Login, da hasPermission() bei jedem Request neu geprüft wird.
-            $allowed = $editor->get('/admin/horses/create');
-            $this->assertSame(200, $allowed->statusCode);
+        // 6. Admin entzieht die Berechtigung wieder (leere Auswahl übermittelt).
+        $this->setGroupPermissions($admin, $groupId, []);
 
-            // 6. Admin entzieht die Berechtigung wieder (leere Auswahl übermittelt).
-            $this->setGroupPermissions($admin, $groupId, []);
-
-            // 7. Wieder verwehrt.
-            $deniedAgain = $editor->get('/admin/horses/create');
-            $this->assertSame(403, $deniedAgain->statusCode);
-        } finally {
-            // Editor-Standardrechte wiederherstellen, damit dieser Test keine
-            // Nachwirkungen auf andere Tests im selben Prozess/derselben DB hat.
-            $this->setGroupPermissions($admin, $editorGroupId, self::EDITOR_DEFAULT_PERMISSIONS);
-        }
+        // 7. Wieder verwehrt.
+        $deniedAgain = $editor->get('/admin/horses/create');
+        $this->assertSame(403, $deniedAgain->statusCode);
     }
 
     public function testCopyingPermissionsFromAdminGrantsFullAccess(): void {
@@ -92,69 +119,59 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         // gelesen, nicht direkt aus der Datenbank.
         $adminGroupId = $this->findBuiltinGroupId($admin, 'Administrator');
 
-        // Editor hat horses.create/publish standardmäßig schon über seine
-        // Rollen-Gruppe (siehe EDITOR_DEFAULT_PERMISSIONS) - für einen eindeutigen
-        // Nachweis, dass der GLEICH getestete Kopiervorgang die Berechtigung
-        // tatsächlich überträgt, wird der Editor-Gruppe hier testweise alles
-        // entzogen und danach wiederhergestellt.
-        $editorGroupId = $this->findBuiltinGroupId($admin, 'Editor');
-        $this->setGroupPermissions($admin, $editorGroupId, []);
+        $copyResponse = $admin->post('/admin/groups/copy-permissions', [
+            'csrf_token' => $admin->get('/admin/groups?group=' . $targetGroupId)->formField('csrf_token') ?? '',
+            'source_group_id' => (string)$adminGroupId,
+            'target_group_id' => (string)$targetGroupId,
+        ]);
+        $this->assertSame(
+            "/admin/groups?group={$targetGroupId}&success=copied",
+            $copyResponse->location(),
+            "Kopieren von Admin-Berechtigungen fehlgeschlagen, Body: {$copyResponse->body}"
+        );
 
-        try {
-            $copyResponse = $admin->post('/admin/groups/copy-permissions', [
-                'csrf_token' => $admin->get('/admin/groups?group=' . $targetGroupId)->formField('csrf_token') ?? '',
-                'source_group_id' => (string)$adminGroupId,
-                'target_group_id' => (string)$targetGroupId,
-            ]);
-            $this->assertSame(
-                "/admin/groups?group={$targetGroupId}&success=copied",
-                $copyResponse->location(),
-                "Kopieren von Admin-Berechtigungen fehlgeschlagen, Body: {$copyResponse->body}"
-            );
+        // Erbt bewusst NICHT von der eingebauten Editor-Gruppe (Security-by-Design,
+        // siehe testGrantingAndRevokingGroupPermissionTakesEffect) - was dieser
+        // Benutzer darf, kommt ausschließlich aus der eben kopierten eigenen Gruppe.
+        $unique = uniqid();
+        $editor = $this->createAndLoginEditor(
+            $admin,
+            "copytester{$unique}",
+            "copy-test-{$unique}@example.com",
+            [$targetGroupId]
+        );
 
-            $unique = uniqid();
-            $editor = $this->createAndLoginEditor(
-                $admin,
-                "copytester{$unique}",
-                "copy-test-{$unique}@example.com",
-                [$targetGroupId]
-            );
+        // Von "alle Berechtigungen" kopiert -> Erstellen UND Veröffentlichen erlaubt
+        // (horses.publish ist die restriktivste der vier Standard-Aktionen, siehe
+        // HorseController::store()).
+        $createForm = $editor->get('/admin/horses/create');
+        $this->assertSame(200, $createForm->statusCode);
 
-            // Von "alle Berechtigungen" kopiert -> Erstellen UND Veröffentlichen erlaubt
-            // (horses.publish ist die restriktivste der vier Standard-Aktionen, siehe
-            // HorseController::store()) - beides ausschließlich über die kopierte
-            // eigene Gruppe, da Editor oben auf 0 Rechte gesetzt wurde.
-            $createForm = $editor->get('/admin/horses/create');
-            $this->assertSame(200, $createForm->statusCode);
+        $horseName = 'Kopiertestpferd ' . $unique;
+        $storeResponse = $editor->post('/admin/horses/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'name' => $horseName,
+            'color' => 'Rappe',
+            'breeding_station' => 'Testgestüt',
+            'birth_year' => '2020',
+            'status' => 'active',
+        ]);
+        $this->assertSame('/admin/horses?success=created', $storeResponse->location());
 
-            $horseName = 'Kopiertestpferd ' . $unique;
-            $storeResponse = $editor->post('/admin/horses/store', [
-                'csrf_token' => $createForm->formField('csrf_token') ?? '',
-                'name' => $horseName,
-                'color' => 'Rappe',
-                'breeding_station' => 'Testgestüt',
-                'birth_year' => '2020',
-                'status' => 'active',
-            ]);
-            $this->assertSame('/admin/horses?success=created', $storeResponse->location());
-
-            // Ohne horses.publish würde HorseController::store() den übermittelten Status
-            // 'active' stillschweigend auf 'inactive' herabstufen (siehe dortige
-            // Begründung) - dass es hier 'active' bleibt, belegt, dass die per
-            // copy-permissions von Admin übernommene horses.publish-Berechtigung
-            // tatsächlich wirkt, nicht nur horses.create.
-            $listPage = $editor->get('/admin/horses');
-            $nameEscaped = htmlspecialchars($horseName);
-            $this->assertStringContainsString($nameEscaped, $listPage->body);
-            $rowSnippet = substr($listPage->body, (int)strpos($listPage->body, $nameEscaped), 600);
-            $this->assertStringContainsString(
-                'Aktiv (Gekört)',
-                $rowSnippet,
-                'Pferd sollte dank kopierter horses.publish-Berechtigung direkt aktiv angelegt worden sein'
-            );
-        } finally {
-            $this->setGroupPermissions($admin, $editorGroupId, self::EDITOR_DEFAULT_PERMISSIONS);
-        }
+        // Ohne horses.publish würde HorseController::store() den übermittelten Status
+        // 'active' stillschweigend auf 'inactive' herabstufen (siehe dortige
+        // Begründung) - dass es hier 'active' bleibt, belegt, dass die per
+        // copy-permissions von Admin übernommene horses.publish-Berechtigung
+        // tatsächlich wirkt, nicht nur horses.create.
+        $listPage = $editor->get('/admin/horses');
+        $nameEscaped = htmlspecialchars($horseName);
+        $this->assertStringContainsString($nameEscaped, $listPage->body);
+        $rowSnippet = substr($listPage->body, (int)strpos($listPage->body, $nameEscaped), 600);
+        $this->assertStringContainsString(
+            'Aktiv (Gekört)',
+            $rowSnippet,
+            'Pferd sollte dank kopierter horses.publish-Berechtigung direkt aktiv angelegt worden sein'
+        );
     }
 
     public function testBuiltinGroupsCannotBeDeleted(): void {

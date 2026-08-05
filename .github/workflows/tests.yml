@@ -15,9 +15,9 @@ name: Tests
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "beta"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "beta"]
   # Wiederverwendbar für release.yml, das denselben Testlauf als Gate vor
   # jedem Release braucht, ohne die Steps zu duplizieren.
   workflow_call:

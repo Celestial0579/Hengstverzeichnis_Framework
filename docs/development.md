@@ -81,9 +81,9 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 
 PHPUnit-Testsuite unter [`tests/`](../tests) (dev-only Composer-Abhängigkeit,
 siehe [`composer.json`](../composer.json) – betrifft nicht die
-Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main` automatisch über
-[`.github/workflows/tests.yml`](../.github/workflows/tests.yml), siehe
-[Issue #54](../../../issues/54). Drei Ebenen:
+Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main` oder `beta`
+automatisch über [`.github/workflows/tests.yml`](../.github/workflows/tests.yml),
+siehe [Issue #54](../../../issues/54). Drei Ebenen:
 
 ### `tests/Unit` – reine Logik, keine Abhängigkeiten
 
@@ -138,6 +138,28 @@ automatisch über den Setup-Wizard.
 Neue reine Logik (keine DB-/Session-/`$_SERVER`-Abhängigkeit) sollte nach
 Möglichkeit mit einem Unit-Test unter `tests/Unit` begleitet werden; neue
 Controller-Aktionen mit einem Functional-Test.
+
+## Branches
+
+- **`main`**: stabiler Branch. PRs brauchen 1 Review + grüne Pflicht-Checks
+  (CodeQL, PHPUnit, Merge Source Gate) und werden manuell gemerged. Quelle
+  für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
+  Direkte Feature-/Fix-PRs nach `main` sind gesperrt – der
+  [`Merge Source Gate`](../.github/workflows/merge-source-gate.yml)-Check
+  lässt nur PRs vom `beta`-Branch (regulärer Promote-Weg) oder von
+  Dependabot durch, alles andere muss zuerst nach `beta`.
+- **`beta`**: laufender Entwicklungsstand, den die IGFjordpferd parallel zur
+  bestehenden Umgebung testet. Gleiche Pflicht-Checks wie `main`, aber
+  **kein** Pflicht-Review – PRs von Projektmitgliedern mergen automatisch
+  (GitHub Auto-Merge), sobald die Checks grün sind. Neue Feature-/Fix-PRs
+  zielen im laufenden Betrieb auf `beta`. Gegen Löschen geschützt (auch nach
+  dem monatlichen Merge nach `main` bleibt `beta` bestehen und läuft weiter).
+- **Promotion nach `main`**: einmal im Monat öffnet
+  [`beta-promote.yml`](../.github/workflows/beta-promote.yml) automatisch
+  eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar
+  im Workflow).
+- Beta-Releases für die IGFjordpferd werden als `vX.Y.Z-beta.N`-Tag von
+  `beta` aus geschnitten, siehe [releasing.md](releasing.md).
 
 ## Coding-Konventionen
 

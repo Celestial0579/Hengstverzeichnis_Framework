@@ -9,8 +9,10 @@ gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml
 
 1. [CHANGELOG.md](../CHANGELOG.md) um einen neuen Versionsabschnitt ergänzen
    (PR wie gewohnt).
-2. Tag im Format `vX.Y.Z` (bzw. `vX.Y.Z-beta.N` für Pre-Releases) auf `main`
-   pushen:
+2. Tag pushen:
+   - Stabiler Release: `vX.Y.Z` auf `main`.
+   - Beta-Release für die IGFjordpferd (siehe [development.md](development.md#branches)):
+     `vX.Y.Z-beta.N` auf `beta`.
    ```bash
    git tag v0.2.0
    git push github v0.2.0
@@ -20,8 +22,10 @@ gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml
      [development.md](development.md#tests)) als Gate – bricht ohne Release ab,
      falls etwas fehlschlägt.
    - Docker-Image aus dem [Dockerfile](../Dockerfile), gepusht nach
-     `ghcr.io/celestial0579/hengstverzeichnis_framework` mit den Tags
-     `<version>` und `latest`.
+     `ghcr.io/celestial0579/hengstverzeichnis_framework`. Stabile Tags
+     bekommen `<version>` + `latest`; Beta-Tags (`-beta.N`) bekommen
+     `<version>` + `beta` – **niemals** `latest`, damit bestehende
+     Installationen anderer Nutzer nicht ungefragt Beta-Code ziehen.
    - Bereinigtes Source-Zip für klassisches Shared-Hosting (ohne
      Dev-Tooling wie `tests/`, `composer.json`, `vendor/`, `.github/`) als
      Release-Asset.
@@ -30,7 +34,8 @@ gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml
    anzulegen), erstellt der Workflow einen mit angehängten Artefakten, aber
    **ohne Beschreibung** – dann Titel/Text im Nachgang manuell aus dem
    CHANGELOG-Abschnitt ergänzen (wie bei den bisherigen Releases, siehe
-   [Release-Historie](../../../releases)).
+   [Release-Historie](../../../releases)). Beta-Tags werden dabei
+   automatisch als **Pre-Release** markiert.
 
 ## Einmalig: GHCR-Sichtbarkeit
 

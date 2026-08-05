@@ -347,3 +347,37 @@ sowie die Anbindung an #56 über ein `gated_features`-Manifestfeld
 Funktionen) - für die Erstumsetzung wird stattdessen das oben beschriebene,
 konkretere Modul×Aktion-Modell umgesetzt, das die vom Repo-Owner genannten
 Anforderungen direkter abbildet.
+
+## 9. UI-Iteration: kompakte Ansicht + Berechtigungen kopieren
+
+Nach Funktionstest der Erstumsetzung Rückmeldung des Repo-Owners: Die
+Admin-UI unter `/admin/groups` zeigte ursprünglich die vollständige
+Berechtigungsmatrix **aller** Gruppen untereinander (eine Karte pro
+Gruppe) - bei mehreren eigenen Gruppen wird das schnell unübersichtlich
+lang. Überarbeitet zu:
+
+- **Kompakte Übersichtstabelle** oben (Name, Typ, kurze Zusammenfassung
+  z. B. "7 von 10", "Alle (fest)", "Keine", Aktions-Buttons) statt
+  ausgeschriebener Matrix pro Gruppe.
+- **Eine** Berechtigungsmatrix wird angezeigt, gesteuert über ein
+  Dropdown (`<select onchange="this.form.submit()">`, GET-Parameter
+  `?group=<id>`, Konvention analog zum bestehenden Kategorie-Filter in
+  `admin_logs.php`) - reduziert die Seite von ~30 gleichzeitig
+  sichtbaren Checkboxen (3 Gruppen × 10) auf 10.
+- **"Berechtigungen kopieren von"**: Für die aktuell ausgewählte
+  (nicht-geschützte) Gruppe ein zusätzliches kleines Formular mit
+  Quell-Gruppen-Auswahl. `GroupController::copyPermissions()` überschreibt
+  die Ziel-Berechtigungen vollständig mit denen der Quelle (mit
+  Bestätigungsdialog, da destruktiv für die bisherige Konfiguration der
+  Zielgruppe). Sonderfall Quelle `admin`: da diese Gruppe bewusst keine
+  eigenen `group_permissions`-Zeilen hat (siehe `hasPermission()`
+  Admin-Bypass), wird stattdessen der vollständige
+  `PermissionRegistry`-Katalog als "alle Rechte" verwendet - sonst würde
+  "von Admin kopieren" fälschlich 0 Berechtigungen übertragen. Ziel bleibt
+  weiterhin serverseitig auf `admin`/`public` geschützt (dieselbe
+  `PROTECTED_PERMISSION_SLUGS`-Prüfung wie bei `updatePermissions()`),
+  unabhängig von der Quelle.
+- Funktional getestet (siehe Commit): Kopieren von Admin (→ alle 10
+  Rechte), Kopieren von Public (→ 0 Rechte, vollständiges Leeren als
+  legitimer Anwendungsfall), sowie dass Admin/Public weiterhin nicht als
+  Ziel akzeptiert werden.

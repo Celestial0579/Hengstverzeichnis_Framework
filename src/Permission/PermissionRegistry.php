@@ -55,4 +55,30 @@ final class PermissionRegistry {
     public static function isValid(string $module, string $action): bool {
         return isset(self::MODULES[$module]['actions'][$action]);
     }
+
+    /**
+     * Alle Modul/Aktion-Kombinationen aus dem Katalog, z. B. für "Berechtigungen von
+     * Admin kopieren" (Admin hat keine eigenen group_permissions-Zeilen, siehe
+     * BaseController::hasPermission() - dieser vollständige Katalog steht stellvertretend
+     * für "alle Rechte").
+     *
+     * @return array<int, array{module:string, action:string}>
+     */
+    public static function allPairs(): array {
+        $pairs = [];
+        foreach (self::MODULES as $module => $def) {
+            foreach (array_keys($def['actions']) as $action) {
+                $pairs[] = ['module' => $module, 'action' => $action];
+            }
+        }
+        return $pairs;
+    }
+
+    /**
+     * Gesamtzahl aller Modul/Aktion-Kombinationen im Katalog - für die kompakte
+     * "X von Y Rechten"-Zusammenfassung in der Gruppen-Übersicht.
+     */
+    public static function countAll(): int {
+        return count(self::allPairs());
+    }
 }

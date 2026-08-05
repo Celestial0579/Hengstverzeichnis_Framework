@@ -49,11 +49,30 @@ class GroupController extends BaseController {
             $permissions[(int)$row['group_id']][$row['module']][$row['action']] = true;
         }
 
+        // Aktuell zur Bearbeitung ausgewählte Gruppe (Dropdown, siehe admin_groups.php) -
+        // Kompaktheit: es wird immer nur die Berechtigungsmatrix EINER Gruppe angezeigt,
+        // nicht mehr aller Gruppen untereinander. Default: die erste nicht-eingebaute
+        // Gruppe (meist "Editor"), da das der häufigste Bearbeitungsfall ist.
+        $groupIds = array_column($groups, 'id');
+        $selectedGroupId = isset($_GET['group']) ? (int)$_GET['group'] : 0;
+        if (!in_array($selectedGroupId, array_map('intval', $groupIds), true)) {
+            $defaultGroup = null;
+            foreach ($groups as $g) {
+                if (!$g['is_builtin'] || $g['slug'] === 'editor') {
+                    $defaultGroup = $g;
+                    break;
+                }
+            }
+            $selectedGroupId = $defaultGroup ? (int)$defaultGroup['id'] : (int)($groups[0]['id'] ?? 0);
+        }
+
         $this->render('admin_groups', [
             'title' => 'Gruppen & Berechtigungen',
             'groups' => $groups,
             'permissions' => $permissions,
             'modules' => PermissionRegistry::MODULES,
+            'selectedGroupId' => $selectedGroupId,
+            'totalPermissionCount' => PermissionRegistry::countAll(),
         ]);
     }
 
@@ -80,10 +99,11 @@ class GroupController extends BaseController {
         try {
             $stmt = $db->prepare("INSERT INTO `groups` (slug, name, description, is_builtin) VALUES (?, ?, ?, 0)");
             $stmt->execute([$slug, $name, $description]);
+            $newGroupId = (int)$db->lastInsertId();
 
             AuditLogger::log("Gruppe angelegt", "groups", "Gruppe: {$name} (Slug: {$slug})");
 
-            header("Location: /admin/groups?success=created");
+            header("Location: /admin/groups?group={$newGroupId}&success=created");
         } catch (\Exception $e) {
             header("Location: /admin/groups?error=slug_taken");
         }
@@ -144,18 +164,103 @@ class GroupController extends BaseController {
 
         /** @var array<string, array<int, string>> $selected */
         $selected = $_POST['permissions'] ?? [];
+        $this->replacePermissions($db, $groupId, $this->flattenSelectedPermissions($selected));
 
+        AuditLogger::log("Berechtigungen aktualisiert", "groups", "Gruppe: {$group['name']}");
+
+        header("Location: /admin/groups?group={$groupId}&success=permissions_updated");
+        exit;
+    }
+
+    /**
+     * Kopiert die komplette Berechtigungsmenge einer Quell-Gruppe auf eine Ziel-Gruppe
+     * (überschreibt die bisherigen Berechtigungen der Ziel-Gruppe vollständig). Für die
+     * Quelle "admin" wird dabei bewusst nicht group_permissions abgefragt (dort gibt es
+     * absichtlich keine Zeilen, siehe BaseController::hasPermission()), sondern der
+     * vollständige App\Permission\PermissionRegistry-Katalog als "alle Rechte" verwendet -
+     * andernfalls würde "von Admin kopieren" fälschlich 0 Berechtigungen übertragen.
+     */
+    public function copyPermissions(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $sourceGroupId = (int)($_POST['source_group_id'] ?? 0);
+        $targetGroupId = (int)($_POST['target_group_id'] ?? 0);
+        $db = Database::getInstance();
+
+        $stmt = $db->prepare("SELECT id, slug, name FROM `groups` WHERE id IN (?, ?)");
+        $stmt->execute([$sourceGroupId, $targetGroupId]);
+        $found = $stmt->fetchAll();
+        $bySlugId = [];
+        foreach ($found as $row) {
+            $bySlugId[(int)$row['id']] = $row;
+        }
+
+        $source = $bySlugId[$sourceGroupId] ?? null;
+        $target = $bySlugId[$targetGroupId] ?? null;
+
+        if (!$source || !$target) {
+            header("Location: /admin/groups?error=unknown_group");
+            exit;
+        }
+
+        // Ziel bleibt geschützt (admin/public) - siehe updatePermissions() für die Begründung.
+        if (in_array($target['slug'], self::PROTECTED_PERMISSION_SLUGS, true)) {
+            header("Location: /admin/groups?error=protected_group");
+            exit;
+        }
+
+        if ($source['slug'] === 'admin') {
+            $pairs = PermissionRegistry::allPairs();
+        } else {
+            $stmt = $db->prepare("SELECT module, action FROM group_permissions WHERE group_id = ?");
+            $stmt->execute([$sourceGroupId]);
+            $pairs = $stmt->fetchAll();
+        }
+
+        $this->replacePermissions($db, $targetGroupId, $pairs);
+
+        AuditLogger::log(
+            "Berechtigungen kopiert",
+            "groups",
+            "Von '{$source['name']}' nach '{$target['name']}'"
+        );
+
+        header("Location: /admin/groups?group={$targetGroupId}&success=copied");
+        exit;
+    }
+
+    /**
+     * @param array<string, array<int, string>> $selected Aus $_POST['permissions'], Format module => [action, ...]
+     * @return array<int, array{module:string, action:string}>
+     */
+    private function flattenSelectedPermissions(array $selected): array {
+        $pairs = [];
+        foreach ($selected as $module => $actions) {
+            foreach ((array)$actions as $action) {
+                $pairs[] = ['module' => (string)$module, 'action' => (string)$action];
+            }
+        }
+        return $pairs;
+    }
+
+    /**
+     * Ersetzt die komplette group_permissions-Menge einer Gruppe durch $pairs
+     * (nur gültige Modul/Aktion-Kombinationen aus PermissionRegistry werden übernommen).
+     *
+     * @param array<int, array{module:string, action:string}> $pairs
+     */
+    private function replacePermissions(PDO $db, int $groupId, array $pairs): void {
         $db->beginTransaction();
         try {
             $stmt = $db->prepare("DELETE FROM group_permissions WHERE group_id = ?");
             $stmt->execute([$groupId]);
 
             $insertStmt = $db->prepare("INSERT INTO group_permissions (group_id, module, action) VALUES (?, ?, ?)");
-            foreach ($selected as $module => $actions) {
-                foreach ((array)$actions as $action) {
-                    if (PermissionRegistry::isValid((string)$module, (string)$action)) {
-                        $insertStmt->execute([$groupId, (string)$module, (string)$action]);
-                    }
+            foreach ($pairs as $pair) {
+                if (PermissionRegistry::isValid($pair['module'], $pair['action'])) {
+                    $insertStmt->execute([$groupId, $pair['module'], $pair['action']]);
                 }
             }
 
@@ -165,10 +270,5 @@ class GroupController extends BaseController {
             header("Location: /admin/groups?error=save_failed");
             exit;
         }
-
-        AuditLogger::log("Berechtigungen aktualisiert", "groups", "Gruppe: {$group['name']}");
-
-        header("Location: /admin/groups?success=permissions_updated");
-        exit;
     }
 }

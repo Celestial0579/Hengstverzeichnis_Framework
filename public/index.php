@@ -151,6 +151,7 @@ $router->get('/admin/groups', [App\Controllers\GroupController::class, 'index'])
 $router->post('/admin/groups/create', [App\Controllers\GroupController::class, 'createGroup']);
 $router->post('/admin/groups/delete', [App\Controllers\GroupController::class, 'deleteGroup']);
 $router->post('/admin/groups/permissions', [App\Controllers\GroupController::class, 'updatePermissions']);
+$router->post('/admin/groups/copy-permissions', [App\Controllers\GroupController::class, 'copyPermissions']);
 
 // Plugin-Routen: von aktivierten Plugins über eine optionale routes()-Methode
 // deklariert (siehe App\Plugin\PluginManager::registerPluginRoute()). Der

@@ -87,6 +87,9 @@ $trashCount = \App\Controllers\TrashController::getTrashCount();
                 <a href="/admin/plugins" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                     🧩 Plugins verwalten
                 </a>
+                <a href="/admin/cron" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
+                    ⏱️ Automatisierung (Cron)
+                </a>
                 <?php foreach ($pluginTiles ?? [] as $tile): ?>
                     <?php if (empty($tile['url']) || empty($tile['label'])) continue; ?>
                     <a href="<?= htmlspecialchars($tile['url']) ?>" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">

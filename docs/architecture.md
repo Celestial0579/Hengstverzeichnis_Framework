@@ -261,3 +261,37 @@ admin-konfigurierbare, gruppenspezifische Sichtbarkeit (#57).
   bedienen i. d. R. dieselbe Sprache), deutlich größerer Umfang; kann bei
   Bedarf schrittweise mit künftigen Feature-PRs ergänzt werden, nicht als
   einmaliger Komplett-Umbau.
+
+## Cron-/Scheduler-Infrastruktur (`src/Service/Scheduler.php`, #67)
+
+Grundlegende Registry für periodisch auszuführende Aufgaben - Voraussetzung
+für spätere Kern-Features wie automatisierte externe Backups (#59) und einen
+E-Mail-Digest für Admins/Editoren (#52). Es gibt bewusst KEINEN dauerhaft
+laufenden PHP-Prozess (klassisches Request-Modell, siehe oben): "Cron"
+bedeutet hier ausschließlich, dass ein von außen angestoßener HTTP-Request
+beim Eintreffen prüft, welche registrierten Aufgaben fällig sind, und diese
+synchron innerhalb dieses einen Requests ausführt.
+
+- `App\Service\Scheduler::register($name, $intervalSeconds, $callback)`:
+  registriert eine Aufgabe für die Dauer des aktuellen Requests (analog zu
+  `App\Plugin\HookManager` - Callbacks müssen sich bei jedem Bootstrap neu
+  registrieren, es gibt keinen dauerhaften In-Memory-Zustand zwischen
+  Requests). `runDue()` führt alle fälligen Aufgaben aus, mit derselben
+  try/catch-Isolation pro Aufgabe wie beim Hook-System (ein Fehler
+  protokolliert im Audit-Log, blockiert aber nie die übrigen Aufgaben
+  desselben Laufs).
+- Persistenz des Zuletzt-ausgeführt-Zeitstempels je Aufgabe über die
+  bestehende generische `settings`-Tabelle (Schlüssel
+  `cron_last_run__<name>`), keine eigene Tabelle nötig.
+- Zwei Auslösewege, beide letztlich `Scheduler::runDue()`:
+  - **Extern:** `App\Controllers\CronController::run()` unter `/cron/run` -
+    öffentlich erreichbar, aber durch ein admin-generiertes Secret
+    geschützt (`X-Cron-Secret`-Header oder `?token=`-Query-Parameter,
+    `hash_equals()`-Vergleich). Bewusst ohne Admin-Login, da ein System-Cron
+    keine Session mitbringen kann.
+  - **Manuell:** `/admin/cron` (`AdminController::cronSettings()`/
+    `runCronNow()`) zeigt registrierte Aufgaben samt letztem Lauf und
+    erlaubt einen sofortigen manuellen Lauf - Alternative für Betreiber ohne
+    Zugriff auf einen System-Cron.
+- Aktuell sind **keine** konkreten Aufgaben registriert - reine
+  Infrastruktur, siehe #59/#52 für künftige Verbraucher.

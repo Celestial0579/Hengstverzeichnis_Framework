@@ -412,6 +412,66 @@ class AdminController extends BaseController {
     }
 
     /**
+     * Cron-/Scheduler-Verwaltung (#67, siehe App\Service\Scheduler): zeigt das
+     * für den externen Auslöse-Endpunkt (/cron/run) konfigurierte Secret sowie
+     * alle aktuell registrierten Aufgaben inkl. letztem Ausführungszeitpunkt.
+     */
+    public function cronSettings(): void {
+        $this->requireAdmin();
+
+        $this->render('admin_cron_settings', [
+            'title' => 'Automatisierung (Cron)',
+            'cronSecret' => $this->settings['cron_secret'] ?? '',
+            'tasks' => \App\Service\Scheduler::registeredTasks(),
+        ]);
+    }
+
+    /**
+     * Erzeugt ein neues zufälliges Cron-Secret und ersetzt ein zuvor gesetztes -
+     * z. B. beim ersten Einrichten oder falls das alte versehentlich in einem
+     * öffentlich einsehbaren Skript/Log gelandet ist.
+     */
+    public function regenerateCronSecret(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $secret = bin2hex(random_bytes(32));
+        $db = Database::getInstance();
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('cron_secret', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$secret, $secret]);
+
+        \App\Service\AuditLogger::log("Cron-Secret neu generiert", "settings");
+
+        header("Location: /admin/cron?success=secret_regenerated");
+        exit;
+    }
+
+    /**
+     * Löst alle fälligen registrierten Cron-Aufgaben manuell aus - Alternative
+     * für Betreiber ohne Zugriff auf einen System-Cron (analog zum in #85
+     * diskutierten "Jetzt aktualisieren"-Ansatz für ein manuell im Admin-Bereich
+     * angestoßenes Update ohne vollständige Cron-Infrastruktur).
+     */
+    public function runCronNow(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $results = \App\Service\Scheduler::runDue();
+        \App\Service\AuditLogger::log(
+            "Cron-Aufgaben manuell ausgelöst",
+            "cron",
+            count($results) . " fällige Aufgabe(n) ausgeführt: " . implode(', ', array_column($results, 'name'))
+        );
+
+        header("Location: /admin/cron?success=run_now&ran=" . count($results));
+        exit;
+    }
+
+    /**
      * Audit log viewer for Administrators. Entries are immutable and kept
      * indefinitely (no automatic purge) - the "30 days" here is only the
      * default display window, with a fallback to the latest 500 entries.

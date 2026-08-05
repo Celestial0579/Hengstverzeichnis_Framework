@@ -19,20 +19,37 @@ use PDO;
  * Sicherheits-Leitplanken (siehe auch docs/user-groups-plan.md, Abschnitt 8):
  * - `admin` hat serverseitig hart codiert immer alle Rechte
  *   (BaseController::hasPermission()) - dafür gibt es absichtlich keine
- *   editierbaren Berechtigungs-Zeilen.
+ *   editierbaren Berechtigungs-Zeilen, und die Gruppe ist nie über
+ *   `user_groups` zuweisbar (siehe PROTECTED_PERMISSION_SLUGS,
+ *   UserController::syncUserGroups()).
  * - `public` (nicht angemeldete Besucher) erhält NIE irgendeine Berechtigung
  *   und damit nie Zugriff auf das Backend - sowohl in der View (deaktivierte
  *   Checkboxen) als auch hier serverseitig (harte Ablehnung) durchgesetzt.
  *   Unabhängig davon ist der Backend-Zugriff für Gäste ohnehin bereits durch
  *   BaseController::checkAuth() versperrt (siehe dortiger Hinweis) - dieses
  *   Modul verhindert zusätzlich, dass die Gruppe `public` überhaupt jemals
- *   eine Berechtigungs-Zeile erhalten könnte.
+ *   eine Berechtigungs-Zeile erhalten oder einem echten Benutzer zugewiesen
+ *   werden könnte.
+ * - `admin` und `public` sind damit die EINZIGEN beiden Sonderfälle im
+ *   gesamten Gruppensystem. Jede andere Gruppe - auch die eingebaute `editor` -
+ *   verhält sich identisch zu einer eigenen Gruppe: frei editierbare
+ *   Berechtigungen, frei zuweisbar über `user_groups`, startet bei Anlage ohne
+ *   jede Berechtigung (erbt also effektiv von `public`, nicht von `editor`).
+ *   Mitgliedschaft ist grundsätzlich nur explizit möglich (siehe
+ *   BaseController::userGroupIds()) - es gibt keine "Standardgruppe" mehr, der
+ *   ein Benutzer automatisch angehört.
  * - Eingebaute Gruppen (admin/editor/public) können nicht gelöscht werden.
  */
 class GroupController extends BaseController {
 
-    /** Gruppen, deren Berechtigungen serverseitig nie verändert werden dürfen. */
-    private const PROTECTED_PERMISSION_SLUGS = ['admin', 'public'];
+    /**
+     * Gruppen, deren Berechtigungen serverseitig nie verändert werden dürfen
+     * UND die serverseitig nie über `user_groups` einem echten Benutzer
+     * zugewiesen werden dürfen (siehe UserController::syncUserGroups()) -
+     * `admin` braucht das nie (hart codierter Bypass), `public` ist
+     * ausschließlich für nicht angemeldete Besucher gedacht.
+     */
+    public const PROTECTED_PERMISSION_SLUGS = ['admin', 'public'];
 
     public function __construct() {
         parent::__construct();

@@ -389,3 +389,61 @@ lang. Überarbeitet zu:
   Rechte), Kopieren von Public (→ 0 Rechte, vollständiges Leeren als
   legitimer Anwendungsfall), sowie dass Admin/Public weiterhin nicht als
   Ziel akzeptiert werden.
+
+## 10. Nachträgliche Sicherheitsüberarbeitung: keine implizite Editor-Mitgliedschaft mehr
+
+Rückmeldung des Repo-Owners im Kontext von #57 (Diskussion, ob "Mitglied"
+schon durch eigene Gruppen abgedeckt ist): In der Erstumsetzung (Abschnitt
+8) ergab sich die Mitgliedschaft in `admin`/`editor` implizit aus
+`users.role` (`BaseController::userGroupIds()` hat die zur Rolle passende
+Gruppe automatisch dazugenommen). Dadurch erbte jeder Benutzer mit
+`role='editor'` automatisch die vollen Editor-Standardrechte, unabhängig
+davon, welchen eigenen Gruppen er zusätzlich zugeordnet war - eine echte
+rechtearme "Mitglied"-artige Rolle war damit nicht möglich, ohne die
+Editor-Standardrechte GLOBAL für alle Editoren zu leeren.
+
+**Explizite Anforderung:** Security-by-Design - neue Gruppen (und neue
+Benutzer) sollen von `public` erben (= nichts), nicht implizit von
+`editor`. `editor` soll eine von Anfang an vorhandene, aber nicht
+automatisch zugewiesene Komfort-Gruppe sein, keine Standardgruppe mehr.
+Der einzige verbleibende Unterschied zwischen `public` und jeder anderen
+Gruppe soll ausschließlich sein: (1) nicht angemeldete Besucher sind
+konzeptionell dieser Gruppe zugeordnet, (2) ihr können serverseitig nie
+Berechtigungen zugewiesen werden.
+
+**Umsetzung:**
+
+- `BaseController::userGroupIds()` liest Gruppenmitgliedschaft jetzt
+  ausschließlich aus `user_groups` - keine implizite Ableitung aus
+  `users.role` mehr. `admin` bleibt komplett separat über den hart
+  codierten Bypass in `hasPermission()` geregelt (unverändert). `editor`
+  ist damit technisch identisch zu jeder eigenen Gruppe: frei editierbare
+  Berechtigungen (unverändert seit Abschnitt 8), UND jetzt zusätzlich frei
+  zuweisbar/entziehbar über `user_groups` statt über die Rolle.
+  `GroupController::PROTECTED_PERMISSION_SLUGS = ['admin', 'public']` ist
+  damit die einzige verbleibende Sonderregel im gesamten Gruppensystem -
+  jede andere Gruppe verhält sich identisch.
+- `UserController::assignableGroups()`/`syncUserGroups()`: Benutzer können
+  jetzt jeder Gruppe außer `admin`/`public` explizit zugeordnet werden
+  (vorher: nur eigene, `is_builtin = 0`-Gruppen). Das Benutzer-Formular
+  weist entsprechend darauf hin, dass die Rollenauswahl "Editor" allein
+  keine Rechte mehr gewährt.
+- **Migration für Bestandsinstallationen**
+  (`Database::ensureSchemaUpToDate()`): Damit sich die Rechte
+  bestehender Editoren durch dieses Update nicht rückwirkend ändern, wird
+  einmalig für jeden vorhandenen `role='editor'`-Benutzer eine echte
+  `user_groups`-Zeile für die Editor-Gruppe nachgezogen. Abgesichert über
+  einen dauerhaften Marker in der `settings`-Tabelle (nicht über die
+  aktuelle Zeilenzahl in `user_groups`, da ein Admin später bewusst alle
+  Benutzer aus der Editor-Gruppe entfernen können soll, ohne dass die
+  Migration das bei jedem Request rückgängig macht) - manuell gegen eine
+  simulierte Bestandsinstallation verifiziert (Migration zieht die Zeile
+  nach, ein anschließendes bewusstes Entfernen durch den Admin bleibt bei
+  einem erneuten Schema-Check dauerhaft bestehen).
+
+**Damit ergibt sich das in #57 diskutierte "Mitglied"-Muster ohne weitere
+Kern-Änderungen:** Eine eigene Gruppe "Mitglied" mit ausschließlich einer
+(ggf. von einem Plugin registrierten) Premium-Berechtigung anlegen und
+Benutzer dieser Gruppe statt (oder zusätzlich zu) der Editor-Gruppe
+zuordnen - ohne dass diese Benutzer automatisch auch CRUD-Rechte über die
+Editor-Rolle erhalten.

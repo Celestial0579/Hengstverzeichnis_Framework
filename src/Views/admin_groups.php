@@ -69,11 +69,14 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
     <div class="card">
         <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">
             <strong>Admin</strong> hat immer alle Rechte (fest, nicht einschränkbar).
-            <strong>Editor</strong> hat standardmäßig alle Rechte wie bisher, kann unten
-            aber granular eingeschränkt werden. <strong>Öffentlich / Gäste</strong> steht
-            für nicht angemeldete Besucher und erhält niemals Zugriff auf das Backend
-            oder irgendeine Berechtigung - unabhängig vom Gruppensystem bereits durch
-            den bestehenden Login-Zwang abgesichert.
+            <strong>Editor</strong> ist eine vorhandene Komfort-Gruppe mit denselben
+            Rechten wie vor Einführung dieses Systems, unten granular einschränkbar -
+            sie gilt aber für keinen Benutzer automatisch, sondern muss wie jede eigene
+            Gruppe im Benutzer-Formular bewusst zugewiesen werden.
+            <strong>Öffentlich / Gäste</strong> steht für nicht angemeldete Besucher und
+            erhält niemals Zugriff auf das Backend oder irgendeine Berechtigung -
+            unabhängig vom Gruppensystem bereits durch den bestehenden Login-Zwang
+            abgesichert.
         </p>
 
         <form action="/admin/groups" method="GET" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">

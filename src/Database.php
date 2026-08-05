@@ -291,9 +291,15 @@ class Database {
 
         // 13. Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
         // BaseController::hasPermission()). Drei feste Gruppen admin/editor/public
-        // werden geseedet - admin/editor-Mitgliedschaft ergibt sich weiterhin aus
-        // users.role, `public` repräsentiert nicht angemeldete Besucher und erhält nie
-        // Berechtigungs-Zeilen (serverseitig erzwungen, siehe GroupController).
+        // werden geseedet. Security-by-Design: Mitgliedschaft ist für JEDE Gruppe
+        // (auch `editor`) ausschließlich explizit über `user_groups` - `editor` ist
+        // eine von Anfang an vorhandene, aber nicht automatisch zugewiesene
+        // Komfort-Gruppe, kein impliziter Standard mehr (siehe
+        // BaseController::userGroupIds() und die Migration weiter unten). `admin`
+        // bleibt komplett separat über users.role hart codiert (siehe
+        // hasPermission()) und braucht daher nie eine user_groups-Zeile. `public`
+        // repräsentiert nicht angemeldete Besucher und erhält nie Berechtigungs-
+        // Zeilen (serverseitig erzwungen, siehe GroupController).
         try {
             $pdo->exec("CREATE TABLE IF NOT EXISTS `groups` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -308,7 +314,7 @@ class Database {
         try {
             $pdo->exec("INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
                 ('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
-                ('editor', 'Editor', 'Standard-Bearbeiterrolle mit Verwaltungszugriff.', 1),
+                ('editor', 'Editor', 'Vorlage für Bearbeiter mit Verwaltungszugriff - muss Benutzern wie jede andere Gruppe bewusst zugewiesen werden, kein automatischer Standard.', 1),
                 ('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend (/admin/...) und keine Berechtigungen, unabhängig von dieser Tabelle (siehe BaseController::checkAuth()).', 1)");
         } catch (\Throwable $e) {}
 
@@ -360,6 +366,31 @@ class Database {
                 }
             } catch (\Throwable $e) {}
         }
+
+        // Einmalige Migration: Vor dieser Änderung ergab sich die Editor-Gruppen-
+        // mitgliedschaft implizit aus users.role (siehe alte Fassung von
+        // BaseController::userGroupIds()) - jede Gruppe, auch `editor`, braucht
+        // jetzt eine EXPLIZITE user_groups-Zeile (Security-by-Design: neue Gruppen
+        // und neue Benutzer erben nichts, sondern starten bei null Rechten wie
+        // `public`, siehe docs/user-groups-plan.md, Abschnitt 8). Damit sich die
+        // Rechte bestehender Editoren durch dieses Update nicht rückwirkend ändern,
+        // werden hier einmalig echte user_groups-Zeilen für alle vorhandenen
+        // role='editor'-Benutzer nachgezogen. Über die `settings`-Tabelle (existiert
+        // seit der allerersten Version) als dauerhafter Einmal-Marker abgesichert -
+        // NICHT über die aktuelle Zeilenzahl in user_groups, da ein Admin später
+        // bewusst alle Benutzer aus der Editor-Gruppe entfernen können soll, ohne
+        // dass diese Migration das bei jedem Request wieder rückgängig macht.
+        try {
+            $migrationDone = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'migration_editor_explicit_group'")->fetchColumn();
+            if ($migrationDone === false) {
+                $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
+                if ($editorGroupId) {
+                    $stmt = $pdo->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) SELECT id, ? FROM users WHERE role = 'editor'");
+                    $stmt->execute([$editorGroupId]);
+                }
+                $pdo->exec("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES ('migration_editor_explicit_group', '1')");
+            }
+        } catch (\Throwable $e) {}
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

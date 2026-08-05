@@ -41,12 +41,12 @@ class UserController extends BaseController {
 
     public function create(): void {
         $db = Database::getInstance();
-        $customGroups = $db->query("SELECT id, name FROM `groups` WHERE is_builtin = 0 ORDER BY name ASC")->fetchAll();
+        $assignableGroups = $this->assignableGroups($db);
 
         $this->render('admin_user_form', [
             'title' => 'Neuen Benutzer anlegen',
             'user' => null,
-            'customGroups' => $customGroups,
+            'assignableGroups' => $assignableGroups,
             'userGroupIds' => []
         ]);
     }
@@ -124,7 +124,7 @@ class UserController extends BaseController {
             exit;
         }
 
-        $customGroups = $db->query("SELECT id, name FROM `groups` WHERE is_builtin = 0 ORDER BY name ASC")->fetchAll();
+        $assignableGroups = $this->assignableGroups($db);
 
         $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
         $stmt->execute([$id]);
@@ -133,7 +133,7 @@ class UserController extends BaseController {
         $this->render('admin_user_form', [
             'title' => 'Benutzer bearbeiten',
             'user' => $user,
-            'customGroups' => $customGroups,
+            'assignableGroups' => $assignableGroups,
             'userGroupIds' => $userGroupIds
         ]);
     }
@@ -245,12 +245,32 @@ class UserController extends BaseController {
     }
 
     /**
-     * Gleicht die eigenen (nicht eingebauten) Gruppen eines Benutzers mit der
-     * übermittelten Auswahl ab (#66, siehe docs/user-groups-plan.md). Die
-     * Mitgliedschaft in den eingebauten Gruppen admin/editor/public ergibt sich
-     * ausschließlich aus users.role (siehe BaseController::userGroupIds()) - hier
-     * werden bewusst nur is_builtin = 0 Gruppen akzeptiert, damit eine manipulierte
-     * Anfrage keine eingebaute Gruppe über user_groups zuweisen kann.
+     * Alle Gruppen, die einem Benutzer über `user_groups` zugewiesen werden
+     * dürfen (#66) - jede Gruppe außer den beiden Sonderfällen
+     * GroupController::PROTECTED_PERMISSION_SLUGS (`admin` braucht das nie,
+     * hart codierter Bypass; `public` ist ausschließlich für nicht angemeldete
+     * Besucher gedacht). Das schließt seit der Security-by-Design-Umstellung
+     * ausdrücklich die eingebaute `editor`-Gruppe mit ein - sie ist eine ganz
+     * normale, bewusst zuzuweisende Gruppe wie jede eigene, kein automatischer
+     * Standard mehr (siehe BaseController::userGroupIds()).
+     *
+     * @return array<int, array{id:int, name:string, is_builtin:int}>
+     */
+    private function assignableGroups(\PDO $db): array {
+        $protected = \App\Controllers\GroupController::PROTECTED_PERMISSION_SLUGS;
+        $placeholders = implode(',', array_fill(0, count($protected), '?'));
+        $stmt = $db->prepare("SELECT id, name, is_builtin FROM `groups` WHERE slug NOT IN ({$placeholders}) ORDER BY is_builtin DESC, name ASC");
+        $stmt->execute($protected);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Gleicht die Gruppen eines Benutzers mit der übermittelten Auswahl ab
+     * (#66, siehe docs/user-groups-plan.md). Mitgliedschaft ist seit der
+     * Security-by-Design-Umstellung für JEDE Gruppe ausschließlich explizit
+     * über `user_groups` (siehe BaseController::userGroupIds()) - hier werden
+     * bewusst nur assignableGroups() akzeptiert, damit eine manipulierte
+     * Anfrage niemals `admin` oder `public` über user_groups zuweisen kann.
      *
      * @param array<int, mixed> $groupIds
      */
@@ -264,9 +284,11 @@ class UserController extends BaseController {
             return;
         }
 
-        $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
-        $stmt = $db->prepare("SELECT id FROM `groups` WHERE is_builtin = 0 AND id IN ({$placeholders})");
-        $stmt->execute(array_values($groupIds));
+        $protected = \App\Controllers\GroupController::PROTECTED_PERMISSION_SLUGS;
+        $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
+        $protectedPlaceholders = implode(',', array_fill(0, count($protected), '?'));
+        $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug NOT IN ({$protectedPlaceholders}) AND id IN ({$groupPlaceholders})");
+        $stmt->execute(array_merge($protected, array_values($groupIds)));
         $validIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
 
         if (empty($validIds)) {

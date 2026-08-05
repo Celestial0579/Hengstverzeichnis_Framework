@@ -5,7 +5,20 @@ Release-**Notes** bleiben bewusst manuell kuratiert (siehe
 [Releases](../../../releases)) – nur die **Artefakte** werden automatisch
 gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
-## Ablauf
+## Beta-Releases: wöchentlich automatisch
+
+Zusätzlich zu manuell gesetzten Tags erstellt
+[`beta-release.yml`](../.github/workflows/beta-release.yml) einmal pro Woche
+(montags) automatisch einen neuen `vX.Y.Z-beta.N`-Tag auf `beta` – aber nur,
+falls seit dem letzten Tag tatsächlich neue Commits dazugekommen sind. Das
+ist der laufende Testkanal für die IGFjordpferd (siehe
+[development.md](development.md#branches)), **kein** kuratiertes Release:
+`CHANGELOG.md` wird dafür bewusst nicht automatisch ergänzt. Die
+Versionsbasis (`X.Y.Z`) wird dabei vom letzten Tag übernommen, nur die
+Beta-Nummer läuft hoch – ein Versionssprung (z. B. `0.1.0` → `0.2.0`) bleibt
+weiterhin ein manueller Tag.
+
+## Ablauf für kuratierte Releases (stabil, oder gezielt gesetzte Beta-Meilensteine)
 
 1. [CHANGELOG.md](../CHANGELOG.md) um einen neuen Versionsabschnitt ergänzen
    (PR wie gewohnt).

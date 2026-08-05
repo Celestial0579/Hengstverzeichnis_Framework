@@ -142,7 +142,9 @@ Controller-Aktionen mit einem Functional-Test.
 ## Branches
 
 - **`main`**: stabiler Branch. PRs brauchen 1 Review + grüne Pflicht-Checks
-  (CodeQL, PHPUnit, Merge Source Gate) und werden manuell gemerged. Quelle
+  (CodeQL, PHPUnit, Semgrep SAST, Merge Source Gate) und werden manuell
+  gemerged. Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
+  [semgrep.yml](../.github/workflows/semgrep.yml). Quelle
   für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
   Direkte Feature-/Fix-PRs nach `main` sind gesperrt – der
   [`Merge Source Gate`](../.github/workflows/merge-source-gate.yml)-Check
@@ -159,7 +161,9 @@ Controller-Aktionen mit einem Functional-Test.
   eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar
   im Workflow).
 - Beta-Releases für die IGFjordpferd werden als `vX.Y.Z-beta.N`-Tag von
-  `beta` aus geschnitten, siehe [releasing.md](releasing.md).
+  `beta` aus geschnitten – wöchentlich automatisch (falls es Änderungen
+  gibt) über [`beta-release.yml`](../.github/workflows/beta-release.yml),
+  siehe [releasing.md](releasing.md).
 
 ## Coding-Konventionen
 

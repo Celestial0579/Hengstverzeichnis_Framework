@@ -1,0 +1,71 @@
+# Wöchentlicher Beta-Release
+#
+# Erstellt einmal pro Woche automatisch einen neuen vX.Y.Z-beta.N-Tag auf
+# `beta` - aber nur, falls seit dem letzten Tag tatsächlich neue Commits
+# dazugekommen sind (kein Leerlauf-Release). Der Tag-Push löst danach
+# release.yml ganz normal aus (Docker-Image mit ":beta"-Tag, Pre-Release,
+# siehe docs/releasing.md).
+#
+# Anders als bei stabilen Releases wird CHANGELOG.md hier bewusst NICHT
+# automatisch ergänzt - das bleibt für kuratierte, "echte" Releases
+# reserviert (siehe docs/releasing.md). Diese wöchentlichen Tags sind der
+# fortlaufende Testkanal für die IGFjordpferd, keine eigenständig
+# dokumentierten Versionen.
+#
+# Wichtig: `schedule`-Trigger werden von GitHub ausschließlich aus der
+# Workflow-Datei auf dem Default-Branch (main) gelesen, auch wenn der Job
+# selbst `beta` auscheckt - diese Datei muss also (z. B. über den
+# monatlichen Promote) auf main landen, damit der Zeitplan aktiv wird.
+name: Beta Release
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    name: Beta-Tag erstellen
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout beta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: beta
+          fetch-depth: 0
+
+      - name: Neuen Beta-Tag berechnen und pushen
+        run: |
+          latest_tag=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)
+
+          if [ -z "$latest_tag" ]; then
+            echo "::error::Kein bestehender vX.Y.Z(-beta.N)-Tag im Verlauf von beta gefunden - Basisversion muss einmalig manuell getaggt werden."
+            exit 1
+          fi
+
+          if [ "$(git rev-list -n1 "$latest_tag")" = "$(git rev-parse HEAD)" ]; then
+            echo "Keine neuen Commits auf beta seit $latest_tag - kein Release diese Woche."
+            exit 0
+          fi
+
+          base="${latest_tag#v}"
+          base="${base%-beta.*}"
+
+          last_n=0
+          for t in $(git tag -l "v${base}-beta.*"); do
+            n="${t##*-beta.}"
+            if [ "$n" -gt "$last_n" ]; then
+              last_n="$n"
+            fi
+          done
+          next_n=$(( last_n + 1 ))
+          new_tag="v${base}-beta.${next_n}"
+
+          echo "Neuer Beta-Tag: $new_tag (letzter Tag: $latest_tag)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$new_tag" HEAD
+          git push origin "$new_tag"

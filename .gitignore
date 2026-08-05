@@ -10,3 +10,8 @@ public/uploads/*
 
 # Lokale Claude-Code-Einstellungen (Tool-Berechtigungen, Dev-Server-Konfig)
 .claude/
+
+# Plugins leben bewusst in eigenen Repositories (siehe docs/plugin-development.md),
+# nicht im Kern-Repo - nur die leere Verzeichnisstruktur wird versioniert.
+plugins/*
+!plugins/.gitkeep

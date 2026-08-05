@@ -127,6 +127,15 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
     INDEX (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Plugins (Aktivierungsstatus, siehe src/Plugin/PluginManager.php, #56)
+CREATE TABLE IF NOT EXISTS `plugins` (
+    `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
+    `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+    `installed_version` VARCHAR(20) NOT NULL DEFAULT '0.0.0',
+    `activated_at` DATETIME NULL DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS `audit_logs` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,

@@ -250,6 +250,16 @@ abstract class BaseController {
     }
 
     /**
+     * Zugriff auf die zentrale Hook-/Filter-Registry des Plugin-Systems (#56).
+     * Wird von Controllern genutzt, um definierten Erweiterungspunkten Plugins
+     * die Möglichkeit zu geben, sich einzuklinken (siehe App\Plugin\HookManager
+     * für die Sicherheits-Isolation pro Hook-Aufruf).
+     */
+    protected function hooks(): \App\Plugin\HookManager {
+        return \App\Plugin\PluginManager::getInstance()->getHooks();
+    }
+
+    /**
      * Prüft, ob ein gewählter Benutzername in der Liste reservierter Systemnamen enthalten ist.
      *
      * @param string $username Zu prüfender Benutzername

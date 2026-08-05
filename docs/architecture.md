@@ -16,6 +16,7 @@ Request → public/index.php → Router::dispatch() → Controller::method() →
 ```
 config/             Konfigurationsdatei (config.php) + optional generierte db_config.php
 database/           schema.sql (Erststand), migrate.php, seed.php, reset.php
+plugins/             Lokal aktivierte Plugins (siehe unten, nicht versioniert außer .gitkeep)
 public/             Docroot des Webservers (Apache DocumentRoot zeigt hierher)
   index.php          Front-Controller: Autoloader, Routing-Tabelle, Dispatch
   css/, js/          Statische Assets
@@ -27,6 +28,7 @@ src/
   Views/                Ein PHP-Template pro Seite + layout.php als Rahmen
   Security/             Crypto, Totp, RateLimiter, ClientIp
   Service/               AuditLogger, Mailer
+  Plugin/                 PluginManager, HookManager (Plugin-System, siehe unten)
   Helper/                 Markdown (einfacher Markdown→HTML-Parser für Freitext)
 ```
 
@@ -133,3 +135,31 @@ sind bewusst ausführlich gehalten.
 Wird zentral beim Bootstrap gesetzt (nicht pro Controller) – siehe
 [security.md](security.md) für Details zu CSP, Session-Cookie-Konfiguration
 und Trusted-Proxy-Handling.
+
+## Plugin-System (`src/Plugin/`, #56)
+
+Erlaubt Zusatzfunktionalität, ohne Kern-Dateien zu ändern – siehe
+[plugin-development.md](plugin-development.md) für die vollständige
+Entwickler-Referenz (Manifest-Format, Hooks, Routen-Konvention,
+Sicherheitsgrenzen) und [plugin-system-plan.md](plugin-system-plan.md) für
+die zugrundeliegenden Architekturentscheidungen.
+
+- `App\Plugin\PluginManager` (Singleton, gebootet in `public/index.php` vor
+  der Routen-Registrierung): scannt `plugins/*/plugin.json`, validiert
+  Manifeste, prüft Kompatibilität gegen `CORE_VERSION` und lädt nur zuvor
+  über `/admin/plugins` aktivierte Plugins (Tabelle `plugins`, per
+  `ensureSchemaUpToDate()`-Pattern wie der Rest des Schemas).
+- `App\Plugin\HookManager`: Action-/Filter-Registry mit try/catch-Isolation
+  pro Hook-Aufruf – ein fehlerhaftes Plugin bricht nie den gesamten Request
+  ab. Zugriff aus Controllern über `BaseController::hooks()`.
+- Definierte Erweiterungspunkte (Phase 1): `horse.before_save`/
+  `horse.after_save` (`HorseController`), `horse.detail_sections`
+  (`PublicController::horseDetail`), `admin.dashboard_tiles`
+  (`AdminController::dashboard`).
+- Zusätzliche Plugin-Routen (optionale `routes()`-Methode je Plugin) werden
+  zwingend unter `/plugin/<slug>/...` registriert – der Präfix wird vom
+  `PluginManager` selbst vorangestellt, ein Plugin kann daher nie eine
+  Kern-Route überschreiben.
+- `plugins/` ist bewusst nicht Teil des Kern-Repositories (nur
+  `plugins/.gitkeep` versioniert) – Plugins werden separat gepflegt, siehe
+  Referenz-/Beispielplugin unter `docs/examples/demo-plugin/`.

@@ -24,6 +24,14 @@ require_once __DIR__ . '/../config/config.php';
 
 use App\Router;
 use App\Controllers\SetupController;
+use App\Plugin\PluginManager;
+
+// Plugin-System (#56): Scannt plugins/, lädt nur zuvor über /admin/plugins
+// aktivierte Plugins. Muss vor der Routen-Registrierung laufen, damit
+// Controller-Hooks (siehe BaseController::hooks()) und ggf. zusätzliche
+// Plugin-Routen (siehe unten, nach den Kern-Routen) zur Verfügung stehen.
+$pluginManager = PluginManager::getInstance();
+$pluginManager->boot();
 
 $router = new Router();
 
@@ -133,6 +141,23 @@ $router->post('/admin/matches/link', [App\Controllers\HorseController::class, 'l
 
 // Audit Log Route
 $router->get('/admin/logs', [App\Controllers\AdminController::class, 'logs']);
+
+// Admin Plugin Management Routes (#56)
+$router->get('/admin/plugins', [App\Controllers\PluginController::class, 'index']);
+$router->post('/admin/plugins/toggle', [App\Controllers\PluginController::class, 'toggle']);
+
+// Plugin-Routen: von aktivierten Plugins über eine optionale routes()-Methode
+// deklariert (siehe App\Plugin\PluginManager::registerPluginRoute()). Der
+// Präfix "/plugin/<slug>/" wird dabei zwingend vom PluginManager selbst
+// vorangestellt - ein Plugin kann daher nie eine der obigen Kern-Routen
+// überschreiben, unabhängig davon, welchen Pfad es selbst anfordert.
+foreach ($pluginManager->getPluginRoutes() as $pluginRoute) {
+    if ($pluginRoute['method'] === 'POST') {
+        $router->post($pluginRoute['path'], $pluginRoute['callback']);
+    } else {
+        $router->get($pluginRoute['path'], $pluginRoute['callback']);
+    }
+}
 
 // Dispatch the request
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';

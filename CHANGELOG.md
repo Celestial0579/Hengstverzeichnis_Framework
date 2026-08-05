@@ -6,6 +6,19 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Hinzugefügt
+
+- Plugin-/Erweiterungssystem (#56): Zusatzfunktionen lassen sich jetzt über
+  lokal in `plugins/` abgelegte Plugins ergänzen, ohne Kern-Dateien zu
+  ändern. Manifest-Validierung samt Kompatibilitätsprüfung, Hook-/Filter-
+  System mit try/catch-Isolation je Aufruf, Admin-UI zum Aktivieren/
+  Deaktivieren (`/admin/plugins`), erste Erweiterungspunkte (`horse.before_save`/
+  `horse.after_save`, `horse.detail_sections`, `admin.dashboard_tiles`) sowie
+  optionale, zwingend unter `/plugin/<slug>/...` laufende Plugin-Routen.
+  Siehe [docs/plugin-development.md](docs/plugin-development.md).
+
 ## [0.1.0-beta.1] – 2026-08-04
 
 Erstes öffentliches Beta-Release. Nach internem Testdurchlauf (inkl.

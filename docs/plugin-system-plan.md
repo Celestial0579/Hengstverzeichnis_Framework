@@ -1,6 +1,8 @@
 # Plugin-/Erweiterungssystem — Umsetzungsplanung
 
-**Status:** Planungsphase (noch keine Implementierung)
+**Status:** Phase 1 (siehe Abschnitt 3) umgesetzt - Kern-Plugin-System,
+Admin-UI, initiale Hooks, Referenz-Plugin und Entwickler-Doku
+([plugin-development.md](plugin-development.md)) sind implementiert.
 **Bezug:** [#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56) (Kern-Anforderung), [#58](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/58) (Anwendungsfälle für spätere Plugins)
 
 Dieses Dokument bricht die Anforderung aus Issue #56 auf eine konkrete,
@@ -60,11 +62,14 @@ Neue Klasse `App\Plugin\PluginManager` (Singleton, analog zu `Database`):
   Routen-Registrierung instanziiert.
 - Scannt `plugins/*/plugin.json`, validiert Manifeste, lädt nur
   **aktivierte** Plugins (Aktivierungsstatus in DB, siehe 2.5).
-  Registriert je Plugin einen eigenen Autoload-Namespace
-  (`Plugin\<Slug>\` → `plugins/<slug>/src/`), damit Plugin-Code sich nicht
-  in den `App\`-Namespace mischt.
+  Plugin-Code läuft unter einem eigenen Namespace `Plugin\<StudlySlug>`
+  (aus dem Slug abgeleitet), getrennt vom `App\`-Namespace des Kerns.
+  Umgesetzt als einfaches `require_once` der Entry-Datei (kein eigener
+  `spl_autoload_register` im Kern nötig) — ein Plugin, das eigene
+  Unter-Namespaces/Klassen braucht, registriert dafür bei Bedarf selbst
+  einen Autoloader in seiner Entry-Datei.
 - Bindet `Plugin.php` jedes aktivierten Plugins ein und ruft eine
-  standardisierte Registrierungsmethode auf (z. B. `register(HookManager
+  standardisierte Registrierungsmethode auf (`register(HookManager
   $hooks)`), über die sich das Plugin an Hooks anmeldet — **kein**
   automatischer Vollzugriff auf Router/Controller-Internas.
 - `public/index.php` selbst bleibt unverändert lesbar: Es kommt **eine**
@@ -232,22 +237,38 @@ Existenz des Plugin-Repos):** `index.json`-Registry-Client, Tag-gebundener
 Download, Prüfsummen-/Signaturverifikation vor Installation, In-App-
 Update-Hinweise.
 
-## 4. Offene Punkte für Rücksprache mit dem Repo-Owner
+## 4. Entscheidungen zu den offenen Punkten (bei Umsetzung getroffen)
 
-- Reichen die 5 initialen Hook-Punkte (Tabelle 2.4) für die in #58
-  gesammelten Ideen als Startpunkt, oder gibt es einen konkreten
-  Use-Case, der sofort einen zusätzlichen Hook in Phase 1 braucht?
-- Soll `router.register` in Phase 1 beliebige Pfade erlauben, oder auf ein
-  Präfix (z. B. `/plugin/<slug>/...`) beschränkt werden, um Kollisionen
-  mit künftigen Kern-Routen strukturell auszuschließen? (Empfehlung: Präfix
-  erzwingen — verhindert außerdem, dass ein Plugin versehentlich/bösartig
-  eine Kern-Route überschreibt.)
-- Demo-/Beispiel-Plugin: reicht eine reine Dashboard-Kachel, oder soll es
-  bewusst auch `horse.after_save` demonstrieren, um den vollen
-  Isolations-/Fehlerpfad (try/catch) sichtbar zu testen?
+Die folgenden Punkte waren vor der Implementierung offen und wurden beim
+Umsetzen von Phase 1 wie folgt entschieden (Rückmeldung/Korrektur jederzeit
+möglich, siehe PR):
+
+- **Hook-Umfang Phase 1:** Auf die drei im Issue #56 selbst explizit
+  genannten Beispiele reduziert (`horse.before_save`/`horse.after_save`,
+  `horse.detail_sections`, zusätzliche Routen) plus `admin.dashboard_tiles`
+  als naheliegende Ergänzung für eine sichtbare Admin-UI-Erweiterung. Die
+  ursprünglich in 2.4 zusätzlich skizzierten `nav.*`-Filter wurden bewusst
+  **nicht** in Phase 1 umgesetzt (kein konkreter Bedarf, hätte nur Fläche
+  ohne Demonstrationswert hinzugefügt) — Kandidat für Phase 2 bei Bedarf.
+- **Routen-Präfix:** Wie empfohlen erzwungen. Statt eines generischen
+  `router.register`-Hooks registriert `PluginManager` die von einem Plugin
+  über eine optionale `routes()`-Methode deklarierten Pfade selbst und
+  stellt dabei zwingend `/plugin/<slug>/` voran — technisch unmöglich für
+  ein Plugin, eine Kern-Route zu überschreiben (siehe
+  [plugin-development.md](plugin-development.md), Abschnitt "Routen").
+- **Demo-Plugin:** Demonstriert alle vier Phase-1-Hooks plus eine eigene
+  Route (`docs/examples/demo-plugin/`, zum Ausprobieren nach `plugins/`
+  kopieren — liegt selbst nicht in `plugins/`, da dieses Verzeichnis
+  bewusst nicht versioniert wird, siehe 2.1). Bewusst **kein** absichtlich
+  fehlschlagender Hook-Callback im ausgelieferten Demo-Plugin (würde bei
+  jedem Pferde-Speichern im laufenden Betrieb unnötig einen Audit-Log-
+  Fehleintrag erzeugen) — die Isolationsgarantie ist stattdessen in
+  [plugin-development.md](plugin-development.md) dokumentiert und lässt
+  sich bei Bedarf lokal durch einen testweise eingefügten `throw` verifizieren.
 
 ## 5. Nächste Schritte
 
-Nach Freigabe dieser Planung: Umsetzung gemäß Phase 1, beginnend mit
-`PluginManager`/`HookManager` + `plugins`-Tabelle (Punkte 1–4), da alle
-weiteren Punkte darauf aufbauen.
+Phase 1 (Abschnitt 3) ist umgesetzt. Mögliche nächste Schritte: Rückmeldung
+zu den in Abschnitt 4 getroffenen Entscheidungen, Priorisierung konkreter
+Phase-2-Hooks anhand der in #58 gesammelten Ideen, oder Start von Phase 3
+(externe Registry) sobald ein separates Plugin-Repository existiert.

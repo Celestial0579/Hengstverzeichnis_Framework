@@ -15,7 +15,14 @@ class AdminController extends BaseController {
 
 
     public function dashboard(): void {
-        $this->render('admin_dashboard', ['title' => 'Admin Dashboard']);
+        // Plugin-Hook (#56): Erweiterungspunkt für zusätzliche Kacheln im Dashboard.
+        // Erwartetes Format je Eintrag: ['url' => string, 'label' => string, 'icon' => string].
+        $pluginTiles = $this->hooks()->applyFilters('admin.dashboard_tiles', []);
+
+        $this->render('admin_dashboard', [
+            'title' => 'Admin Dashboard',
+            'pluginTiles' => $pluginTiles
+        ]);
     }
 
     public function settings(): void {

@@ -267,6 +267,19 @@ class Database {
                 INDEX (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (\Throwable $e) {}
+
+        // 12. Plugin-System (siehe src/Plugin/PluginManager.php, #56): Aktivierungsstatus
+        // pro Plugin, unabhängig vom Verzeichnis-Scan in plugins/ - ein deaktiviertes
+        // Plugin bleibt so nach einem Deployment ohne DB-Zugriff sicher inaktiv.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `plugins` (
+                `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
+                `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+                `installed_version` VARCHAR(20) NOT NULL DEFAULT '0.0.0',
+                `activated_at` DATETIME NULL DEFAULT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

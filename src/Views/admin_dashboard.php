@@ -81,6 +81,15 @@ $trashCount = \App\Controllers\TrashController::getTrashCount();
                 <a href="/admin/logs" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                     📜 Audit-Log (Protokoll)
                 </a>
+                <a href="/admin/plugins" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
+                    🧩 Plugins verwalten
+                </a>
+                <?php foreach ($pluginTiles ?? [] as $tile): ?>
+                    <?php if (empty($tile['url']) || empty($tile['label'])) continue; ?>
+                    <a href="<?= htmlspecialchars($tile['url']) ?>" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
+                        <?= htmlspecialchars(($tile['icon'] ?? '🧩') . ' ' . $tile['label']) ?>
+                    </a>
+                <?php endforeach; ?>
             </div>
         </div>
     <?php endif; ?>

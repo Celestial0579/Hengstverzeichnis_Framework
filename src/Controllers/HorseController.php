@@ -72,6 +72,12 @@ class HorseController extends BaseController {
         // Handle Photo Upload
         $imageUrl = $this->handleImageUpload($_FILES['horse_image'] ?? null);
 
+        // Plugin-Hook (#56): Erweiterungspunkt VOR dem Anlegen eines Pferdes, z. B. für
+        // zusätzliche verbandsspezifische Prüfungen. Kann das Anlegen selbst nicht
+        // blockieren (siehe HookManager-Isolation) - ein fehlerhaftes Plugin darf den
+        // Kern-Workflow nie verhindern.
+        $this->hooks()->doAction('horse.before_save', null, $_POST);
+
         $db = Database::getInstance();
         $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, color, breeding_station_id, breeding_station, description, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $imageUrl]);
@@ -84,6 +90,10 @@ class HorseController extends BaseController {
 
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
         $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year);
+
+        // Plugin-Hook (#56): Erweiterungspunkt NACH dem Anlegen, z. B. für Folgeaktionen
+        // in einem Plugin (Benachrichtigung, verknüpfte Zusatzdaten anlegen etc.).
+        $this->hooks()->doAction('horse.after_save', $newHorseId, $_POST, true);
 
         header("Location: /admin/horses?success=created");
         exit;
@@ -188,6 +198,9 @@ class HorseController extends BaseController {
             $currentImageUrl = $newUploadedUrl;
         }
 
+        // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
+        $this->hooks()->doAction('horse.before_save', (int)$id, $_POST);
+
         $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, color = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, image_url = ? WHERE id = ?");
         $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $currentImageUrl, $id]);
 
@@ -198,6 +211,9 @@ class HorseController extends BaseController {
 
         // Run auto-linking for matches
         $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln, $birth_year);
+
+        // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
+        $this->hooks()->doAction('horse.after_save', (int)$id, $_POST, false);
 
         header("Location: /admin/horses?success=updated");
         exit;

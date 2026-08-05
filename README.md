@@ -37,8 +37,7 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 ## Bekannte Einschränkungen (Beta)
 
-- Es gibt noch **keine automatisierte Testsuite** — Release-Verifikation erfolgt aktuell über manuelle/geskriptete Smoke-Tests, siehe [CHANGELOG.md](CHANGELOG.md).
-- Es gibt noch **keine Test-/Build-CI**; Codequalität wird über Code-Review sowie automatisiertes SAST (Semgrep) und Dependency-Review in der CI sichergestellt (siehe [.github/workflows](.github/workflows)).
+- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) deckt bisher nur reine Logik ohne Datenbank ab (Auth-Krypto, TOTP, Markdown-Rendering, IP-Validierung); DB-gestützte Integrationstests (Auth-Flow, Blutlinien-Matching) sind noch offen. Läuft in CI bei jedem PR, ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
 Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B. EntraID SSO,
 Klick-Tracking für Weblinks) werden als Feature-Requests in den

@@ -37,6 +37,7 @@ abstract class BaseController {
      */
     public function __construct() {
         $this->loadSettings();
+        $this->initLocale();
     }
 
     /**
@@ -62,6 +63,28 @@ abstract class BaseController {
                 'logo_url' => ''
             ];
         }
+    }
+
+    /**
+     * Setzt die aktive Sprache für den restlichen Request (#48, siehe
+     * App\I18n\Translator). Reihenfolge: admin-konfigurierte Standardsprache
+     * (`settings.language`, siehe AdminController::updateSystemSettings())
+     * als Basis, per-Session-Übersteuerung über `?lang=xx` für Besucher, die
+     * diese nicht sprechen - bewusst in der Session statt nur im Query-Param,
+     * damit die Wahl über die gesamte weitere Navigation erhalten bleibt.
+     * Ungültige/unbekannte Locale-Werte werden von Translator::init() selbst
+     * sicher auf die Fallback-Sprache abgebildet.
+     */
+    private function initLocale(): void {
+        $available = \App\I18n\Translator::getAvailableLocales();
+
+        $requested = $_GET['lang'] ?? null;
+        if (is_string($requested) && isset($available[$requested])) {
+            $_SESSION['locale'] = $requested;
+        }
+
+        $locale = $_SESSION['locale'] ?? ($this->settings['language'] ?? 'de');
+        \App\I18n\Translator::init((string)$locale);
     }
 
     /**

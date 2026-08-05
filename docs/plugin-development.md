@@ -292,6 +292,50 @@ das vollständig: registriert `horses.export`, und die Route
 `/plugin/demo-plugin/export-preview` ist nur erreichbar, wenn die aktuelle
 Gruppe diese Berechtigung besitzt.
 
+## Mehrsprachigkeit (i18n, #48)
+
+Der Kern übersetzt UI-Texte über `App\I18n\Translator` - flache,
+Array-basierte Sprachdateien statt `gettext`, passend zur
+"keine externen Abhängigkeiten"-Philosophie. Ein Plugin kann sich daran
+anhängen, **ohne** eine Manifest-Angabe zu benötigen: Legt es ein eigenes
+`lang/<locale>.php`-Verzeichnis an, wird dieses beim Laden automatisch unter
+seinem Slug als eigene Übersetzungs-Domain registriert (Konvention, analog
+zum Default-Entry `Plugin.php`):
+
+```
+plugins/<slug>/
+  lang/
+    de.php    // return ['detail_heading' => '...', ...];
+    en.php
+```
+
+Verwendung im Plugin-Code:
+
+```php
+\App\I18n\Translator::t('detail_heading', [], 'demo-plugin');
+
+// Mit Platzhaltern ({name} wird ersetzt):
+\App\I18n\Translator::t('greeting', ['name' => $horseName], 'demo-plugin');
+```
+
+- **Domain = Plugin-Slug.** Verhindert Kollisionen zwischen Kern-Schlüsseln
+  (Domain `core`, reserviert) und den Schlüsseln verschiedener Plugins -
+  jedes Plugin hat seinen eigenen flachen Schlüsselraum.
+- **"Wer zuerst registriert, gewinnt"** bei doppelter Domain-Registrierung,
+  analog zu `PermissionRegistry::registerAction()`.
+- **Fehlender Schlüssel:** `Translator::t()` gibt in diesem Fall den
+  Schlüssel selbst zurück (nie eine leere Zeichenkette) - fehlende
+  Übersetzungen fallen beim Testen sofort optisch auf, statt lautlos zu
+  verschwinden.
+- **Verfügbare Locales sind kern-seitig fest** (`Translator::getAvailableLocales()`,
+  aktuell `de`/`en`) - ein Plugin kann bestehende Sprachdateien um weitere
+  Schlüssel ergänzen, aber (Phase 1) keine komplett neue Locale zur
+  Kern-Auswahl hinzufügen.
+
+Das Referenz-Plugin (`docs/examples/demo-plugin/`) demonstriert dies
+vollständig: `lang/de.php`/`lang/en.php` sowie deren Nutzung in
+`addDetailSection()`.
+
 ## Sicherheitsmodell — was durchgesetzt wird und was nicht
 
 **Technisch durchgesetzt vom Kern, nicht vom Plugin umgehbar:**

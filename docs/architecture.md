@@ -172,9 +172,11 @@ Bearbeiten/Löschen/Veröffentlichen) – siehe
 
 - Drei feste (`is_builtin`) Gruppen: `admin` (hart codiert immer alle
   Rechte), `editor` (standardmäßig alle Rechte wie vor Einführung dieses
-  Systems, über die Admin-UI granular einschränkbar), `public` (nicht
-  angemeldete Besucher – kann serverseitig erzwungen nie schreibende
-  Berechtigungen erhalten). admin/editor-Mitgliedschaft ergibt sich weiter
+  Systems, über die Admin-UI granular einschränkbar), `public` (die nicht
+  angemeldeten Besucher – erhält serverseitig mehrfach unabhängig
+  abgesichert niemals Zugriff auf das Backend oder irgendeine Berechtigung,
+  siehe user-groups-plan.md Abschnitt 8 für die drei unabhängigen
+  Mechanismen). admin/editor-Mitgliedschaft ergibt sich weiter
   aus `users.role`; zusätzlich können Benutzer beliebig vielen eigenen,
   frei anlegbaren Gruppen zugeordnet werden (`user_groups`, Verwaltung
   unter `/admin/groups` bzw. im Benutzer-Formular).

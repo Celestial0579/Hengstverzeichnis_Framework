@@ -288,10 +288,23 @@ Gruppen-basierte Rechtevergabe je Modul × Aktion):
   allerersten Anlegen der Tabellen als echte, editierbare
   `group_permissions`-Zeilen geseedet (kein Hardcoding), ein Admin kann sie
   später über die UI granular einschränken.
-- **`public`** (nicht angemeldete Besucher): darf **niemals**
-  sicherheitsrelevante (schreibende) Berechtigungen erhalten - sowohl in der
-  Admin-UI (Checkboxen deaktiviert) als auch serverseitig beim Speichern
-  (harte Ablehnung, unabhängig vom UI) durchgesetzt.
+- **`public`** = die nicht angemeldeten Besucher. Diese dürfen **niemals**
+  Zugriff auf das Web-Backend (`/admin/...`) erhalten - explizite Klarstellung
+  des Repo-Owners, nicht nur "keine sicherheitsrelevanten Berechtigungen"
+  im engeren Sinn. Das ist bereits mehrfach unabhängig abgesichert:
+  1. `BaseController::checkAuth()` (unverändert von diesem Feature) versperrt
+     nicht angemeldeten Besuchern den gesamten Backend-Bereich, bevor
+     überhaupt eine Controller-Methode ausgeführt wird - unabhängig vom
+     Gruppensystem.
+  2. `BaseController::userGroupIds()` liefert für Gäste (kein
+     `$_SESSION['user_id']`) sofort ein leeres Array - die Gruppe `public`
+     wird für die Berechtigungsprüfung nie aufgelöst.
+  3. `GroupController::updatePermissions()` lehnt zusätzlich serverseitig
+     hart ab, der Gruppe `public` überhaupt jemals eine
+     `group_permissions`-Zeile zuzuweisen (auch in der Admin-UI deaktiviert) -
+     selbst falls (2) sich künftig ändern sollte, gäbe es dort nichts zu finden.
+  Diese drei Mechanismen sind unabhängig voneinander und ersetzen sich nicht
+  gegenseitig - sie müssen bei künftigen Änderungen alle drei erhalten bleiben.
 - **Mitgliedschaft**: `admin`/`editor`-Zugehörigkeit ergibt sich weiterhin
   aus der bestehenden Spalte `users.role` (kein Bruch der bestehenden
   Auth-Logik) - zusätzlich kann ein Benutzer beliebig vielen **eigenen**

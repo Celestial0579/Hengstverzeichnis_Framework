@@ -34,10 +34,12 @@ $errorMessages = [
         <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">
             <strong>Admin</strong> hat immer alle Rechte (fest, nicht einschränkbar).
             <strong>Editor</strong> hat standardmäßig alle Rechte wie bisher, kann hier
-            aber granular eingeschränkt werden. <strong>Öffentlich / Gäste</strong> kann
-            aus Sicherheitsgründen keine schreibenden Berechtigungen erhalten. Zusätzliche
-            eigene Gruppen können unten angelegt und Benutzern im
-            <a href="/admin/users">Benutzer-Formular</a> zugeordnet werden.
+            aber granular eingeschränkt werden. <strong>Öffentlich / Gäste</strong> steht
+            für nicht angemeldete Besucher und erhält niemals Zugriff auf das Backend
+            oder irgendeine Berechtigung - unabhängig vom Gruppensystem bereits durch
+            den bestehenden Login-Zwang abgesichert. Zusätzliche eigene Gruppen können
+            unten angelegt und Benutzern im <a href="/admin/users">Benutzer-Formular</a>
+            zugeordnet werden.
         </p>
 
         <form action="/admin/groups/create" method="POST" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; border-top: 1px solid #eee; padding-top: 1rem;">
@@ -85,7 +87,7 @@ $errorMessages = [
             <?php if ($group['slug'] === 'admin'): ?>
                 <p style="color: #666; font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
             <?php elseif ($group['slug'] === 'public'): ?>
-                <p style="color: #666; font-size: 0.85rem;">🚫 Kann aus Sicherheitsgründen keine schreibenden Berechtigungen erhalten.</p>
+                <p style="color: #666; font-size: 0.85rem;">🚫 Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend und keine Berechtigungen.</p>
             <?php endif; ?>
 
             <form action="/admin/groups/permissions" method="POST">

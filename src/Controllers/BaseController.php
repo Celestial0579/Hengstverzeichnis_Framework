@@ -94,6 +94,15 @@ abstract class BaseController {
     /**
      * Überprüft die Benutzeranmeldung, schützt vor Session-Hijacking (Anti-Infostealer)
      * erzwingt Inaktivitäts-Timeouts und prüft auf erforderliche Passwortänderungen.
+     *
+     * Bleibt die alleinige, vom Gruppen-/Berechtigungssystem (#66) unabhängige
+     * Zugriffsschranke für den gesamten Backend-Bereich (/admin/...): Nicht
+     * angemeldete Besucher ("public", siehe Gruppe `public` in der Tabelle `groups`)
+     * erreichen keine geschützte Controller-Methode, unabhängig davon, ob/welche
+     * Berechtigungen aktuell in group_permissions stehen. Die Gruppe `public`
+     * erhält zusätzlich nie eigene Berechtigungs-Zeilen (siehe
+     * GroupController::updatePermissions() und BaseController::userGroupIds()) -
+     * beide Mechanismen wirken unabhängig voneinander, keiner ersetzt den anderen.
      */
     protected function checkAuth(): void {
         if (!isset($_SESSION['user_id'])) {

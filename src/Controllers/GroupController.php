@@ -19,9 +19,13 @@ use PDO;
  * - `admin` hat serverseitig hart codiert immer alle Rechte
  *   (BaseController::hasPermission()) - dafür gibt es absichtlich keine
  *   editierbaren Berechtigungs-Zeilen.
- * - `public` darf NIE sicherheitsrelevante (schreibende) Berechtigungen
- *   erhalten - sowohl in der View (deaktivierte Checkboxen) als auch hier
- *   serverseitig (harte Ablehnung) durchgesetzt.
+ * - `public` (nicht angemeldete Besucher) erhält NIE irgendeine Berechtigung
+ *   und damit nie Zugriff auf das Backend - sowohl in der View (deaktivierte
+ *   Checkboxen) als auch hier serverseitig (harte Ablehnung) durchgesetzt.
+ *   Unabhängig davon ist der Backend-Zugriff für Gäste ohnehin bereits durch
+ *   BaseController::checkAuth() versperrt (siehe dortiger Hinweis) - dieses
+ *   Modul verhindert zusätzlich, dass die Gruppe `public` überhaupt jemals
+ *   eine Berechtigungs-Zeile erhalten könnte.
  * - Eingebaute Gruppen (admin/editor/public) können nicht gelöscht werden.
  */
 class GroupController extends BaseController {

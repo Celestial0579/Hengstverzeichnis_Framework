@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS `groups` (
 INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
 ('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
 ('editor', 'Editor', 'Standard-Bearbeiterrolle mit Verwaltungszugriff.', 1),
-('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - kann aus Sicherheitsgründen keine Berechtigungen erhalten.', 1);
+('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend (/admin/...) und keine Berechtigungen, unabhängig von dieser Tabelle (siehe BaseController::checkAuth()).', 1);
 
 CREATE TABLE IF NOT EXISTS `user_groups` (
     `user_id` INT NOT NULL,

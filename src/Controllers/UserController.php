@@ -4,6 +4,7 @@
 namespace App\Controllers;
 
 use App\Database;
+use App\Helper\Paginator;
 
 class UserController extends BaseController {
 
@@ -18,9 +19,23 @@ class UserController extends BaseController {
         $stmt = $db->query("SELECT id, username, email, role, created_at, totp_enabled FROM users WHERE deleted_at IS NULL ORDER BY username ASC");
         $users = $stmt->fetchAll();
 
+        // Suche + Seitengrößen-Auswahl/Pagination (10/25/50/100/alle), analog zu
+        // GroupController::index() - siehe App\Helper\Paginator.
+        $search = trim((string)($_GET['search'] ?? ''));
+        $searchableUsers = Paginator::search($users, $search, ['username', 'email']);
+        $perPage = Paginator::readPerPage($_GET);
+        $result = Paginator::paginate($searchableUsers, $perPage, (int)($_GET['page'] ?? 1));
+
         $this->render('admin_users', [
             'title' => 'Benutzer verwalten',
-            'users' => $users
+            'users' => $result['items'],
+            'search' => $search,
+            'totalUsersUnfiltered' => count($users),
+            'perPage' => $perPage,
+            'perPageOptions' => Paginator::PER_PAGE_OPTIONS,
+            'page' => $result['page'],
+            'totalPages' => $result['totalPages'],
+            'totalUsers' => $result['total'],
         ]);
     }
 

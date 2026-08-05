@@ -4,6 +4,7 @@
 namespace App\Controllers;
 
 use App\Database;
+use App\Helper\Paginator;
 use App\Permission\PermissionRegistry;
 use App\Service\AuditLogger;
 use PDO;
@@ -39,9 +40,6 @@ class GroupController extends BaseController {
         $this->requireAdmin();
     }
 
-    /** Erlaubte Werte für die Seitengröße der Gruppen-Übersichtstabelle. */
-    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
-
     public function index(): void {
         $db = Database::getInstance();
         $groups = $db->query("SELECT * FROM `groups` ORDER BY is_builtin DESC, name ASC")->fetchAll();
@@ -71,42 +69,19 @@ class GroupController extends BaseController {
             $selectedGroupId = $defaultGroup ? (int)$defaultGroup['id'] : (int)($groups[0]['id'] ?? 0);
         }
 
-        // Suche in der Übersichtstabelle (Name/Beschreibung, case-insensitive) - wirkt nur
-        // auf $pagedGroups/die Pagination unten, NICHT auf $groups selbst (die "Gruppe zur
-        // Bearbeitung auswählen"- und "Berechtigungen kopieren von"-Dropdowns bleiben
-        // unabhängig von einer aktiven Suche immer vollständig, siehe oben).
+        // Suche + Pagination der Übersichtstabelle (nicht der Bearbeiten-Auswahl oben,
+        // siehe App\Helper\Paginator) - wirkt nur auf $pagedGroups, NICHT auf $groups
+        // selbst (die "Gruppe zur Bearbeitung auswählen"- und "Berechtigungen kopieren
+        // von"-Dropdowns bleiben unabhängig von Suche/Pagination immer vollständig).
         $search = trim((string)($_GET['search'] ?? ''));
-        $searchableGroups = $groups;
-        if ($search !== '') {
-            $searchableGroups = array_values(array_filter($groups, function ($g) use ($search) {
-                return mb_stripos($g['name'], $search) !== false
-                    || mb_stripos((string)($g['description'] ?? ''), $search) !== false;
-            }));
-        }
-
-        // Pagination der Übersichtstabelle (nicht der Bearbeiten-Auswahl oben): "alle" oder
-        // eine feste Seitengröße aus PER_PAGE_OPTIONS. Ungültige/fehlende Werte -> Default 25.
-        $perPageParam = $_GET['per_page'] ?? '25';
-        $perPage = $perPageParam === 'all' ? 'all' : (int)$perPageParam;
-        if ($perPage !== 'all' && !in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
-            $perPage = 25;
-        }
-
-        $totalGroups = count($searchableGroups);
-        if ($perPage === 'all') {
-            $totalPages = 1;
-            $page = 1;
-            $pagedGroups = $searchableGroups;
-        } else {
-            $totalPages = max(1, (int)ceil($totalGroups / $perPage));
-            $page = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
-            $pagedGroups = array_slice($searchableGroups, ($page - 1) * $perPage, $perPage);
-        }
+        $searchableGroups = Paginator::search($groups, $search, ['name', 'description']);
+        $perPage = Paginator::readPerPage($_GET);
+        $result = Paginator::paginate($searchableGroups, $perPage, (int)($_GET['page'] ?? 1));
 
         $this->render('admin_groups', [
             'title' => 'Gruppen & Berechtigungen',
             'groups' => $groups,
-            'pagedGroups' => $pagedGroups,
+            'pagedGroups' => $result['items'],
             'search' => $search,
             'totalGroupsUnfiltered' => count($groups),
             'permissions' => $permissions,
@@ -114,10 +89,10 @@ class GroupController extends BaseController {
             'selectedGroupId' => $selectedGroupId,
             'totalPermissionCount' => PermissionRegistry::countAll(),
             'perPage' => $perPage,
-            'perPageOptions' => self::PER_PAGE_OPTIONS,
-            'page' => $page,
-            'totalPages' => $totalPages,
-            'totalGroups' => $totalGroups,
+            'perPageOptions' => Paginator::PER_PAGE_OPTIONS,
+            'page' => $result['page'],
+            'totalPages' => $result['totalPages'],
+            'totalGroups' => $result['total'],
         ]);
     }
 

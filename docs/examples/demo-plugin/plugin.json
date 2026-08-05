@@ -6,5 +6,6 @@
     "description": "Referenz-Plugin, das alle in Phase 1 verfügbaren Hooks demonstriert (siehe docs/plugin-development.md).",
     "author": "Hengstverzeichnis Framework",
     "hooks": ["horse.after_save", "horse.detail_sections", "admin.dashboard_tiles"],
+    "permissions": ["horses.export"],
     "entry": "Plugin.php"
 }

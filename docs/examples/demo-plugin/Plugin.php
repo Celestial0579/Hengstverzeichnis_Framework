@@ -82,6 +82,14 @@ class Plugin {
                 'path' => '/hello',
                 'callback' => [self::class, 'helloPage'],
             ],
+            [
+                'method' => 'GET',
+                'path' => '/export-preview',
+                // Zugriffsschutz für Plugin-Routen ist Aufgabe des Plugins (siehe
+                // docs/plugin-development.md, Abschnitt "Routen") - hier über eine
+                // eigene, von BaseController erbende Klasse, siehe ExportPreviewController.
+                'callback' => [ExportPreviewController::class, 'show'],
+            ],
         ];
     }
 
@@ -90,6 +98,47 @@ class Plugin {
         echo '<body style="font-family: sans-serif; padding: 2rem;">';
         echo '<h1>👋 Hallo vom Demo-Plugin!</h1>';
         echo '<p>Diese Seite wurde über die routes()-Methode des Plugins registriert und läuft unter /plugin/demo-plugin/hello.</p>';
+        echo '<p><a href="/admin/plugins">Zurück zur Plugin-Verwaltung</a></p>';
+        echo '</body></html>';
+    }
+
+    /**
+     * Berechtigungs-Beispiel (#66): registriert eine neue Aktion "export" am
+     * BESTEHENDEN Kern-Modul "horses", ohne dass der Kern selbst dafür angepasst
+     * werden muss. Erscheint danach als zusätzliche Checkbox "Exportieren" unter
+     * "Pferde" in der Berechtigungsmatrix unter /admin/groups. Ein Plugin kann
+     * über dieselbe Methode auch ein komplett neues, eigenes Modul anlegen -
+     * dafür zusätzlich 'module_label' angeben (siehe
+     * App\Permission\PermissionRegistry::registerAction()).
+     *
+     * @return array<int, array{module:string, action:string, label:string}>
+     */
+    public function permissions(): array {
+        return [
+            ['module' => 'horses', 'action' => 'export', 'label' => 'Exportieren'],
+        ];
+    }
+}
+
+/**
+ * Demonstriert, wie eine Plugin-Route die neu registrierte Berechtigung
+ * tatsächlich durchsetzt - analog zu einem Kern-Controller über BaseController.
+ */
+class ExportPreviewController extends \App\Controllers\BaseController {
+
+    public function __construct() {
+        parent::__construct();
+        $this->checkAuth();
+        $this->requirePermission('horses', 'export');
+    }
+
+    public function show(): void {
+        echo '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Demo-Plugin: Export-Vorschau</title></head>';
+        echo '<body style="font-family: sans-serif; padding: 2rem;">';
+        echo '<h1>📤 Export-Vorschau</h1>';
+        echo '<p>Diese Seite ist nur erreichbar, wenn Ihre Gruppe die Berechtigung <code>horses.export</code> besitzt ';
+        echo '(siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>) - eine vom Demo-Plugin selbst ';
+        echo 'registrierte, zusätzliche Aktion am bestehenden Kern-Modul "Pferde".</p>';
         echo '<p><a href="/admin/plugins">Zurück zur Plugin-Verwaltung</a></p>';
         echo '</body></html>';
     }

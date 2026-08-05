@@ -72,6 +72,9 @@ $errorMessages = [
                             <?php else: ?>
                                 <span style="color: #aaa;">-</span>
                             <?php endif; ?>
+                            <?php if (!empty($manifest['permissions']) && is_array($manifest['permissions'])): ?>
+                                <br><span style="color: #888;">Berechtigungen: <?= htmlspecialchars(implode(', ', $manifest['permissions'])) ?></span>
+                            <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem;">
                             <?php if ($plugin['error'] !== null): ?>

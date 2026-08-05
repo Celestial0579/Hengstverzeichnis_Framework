@@ -4,7 +4,7 @@
  * @var array $groups Alle Gruppen (für Bearbeiten-/Kopieren-Dropdowns, NICHT paginiert)
  * @var array $pagedGroups Ausschnitt von $groups für die aktuelle Seite der Übersichtstabelle
  * @var array $permissions [group_id => [module => [action => true]]]
- * @var array $modules App\Permission\PermissionRegistry::MODULES
+ * @var array $modules App\Permission\PermissionRegistry::modules() (Kern + Plugin-Ergänzungen)
  * @var int $selectedGroupId Aktuell zur Bearbeitung ausgewählte Gruppe
  * @var int $totalPermissionCount Gesamtzahl aller Modul/Aktion-Kombinationen (für die Zusammenfassung)
  * @var int|string $perPage Seitengröße der Übersichtstabelle (10/25/50/100 oder 'all')

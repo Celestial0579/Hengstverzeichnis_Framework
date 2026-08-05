@@ -187,35 +187,41 @@ heute `requireAdmin()` aufgerufen wird. Ob dafür eine eigene `member`-Rolle
 nötig ist, oder ob z. B. auch `editor`-Accounts einer Gruppe zugeordnet
 werden können, entscheidet #57 unabhängig von diesem Konzept (siehe 2.).
 
-### 4.2 #56 (Plugin-System)
+### 4.2 #56 (Plugin-System) — umgesetzt
 
-Ergänzung zum bereits umgesetzten Plugin-System (siehe
-[plugin-development.md](plugin-development.md)), **ohne** das bestehende
-Manifest-Format zu brechen:
+Nachträglich konkret angefragt und umgesetzt (statt des ursprünglich hier
+skizzierten, abstrakteren `feature_access`/`requireFeatureAccess()`-Ansatzes
+aus Abschnitt 3.1–3.4 — dieser bleibt als generischere Erweiterung für
+Nicht-Modul-Fälle denkbar, siehe dortige Einordnung in Abschnitt 8): Ein
+Plugin kann über eine optionale `permissions()`-Methode eigene Aktionen im
+`App\Permission\PermissionRegistry`-Katalog registrieren, **ohne** das
+bestehende Manifest-Format zu brechen:
 
-- Optionales neues Manifest-Feld `"gated_features"` (Array von
-  Feature-Keys, die das Plugin selbst intern per
-  `requireFeatureAccess()`/`hasFeatureAccess()` prüft) - rein deklarativ
-  für die Admin-Übersicht (`/admin/feature-access` zeigt sie bereits vor
-  dem ersten Aufruf an), keine technische Durchsetzung durch den Kern
-  (gleiche Grenze wie das bestehende `hooks`-Feld, siehe
-  plugin-development.md → Sicherheitsmodell).
-- Für Plugin-Routen (`routes()`-Methode): Empfehlung in der Doku, den
-  Zugriffsschutz in der eigenen Handler-Methode über
-  `requireFeatureAccess()` zu prüfen - analog zur bestehenden Empfehlung,
-  `checkAuth()`/`requireAdmin()` selbst aufzurufen (siehe
-  plugin-development.md → Abschnitt „Routen“). Kein Auto-Enforcement durch
-  den `PluginManager`, aus demselben Grund, aus dem auch
-  `checkAuth()`/`requireAdmin()` nicht automatisch erzwungen werden: der
-  Kern kann nicht wissen, mit welcher Granularität eine Plugin-Route
-  geschützt werden soll (z. B. nur der GET-Teil einer Seite öffentlich,
-  der POST-Teil gruppenbeschränkt).
-- Die vier in Phase 1 umgesetzten Hooks (`horse.before_save`/
-  `horse.after_save`, `horse.detail_sections`, `admin.dashboard_tiles`)
-  benötigen **keine** Änderung: Sie laufen bereits ausschließlich in
-  Controller-Methoden, die ihrerseits ggf. `requireFeatureAccess()`
-  aufrufen können, bevor der Hook feuert - kein neuer Mechanismus im
-  `HookManager` selbst nötig.
+- Entweder als **neue Aktion an einem bestehenden Modul** (Kern oder ein
+  anderes Plugin) - der explizit gewünschte Anwendungsfall: ein Plugin
+  ergänzt z. B. eine `horses`/`export`-Berechtigung, die dann in der
+  Berechtigungsmatrix unter `/admin/groups` als zusätzliche Checkbox
+  "Exportieren" unter "Pferde" erscheint.
+- Oder als **komplett neues, eigenes Modul** mit eigenen Aktionen.
+- `PermissionRegistry::registerAction()` wird von `PluginManager::loadPlugin()`
+  für jeden Eintrag aufgerufen, bevor die Routen registriert werden -
+  Sicherheits-Leitplanke "wer zuerst registriert, gewinnt": eine bereits
+  existierende Modul×Aktion-Kombination (Kern oder zuvor geladenes Plugin)
+  kann von einem Plugin nicht überschrieben/umdefiniert werden.
+- Registrierung schaltet für sich genommen nichts frei (die neue Aktion ist
+  bis zur expliziten Admin-Zuweisung in `/admin/groups` fail-closed wie jede
+  andere Berechtigung) - die eigentliche Durchsetzung bleibt Aufgabe des
+  Plugins selbst (`requirePermission()`/`hasPermission()` im eigenen Hook
+  oder der eigenen Route aufrufen, analog zur bestehenden Empfehlung für
+  `checkAuth()`/`requireAdmin()` in Plugin-Routen). Kein Auto-Enforcement
+  durch `PluginManager`, aus demselben Grund wie bei `checkAuth()`: der Kern
+  kann nicht wissen, mit welcher Granularität eine Plugin-Route geschützt
+  werden soll.
+- Referenzimplementierung: `docs/examples/demo-plugin/Plugin.php`
+  registriert `horses.export`; die Route `/plugin/demo-plugin/export-preview`
+  demonstriert die tatsächliche Durchsetzung.
+- Details siehe [plugin-development.md](plugin-development.md), Abschnitt
+  "Berechtigungen".
 
 ## 5. Offene Punkte für Rücksprache mit dem Repo-Owner
 
@@ -258,8 +264,8 @@ Manifest-Format zu brechen:
    Feature-Keys, Nutzung von `requireFeatureAccess()`, Fail-Closed-Hinweis
 7. Ergänzung in `docs/architecture.md`
 
-**Phase 2 (Folge-Arbeit in #56):** optionales `gated_features`-Manifestfeld
-für Plugins (Punkt 4.2), Doku-Ergänzung in `plugin-development.md`.
+**Phase 2 (Folge-Arbeit in #56) — umgesetzt:** `permissions()`-Methode für
+Plugins (Punkt 4.2), Doku-Ergänzung in `plugin-development.md`.
 
 **Phase 3 (Folge-Arbeit in #57):** eigentliche `member`-Kontoart samt
 offener Design-Fragen (Account-Erstellung, 2FA-Pflicht), Verpaarungsrechner
@@ -341,12 +347,14 @@ Gruppen-basierte Rechtevergabe je Modul × Aktion):
   schlägt die DB-Abfrage fehl, wird der Zugriff verweigert, nie gewährt.
 
 Der `feature_access`/`feature_access_groups`-Vorschlag aus Abschnitt 3.1–3.4
-sowie die Anbindung an #56 über ein `gated_features`-Manifestfeld
-(Abschnitt 4.2) bleiben als **spätere, generischere Erweiterung** relevant
-(z. B. für Plugin-eigene, nicht in der festen Modul-Tabelle abgebildete
-Funktionen) - für die Erstumsetzung wird stattdessen das oben beschriebene,
-konkretere Modul×Aktion-Modell umgesetzt, das die vom Repo-Owner genannten
-Anforderungen direkter abbildet.
+bleibt als **spätere, generischere Erweiterung** relevant (z. B. für
+Sichtbarkeits-Steuerung jenseits von Modul×Aktion, etwa "öffentlich vs. nur
+für angemeldete Benutzer" ohne CRUD-Bezug) - für die Erstumsetzung wurde
+stattdessen das oben beschriebene, konkretere Modul×Aktion-Modell umgesetzt,
+das die vom Repo-Owner genannten Anforderungen direkter abbildet. Die
+Anbindung an #56 (Abschnitt 4.2) ist mittlerweile umgesetzt, allerdings über
+das Modul×Aktion-Modell (`PermissionRegistry::registerAction()`) statt über
+das hier ursprünglich skizzierte `gated_features`-Manifestfeld.
 
 ## 9. UI-Iteration: kompakte Ansicht + Berechtigungen kopieren
 

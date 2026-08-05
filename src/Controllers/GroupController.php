@@ -85,7 +85,7 @@ class GroupController extends BaseController {
             'search' => $search,
             'totalGroupsUnfiltered' => count($groups),
             'permissions' => $permissions,
-            'modules' => PermissionRegistry::MODULES,
+            'modules' => PermissionRegistry::modules(),
             'selectedGroupId' => $selectedGroupId,
             'totalPermissionCount' => PermissionRegistry::countAll(),
             'perPage' => $perPage,

@@ -163,6 +163,11 @@ die zugrundeliegenden Architekturentscheidungen.
 - `plugins/` ist bewusst nicht Teil des Kern-Repositories (nur
   `plugins/.gitkeep` versioniert) – Plugins werden separat gepflegt, siehe
   Referenz-/Beispielplugin unter `docs/examples/demo-plugin/`.
+- Optionale `permissions()`-Methode je Plugin registriert eigene Aktionen im
+  Gruppen-/Berechtigungssystem (#66) – neue Aktion an einem bestehenden
+  Modul (z. B. `horses`/`export`) oder komplett neues eigenes Modul, siehe
+  `App\Permission\PermissionRegistry::registerAction()` und
+  plugin-development.md → Abschnitt „Berechtigungen“.
 
 ## Gruppen-/Berechtigungssystem (`src/Permission/`, `groups`/`user_groups`/`group_permissions`, #66)
 
@@ -180,9 +185,12 @@ Bearbeiten/Löschen/Veröffentlichen) – siehe
   aus `users.role`; zusätzlich können Benutzer beliebig vielen eigenen,
   frei anlegbaren Gruppen zugeordnet werden (`user_groups`, Verwaltung
   unter `/admin/groups` bzw. im Benutzer-Formular).
-- `App\Permission\PermissionRegistry`: statischer Katalog der verfügbaren
-  Module/Aktionen (aktuell `horses` inkl. `publish`, `persons`,
-  `breeding_stations`) – bewusst als PHP-Array, keine DB-Katalogtabelle.
+- `App\Permission\PermissionRegistry`: Katalog der verfügbaren Module/
+  Aktionen – fester Kern-Anteil (`horses` inkl. `publish`, `persons`,
+  `breeding_stations`) plus zur Laufzeit von aktivierten Plugins
+  registrierte Ergänzungen (`registerAction()`, #56-Integration, "wer
+  zuerst registriert, gewinnt" gegen Überschreiben). Bewusst als PHP-Array,
+  keine DB-Katalogtabelle.
 - `BaseController::hasPermission()`/`requirePermission()`: Prüfung fail-closed
   (fehlende Zuordnung oder DB-Fehler → Zugriff verweigert), Admin-Bypass hart
   codiert. Eingesetzt in `HorseController`/`PersonController`/

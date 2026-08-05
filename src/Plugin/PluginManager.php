@@ -4,6 +4,7 @@
 namespace App\Plugin;
 
 use App\Database;
+use App\Permission\PermissionRegistry;
 use App\Service\AuditLogger;
 use PDO;
 
@@ -27,9 +28,16 @@ use PDO;
  *   diesen Prüfungen (siehe Aufrufstellen in den Controllern), kann sie also
  *   nicht umgehen.
  * - Ein fehlerhaftes Plugin kann die eigene Registrierung (Laden der Datei,
- *   `register()`/`routes()`) zum Scheitern bringen, ohne den Bootstrap der
- *   gesamten Anwendung zu blockieren (try/catch, Protokollierung im
- *   Audit-Log). Für die laufende Anfrage-Bearbeitung siehe HookManager.
+ *   `register()`/`routes()`/`permissions()`) zum Scheitern bringen, ohne den
+ *   Bootstrap der gesamten Anwendung zu blockieren (try/catch, Protokollierung
+ *   im Audit-Log). Für die laufende Anfrage-Bearbeitung siehe HookManager.
+ * - Über die optionale `permissions()`-Methode kann ein Plugin eigene
+ *   Aktionen im Gruppen-/Berechtigungssystem (#66) registrieren - entweder
+ *   neue Aktionen an bestehenden Kern-Modulen (z. B. eine "Exportieren"-
+ *   Berechtigung für `horses`) oder komplett eigene Module. Siehe
+ *   App\Permission\PermissionRegistry::registerAction() für die dortige
+ *   "wer zuerst registriert, gewinnt"-Leitplanke gegen Überschreiben
+ *   bestehender Berechtigungen.
  */
 final class PluginManager {
 
@@ -243,6 +251,34 @@ final class PluginManager {
                 $this->registerPluginRoute($slug, $route);
             }
         }
+
+        if (method_exists($instance, 'permissions')) {
+            foreach ((array)$instance->permissions() as $entry) {
+                $this->registerPluginPermission($entry);
+            }
+        }
+    }
+
+    /**
+     * Verarbeitet einen Eintrag aus der optionalen Plugin::permissions()-Methode und
+     * meldet ihn bei App\Permission\PermissionRegistry an (#66-Integration). Erwartetes
+     * Format je Eintrag: ['module' => string, 'action' => string, 'label' => string,
+     * 'module_label' => string (optional, nur bei neuem Modul relevant)]. Ungültige
+     * Einträge werden ignoriert statt den Bootstrap zu unterbrechen - konsistent mit der
+     * übrigen Fehlertoleranz gegenüber fehlerhaften Plugin-Deklarationen (siehe
+     * registerPluginRoute()).
+     */
+    private function registerPluginPermission(mixed $entry): void {
+        if (!is_array($entry) || empty($entry['module']) || empty($entry['action']) || empty($entry['label'])) {
+            return;
+        }
+
+        PermissionRegistry::registerAction(
+            (string)$entry['module'],
+            (string)$entry['action'],
+            (string)$entry['label'],
+            isset($entry['module_label']) ? (string)$entry['module_label'] : null
+        );
     }
 
     /**

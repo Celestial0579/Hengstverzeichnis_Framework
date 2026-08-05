@@ -199,6 +199,68 @@ class AdminPage extends BaseController {
 }
 ```
 
+## Berechtigungen (#66)
+
+Ein Plugin kann über eine optionale `permissions()`-Methode eigene Aktionen
+im Gruppen-/Berechtigungssystem registrieren — entweder als **neue Aktion an
+einem bestehenden Modul** (Kern oder ein anderes Plugin) oder als **komplett
+neues, eigenes Modul**:
+
+```php
+public function permissions(): array {
+    return [
+        // Neue Aktion am bestehenden Kern-Modul "horses" - erscheint als
+        // zusätzliche Checkbox "Exportieren" unter "Pferde" in der
+        // Berechtigungsmatrix unter /admin/groups.
+        ['module' => 'horses', 'action' => 'export', 'label' => 'Exportieren'],
+
+        // Alternativ: komplett neues, eigenes Modul (module_label nötig,
+        // da das Modul noch nicht existiert).
+        ['module' => 'demo-plugin', 'action' => 'access', 'label' => 'Nutzen', 'module_label' => 'Demo-Plugin'],
+    ];
+}
+```
+
+Jeder Eintrag braucht `module`, `action` und `label` (Anzeigetext der
+Aktion); `module_label` ist nur relevant, wenn `module` noch nicht existiert
+- bei einem bereits vorhandenen Modul (Kern oder anderes Plugin) wird es
+ignoriert.
+
+**Sicherheits-Leitplanke ("wer zuerst registriert, gewinnt"):** Existiert die
+Kombination aus `module` und `action` bereits (egal ob aus dem Kern oder
+einem zuvor geladenen Plugin), wird die neue Registrierung stillschweigend
+ignoriert. Ein Plugin kann dadurch **nie** die Bedeutung einer bestehenden
+Berechtigung umdefinieren (z. B. `horses`/`delete` anders belegen) - es kann
+nur neue, bisher unbenutzte Kombinationen ergänzen. Siehe
+`App\Permission\PermissionRegistry::registerAction()`.
+
+**Die Registrierung selbst schaltet nichts frei** - sie sorgt nur dafür,
+dass ein Admin die neue Aktion überhaupt in der Berechtigungsmatrix sehen
+und einer Gruppe zuweisen kann (Standard: keiner Gruppe zugewiesen, also
+fail-closed wie jede andere Berechtigung, siehe unten). Die eigentliche
+Durchsetzung ist weiterhin Aufgabe des Plugins selbst - im eigenen Hook
+oder der eigenen Route genau wie ein Kern-Controller `hasPermission()`/
+`requirePermission()` aufrufen:
+
+```php
+class ExportController extends \App\Controllers\BaseController {
+    public function __construct() {
+        parent::__construct();
+        $this->checkAuth();
+        $this->requirePermission('horses', 'export');
+    }
+
+    public function export(): void {
+        // ...
+    }
+}
+```
+
+Das Referenz-Plugin (`docs/examples/demo-plugin/Plugin.php`) demonstriert
+das vollständig: registriert `horses.export`, und die Route
+`/plugin/demo-plugin/export-preview` ist nur erreichbar, wenn die aktuelle
+Gruppe diese Berechtigung besitzt.
+
 ## Sicherheitsmodell — was durchgesetzt wird und was nicht
 
 **Technisch durchgesetzt vom Kern, nicht vom Plugin umgehbar:**
@@ -214,6 +276,9 @@ class AdminPage extends BaseController {
   Kern-Route überschreiben.
 - Ein Plugin wird **nie automatisch geladen** — nur wenn ein Administrator
   es zuvor explizit unter `/admin/plugins` aktiviert hat (Tabelle `plugins`).
+- Über `permissions()` registrierte Aktionen können bestehende Berechtigungen
+  (Kern oder anderes Plugin) nicht überschreiben oder umdefinieren ("wer
+  zuerst registriert, gewinnt", siehe Abschnitt "Berechtigungen").
 
 **Nicht technisch erzwungen — bewusstes Vertrauen bei der Aktivierung:**
 - PHP bietet ohne zusätzliche Abhängigkeiten (die der Kern bewusst

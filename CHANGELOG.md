@@ -25,6 +25,12 @@ Breaking Changes sind jederzeit möglich).
   Möglichkeit für schreibende Rechte) sowie beliebig viele eigene Gruppen,
   denen Benutzer im Benutzer-Formular zugeordnet werden können. Verwaltung
   unter `/admin/groups`. Siehe [docs/user-groups-plan.md](docs/user-groups-plan.md).
+- Plugins können jetzt eigene Berechtigungen im Gruppen-/Berechtigungssystem
+  registrieren (`permissions()`-Methode): entweder eine neue Aktion an einem
+  bestehenden Modul (z. B. eine "Exportieren"-Berechtigung für Pferde) oder
+  ein komplett neues eigenes Modul. Siehe
+  [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
+  „Berechtigungen“.
 
 ## [0.1.0-beta.1] – 2026-08-04
 

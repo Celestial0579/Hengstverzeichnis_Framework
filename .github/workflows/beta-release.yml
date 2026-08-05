@@ -2,9 +2,11 @@
 #
 # Erstellt einmal pro Woche automatisch einen neuen vX.Y.Z-beta.N-Tag auf
 # `beta` - aber nur, falls seit dem letzten Tag tatsächlich neue Commits
-# dazugekommen sind (kein Leerlauf-Release). Der Tag-Push löst danach
-# release.yml ganz normal aus (Docker-Image mit ":beta"-Tag, Pre-Release,
-# siehe docs/releasing.md).
+# dazugekommen sind (kein Leerlauf-Release). Der Tag wird über GITHUB_TOKEN
+# gepusht - GitHub löst dadurch bewusst KEINE Folge-Workflows aus (Schutz
+# vor Endlosschleifen), release.yml würde also trotz passendem "v*"-Tag
+# nicht anspringen. Deshalb wird release.yml am Ende explizit per
+# workflow_dispatch für genau diesen Tag angestoßen.
 #
 # Anders als bei stabilen Releases wird CHANGELOG.md hier bewusst NICHT
 # automatisch ergänzt - das bleibt für kuratierte, "echte" Releases
@@ -25,6 +27,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag:
@@ -69,3 +72,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "$new_tag" HEAD
           git push origin "$new_tag"
+          echo "NEW_TAG=$new_tag" >> "$GITHUB_ENV"
+
+      - name: release.yml für den neuen Tag anstoßen
+        if: env.NEW_TAG != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release.yml --repo "${{ github.repository }}" --ref "$NEW_TAG"

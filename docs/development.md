@@ -161,7 +161,9 @@ Controller-Aktionen mit einem Functional-Test.
   eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar
   im Workflow).
 - Beta-Releases für die IGFjordpferd werden als `vX.Y.Z-beta.N`-Tag von
-  `beta` aus geschnitten, siehe [releasing.md](releasing.md).
+  `beta` aus geschnitten – wöchentlich automatisch (falls es Änderungen
+  gibt) über [`beta-release.yml`](../.github/workflows/beta-release.yml),
+  siehe [releasing.md](releasing.md).
 
 ## Coding-Konventionen
 

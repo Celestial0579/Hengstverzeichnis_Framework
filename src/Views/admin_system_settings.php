@@ -61,6 +61,19 @@
         </div>
 
         <div class="form-group" style="margin-top: 1.5rem;">
+            <label for="language">🌍 Standardsprache</label>
+            <select id="language" name="language" class="form-control">
+                <?php foreach ($availableLocales as $code => $label): ?>
+                    <option value="<?= htmlspecialchars($code) ?>" <?= ($settings['language'] ?? 'de') === $code ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <small style="color: #666; display: block; margin-top: 0.3rem;">
+                Standardsprache der öffentlichen Seiten (#48). Besucher können sie über den Sprachumschalter im Footer für ihre eigene Sitzung übersteuern.
+                Weitere Sprachen sowie Übersetzungen im Admin-Bereich folgen schrittweise.
+            </small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
             <label for="trusted_proxies">🛡️ Vertrauenswürdige Reverse-Proxy-IPs (TRUSTED_PROXIES)</label>
             <input
                 type="text"

@@ -44,11 +44,14 @@ class Plugin {
      * Der Rückgabewert wird von der View unescaped ausgegeben (siehe
      * PublicController::horseDetail()) - das Plugin ist selbst für die
      * XSS-Vermeidung seines eigenen HTML-Fragments verantwortlich.
+     *
+     * Demonstriert nebenbei die Plugin-i18n-Konvention (#48): Texte kommen aus
+     * lang/de.php bzw. lang/en.php in diesem Plugin-Verzeichnis, automatisch
+     * unter der Domain "demo-plugin" registriert (siehe App\Plugin\PluginManager).
      */
     public function addDetailSection(array $sections, array $horse, array $horsePersons): array {
-        $sections[] = '<h3 style="margin-top:0;">👋 Demo-Plugin</h3>'
-            . '<p>Dieser Abschnitt wurde vom Demo-Plugin über den Hook <code>horse.detail_sections</code> '
-            . 'ergänzt, ohne eine einzige Kern-Datei zu verändern.</p>';
+        $sections[] = '<h3 style="margin-top:0;">' . htmlspecialchars(\App\I18n\Translator::t('detail_heading', [], 'demo-plugin')) . '</h3>'
+            . '<p>' . htmlspecialchars(\App\I18n\Translator::t('detail_text', [], 'demo-plugin')) . '</p>';
         return $sections;
     }
 

@@ -38,13 +38,18 @@ if (!empty($logoUrl)) {
 
 $currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $isLoggedIn = isset($_SESSION['user_id']);
+
+// Mehrsprachigkeit (#48): Locale wird bereits in BaseController::initLocale()
+// für den gesamten Request gesetzt, siehe App\I18n\Translator.
+$locale = \App\I18n\Translator::getLocale();
+$t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $params);
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?= htmlspecialchars($locale) ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="<?= htmlspecialchars($siteName) ?> - Pferdezucht Verzeichnis">
+    <meta name="description" content="<?= htmlspecialchars($siteName) ?> - <?= htmlspecialchars($t('meta.description_suffix')) ?>">
     <title><?= htmlspecialchars($title ?? $siteName) ?></title>
 
     <?php if (!empty($settings['base_url'])): ?>
@@ -171,19 +176,19 @@ $isLoggedIn = isset($_SESSION['user_id']);
         <nav>
             <ul>
                 <li>
-                    <a href="/" class="nav-link <?= $currentPath === '/' ? 'active' : '' ?>">🏠 Startseite</a>
+                    <a href="/" class="nav-link <?= $currentPath === '/' ? 'active' : '' ?>">🏠 <?= htmlspecialchars($t('nav.home')) ?></a>
                 </li>
                 <li>
-                    <a href="/katalog" class="nav-link <?= $currentPath === '/katalog' || $currentPath === '/hengst' ? 'active' : '' ?>">🐴 Hengstkatalog</a>
+                    <a href="/katalog" class="nav-link <?= $currentPath === '/katalog' || $currentPath === '/hengst' ? 'active' : '' ?>">🐴 <?= htmlspecialchars($t('nav.catalog')) ?></a>
                 </li>
                 <li style="margin-left: 0.5rem;">
                     <?php if ($isLoggedIn): ?>
                         <a href="/admin" class="nav-btn-admin nav-btn-admin-dashboard">
-                            🔒 Admin Portal
+                            🔒 <?= htmlspecialchars($t('nav.admin_portal')) ?>
                         </a>
                     <?php else: ?>
                         <a href="/login" class="nav-btn-admin nav-btn-admin-login">
-                            🔑 Admin Login
+                            🔑 <?= htmlspecialchars($t('nav.admin_login')) ?>
                         </a>
                     <?php endif; ?>
                 </li>
@@ -197,9 +202,19 @@ $isLoggedIn = isset($_SESSION['user_id']);
     </main>
 
     <footer>
-        <p>&copy; <?= date('Y') ?> <?= $displayCopyright ?> | Das Hengstverzeichnis - Ein Open-Source Framework.</p>
+        <p>&copy; <?= date('Y') ?> <?= $displayCopyright ?> | <?= htmlspecialchars($t('footer.tagline')) ?></p>
         <p style="font-size: 0.85rem; margin-top: 0.5rem;">
-            <a href="/impressum">Impressum</a> | <a href="/datenschutz">Datenschutz</a> | <a href="/dsgvo">DSGVO Auskunft</a>
+            <a href="/impressum"><?= htmlspecialchars($t('footer.impressum')) ?></a> | <a href="/datenschutz"><?= htmlspecialchars($t('footer.datenschutz')) ?></a> | <a href="/dsgvo"><?= htmlspecialchars($t('footer.dsgvo')) ?></a>
+        </p>
+        <?php
+            // Sprachumschalter (#48): setzt ?lang=xx auf dem aktuellen Pfad (ohne
+            // bestehende Query-Parameter mitzuführen, bewusst einfach gehalten) -
+            // BaseController::initLocale() übernimmt den Wert danach in die Session.
+        ?>
+        <p style="font-size: 0.8rem; margin-top: 0.5rem;">
+            <?php $localeIndex = 0; foreach (\App\I18n\Translator::getAvailableLocales() as $code => $label): ?>
+                <?= $localeIndex++ > 0 ? ' | ' : '' ?><a href="<?= htmlspecialchars($currentPath) ?>?lang=<?= urlencode($code) ?>"<?= $code === $locale ? ' style="font-weight:700;"' : '' ?>><?= htmlspecialchars($label) ?></a>
+            <?php endforeach; ?>
         </p>
     </footer>
 </body>

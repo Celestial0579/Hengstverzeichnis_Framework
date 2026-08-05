@@ -121,6 +121,7 @@ class AdminController extends BaseController {
             'trustedProxiesFromEnv' => $trustedProxiesFromEnv,
             'trackingDomains' => $trackingDomainsFromEnv ? getenv('TRACKING_DOMAINS') : (SetupController::readDbConfig()['tracking_domains'] ?? ''),
             'trackingDomainsFromEnv' => $trackingDomainsFromEnv,
+            'availableLocales' => \App\I18n\Translator::getAvailableLocales(),
         ]);
     }
 
@@ -173,6 +174,17 @@ class AdminController extends BaseController {
         $stmt->execute([$baseUrl, $baseUrl]);
 
         \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Stamm-URL: " . $baseUrl);
+
+        // Standardsprache (#48): fällt auf 'de' zurück, falls ein unbekannter
+        // Wert übermittelt wird (z. B. manipuliertes Formular) - fail-safe statt
+        // Fehlerseite, da eine falsche Sprache keine sicherheitsrelevante Wirkung hat.
+        $language = trim($_POST['language'] ?? 'de');
+        if (!isset(\App\I18n\Translator::getAvailableLocales()[$language])) {
+            $language = 'de';
+        }
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('language', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$language, $language]);
+        \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Standardsprache: " . $language);
 
         // Trusted Proxies: nur verarbeiten, wenn nicht bereits per Env-Var vorgegeben
         // (sonst hätte eine Änderung hier ohnehin keine Wirkung, siehe config/config.php).

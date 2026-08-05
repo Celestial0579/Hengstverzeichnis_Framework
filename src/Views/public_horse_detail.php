@@ -10,7 +10,7 @@ $pedigree = $pedigree ?? $pedigreeTree ?? null;
 
 function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
     if (!$node) {
-        echo '<div class="pedigree-box empty">Unbekannt</div>';
+        echo '<div class="pedigree-box empty">' . htmlspecialchars(App\I18n\Translator::t('field.unknown')) . '</div>';
         return;
     }
 
@@ -20,7 +20,8 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
     $isPlaceholder = !empty($node['is_placeholder']);
 
     if (!empty($node['id'])) {
-        echo '<a href="/hengst?id=' . $node['id'] . '" class="pedigree-box pedigree-link-box gen-level-' . $node['depth'] . '" title="' . $name . ' Profile ansehen">';
+        $viewProfileTitle = htmlspecialchars(App\I18n\Translator::t('horse.view_profile_title', ['name' => $node['name']]));
+        echo '<a href="/hengst?id=' . $node['id'] . '" class="pedigree-box pedigree-link-box gen-level-' . $node['depth'] . '" title="' . $viewProfileTitle . '">';
         echo '<strong style="color: var(--primary-color); font-size: 0.95rem;">' . $name . '</strong>';
         if ($year) echo '<div class="pedigree-year">' . $year . '</div>';
         if ($ueln) echo '<div class="pedigree-year" style="font-size: 0.75rem;">' . $ueln . '</div>';
@@ -35,7 +36,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
 }
 ?>
 <div style="margin-bottom: 1rem;">
-    <a href="/katalog" style="color: var(--primary-color); text-decoration: none; font-weight: 500;">&larr; Zurück zum Katalog</a>
+    <a href="/katalog" style="color: var(--primary-color); text-decoration: none; font-weight: 500;"><?= htmlspecialchars(App\I18n\Translator::t('common.back_to_catalog')) ?></a>
 </div>
 
 <!-- Main Details -->
@@ -43,7 +44,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
     <h1 style="border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
         <span><?= htmlspecialchars((string)$horse['name']) ?></span>
         <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
-            <?= $horse['status'] === 'active' ? 'Gekört / Aktiv' : ($horse['status'] === 'inactive' ? 'Inaktiv' : 'Verstorben') ?>
+            <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : ($horse['status'] === 'inactive' ? 'status.inactive' : 'status.deceased'))) ?>
         </span>
     </h1>
 
@@ -55,29 +56,29 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
         <?php endif; ?>
 
         <div>
-            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;">Stammdaten</h3>
+            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;"><?= htmlspecialchars(App\I18n\Translator::t('horse.master_data')) ?></h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <tr style="border-bottom: 1px solid #eee;">
-                    <th style="text-align: left; padding: 0.6rem 0; color: #666;">UELN (Haupt-Lebensnummer)</th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['ueln'] ?: 'Unbekannt')) ?></td>
+                    <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['ueln'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <?php if (!empty($horse['foreign_ueln'])): ?>
                     <tr style="border-bottom: 1px solid #eee;">
-                        <th style="text-align: left; padding: 0.6rem 0; color: #666;">Lebensnummer Ursprungsland</th>
+                        <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></th>
                         <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></td>
                     </tr>
                 <?php endif; ?>
                 <tr style="border-bottom: 1px solid #eee;">
-                    <th style="text-align: left; padding: 0.6rem 0; color: #666;">Geburtsjahr</th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: 'Unbekannt')) ?></td>
+                    <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <tr style="border-bottom: 1px solid #eee;">
-                    <th style="text-align: left; padding: 0.6rem 0; color: #666;">Farbe</th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: 'Unbekannt')) ?></td>
+                    <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
                     <tr style="border-bottom: 1px solid #eee;">
-                        <th style="text-align: left; padding: 0.6rem 0; color: #666; vertical-align: top;">Deckstation / Gestüt</th>
+                        <th style="text-align: left; padding: 0.6rem 0; color: #666; vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>
                         <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);">
                             <strong>
                                 <?php if (!empty($horse['station_name']) && !empty($horse['breeding_station_id'])): ?>
@@ -90,7 +91,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                                 <br><small style="color: #666; font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_contact'])): ?>
-                                <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">👤 Ansprechpartner: <?= htmlspecialchars($horse['station_contact']) ?></span>
+                                <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?>: <?= htmlspecialchars($horse['station_contact']) ?></span>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_address'])): ?>
                                 <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">📍 <?= nl2br(htmlspecialchars($horse['station_address'])) ?></span>
@@ -102,7 +103,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                                 <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">✉️ <a href="mailto:<?= htmlspecialchars($horse['station_email']) ?>"><?= htmlspecialchars($horse['station_email']) ?></a></span>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_website'])): ?>
-                                <br><span style="font-size: 0.85rem; font-weight: normal;">🌐 <a href="<?= htmlspecialchars($horse['station_website']) ?>" target="_blank" rel="noopener">Website besuchen</a></span>
+                                <br><span style="font-size: 0.85rem; font-weight: normal;">🌐 <a href="<?= htmlspecialchars($horse['station_website']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></span>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -112,24 +113,24 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
             <!-- Züchter, Besitzer & Deckstationenverlauf -->
             <div style="margin-top: 1.5rem;">
                 <h4 style="font-size: 1.1rem; color: var(--primary-color); margin-bottom: 0.8rem; border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
-                    👤 Züchter-, Besitzer- & Deckstationenverlauf
+                    <?= htmlspecialchars(App\I18n\Translator::t('horse.history_heading')) ?>
                 </h4>
 
                 <?php if (empty($horsePersons)): ?>
-                    <p style="color: #777; font-size: 0.9rem;">Keine Züchter- oder Besitzerangaben vorhanden.</p>
+                    <p style="color: #777; font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_persons')) ?></p>
                 <?php else: ?>
                     <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-                        <?php 
+                        <?php
                         $roleLabels = [
-                            'breeder' => ['Züchter', '#6f42c1'],
-                            'owner' => ['Besitzer', '#007bff'],
-                            'keeper' => ['Halter / Deckstation', '#fd7e14']
+                            'breeder' => [App\I18n\Translator::t('field.breeder'), '#6f42c1'],
+                            'owner' => [App\I18n\Translator::t('field.owner'), '#007bff'],
+                            'keeper' => [App\I18n\Translator::t('field.keeper'), '#fd7e14']
                         ];
-                        foreach ($horsePersons as $hp): 
-                            $roleMeta = $roleLabels[$hp['role']] ?? ['Besitzer', '#6c757d'];
+                        foreach ($horsePersons as $hp):
+                            $roleMeta = $roleLabels[$hp['role']] ?? [App\I18n\Translator::t('field.owner'), '#6c757d'];
                             $yearsText = '';
                             if ($hp['role'] !== 'breeder' && ($hp['from_year'] || $hp['until_year'])) {
-                                $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . ($hp['until_year'] ?: 'heute') . ')';
+                                $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . ($hp['until_year'] ?: App\I18n\Translator::t('horse.years_until_today')) . ')';
                             }
                             $stationDisplayName = $hp['station_name'] ?? $hp['breeding_station_text'] ?? '';
                         ?>
@@ -157,7 +158,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
 
                                 <?php if (!empty($hp['person_name']) && !empty($stationDisplayName)): ?>
                                     <div style="font-size: 0.85rem; color: var(--primary-color); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
-                                        <span>🏠 Deckstation / Gestüt:</span>
+                                        <span><?= htmlspecialchars(App\I18n\Translator::t('horse.breeding_station_colon')) ?></span>
                                         <?php if (!empty($hp['station_id'])): ?>
                                             <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
                                                 <?= htmlspecialchars($stationDisplayName) ?>
@@ -181,12 +182,12 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
         </div>
 
         <div>
-            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;">Beschreibung & Zuchthinweise</h3>
+            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;"><?= htmlspecialchars(App\I18n\Translator::t('horse.description_heading')) ?></h3>
             <div style="background: #f9f9f9; padding: 1rem; border-radius: var(--border-radius); border: 1px solid #eee; min-height: 120px;">
                 <?php if (!empty($horse['description'])): ?>
                     <?= App\Helper\Markdown::parse($horse['description']) ?>
                 <?php else: ?>
-                    <p style="color: #777;">Keine Beschreibung vorhanden.</p>
+                    <p style="color: #777;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_description')) ?></p>
                 <?php endif; ?>
             </div>
         </div>
@@ -197,24 +198,24 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid #eee; padding-bottom: 1rem;">
         <div>
-            <h2 style="margin: 0; color: var(--primary-color);">🧬 Abstammungsnachweis (Stammbaum)</h2>
-            <p style="margin: 0; color: #666; font-size: 0.9rem;">Interaktive Blutlinien-Ansicht</p>
+            <h2 style="margin: 0; color: var(--primary-color);"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_heading')) ?></h2>
+            <p style="margin: 0; color: #666; font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_subheading')) ?></p>
         </div>
 
         <!-- Zoom & Level Controls -->
         <div style="display: flex; gap: 0.5rem; align-items: center; background: #f4f4f4; padding: 0.5rem; border-radius: 8px;">
-            <label for="genSelect" style="font-size: 0.9rem; font-weight: bold; margin-right: 0.3rem;">Generationen:</label>
+            <label for="genSelect" style="font-size: 0.9rem; font-weight: bold; margin-right: 0.3rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.generations_label')) ?></label>
             <select id="genSelect" class="form-control" style="width: auto; padding: 0.3rem 0.5rem;" onchange="setGenerations(this.value)">
-                <option value="2">2 Generationen (Eltern)</option>
-                <option value="3" selected>3 Generationen (Großeltern)</option>
-                <option value="4">4 Generationen (Urgroßeltern)</option>
+                <option value="2"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_2')) ?></option>
+                <option value="3" selected><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_3')) ?></option>
+                <option value="4"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_4')) ?></option>
             </select>
 
             <div style="width: 1px; height: 24px; background: #ccc; margin: 0 0.5rem;"></div>
 
-            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(0.1)" title="Vergrößern" style="padding: 0.3rem 0.7rem;">🔍 +</button>
-            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(-0.1)" title="Verkleinern" style="padding: 0.3rem 0.7rem;">🔍 -</button>
-            <button type="button" class="btn btn-secondary" onclick="resetZoom()" title="Zoom zurücksetzen" style="padding: 0.3rem 0.7rem;">🔄 Reset</button>
+            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_in_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 +</button>
+            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(-0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_out_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 -</button>
+            <button type="button" class="btn btn-secondary" onclick="resetZoom()" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_reset_title')) ?>" style="padding: 0.3rem 0.7rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_reset_label')) ?></button>
             <span id="zoomLevelText" style="font-size: 0.85rem; color: #555; min-width: 45px; text-align: center;">100%</span>
         </div>
     </div>
@@ -228,7 +229,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                 <!-- Gen 1: Proband (Centrally aligned between Vater and Mutter) -->
                 <div class="pedigree-col gen-1" style="display: flex; flex-direction: column; justify-content: center;">
                     <div class="pedigree-group" style="background: transparent; border-left: none; padding: 0;">
-                        <div class="pedigree-label" style="text-align: center;">Proband (Ausgewähltes Pferd)</div>
+                        <div class="pedigree-label" style="text-align: center;"><?= htmlspecialchars(App\I18n\Translator::t('horse.proband_label')) ?></div>
                         <div class="pedigree-box main-horse" style="text-align: center; padding: 0.9rem 1rem;">
                             <strong style="font-size: 1.1rem;"><?= htmlspecialchars($horse['name']) ?></strong>
                             <div class="pedigree-year" style="color: rgba(255,255,255,0.85); margin-top: 0.2rem;"><?= $horse['birth_year'] ? '(' . htmlspecialchars((string)$horse['birth_year']) . ')' : '' ?></div>
@@ -242,11 +243,11 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                 <!-- Gen 2: Eltern (Vater & Mutter) -->
                 <div class="pedigree-col gen-2">
                     <div class="pedigree-group">
-                        <div class="pedigree-label">Vater (Sire)</div>
+                        <div class="pedigree-label"><?= htmlspecialchars(App\I18n\Translator::t('horse.sire_label')) ?></div>
                         <?php renderPedigreeNode($pedigree['sire'] ?? null); ?>
                     </div>
                     <div class="pedigree-group">
-                        <div class="pedigree-label">Mutter (Dam)</div>
+                        <div class="pedigree-label"><?= htmlspecialchars(App\I18n\Translator::t('horse.dam_label')) ?></div>
                         <?php renderPedigreeNode($pedigree['dam'] ?? null); ?>
                     </div>
                 </div>
@@ -254,15 +255,15 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                 <!-- Gen 3: Großeltern -->
                 <div class="pedigree-col gen-3">
                     <div class="pedigree-group">
-                        <div class="pedigree-label">Großvater (Vater-Seite)</div>
+                        <div class="pedigree-label"><?= htmlspecialchars(App\I18n\Translator::t('horse.grandsire_paternal')) ?></div>
                         <?php renderPedigreeNode($pedigree['sire']['sire'] ?? null); ?>
-                        <div class="pedigree-label" style="margin-top: 0.5rem;">Großmutter (Vater-Seite)</div>
+                        <div class="pedigree-label" style="margin-top: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.granddam_paternal')) ?></div>
                         <?php renderPedigreeNode($pedigree['sire']['dam'] ?? null); ?>
                     </div>
                     <div class="pedigree-group">
-                        <div class="pedigree-label">Großvater (Mutter-Seite)</div>
+                        <div class="pedigree-label"><?= htmlspecialchars(App\I18n\Translator::t('horse.grandsire_maternal')) ?></div>
                         <?php renderPedigreeNode($pedigree['dam']['sire'] ?? null); ?>
-                        <div class="pedigree-label" style="margin-top: 0.5rem;">Großmutter (Mutter-Seite)</div>
+                        <div class="pedigree-label" style="margin-top: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.granddam_maternal')) ?></div>
                         <?php renderPedigreeNode($pedigree['dam']['dam'] ?? null); ?>
                     </div>
                 </div>

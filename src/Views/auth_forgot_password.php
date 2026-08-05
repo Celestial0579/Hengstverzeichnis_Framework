@@ -6,12 +6,12 @@
  */
 ?>
 <div class="card" style="max-width: 450px; margin: 2rem auto;">
-    <h2>🔑 Passwort vergessen</h2>
-    <p style="color: #666; font-size: 0.95rem;">Geben Sie Ihre E-Mail-Adresse ein. Wir senden Ihnen einen Link zum Zurücksetzen Ihres Passworts.</p>
+    <h2><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_heading')) ?></h2>
+    <p style="color: #666; font-size: 0.95rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_intro')) ?></p>
 
     <?php if (isset($_GET['sent'])): ?>
         <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
-            Falls ein Konto mit dieser E-Mail-Adresse existiert, wurde ein Zurücksetzungs-Link versendet. Bitte prüfen Sie Ihren Posteingang.
+            <?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_sent')) ?>
         </div>
     <?php endif; ?>
 
@@ -25,14 +25,14 @@
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
         <div class="form-group">
-            <label for="email">E-Mail-Adresse *</label>
-            <input type="email" id="email" name="email" class="form-control" placeholder="ihre-adresse@beispiel.de" required autofocus>
+            <label for="email"><?= htmlspecialchars(App\I18n\Translator::t('auth.email_field_label')) ?></label>
+            <input type="email" id="email" name="email" class="form-control" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('auth.email_field_placeholder')) ?>" required autofocus>
         </div>
 
-        <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;">Link zum Zurücksetzen anfordern</button>
+        <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.request_reset_button')) ?></button>
     </form>
 
     <div style="margin-top: 1.5rem; text-align: center;">
-        <a href="/login" style="color: var(--primary-color); font-size: 0.9rem;">Zurück zum Login</a>
+        <a href="/login" style="color: var(--primary-color); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.back_to_login')) ?></a>
     </div>
 </div>

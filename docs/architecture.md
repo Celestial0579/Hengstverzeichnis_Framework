@@ -16,6 +16,7 @@ Request → public/index.php → Router::dispatch() → Controller::method() →
 ```
 config/             Konfigurationsdatei (config.php) + optional generierte db_config.php
 database/           schema.sql (Erststand), migrate.php, seed.php, reset.php
+lang/               Kern-Sprachdateien (de.php, en.php) für App\I18n\Translator, siehe unten
 plugins/             Lokal aktivierte Plugins (siehe unten, nicht versioniert außer .gitkeep)
 public/             Docroot des Webservers (Apache DocumentRoot zeigt hierher)
   index.php          Front-Controller: Autoloader, Routing-Tabelle, Dispatch
@@ -29,6 +30,8 @@ src/
   Security/             Crypto, Totp, RateLimiter, ClientIp
   Service/               AuditLogger, Mailer
   Plugin/                 PluginManager, HookManager (Plugin-System, siehe unten)
+  Permission/             PermissionRegistry (Gruppen-/Berechtigungssystem, siehe unten)
+  I18n/                   Translator (Mehrsprachigkeit, siehe unten)
   Helper/                 Markdown (einfacher Markdown→HTML-Parser für Freitext)
 ```
 
@@ -212,3 +215,42 @@ Bearbeiten/Löschen/Veröffentlichen) – siehe
 - Benutzerverwaltung, DSGVO, System-/Mail-Einstellungen, Papierkorb und
   Plugin-Aktivierung bleiben bewusst weiterhin ausschließlich admin-only
   (`requireAdmin()`), nicht Teil der Modul-Tabelle.
+
+## Mehrsprachigkeit / i18n (`src/I18n/`, `lang/`, #48)
+
+Minimalistisches, Array-basiertes i18n-Gerüst statt `gettext` (passend zur
+"keine externen Abhängigkeiten"-Philosophie) - Grundlage sowohl für den
+mehrsprachigen öffentlichen Katalog als auch für #56/#66-Folgearbeiten wie
+admin-konfigurierbare, gruppenspezifische Sichtbarkeit (#57).
+
+- `App\I18n\Translator::t($key, $params, $domain)`: übersetzt einen flachen
+  Schlüssel für die aktive Locale, mit Fallback auf Deutsch (Quellsprache)
+  bei fehlender Übersetzung und auf den Schlüssel selbst bei komplett
+  fehlendem Eintrag - macht Lücken in der UI sofort sichtbar statt sie
+  stillschweigend zu verschlucken.
+- Kern-Sprachdateien liegen unter `lang/<locale>.php` im Projekt-Root
+  (Domain `core`, reserviert), aktuell `de` (Quellsprache) und `en`.
+- **Anschluss ans Plugin-System (#56):** Ein Plugin mit eigenem
+  `lang/<locale>.php`-Verzeichnis wird beim Laden automatisch unter seinem
+  Slug als eigene, kollisionsfreie Übersetzungs-Domain registriert
+  (`Translator::registerDomain()`, "wer zuerst registriert, gewinnt") - reine
+  Konvention, keine Manifest-Pflicht. Siehe
+  [plugin-development.md](plugin-development.md), Abschnitt
+  „Mehrsprachigkeit“, und das Referenz-Plugin unter
+  `docs/examples/demo-plugin/`.
+- Aktive Locale pro Request: `BaseController::initLocale()` liest die
+  admin-konfigurierte Standardsprache (`settings.language`, Verwaltung unter
+  `/admin/system-settings`) als Basis, überschreibbar für die laufende
+  Session eines einzelnen Besuchers über `?lang=xx` (Sprachumschalter im
+  Footer, `layout.php`).
+- Deckt alle öffentlich (auch ohne Login) erreichbaren Seiten vollständig ab:
+  Seiten-Grundgerüst (`layout.php`: Navigation, Footer), Startseite,
+  Hengstkatalog samt Filtern und asynchroner AJAX-Ergebnisliste, Pferde- und
+  Deckstation-Detailseiten inkl. Stammbaum, Impressum/Datenschutz/
+  DSGVO-Anfrageformular sowie der nicht angemeldete Auth-Flow (Login,
+  2FA-Verifikation, Passwort vergessen/zurücksetzen) und die Fehlerseiten
+  403/404/500. Der Admin-Bereich (`/admin/...`, inkl. 2FA-/Passwort-Ersteinrichtung
+  nach dem Login) bleibt bewusst deutsch - geringerer Nutzen (Vereins-Admins
+  bedienen i. d. R. dieselbe Sprache), deutlich größerer Umfang; kann bei
+  Bedarf schrittweise mit künftigen Feature-PRs ergänzt werden, nicht als
+  einmaliger Komplett-Umbau.

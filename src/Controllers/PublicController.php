@@ -14,7 +14,7 @@ class PublicController extends BaseController {
         $featuredHorses = $stmt->fetchAll();
 
         $this->render('public_home', [
-            'title' => 'Willkommen - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
+            'title' => \App\I18n\Translator::t('meta.title_home') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
             'featuredHorses' => $featuredHorses
         ]);
     }
@@ -165,14 +165,14 @@ class PublicController extends BaseController {
             echo json_encode([
                 'success' => true,
                 'count' => count($horses),
-                'count_text' => count($horses) === 1 ? '1 Hengst gefunden' : count($horses) . ' Hengste gefunden',
+                'count_text' => \App\I18n\Translator::t(count($horses) === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => count($horses)]),
                 'cards_html' => $cardsHtml
             ]);
             exit;
         }
 
         $this->render('public_catalog', [
-            'title' => 'Hengstkatalog - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
+            'title' => \App\I18n\Translator::t('meta.title_catalog') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
             'horses' => $horses,
             'filters' => $_GET,
             'colors' => $colors,
@@ -199,7 +199,7 @@ class PublicController extends BaseController {
         $horse = $stmt->fetch();
 
         if (!$horse) {
-            $this->renderNotFound("Das angeforderte Pferd existiert nicht oder wurde aus dem Verzeichnis entfernt.");
+            $this->renderNotFound(\App\I18n\Translator::t('horse.not_found'));
         }
 
         // Fetch ownership history, person roles and associated breeding stations/studs
@@ -225,7 +225,7 @@ class PublicController extends BaseController {
         $pluginDetailSections = $this->hooks()->applyFilters('horse.detail_sections', [], $horse, $horsePersons);
 
         $this->render('public_horse_detail', [
-            'title' => $horse['name'] . ' - Details',
+            'title' => $horse['name'] . ' - ' . \App\I18n\Translator::t('meta.title_horse_detail_suffix'),
             'horse' => $horse,
             'horsePersons' => $horsePersons,
             'pedigree' => $pedigreeTree,
@@ -247,7 +247,7 @@ class PublicController extends BaseController {
         $station = $stmt->fetch();
 
         if (!$station) {
-            $this->renderNotFound("Die angeforderte Deckstation existiert nicht oder wurde aus dem Verzeichnis entfernt.");
+            $this->renderNotFound(\App\I18n\Translator::t('station.not_found'));
         }
 
         $stmt = $db->prepare("
@@ -260,7 +260,7 @@ class PublicController extends BaseController {
         $horses = $stmt->fetchAll();
 
         $this->render('public_station_detail', [
-            'title' => $station['name'] . ' - Deckstation',
+            'title' => $station['name'] . ' - ' . \App\I18n\Translator::t('meta.title_station_detail_suffix'),
             'station' => $station,
             'horses' => $horses
         ]);
@@ -292,7 +292,7 @@ class PublicController extends BaseController {
             } else {
                 $horse['sire'] = [
                     'id' => null,
-                    'name' => $horse['sire_name'] ?: 'Unbekannter Vater',
+                    'name' => $horse['sire_name'] ?: \App\I18n\Translator::t('horse.unknown_sire'),
                     'ueln' => $horse['sire_ueln'],
                     'depth' => $currentDepth + 1,
                     'is_placeholder' => true,
@@ -314,7 +314,7 @@ class PublicController extends BaseController {
             } else {
                 $horse['dam'] = [
                     'id' => null,
-                    'name' => $horse['dam_name'] ?: 'Unbekannte Mutter',
+                    'name' => $horse['dam_name'] ?: \App\I18n\Translator::t('horse.unknown_dam'),
                     'ueln' => $horse['dam_ueln'],
                     'depth' => $currentDepth + 1,
                     'is_placeholder' => true,
@@ -355,25 +355,25 @@ class PublicController extends BaseController {
 
     public function impressum(): void {
         $this->render('public_impressum', [
-            'title' => 'Impressum - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
+            'title' => \App\I18n\Translator::t('meta.title_impressum') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
         ]);
     }
 
     public function datenschutz(): void {
         $this->render('public_datenschutz', [
-            'title' => 'Datenschutzerklärung - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
+            'title' => \App\I18n\Translator::t('meta.title_datenschutz') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
         ]);
     }
 
     public function dsgvoForm(): void {
         $this->render('public_dsgvo', [
-            'title' => 'DSGVO Anfrage - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
+            'title' => \App\I18n\Translator::t('meta.title_dsgvo') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
         ]);
     }
 
     public function dsgvoSubmit(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
-            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
         // Nach Absender-IP begrenzen: Ohne diese Sperre könnte jeder Client unbegrenzt oft

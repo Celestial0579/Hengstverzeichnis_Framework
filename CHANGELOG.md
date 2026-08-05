@@ -6,6 +6,29 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Hinzugefügt
+
+- i18n-Gerüst für Mehrsprachigkeit (#48): `App\I18n\Translator` mit
+  Array-basierten Sprachdateien (`lang/de.php`, `lang/en.php`) statt
+  `gettext`, dynamisches `<html lang>`, admin-konfigurierbare
+  Standardsprache (`/admin/system-settings`) sowie Session-basierter
+  Sprachumschalter im Footer für einzelne Besucher. Plugins können über ein
+  eigenes `lang/<locale>.php`-Verzeichnis automatisch eine eigene,
+  kollisionsfreie Übersetzungs-Domain registrieren (siehe
+  [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
+  „Mehrsprachigkeit“) - demonstriert im Referenz-Plugin unter
+  `docs/examples/demo-plugin/`.
+- Vollständige Übersetzung (DE/EN) aller öffentlich erreichbaren Seiten
+  (#48): Startseite, Hengstkatalog samt Filtern und asynchroner
+  Ergebnisliste, Pferde- und Deckstation-Detailseiten inkl. interaktivem
+  Stammbaum, Impressum/Datenschutz/DSGVO-Anfrageformular sowie der gesamte
+  nicht angemeldete Auth-Flow (Login, 2FA-Verifikation, Passwort vergessen/
+  zurücksetzen) und die Fehlerseiten 403/404/500. Der Admin-Bereich bleibt
+  bewusst deutsch (siehe [docs/architecture.md](docs/architecture.md),
+  Abschnitt „Mehrsprachigkeit / i18n“).
+
 ## [0.2.0-beta.1] – 2026-08-05
 
 ### Hinzugefügt

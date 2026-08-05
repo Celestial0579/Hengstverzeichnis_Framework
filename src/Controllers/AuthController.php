@@ -19,7 +19,7 @@ class AuthController extends BaseController {
 
     public function loginSubmit(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
-            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
         $email = $_POST['email'] ?? '';
@@ -27,8 +27,8 @@ class AuthController extends BaseController {
 
         if (\App\Security\RateLimiter::tooManyAttempts($email, 'login')) {
             $this->render('login', [
-                'title' => 'Login Fehlgeschlagen',
-                'error' => 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuchen Sie es in 15 Minuten erneut.'
+                'title' => \App\I18n\Translator::t('meta.title_login_failed'),
+                'error' => \App\I18n\Translator::t('auth.rate_limited_login')
             ]);
             return;
         }
@@ -58,8 +58,8 @@ class AuthController extends BaseController {
         \App\Security\RateLimiter::recordAttempt($email, 'login');
 
         $this->render('login', [
-            'title' => 'Login Fehlgeschlagen',
-            'error' => 'Ungültige E-Mail oder Passwort.'
+            'title' => \App\I18n\Translator::t('meta.title_login_failed'),
+            'error' => \App\I18n\Translator::t('auth.invalid_credentials')
         ]);
     }
 
@@ -146,12 +146,12 @@ class AuthController extends BaseController {
             exit;
         }
 
-        $this->render('2fa_verify', ['title' => '2FA Bestätigung']);
+        $this->render('2fa_verify', ['title' => \App\I18n\Translator::t('meta.title_2fa_confirm')]);
     }
 
     public function process2faVerify(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
-            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
         $userId = $_SESSION['pending_2fa_user_id'] ?? null;
@@ -164,8 +164,8 @@ class AuthController extends BaseController {
 
         if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
             $this->render('2fa_verify', [
-                'title' => '2FA Bestätigung',
-                'error' => 'Zu viele fehlgeschlagene Versuche. Bitte versuchen Sie es in 15 Minuten erneut.'
+                'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
+                'error' => \App\I18n\Translator::t('auth.rate_limited_2fa')
             ]);
             return;
         }
@@ -192,8 +192,8 @@ class AuthController extends BaseController {
         \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
 
         $this->render('2fa_verify', [
-            'title' => '2FA Bestätigung',
-            'error' => 'Ungültiger Code. Bitte erneut versuchen.'
+            'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
+            'error' => \App\I18n\Translator::t('auth.invalid_2fa_code')
         ]);
     }
 
@@ -282,12 +282,12 @@ class AuthController extends BaseController {
     }
 
     public function forgotPassword(): void {
-        $this->render('auth_forgot_password', ['title' => 'Passwort vergessen']);
+        $this->render('auth_forgot_password', ['title' => \App\I18n\Translator::t('meta.title_forgot_password')]);
     }
 
     public function sendResetLink(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
-            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
         // Nach Absender-IP begrenzen (nicht nach E-Mail): Ohne diese Sperre könnte jeder
@@ -297,8 +297,8 @@ class AuthController extends BaseController {
         $clientIp = \App\Security\ClientIp::resolve();
         if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'password_reset')) {
             $this->render('auth_forgot_password', [
-                'title' => 'Passwort vergessen',
-                'error' => 'Zu viele Anfragen. Bitte versuchen Sie es in 15 Minuten erneut.'
+                'title' => \App\I18n\Translator::t('meta.title_forgot_password'),
+                'error' => \App\I18n\Translator::t('auth.rate_limited_password_reset')
             ]);
             return;
         }
@@ -347,21 +347,21 @@ class AuthController extends BaseController {
 
         if (!$reset) {
             $this->render('auth_forgot_password', [
-                'title' => 'Passwort vergessen',
-                'error' => 'Der Wiederherstellungs-Link ist ungültig oder abgelaufen.'
+                'title' => \App\I18n\Translator::t('meta.title_forgot_password'),
+                'error' => \App\I18n\Translator::t('auth.reset_link_invalid')
             ]);
             return;
         }
 
         $this->render('auth_reset_password', [
-            'title' => 'Neues Passwort festlegen',
+            'title' => \App\I18n\Translator::t('meta.title_reset_password'),
             'token' => $token
         ]);
     }
 
     public function updatePassword(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
-            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
         $token = trim($_POST['token'] ?? '');
@@ -370,9 +370,9 @@ class AuthController extends BaseController {
 
         if (empty($token) || strlen($password) < 8 || $password !== $passwordConfirm) {
             $this->render('auth_reset_password', [
-                'title' => 'Neues Passwort festlegen',
+                'title' => \App\I18n\Translator::t('meta.title_reset_password'),
                 'token' => $token,
-                'error' => 'Die Passwörter stimmen nicht überein oder sind zu kurz (mind. 8 Zeichen).'
+                'error' => \App\I18n\Translator::t('auth.passwords_mismatch_short')
             ]);
             return;
         }

@@ -38,6 +38,10 @@ use PDO;
  *   App\Permission\PermissionRegistry::registerAction() für die dortige
  *   "wer zuerst registriert, gewinnt"-Leitplanke gegen Überschreiben
  *   bestehender Berechtigungen.
+ * - Ein optionales `lang/<locale>.php`-Verzeichnis im Plugin-Ordner wird
+ *   automatisch als eigene Übersetzungs-Domain (Plugin-Slug) bei
+ *   App\I18n\Translator registriert (#48) - reine Konvention wie beim
+ *   Default-Entry `Plugin.php`, keine Manifest-Deklaration nötig.
  * - Eindeutige Kennung pro Plugin-**Version**: Bei Aktivierung wird die
  *   Manifest-Version zusammen mit einem SHA-256-Fingerabdruck über den
  *   gesamten Plugin-Ordner in der Tabelle `plugins` gespeichert
@@ -377,6 +381,15 @@ final class PluginManager {
         }
 
         require_once $entryFile;
+
+        // Mehrsprachigkeit (#48, #56): Konvention statt Manifest-Pflicht, analog
+        // zum Default-Entry "Plugin.php" - ein optionales lang/-Verzeichnis im
+        // Plugin-Ordner wird automatisch unter dem Plugin-Slug als eigene
+        // Übersetzungs-Domain registriert (siehe App\I18n\Translator::registerDomain()).
+        $langDir = rtrim($info['dir'], '/') . '/lang';
+        if (is_dir($langDir)) {
+            \App\I18n\Translator::registerDomain($slug, $langDir);
+        }
 
         $className = $this->resolvePluginClassName($slug);
         if (!class_exists($className)) {

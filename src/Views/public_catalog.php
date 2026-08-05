@@ -12,11 +12,11 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 ?>
 <div class="card" style="margin-bottom: 2rem;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-        <h2>🐴 Hengstkatalog</h2>
+        <h2>🐴 <?= htmlspecialchars(App\I18n\Translator::t('catalog.heading')) ?></h2>
         <div style="display: flex; align-items: center; gap: 0.8rem;">
-            <span id="loading-spinner" style="display: none; font-size: 0.9rem; color: var(--primary-color);">🔄 Lädt...</span>
+            <span id="loading-spinner" style="display: none; font-size: 0.9rem; color: var(--primary-color);">🔄 <?= htmlspecialchars(App\I18n\Translator::t('catalog.loading')) ?></span>
             <span id="hit-count-badge" style="background: var(--primary-color); color: white; padding: 0.3rem 0.8rem; border-radius: 12px; font-weight: bold; font-size: 0.9rem;">
-                <?= count($horses) ?> <?= count($horses) === 1 ? 'Hengst gefunden' : 'Hengste gefunden' ?>
+                <?= htmlspecialchars(App\I18n\Translator::t(count($horses) === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => count($horses)])) ?>
             </span>
         </div>
     </div>
@@ -27,36 +27,36 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
         <!-- Main Quick Search Bar -->
         <div style="display: flex; gap: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 260px;">
-                <input type="text" name="search" id="input-search" class="form-control" placeholder="🔍 Volltextsuche (Pferd, UELN, Züchter, Besitzer, Deckstation, Vater, Mutter)..." value="<?= htmlspecialchars($filters['search'] ?? '') ?>" autocomplete="off">
+                <input type="text" name="search" id="input-search" class="form-control" placeholder="🔍 <?= htmlspecialchars(App\I18n\Translator::t('catalog.search_placeholder')) ?>" value="<?= htmlspecialchars($filters['search'] ?? '') ?>" autocomplete="off">
             </div>
-            <button type="submit" class="btn" style="padding: 0.75rem 1.5rem;">Suchen</button>
-            <a href="/katalog" id="btn-reset-filters" class="btn btn-secondary" style="padding: 0.75rem 1.2rem; text-decoration: none; <?= $hasActiveFilters ? '' : 'display: none;' ?>">Filter zurücksetzen</a>
+            <button type="submit" class="btn" style="padding: 0.75rem 1.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.search_button')) ?></button>
+            <a href="/katalog" id="btn-reset-filters" class="btn btn-secondary" style="padding: 0.75rem 1.2rem; text-decoration: none; <?= $hasActiveFilters ? '' : 'display: none;' ?>"><?= htmlspecialchars(App\I18n\Translator::t('catalog.reset_filters')) ?></a>
         </div>
 
         <!-- Toggle for Advanced Attribute Filters -->
         <details <?= $hasActiveFilters ? 'open' : '' ?> style="margin-top: 1rem; border-top: 1px solid #eee; padding-top: 1rem;">
             <summary style="font-weight: bold; color: var(--primary-color); cursor: pointer; user-select: none;">
-                ⚙️ Erweiterte Attribute-Filter (Pferd, Züchter, Deckstation, Abstammung)
+                <?= htmlspecialchars(App\I18n\Translator::t('catalog.advanced_filters')) ?>
             </summary>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1.2rem;">
-                
+
                 <!-- Pferdename -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Pferdename</label>
-                    <input type="text" name="q_name" class="form-control filter-field" style="padding: 0.5rem;" placeholder="z. B. Storm" value="<?= htmlspecialchars($filters['q_name'] ?? '') ?>">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.horse_name')) ?></label>
+                    <input type="text" name="q_name" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.horse_name_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_name'] ?? '') ?>">
                 </div>
 
                 <!-- UELN (DE & Ausland) -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">UELN / Lebensnummer (DE & Ausland)</label>
-                    <input type="text" name="q_ueln" class="form-control filter-field" style="padding: 0.5rem;" placeholder="z. B. DE431... oder NLD003..." value="<?= htmlspecialchars($filters['q_ueln'] ?? '') ?>">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.ueln_label')) ?></label>
+                    <input type="text" name="q_ueln" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.ueln_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_ueln'] ?? '') ?>">
                 </div>
 
                 <!-- Züchter -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Züchter</label>
-                    <input type="text" name="q_breeder" class="form-control filter-field" style="padding: 0.5rem;" placeholder="Name des Züchters" value="<?= htmlspecialchars($filters['q_breeder'] ?? '') ?>" list="breeder_list">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeder')) ?></label>
+                    <input type="text" name="q_breeder" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.breeder_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_breeder'] ?? '') ?>" list="breeder_list">
                     <datalist id="breeder_list">
                         <?php foreach ($persons as $p): ?>
                             <option value="<?= htmlspecialchars($p) ?>">
@@ -66,8 +66,8 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 
                 <!-- Besitzer -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Besitzer</label>
-                    <input type="text" name="q_owner" class="form-control filter-field" style="padding: 0.5rem;" placeholder="Name des Besitzers" value="<?= htmlspecialchars($filters['q_owner'] ?? '') ?>" list="owner_list">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.owner')) ?></label>
+                    <input type="text" name="q_owner" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.owner_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_owner'] ?? '') ?>" list="owner_list">
                     <datalist id="owner_list">
                         <?php foreach ($persons as $p): ?>
                             <option value="<?= htmlspecialchars($p) ?>">
@@ -77,8 +77,8 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 
                 <!-- Deckstation / Gestüt -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Deckstation / Gestüt</label>
-                    <input type="text" name="q_station" class="form-control filter-field" style="padding: 0.5rem;" placeholder="Name der Deckstation" value="<?= htmlspecialchars($filters['q_station'] ?? '') ?>" list="station_list">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></label>
+                    <input type="text" name="q_station" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.station_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_station'] ?? '') ?>" list="station_list">
                     <datalist id="station_list">
                         <?php foreach ($stations as $st): ?>
                             <option value="<?= htmlspecialchars($st) ?>">
@@ -88,21 +88,21 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 
                 <!-- Vater (Sire) -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">♂ Vater (Sire)</label>
-                    <input type="text" name="q_sire" class="form-control filter-field" style="padding: 0.5rem;" placeholder="Name des Vaters" value="<?= htmlspecialchars($filters['q_sire'] ?? '') ?>">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.sire')) ?></label>
+                    <input type="text" name="q_sire" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.sire_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_sire'] ?? '') ?>">
                 </div>
 
                 <!-- Mutter (Dam) -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">♀ Mutter (Dam)</label>
-                    <input type="text" name="q_dam" class="form-control filter-field" style="padding: 0.5rem;" placeholder="Name der Mutter" value="<?= htmlspecialchars($filters['q_dam'] ?? '') ?>">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.dam')) ?></label>
+                    <input type="text" name="q_dam" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.dam_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_dam'] ?? '') ?>">
                 </div>
 
                 <!-- Farbe -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Farbe</label>
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></label>
                     <select name="q_color" class="form-control filter-field" style="padding: 0.5rem;">
-                        <option value="">-- Alle Farben --</option>
+                        <option value=""><?= htmlspecialchars(App\I18n\Translator::t('catalog.all_colors')) ?></option>
                         <?php foreach ($colors as $col): ?>
                             <option value="<?= htmlspecialchars($col) ?>" <?= ($filters['q_color'] ?? '') === $col ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($col) ?>
@@ -113,31 +113,31 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 
                 <!-- Geburtsjahr Von -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Geburtsjahr Von</label>
-                    <input type="number" name="birth_year_from" class="form-control filter-field" style="padding: 0.5rem;" placeholder="z. B. 2010" value="<?= htmlspecialchars($filters['birth_year_from'] ?? '') ?>">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.birth_year_from')) ?></label>
+                    <input type="number" name="birth_year_from" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.birth_year_from_placeholder')) ?>" value="<?= htmlspecialchars($filters['birth_year_from'] ?? '') ?>">
                 </div>
 
                 <!-- Geburtsjahr Bis -->
                 <div class="form-group">
-                    <label style="font-size: 0.85rem; font-weight: bold;">Geburtsjahr Bis</label>
-                    <input type="number" name="birth_year_to" class="form-control filter-field" style="padding: 0.5rem;" placeholder="z. B. 2024" value="<?= htmlspecialchars($filters['birth_year_to'] ?? '') ?>">
+                    <label style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.birth_year_to')) ?></label>
+                    <input type="number" name="birth_year_to" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.birth_year_to_placeholder')) ?>" value="<?= htmlspecialchars($filters['birth_year_to'] ?? '') ?>">
                 </div>
 
                 <!-- Status -->
                 <div class="form-group">
                     <label style="font-size: 0.85rem; font-weight: bold;">Status</label>
                     <select name="q_status" class="form-control filter-field" style="padding: 0.5rem;">
-                        <option value="">-- Alle Status --</option>
-                        <option value="active" <?= ($filters['q_status'] ?? '') === 'active' ? 'selected' : '' ?>>Aktiv im Zuchtbuch</option>
-                        <option value="inactive" <?= ($filters['q_status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inaktiv</option>
-                        <option value="deceased" <?= ($filters['q_status'] ?? '') === 'deceased' ? 'selected' : '' ?>>Verstorben</option>
+                        <option value=""><?= htmlspecialchars(App\I18n\Translator::t('catalog.all_statuses')) ?></option>
+                        <option value="active" <?= ($filters['q_status'] ?? '') === 'active' ? 'selected' : '' ?>><?= htmlspecialchars(App\I18n\Translator::t('catalog.status_active_option')) ?></option>
+                        <option value="inactive" <?= ($filters['q_status'] ?? '') === 'inactive' ? 'selected' : '' ?>><?= htmlspecialchars(App\I18n\Translator::t('status.inactive')) ?></option>
+                        <option value="deceased" <?= ($filters['q_status'] ?? '') === 'deceased' ? 'selected' : '' ?>><?= htmlspecialchars(App\I18n\Translator::t('status.deceased')) ?></option>
                     </select>
                 </div>
 
             </div>
 
             <div style="margin-top: 1rem; text-align: right;">
-                <button type="submit" class="btn" style="padding: 0.6rem 1.5rem;">Filter anwenden</button>
+                <button type="submit" class="btn" style="padding: 0.6rem 1.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.apply_filters')) ?></button>
             </div>
         </details>
     </form>

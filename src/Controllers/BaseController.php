@@ -338,7 +338,7 @@ abstract class BaseController {
 
         http_response_code(403);
         $this->render('error_403', [
-            'title' => '403 - Zugriff verweigert',
+            'title' => \App\I18n\Translator::t('errors.403_title'),
             'message' => $message
         ]);
         exit;
@@ -352,7 +352,7 @@ abstract class BaseController {
     public function renderNotFound(string $message = 'Die angeforderte Seite wurde nicht gefunden.'): void {
         http_response_code(404);
         $this->render('error_404', [
-            'title' => '404 - Seite nicht gefunden',
+            'title' => \App\I18n\Translator::t('errors.404_title'),
             'message' => $message
         ]);
         exit;
@@ -366,7 +366,7 @@ abstract class BaseController {
     public function renderServerError(string $message = 'Ein unerwarteter Serverfehler ist aufgetreten.'): void {
         http_response_code(500);
         $this->render('error_500', [
-            'title' => '500 - Serverfehler',
+            'title' => \App\I18n\Translator::t('errors.500_title'),
             'message' => $message
         ]);
         exit;

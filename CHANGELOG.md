@@ -19,8 +19,15 @@ Breaking Changes sind jederzeit möglich).
   kollisionsfreie Übersetzungs-Domain registrieren (siehe
   [docs/plugin-development.md](docs/plugin-development.md), Abschnitt
   „Mehrsprachigkeit“) - demonstriert im Referenz-Plugin unter
-  `docs/examples/demo-plugin/`. Deckt bisher das Seiten-Grundgerüst ab; die
-  vollständige Übersetzung aller View-Texte folgt schrittweise.
+  `docs/examples/demo-plugin/`.
+- Vollständige Übersetzung (DE/EN) aller öffentlich erreichbaren Seiten
+  (#48): Startseite, Hengstkatalog samt Filtern und asynchroner
+  Ergebnisliste, Pferde- und Deckstation-Detailseiten inkl. interaktivem
+  Stammbaum, Impressum/Datenschutz/DSGVO-Anfrageformular sowie der gesamte
+  nicht angemeldete Auth-Flow (Login, 2FA-Verifikation, Passwort vergessen/
+  zurücksetzen) und die Fehlerseiten 403/404/500. Der Admin-Bereich bleibt
+  bewusst deutsch (siehe [docs/architecture.md](docs/architecture.md),
+  Abschnitt „Mehrsprachigkeit / i18n“).
 
 ## [0.2.0-beta.1] – 2026-08-05
 

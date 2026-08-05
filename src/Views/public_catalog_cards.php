@@ -6,7 +6,7 @@
 ?>
 <?php if (empty($horses)): ?>
     <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: #777; background: #fafafa; border-radius: 6px; border: 1px dashed #ccc;">
-        Keine Pferde gefunden, die den Kriterien entsprechen.
+        <?= htmlspecialchars(App\I18n\Translator::t('catalog.no_results')) ?>
     </div>
 <?php else: ?>
     <?php foreach ($horses as $horse): ?>
@@ -28,26 +28,26 @@
                         <p style="margin:0;">
                             <strong>UELN:</strong> <?= htmlspecialchars((string)($horse['ueln'] ?: '-')) ?>
                             <?php if (!empty($horse['foreign_ueln'])): ?>
-                                <span style="font-size: 0.8rem; color: #666;">(Ausland: <?= htmlspecialchars($horse['foreign_ueln']) ?>)</span>
+                                <span style="font-size: 0.8rem; color: #666;">(<?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_inline')) ?>: <?= htmlspecialchars($horse['foreign_ueln']) ?>)</span>
                             <?php endif; ?>
                         </p>
-                        <p style="margin:0;"><strong>Geburtsjahr:</strong> <?= htmlspecialchars((string)($horse['birth_year'] ?: '-')) ?></p>
-                        <p style="margin:0;"><strong>Farbe:</strong> <?= htmlspecialchars((string)($horse['color'] ?: '-')) ?></p>
-                        
+                        <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?>:</strong> <?= htmlspecialchars((string)($horse['birth_year'] ?: '-')) ?></p>
+                        <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?>:</strong> <?= htmlspecialchars((string)($horse['color'] ?: '-')) ?></p>
+
                         <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
-                            <p style="margin:0;"><strong>🏠 Deckstation:</strong> <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?></p>
+                            <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('catalog.breeding_station_inline')) ?></strong> <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?></p>
                         <?php endif; ?>
 
                         <?php if (!empty($horse['breeder_name'])): ?>
-                            <p style="margin:0;"><strong>👤 Züchter:</strong> <?= htmlspecialchars($horse['breeder_name']) ?></p>
+                            <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('catalog.breeder_inline')) ?></strong> <?= htmlspecialchars($horse['breeder_name']) ?></p>
                         <?php endif; ?>
 
                         <?php if (!empty($horse['owner_name'])): ?>
-                            <p style="margin:0;"><strong>👤 Besitzer:</strong> <?= htmlspecialchars($horse['owner_name']) ?></p>
+                            <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('catalog.owner_inline')) ?></strong> <?= htmlspecialchars($horse['owner_name']) ?></p>
                         <?php endif; ?>
                     </div>
                 </div>
-                <a href="/hengst?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="display: block; text-align: center; margin-top: 0.5rem;">Profil ansehen</a>
+                <a href="/hengst?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="display: block; text-align: center; margin-top: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.view_profile')) ?></a>
             </div>
         </div>
     <?php endforeach; ?>

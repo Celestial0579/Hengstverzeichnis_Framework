@@ -49,7 +49,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="<?= htmlspecialchars($siteName) ?> - Pferdezucht Verzeichnis">
+    <meta name="description" content="<?= htmlspecialchars($siteName) ?> - <?= htmlspecialchars($t('meta.description_suffix')) ?>">
     <title><?= htmlspecialchars($title ?? $siteName) ?></title>
 
     <?php if (!empty($settings['base_url'])): ?>

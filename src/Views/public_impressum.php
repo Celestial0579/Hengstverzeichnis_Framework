@@ -2,33 +2,33 @@
 // src/Views/public_impressum.php
 ?>
 <div class="card" style="max-width: 800px; margin: 0 auto;">
-    <h1>Impressum</h1>
-    
+    <h1><?= htmlspecialchars(App\I18n\Translator::t('legal.impressum_title')) ?></h1>
+
     <?php if (!empty($settings['impressum_text'])): ?>
         <div style="line-height: 1.6; font-size: 1.05rem;">
             <?= App\Helper\Markdown::parse($settings['impressum_text']) ?>
         </div>
     <?php else: ?>
-        <p><em>(Hinweis: Diese Seite dient als Platzhalter im Framework und sollte in den Branding-Einstellungen unter `/admin/settings` angepasst werden.)</em></p>
+        <p><em><?= htmlspecialchars(App\I18n\Translator::t('legal.impressum_placeholder_note')) ?></em></p>
 
-        <h3>Angaben gemäß § 5 TMG</h3>
+        <h3><?= htmlspecialchars(App\I18n\Translator::t('legal.impressum_section_tmg')) ?></h3>
         <p>
             <?= htmlspecialchars($settings['site_name'] ?? 'Musterverein e.V.') ?><br>
-            Musterstraße 1<br>
-            12345 Musterstadt
+            <?= htmlspecialchars(App\I18n\Translator::t('legal.sample_address')) ?><br>
+            <?= htmlspecialchars(App\I18n\Translator::t('legal.sample_city')) ?>
         </p>
 
-        <h3>Vertreten durch:</h3>
-        <p>Max Mustermann (1. Vorsitzender)</p>
+        <h3><?= htmlspecialchars(App\I18n\Translator::t('legal.represented_by')) ?></h3>
+        <p><?= htmlspecialchars(App\I18n\Translator::t('legal.sample_name')) ?></p>
 
-        <h3>Kontakt</h3>
+        <h3><?= htmlspecialchars(App\I18n\Translator::t('legal.contact_heading')) ?></h3>
         <p>
-            Telefon: +49 (0) 123 44 55 66<br>
-            E-Mail: info@musterverein.de
+            <?= htmlspecialchars(App\I18n\Translator::t('legal.sample_phone')) ?><br>
+            <?= htmlspecialchars(App\I18n\Translator::t('legal.sample_email')) ?>
         </p>
     <?php endif; ?>
 
     <div style="margin-top: 2rem;">
-        <a href="/dsgvo" class="btn btn-secondary">Zur DSGVO-Anfrage</a>
+        <a href="/dsgvo" class="btn btn-secondary"><?= htmlspecialchars(App\I18n\Translator::t('legal.dsgvo_cta')) ?></a>
     </div>
 </div>

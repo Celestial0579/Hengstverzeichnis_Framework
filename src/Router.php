@@ -89,7 +89,7 @@ class Router {
 
         // Falls keine passende Route gefunden wurde: 404 Fehlerseite rendern
         $publicController = new \App\Controllers\PublicController();
-        $publicController->renderNotFound("Die angeforderte Adresse (" . htmlspecialchars($uri) . ") wurde auf dem Server nicht gefunden.");
+        $publicController->renderNotFound(\App\I18n\Translator::t('errors.404_route_not_found', ['path' => htmlspecialchars($uri)]));
     }
 
     /**

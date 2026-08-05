@@ -7,13 +7,13 @@
 ?>
 <div class="card text-center" style="max-width: 600px; margin: 4rem auto; padding: 2.5rem 2rem;">
     <div style="font-size: 4rem; line-height: 1; margin-bottom: 1rem;">🔍</div>
-    <h1 style="color: var(--primary-color); font-size: 2rem; margin-bottom: 0.5rem;">404 - Seite nicht gefunden</h1>
+    <h1 style="color: var(--primary-color); font-size: 2rem; margin-bottom: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('errors.404_title')) ?></h1>
     <p style="font-size: 1.1rem; color: #555; margin-bottom: 2rem;">
-        <?= htmlspecialchars($message ?? 'Die von Ihnen aufgerufene Adresse existiert nicht oder wurde verschoben.') ?>
+        <?= htmlspecialchars($message ?? App\I18n\Translator::t('errors.404_default_message')) ?>
     </p>
 
     <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
-        <a href="/katalog" class="btn" style="min-width: 200px;">🐴 Zum Hengstkatalog</a>
-        <a href="/" class="btn btn-secondary" style="min-width: 200px;">🏠 Zur Startseite</a>
+        <a href="/katalog" class="btn" style="min-width: 200px;"><?= htmlspecialchars(App\I18n\Translator::t('errors.404_to_catalog')) ?></a>
+        <a href="/" class="btn btn-secondary" style="min-width: 200px;"><?= htmlspecialchars(App\I18n\Translator::t('errors.to_home')) ?></a>
     </div>
 </div>

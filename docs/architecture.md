@@ -243,6 +243,14 @@ admin-konfigurierbare, gruppenspezifische Sichtbarkeit (#57).
   `/admin/system-settings`) als Basis, überschreibbar für die laufende
   Session eines einzelnen Besuchers über `?lang=xx` (Sprachumschalter im
   Footer, `layout.php`).
-- Deckt bisher das Seiten-Grundgerüst (`layout.php`: Navigation, Footer) ab;
-  die vollständige Übersetzung aller View-Texte folgt schrittweise mit den
-  jeweiligen Feature-PRs, nicht als einmaliger Komplett-Umbau.
+- Deckt alle öffentlich (auch ohne Login) erreichbaren Seiten vollständig ab:
+  Seiten-Grundgerüst (`layout.php`: Navigation, Footer), Startseite,
+  Hengstkatalog samt Filtern und asynchroner AJAX-Ergebnisliste, Pferde- und
+  Deckstation-Detailseiten inkl. Stammbaum, Impressum/Datenschutz/
+  DSGVO-Anfrageformular sowie der nicht angemeldete Auth-Flow (Login,
+  2FA-Verifikation, Passwort vergessen/zurücksetzen) und die Fehlerseiten
+  403/404/500. Der Admin-Bereich (`/admin/...`, inkl. 2FA-/Passwort-Ersteinrichtung
+  nach dem Login) bleibt bewusst deutsch - geringerer Nutzen (Vereins-Admins
+  bedienen i. d. R. dieselbe Sprache), deutlich größerer Umfang; kann bei
+  Bedarf schrittweise mit künftigen Feature-PRs ergänzt werden, nicht als
+  einmaliger Komplett-Umbau.

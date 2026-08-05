@@ -35,5 +35,10 @@ jobs:
         with:
           comment-summary-in-pr: always
           fail-on-severity: moderate
+          # composer.json's "php": ">=8.5" is a platform requirement, not a real
+          # published package - it has no license metadata and would otherwise be
+          # flagged as "Unknown License" on every PR. See
+          # https://github.com/actions/dependency-review-action#configuration-options
+          allow-dependencies-licenses: "pkg:composer/php"
         #   deny-licenses: GPL-1.0-or-later, LGPL-2.0-or-later
         #   retry-on-snapshot-warnings: true

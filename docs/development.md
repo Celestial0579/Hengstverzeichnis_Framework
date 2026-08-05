@@ -154,10 +154,6 @@ verursacht hat.
   werden kann. Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
   [semgrep.yml](../.github/workflows/semgrep.yml). Quelle für die
   öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
-  Solo-Hinweis: GitHub verbietet Self-Approval eigener PRs – da
-  `enforce_admins` deaktiviert ist, kann ein Repo-Admin eigene PRs trotz
-  fehlendem Review über den „Merge without waiting for requirements to be
-  met"-Bypass mergen, sofern die Checks grün sind.
 
 ## Coding-Konventionen
 

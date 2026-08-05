@@ -34,10 +34,14 @@ class PluginAdminTest extends FunctionalTestCase {
 
     public function testTogglingUnknownPluginIsRejected(): void {
         $admin = $this->authenticatedClient();
-        $pluginsPage = $admin->get('/admin/plugins');
 
+        // admin_plugins.php rendert das (einzige) csrf_token-Feld der Seite nur
+        // pro gefundenem Plugin - ohne jedes Plugin unter plugins/ (wie in einer
+        // frischen CI-Umgebung, siehe .gitignore) gäbe es dort gar kein Formular
+        // zum Auslesen. Token daher über currentCsrfToken() von einer Seite mit
+        // unbedingt gerendertem Formular holen (siehe dortiger Kommentar).
         $response = $admin->post('/admin/plugins/toggle', [
-            'csrf_token' => $pluginsPage->formField('csrf_token') ?? '',
+            'csrf_token' => $this->currentCsrfToken($admin),
             'slug' => 'dieses-plugin-existiert-nicht',
             'enable' => '1',
         ]);

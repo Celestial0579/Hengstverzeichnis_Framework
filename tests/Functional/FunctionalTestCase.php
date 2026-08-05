@@ -30,6 +30,20 @@ abstract class FunctionalTestCase extends TestCase {
     }
 
     /**
+     * Liefert ein für die laufende Sitzung gültiges CSRF-Token für Tests, deren
+     * Zielseite das Token nur BEDINGT rendert (z. B. admin_plugins.php: das
+     * Toggle-Formular samt csrf_token existiert nur pro gefundenem Plugin - in
+     * einer frischen CI-Umgebung ohne jedes Plugin unter plugins/ gäbe es dort
+     * gar kein Formularfeld zum Auslesen). Das Token ist pro Sitzung fest
+     * (Router::generateCsrfToken() legt es einmalig in $_SESSION ab, siehe
+     * dort), daher genügt irgendeine Seite mit einem UNBEDINGT gerenderten
+     * Formular - hier /admin/users/create.
+     */
+    protected function currentCsrfToken(HttpClient $client): string {
+        return $client->get('/admin/users/create')->formField('csrf_token') ?? '';
+    }
+
+    /**
      * Liefert einen frischen, aber bereits vollständig eingeloggten Client
      * (Passwort-Login + 2FA-Verifikation über den echten HTTP-Flow).
      */

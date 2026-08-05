@@ -16,6 +16,7 @@ Admins/Betreiber und Endnutzer.
 - [database.md](database.md) – Datenmodell, Tabellen, Beziehungen, Schema-Migration
 - [security.md](security.md) – Auth, 2FA, Sessions, Verschlüsselung, Rate-Limiting, Audit-Log
 - [development.md](development.md) – Lokale Entwicklungsumgebung, Coding-Konventionen, Deployment
+- [plugin-system-plan.md](plugin-system-plan.md) – Umsetzungsplanung für das Plugin-/Erweiterungssystem ([#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56), noch nicht implementiert)
 
 ## Projektüberblick
 

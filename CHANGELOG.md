@@ -40,6 +40,16 @@ Breaking Changes sind jederzeit möglich).
   Detailseite (#53): der interaktive Umschalter reicht jetzt bis zur
   6. Generation (Urururgroßeltern) statt bisher maximal 4
   (Urgroßeltern), aufbauend auf `App\Service\PedigreeBuilder`.
+- Grundlegende Cron-/Scheduler-Infrastruktur (#67): `App\Service\Scheduler`
+  als Registry für periodisch auszuführende Aufgaben, Voraussetzung für
+  künftige Kern-Features wie automatisierte externe Backups (#59) und einen
+  E-Mail-Digest für Admins/Editoren (#52). Zwei Auslösewege - ein durch ein
+  admin-generiertes Secret geschützter externer Endpunkt (`/cron/run`, für
+  System-Cron) sowie ein manueller Auslöser im neuen Admin-Bereich
+  `/admin/cron` für Betreiber ohne Zugriff auf einen System-Cron. Aktuell
+  ohne konkret registrierte Aufgaben (siehe
+  [docs/architecture.md](docs/architecture.md), Abschnitt
+  „Cron-/Scheduler-Infrastruktur“).
 
 ## [0.2.0-beta.1] – 2026-08-05
 

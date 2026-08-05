@@ -153,6 +153,17 @@ $router->post('/admin/groups/delete', [App\Controllers\GroupController::class, '
 $router->post('/admin/groups/permissions', [App\Controllers\GroupController::class, 'updatePermissions']);
 $router->post('/admin/groups/copy-permissions', [App\Controllers\GroupController::class, 'copyPermissions']);
 
+// Admin Cron-/Scheduler-Verwaltung (#67)
+$router->get('/admin/cron', [App\Controllers\AdminController::class, 'cronSettings']);
+$router->post('/admin/cron/regenerate-secret', [App\Controllers\AdminController::class, 'regenerateCronSecret']);
+$router->post('/admin/cron/run-now', [App\Controllers\AdminController::class, 'runCronNow']);
+
+// Öffentlicher, durch ein Secret geschützter Cron-Auslöse-Endpunkt (#67) - siehe
+// App\Controllers\CronController und App\Service\Scheduler. Bewusst ohne
+// Admin-Login erreichbar, da System-Cron keine Session mitbringen kann.
+$router->get('/cron/run', [App\Controllers\CronController::class, 'run']);
+$router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
+
 // Plugin-Routen: von aktivierten Plugins über eine optionale routes()-Methode
 // deklariert (siehe App\Plugin\PluginManager::registerPluginRoute()). Der
 // Präfix "/plugin/<slug>/" wird dabei zwingend vom PluginManager selbst

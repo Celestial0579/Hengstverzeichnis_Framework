@@ -2,9 +2,12 @@
 
 ## Voraussetzungen
 
-Keine Paketmanager-Abhängigkeiten (kein Composer, kein npm) – das Framework
-läuft mit reinem PHP 8.3 + PDO MySQL-Erweiterung. Für lokale Entwicklung
-entweder Docker (empfohlen) oder ein klassischer lokaler PHP/MySQL-Stack.
+Keine Paketmanager-Abhängigkeiten zur Laufzeit (kein Composer, kein npm) –
+das Framework läuft mit reinem PHP 8.3 + PDO MySQL-Erweiterung. Für lokale
+Entwicklung entweder Docker (empfohlen) oder ein klassischer lokaler
+PHP/MySQL-Stack. Composer wird ausschließlich **dev-only** für die
+PHPUnit-Testsuite benötigt (siehe [Tests](#tests) unten) – für Betrieb/
+Deployment der App selbst weiterhin nicht erforderlich.
 
 ## Schnellstart mit Docker
 
@@ -73,6 +76,29 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 | `php database/migrate.php` | Führt bekannte Spalten-Migrationen manuell/idempotent aus (Subset von `Database::ensureSchemaUpToDate()` – primär als Debug-/Standalone-Werkzeug relevant, im normalen Betrieb übernimmt das die App automatisch bei jedem Verbindungsaufbau) |
 | `php database/seed.php` | Legt einen Test-Admin an (`admin@example.com` / `admin123`) oder setzt dessen Passwort zurück – **nur für lokale Entwicklung**, niemals in Produktion |
 | `php database/reset.php` | **Destruktiv:** Leert alle Kern-Tabellen (`TRUNCATE`) und löscht `config/db_config.php`, sodass die App wieder im Setup-Modus startet. Nur für lokales Zurücksetzen des Entwicklungsstands gedacht |
+
+## Tests
+
+PHPUnit-Testsuite unter [`tests/`](../tests) (dev-only Composer-Abhängigkeit,
+siehe [`composer.json`](../composer.json) – betrifft nicht die
+Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main` automatisch über
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml).
+
+```bash
+composer install
+composer test
+```
+
+Aktuell abgedeckt: `tests/Unit` – reine Logik-Tests ohne Datenbank
+(`Security\Totp`, `Security\Crypto`, `Security\ClientIp::isValidProxyEntry()`,
+`Helper\Markdown::parse()`). `tests/Integration` ist als zweite Ebene für
+DB-gestützte Tests (Auth-Flow, CSRF, Blutlinien-Match-Logik,
+`Database::ensureSchemaUpToDate()`) vorgesehen, siehe
+[Issue #54](../../../issues/54) – benötigt einen MySQL-Service im
+CI-Workflow und ist noch nicht implementiert.
+
+Neue reine Logik (keine DB-/Session-/`$_SERVER`-Abhängigkeit) sollte nach
+Möglichkeit mit einem Unit-Test unter `tests/Unit` begleitet werden.
 
 ## Coding-Konventionen
 

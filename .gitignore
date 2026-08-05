@@ -10,3 +10,8 @@ public/uploads/*
 
 # Lokale Claude-Code-Einstellungen (Tool-Berechtigungen, Dev-Server-Konfig)
 .claude/
+
+# Dev-only Composer-Abhängigkeiten (PHPUnit) - nicht Teil der Anwendungs-Runtime,
+# siehe composer.json und docs/development.md
+vendor/
+.phpunit.cache/

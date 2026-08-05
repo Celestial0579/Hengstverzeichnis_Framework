@@ -1,0 +1,43 @@
+# PHPUnit Test Suite
+#
+# Führt die Unit-Tests aus tests/Unit (siehe composer.json/phpunit.xml) bei
+# jedem Push/PR gegen main aus. PHPUnit ist eine reine Dev-Abhängigkeit
+# (Composer wird ausschließlich hier und lokal für Tests genutzt, nicht für
+# den Anwendungsbetrieb - siehe docs/development.md).
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  phpunit:
+    name: PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2 (2.37.2)
+        with:
+          php-version: "8.3"
+          extensions: pdo, pdo_mysql
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Run PHPUnit
+        run: composer test -- --testsuite Unit

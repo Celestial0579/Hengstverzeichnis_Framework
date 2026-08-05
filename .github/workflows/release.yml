@@ -32,6 +32,11 @@ on:
   push:
     tags:
       - "v*"
+  # Manuell/programmatisch auslösbar für einen bestimmten Tag - nötig, weil
+  # beta-release.yml seinen Tag über GITHUB_TOKEN pusht und GitHub für
+  # GITHUB_TOKEN-Pushes bewusst keine Folge-Workflows auslöst (siehe
+  # beta-release.yml). Dieser Trigger schließt die Lücke.
+  workflow_dispatch:
 
 permissions:
   contents: read

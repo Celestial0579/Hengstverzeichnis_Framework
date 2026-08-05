@@ -64,6 +64,139 @@ abstract class FunctionalTestCase extends TestCase {
     }
 
     /**
+     * Legt über eine admin-authentifizierte Sitzung einen neuen Editor-Benutzer
+     * an (optional Mitglied eigener, nicht eingebauter Gruppen - siehe #66) und
+     * durchläuft für diesen Benutzer den vollständigen Login-Flow (Passwort,
+     * verpflichtendes 2FA-Setup, verpflichtender Passwortwechsel bei
+     * Erstanmeldung). Admin hat serverseitig immer alle Rechte
+     * (BaseController::hasPermission()), daher brauchen Tests der
+     * Berechtigungsdurchsetzung zwingend eine echte Nicht-Admin-Sitzung.
+     *
+     * @param array<int, int> $customGroupIds
+     */
+    protected function createAndLoginEditor(
+        HttpClient $adminClient,
+        string $username,
+        string $email,
+        array $customGroupIds = []
+    ): HttpClient {
+        $password = 'EditorTest123!';
+
+        $createForm = $adminClient->get('/admin/users/create');
+        $createResponse = $adminClient->post('/admin/users/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'username' => $username,
+            'email' => $email,
+            'password' => $password,
+            'role' => 'editor',
+            'groups' => array_map('strval', $customGroupIds),
+        ]);
+        self::assertSame(
+            '/admin/users?success=created',
+            $createResponse->location(),
+            "Anlegen des Test-Editor-Benutzers fehlgeschlagen, Body: {$createResponse->body}"
+        );
+
+        $client = $this->newClient();
+
+        $loginPage = $client->get('/login');
+        $loginResponse = $client->post('/login', [
+            'csrf_token' => $loginPage->formField('csrf_token') ?? '',
+            'email' => $email,
+            'password' => $password,
+        ]);
+        self::assertSame(
+            '/2fa/setup',
+            $loginResponse->location(),
+            "Erstanmeldung des Test-Editors sollte zur 2FA-Einrichtung führen, Body: {$loginResponse->body}"
+        );
+
+        $setupPage = $client->get('/2fa/setup');
+        $secret = $setupPage->formField('totp_secret');
+        self::assertNotNull($secret, 'Konnte totp_secret nicht aus /2fa/setup extrahieren');
+
+        $enableResponse = $client->post('/2fa/enable', [
+            'csrf_token' => $setupPage->formField('csrf_token') ?? '',
+            'totp_secret' => $secret,
+            'backup_codes' => $setupPage->formField('backup_codes') ?? '[]',
+            'confirm_backup' => '1',
+            'totp_code' => Totp::getCode($secret),
+        ]);
+        self::assertSame(
+            '/force-password-change',
+            $enableResponse->location(),
+            "2FA-Aktivierung des Test-Editors sollte zum verpflichtenden Passwortwechsel führen, Body: {$enableResponse->body}"
+        );
+
+        $forcePage = $client->get('/force-password-change');
+        $newPassword = 'EditorTestNeu456!';
+        $changeResponse = $client->post('/force-password-change', [
+            'csrf_token' => $forcePage->formField('csrf_token') ?? '',
+            'password' => $newPassword,
+            'password_confirm' => $newPassword,
+        ]);
+        self::assertSame(
+            '/admin?password_changed=1',
+            $changeResponse->location(),
+            "Verpflichtender Passwortwechsel des Test-Editors fehlgeschlagen, Body: {$changeResponse->body}"
+        );
+
+        return $client;
+    }
+
+    /**
+     * Standardrechte der eingebauten Editor-Gruppe (siehe
+     * Database::ensureSchemaUpToDate(), Editor-Defaults-Seeding) - jeder
+     * Benutzer mit role=editor erhält diese automatisch über seine
+     * Rollen-Gruppen-Mitgliedschaft (BaseController::userGroupIds()). Tests der
+     * Berechtigungsdurchsetzung über EIGENE Gruppen müssen diese Standardrechte
+     * daher temporär entziehen, sonst hätte ein Editor die getestete
+     * Berechtigung ohnehin schon unabhängig von der eigenen Gruppe - siehe
+     * setGroupPermissions().
+     *
+     * @var array<string, array<int, string>>
+     */
+    protected const EDITOR_DEFAULT_PERMISSIONS = [
+        'horses' => ['create', 'edit', 'delete', 'publish'],
+        'persons' => ['create', 'edit', 'delete'],
+        'breeding_stations' => ['create', 'edit', 'delete'],
+    ];
+
+    /**
+     * Ermittelt die ID einer eingebauten Gruppe (Administrator/Editor/Öffentlich)
+     * über das "Gruppe zur Bearbeitung auswählen"-Dropdown in /admin/groups -
+     * dieses listet immer ALLE Gruppen vollständig, unabhängig von Suche/Pagination
+     * der Übersichtstabelle (siehe GroupController::index()).
+     */
+    protected function findBuiltinGroupId(HttpClient $admin, string $exactName): int {
+        $page = $admin->get('/admin/groups');
+        $pattern = '/<option value="(\d+)"[^>]*>\s*' . preg_quote($exactName, '/') . '\b/';
+        preg_match($pattern, $page->body, $matches);
+        self::assertNotEmpty($matches, "Konnte ID der eingebauten Gruppe '{$exactName}' nicht aus /admin/groups ermitteln");
+        return (int)$matches[1];
+    }
+
+    /**
+     * Ersetzt komplett die Berechtigungen einer (nicht geschützten) Gruppe über
+     * den echten HTTP-Endpunkt POST /admin/groups/permissions.
+     *
+     * @param array<string, array<int, string>> $permissions Modul => [Aktion, ...]
+     */
+    protected function setGroupPermissions(HttpClient $admin, int $groupId, array $permissions): void {
+        $editPage = $admin->get('/admin/groups?group=' . $groupId);
+        $response = $admin->post('/admin/groups/permissions', [
+            'csrf_token' => $editPage->formField('csrf_token') ?? '',
+            'group_id' => (string)$groupId,
+            'permissions' => $permissions,
+        ]);
+        self::assertSame(
+            "/admin/groups?group={$groupId}&success=permissions_updated",
+            $response->location(),
+            "Setzen der Gruppenberechtigungen fehlgeschlagen, Body: {$response->body}"
+        );
+    }
+
+    /**
      * Führt die vollautomatische Ersteinrichtung durch (GET /setup mit den
      * ADMIN_-, SITE_NAME- und DB_-Umgebungsvariablen, siehe
      * tests/Support/PhpBuiltInServer.php und

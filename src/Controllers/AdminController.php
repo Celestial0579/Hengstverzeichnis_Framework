@@ -472,6 +472,97 @@ class AdminController extends BaseController {
     }
 
     /**
+     * Backup-Verwaltung (#59, siehe App\Service\BackupService): S3-Zugangsdaten,
+     * Intervall/Aufbewahrung konfigurieren, letzten Lauf einsehen, manuellen
+     * Testlauf anstoßen. Baut auf der Cron-/Scheduler-Infrastruktur (#67) auf.
+     */
+    public function backupSettings(): void {
+        $this->requireAdmin();
+
+        $db = Database::getInstance();
+        $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'backup_%'");
+        $settings = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
+
+        $schedulerTask = null;
+        foreach (\App\Service\Scheduler::registeredTasks() as $task) {
+            if ($task['name'] === 'backup.external') {
+                $schedulerTask = $task;
+                break;
+            }
+        }
+
+        $this->render('admin_backup_settings', [
+            'title' => 'Backups',
+            'settings' => $settings,
+            'schedulerTask' => $schedulerTask,
+        ]);
+    }
+
+    public function updateBackupSettings(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $db = Database::getInstance();
+
+        $settings = [
+            'backup_enabled' => !empty($_POST['backup_enabled']) ? '1' : '0',
+            'backup_s3_endpoint' => trim($_POST['backup_s3_endpoint'] ?? ''),
+            'backup_s3_region' => trim($_POST['backup_s3_region'] ?? ''),
+            'backup_s3_bucket' => trim($_POST['backup_s3_bucket'] ?? ''),
+            'backup_s3_access_key' => trim($_POST['backup_s3_access_key'] ?? ''),
+            'backup_s3_path_style' => !empty($_POST['backup_s3_path_style']) ? '1' : '0',
+            'backup_s3_use_https' => !empty($_POST['backup_s3_use_https']) ? '1' : '0',
+            'backup_interval_hours' => (string)max(1, (int)($_POST['backup_interval_hours'] ?? 24)),
+            'backup_retention_count' => (string)max(1, (int)($_POST['backup_retention_count'] ?? 14)),
+        ];
+
+        // Secret Key nur überschreiben, wenn tatsächlich ein neuer Wert eingegeben
+        // wurde (analog zum SMTP-Passwort in updateMailSettings()) - ein leeres Feld
+        // bedeutet "unverändert lassen", nicht "Secret löschen".
+        if (!empty($_POST['backup_s3_secret_key'])) {
+            $settings['backup_s3_secret_key'] = \App\Security\Crypto::encrypt($_POST['backup_s3_secret_key']);
+        }
+
+        foreach ($settings as $key => $value) {
+            $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+            $stmt->execute([$key, $value, $value]);
+        }
+
+        \App\Service\AuditLogger::log(
+            "Backup-Einstellungen aktualisiert",
+            "settings",
+            "Aktiviert: {$settings['backup_enabled']}, Endpoint: {$settings['backup_s3_endpoint']}, Bucket: {$settings['backup_s3_bucket']}"
+        );
+
+        header("Location: /admin/backups?success=1");
+        exit;
+    }
+
+    /**
+     * Löst einen sofortigen Backup-Lauf aus, unabhängig vom konfigurierten
+     * Intervall - z. B. um eine neue S3-Konfiguration direkt zu testen.
+     */
+    public function testBackup(): void {
+        $this->requireAdmin();
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        try {
+            \App\Service\BackupService::run();
+            header("Location: /admin/backups?success=backup_run");
+        } catch (\Throwable $e) {
+            header("Location: /admin/backups?error=" . urlencode($e->getMessage()));
+        }
+        exit;
+    }
+
+    /**
      * Audit log viewer for Administrators. Entries are immutable and kept
      * indefinitely (no automatic purge) - the "30 days" here is only the
      * default display window, with a fallback to the latest 500 entries.

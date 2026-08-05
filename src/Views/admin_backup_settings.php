@@ -1,0 +1,139 @@
+<?php
+// src/Views/admin_backup_settings.php
+/**
+ * @var array<string, string> $settings
+ * @var array{name:string, intervalSeconds:int, lastRunAt:?int}|null $schedulerTask
+ */
+$lastStatus = $settings['backup_last_status'] ?? null;
+$lastRunAt = isset($settings['backup_last_run_at']) ? (int)$settings['backup_last_run_at'] : null;
+$lastError = $settings['backup_last_error'] ?? '';
+?>
+<div class="card" style="max-width: 800px;">
+    <h2>💾 Backups</h2>
+    <p style="color: #666;">
+        Automatisierte, periodische Sicherung der Datenbank an einen externen,
+        S3-kompatiblen Speicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.) - als
+        Kernfunktion (#59), aufbauend auf der Cron-/Scheduler-Infrastruktur (#67,
+        siehe <a href="/admin/cron">Automatisierung (Cron)</a>). Enthält aktuell nur
+        die Datenbank, keine hochgeladenen Dateien (Logos/Pferdebilder).
+    </p>
+
+    <?php if (!empty($_GET['success'])): ?>
+        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            <?= $_GET['success'] === 'backup_run' ? '✓ Backup wurde erfolgreich manuell ausgeführt.' : 'Backup-Einstellungen erfolgreich gespeichert.' ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($_GET['error'])): ?>
+        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Backup fehlgeschlagen: <?= htmlspecialchars($_GET['error']) ?>
+        </div>
+    <?php endif; ?>
+
+    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+        <strong>Letzter Lauf:</strong>
+        <?php if ($lastRunAt === null): ?>
+            noch nie
+        <?php else: ?>
+            <?= htmlspecialchars(date('d.m.Y H:i:s', $lastRunAt)) ?>
+            - <span style="color: <?= $lastStatus === 'ok' ? '#28a745' : '#dc3545' ?>; font-weight: bold;">
+                <?= $lastStatus === 'ok' ? '✓ Erfolgreich' : '✗ Fehlgeschlagen' ?>
+            </span>
+            <?php if ($lastStatus !== 'ok' && $lastError !== ''): ?>
+                <div style="color: #721c24; font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
+            <?php endif; ?>
+        <?php endif; ?>
+        <br>
+        <strong>Nächster automatischer Lauf:</strong>
+        <?php if ($schedulerTask === null): ?>
+            <span style="color: #666;">nicht aktiv (Backup deaktiviert oder unvollständig konfiguriert)</span>
+        <?php else: ?>
+            spätestens <?= (int)round($schedulerTask['intervalSeconds'] / 3600) ?>h nach dem letzten Lauf,
+            ausgelöst über <a href="/admin/cron">Automatisierung (Cron)</a>
+        <?php endif; ?>
+    </div>
+
+    <form action="/admin/backups" method="POST">
+        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+
+        <div class="form-group">
+            <label style="cursor: pointer; font-weight: 500;">
+                <input type="checkbox" name="backup_enabled" value="1" <?= ($settings['backup_enabled'] ?? '') === '1' ? 'checked' : '' ?>>
+                Automatisierte Backups aktivieren
+            </label>
+        </div>
+
+        <div style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-color);">🪣 S3-kompatibler Speicher</h4>
+
+            <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 2;">
+                    <label for="backup_s3_endpoint">Endpunkt *</label>
+                    <input type="text" id="backup_s3_endpoint" name="backup_s3_endpoint" class="form-control" value="<?= htmlspecialchars($settings['backup_s3_endpoint'] ?? '') ?>" placeholder="z. B. s3.eu-central-1.amazonaws.com oder fsn1.your-objectstorage.com">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_s3_region">Region</label>
+                    <input type="text" id="backup_s3_region" name="backup_s3_region" class="form-control" value="<?= htmlspecialchars($settings['backup_s3_region'] ?? '') ?>" placeholder="us-east-1">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="backup_s3_bucket">Bucket *</label>
+                <input type="text" id="backup_s3_bucket" name="backup_s3_bucket" class="form-control" value="<?= htmlspecialchars($settings['backup_s3_bucket'] ?? '') ?>">
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_s3_access_key">Access Key *</label>
+                    <input type="text" id="backup_s3_access_key" name="backup_s3_access_key" class="form-control" value="<?= htmlspecialchars($settings['backup_s3_access_key'] ?? '') ?>">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_s3_secret_key">Secret Key *</label>
+                    <input type="password" id="backup_s3_secret_key" name="backup_s3_secret_key" class="form-control" placeholder="<?= !empty($settings['backup_s3_secret_key']) ? '•••••••• (unverändert)' : 'Secret Key eingeben' ?>">
+                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0.3rem;">
+                <label style="cursor: pointer; font-weight: 500;">
+                    <input type="checkbox" name="backup_s3_path_style" value="1" <?= ($settings['backup_s3_path_style'] ?? '') === '1' ? 'checked' : '' ?>>
+                    Path-Style-URLs verwenden (für die meisten selbstgehosteten MinIO-Installationen nötig)
+                </label>
+            </div>
+            <div class="form-group">
+                <label style="cursor: pointer; font-weight: 500;">
+                    <input type="checkbox" name="backup_s3_use_https" value="1" <?= ($settings['backup_s3_use_https'] ?? '1') !== '0' ? 'checked' : '' ?>>
+                    HTTPS verwenden (nur für selbstgehosteten Speicher in einem vertrauenswürdigen internen Netz deaktivieren)
+                </label>
+            </div>
+        </div>
+
+        <h4 style="color: var(--primary-color);">Zeitplan & Aufbewahrung</h4>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="backup_interval_hours">Intervall (Stunden)</label>
+                <input type="number" id="backup_interval_hours" name="backup_interval_hours" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['backup_interval_hours'] ?? '24')) ?>">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="backup_retention_count">Aufbewahrung (Anzahl Backups)</label>
+                <input type="number" id="backup_retention_count" name="backup_retention_count" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['backup_retention_count'] ?? '14')) ?>">
+                <small style="color: #666;">Ältere Backups werden nach jedem erfolgreichen Lauf automatisch gelöscht.</small>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+            <button type="submit" class="btn">Einstellungen Speichern</button>
+            <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>
+        </div>
+    </form>
+
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+
+    <h3>🧪 Backup jetzt manuell ausführen</h3>
+    <p style="color: #666; font-size: 0.9rem;">Führt sofort einen Backup-Lauf mit den oben gespeicherten Einstellungen aus, unabhängig vom konfigurierten Intervall.</p>
+    <form action="/admin/backups/test" method="POST">
+        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+        <button type="submit" class="btn btn-secondary">💾 Jetzt sichern</button>
+    </form>
+</div>

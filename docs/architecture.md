@@ -293,5 +293,44 @@ synchron innerhalb dieses einen Requests ausführt.
     `runCronNow()`) zeigt registrierte Aufgaben samt letztem Lauf und
     erlaubt einen sofortigen manuellen Lauf - Alternative für Betreiber ohne
     Zugriff auf einen System-Cron.
-- Aktuell sind **keine** konkreten Aufgaben registriert - reine
-  Infrastruktur, siehe #59/#52 für künftige Verbraucher.
+- Erster Verbraucher: `App\Service\BackupService` (#59, siehe unten). Ein
+  E-Mail-Digest für Admins/Editoren (#52) kann sich künftig ebenso über
+  `Scheduler::register()` anmelden.
+
+## Automatisierte externe Backups (`src/Service/BackupService.php`, `src/Service/DatabaseDumper.php`, `src/Service/S3Client.php`, #59)
+
+Periodische Sicherung der Datenbank an einen externen, S3-kompatiblen
+Speicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.) - als Kernfunktion,
+nicht als optionales Plugin, da die hier verwalteten Zucht-/Blutlinien-Daten
+teils unwiederbringlich sind. Registriert sich bei aktivierter/vollständiger
+Konfiguration selbst über `App\Service\Scheduler` (siehe oben).
+
+- `App\Service\DatabaseDumper::dump()`: reine-PHP-Alternative zu
+  `mysqldump` (PDO-basiert, `SHOW CREATE TABLE` + `INSERT`-Anweisungen je
+  Tabelle) - kein `mysqldump`-Client-Binary nötig, das im mitgelieferten
+  Dockerfile nicht installiert ist und auf klassischem Webhosting oft fehlt
+  oder per `shell_exec` gesperrt ist.
+- `App\Service\S3Client`: signiert Anfragen selbst mit AWS Signature Version
+  4, ohne AWS-SDK/Composer-Laufzeitabhängigkeit. Nutzt wie `App\Service\Mailer`
+  PHP-Streams statt der curl-Extension. Unterstützt Path-Style- (MinIO) und
+  Virtual-Hosted-Style-URLs (AWS-Standard) sowie optional HTTP statt HTTPS
+  (nur für selbstgehosteten Speicher in einem vertrauenswürdigen internen
+  Netz gedacht).
+- `App\Service\BackupService::run()`: Dump erzeugen, mit `gzip` komprimieren
+  (Fallback auf unkomprimiert, falls die zlib-Extension fehlt), hochladen,
+  anschließend Aufbewahrungsrotation anwenden (älteste Backups über dem
+  konfigurierten Zähler löschen - ein Rotationsfehler zählt dabei bewusst
+  NICHT als Fehlschlag des gesamten Laufs, da das eigentliche Backup zu
+  diesem Zeitpunkt bereits sicher hochgeladen ist). Status des letzten Laufs
+  (`backup_last_status`/`backup_last_run_at`/`backup_last_error`) wird in
+  der `settings`-Tabelle für die Admin-Anzeige unter `/admin/backups`
+  persistiert.
+- S3-Zugangsdaten (Endpunkt, Region, Bucket, Access/Secret Key,
+  Path-Style/HTTPS-Umschalter), Intervall und Aufbewahrungsanzahl sind unter
+  `/admin/backups` konfigurierbar (`AdminController::backupSettings()`/
+  `updateBackupSettings()`/`testBackup()` für einen sofortigen manuellen
+  Testlauf). Der Secret Key wird wie das SMTP-Passwort mit AES-256-GCM
+  verschlüsselt gespeichert (`App\Security\Crypto`).
+- Bewusst **nicht** enthalten: Sicherung hochgeladener Dateien
+  (Logos/Pferdebilder) - im Issue nur als optional genannt, die
+  Datenbank ist der eigentlich unwiederbringliche Teil.

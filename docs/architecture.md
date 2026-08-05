@@ -28,7 +28,7 @@ src/
   Controllers/         Ein Controller pro fachlichem Bereich (siehe unten)
   Views/                Ein PHP-Template pro Seite + layout.php als Rahmen
   Security/             Crypto, Totp, RateLimiter, ClientIp
-  Service/               AuditLogger, Mailer
+  Service/               AuditLogger, Mailer, PedigreeBuilder
   Plugin/                 PluginManager, HookManager (Plugin-System, siehe unten)
   Permission/             PermissionRegistry (Gruppen-/Berechtigungssystem, siehe unten)
   I18n/                   Translator (Mehrsprachigkeit, siehe unten)
@@ -157,8 +157,15 @@ die zugrundeliegenden Architekturentscheidungen.
   ab. Zugriff aus Controllern über `BaseController::hooks()`.
 - Definierte Erweiterungspunkte (Phase 1): `horse.before_save`/
   `horse.after_save` (`HorseController`), `horse.detail_sections`
-  (`PublicController::horseDetail`), `admin.dashboard_tiles`
+  (`PublicController::horseDetail`, erhält zusätzlich den bereits
+  berechneten Pedigree-Baum als vierten Filter-Parameter), `admin.dashboard_tiles`
   (`AdminController::dashboard`).
+- `App\Service\PedigreeBuilder`: rekursiver Pedigree-Baum-Aufbau, aus
+  `PublicController` herausgelöst und für Plugins direkt mit eigener
+  Generationstiefe aufrufbar (siehe
+  [plugin-development.md](plugin-development.md), Abschnitt
+  „Wiederverwendbarer Dienst“) — Voraussetzung u. a. für einen
+  Inzuchtkoeffizienten-Rechner als Addon.
 - Zusätzliche Plugin-Routen (optionale `routes()`-Methode je Plugin) werden
   zwingend unter `/plugin/<slug>/...` registriert – der Präfix wird vom
   `PluginManager` selbst vorangestellt, ein Plugin kann daher nie eine

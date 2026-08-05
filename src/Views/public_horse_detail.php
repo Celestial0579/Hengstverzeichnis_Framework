@@ -3,10 +3,7 @@
 /**
  * @var array $horse
  * @var array|null $pedigree
- * @var array|null $pedigreeTree
  */
-
-$pedigree = $pedigree ?? $pedigreeTree ?? null;
 
 function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
     if (!$node) {

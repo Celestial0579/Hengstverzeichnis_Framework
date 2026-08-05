@@ -11,7 +11,9 @@
  * @var array $perPageOptions Erlaubte feste Seitengrößen (ohne 'all')
  * @var int $page Aktuelle Seite der Übersichtstabelle
  * @var int $totalPages
- * @var int $totalGroups
+ * @var int $totalGroups Anzahl Gruppen NACH Anwendung der Suche (Basis der Pagination)
+ * @var int $totalGroupsUnfiltered Anzahl aller Gruppen ohne Suchfilter
+ * @var string $search Aktueller Suchbegriff (Name/Beschreibung)
  */
 
 $errorMessages = [
@@ -74,19 +76,34 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             den bestehenden Login-Zwang abgesichert.
         </p>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
-            <span style="font-size: 0.85rem; color: #666;"><?= $totalGroups ?> Gruppe<?= $totalGroups === 1 ? '' : 'n' ?> insgesamt</span>
-            <form action="/admin/groups" method="GET" style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
-                <input type="hidden" name="group" value="<?= $selectedGroupId ?>">
-                <label for="per-page-select" style="font-size: 0.85rem; margin: 0; font-weight: normal;">Anzeigen:</label>
+        <form action="/admin/groups" method="GET" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <input type="hidden" name="group" value="<?= $selectedGroupId ?>">
+            <div class="form-group" style="margin: 0; flex: 1; min-width: 160px;">
+                <label for="group-search" style="font-size: 0.85rem; font-weight: normal;">🔍 Suche (Name/Beschreibung)</label>
+                <input type="text" id="group-search" name="search" class="form-control" placeholder="z. B. Mitglieder..." value="<?= htmlspecialchars($search) ?>" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+                <label for="per-page-select" style="font-size: 0.85rem; font-weight: normal;">Anzeigen</label>
                 <select id="per-page-select" name="per_page" class="form-control" onchange="this.form.submit()" style="width: auto; padding: 0.3rem 0.5rem; font-size: 0.85rem;">
                     <?php foreach ($perPageOptions as $opt): ?>
                         <option value="<?= $opt ?>" <?= $perPage === $opt ? 'selected' : '' ?>><?= $opt ?></option>
                     <?php endforeach; ?>
                     <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Alle</option>
                 </select>
-            </form>
-        </div>
+            </div>
+            <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">Suchen</button>
+            <?php if ($search !== ''): ?>
+                <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">Zurücksetzen</a>
+            <?php endif; ?>
+        </form>
+
+        <p style="font-size: 0.85rem; color: #666; margin: 0 0 0.5rem 0;">
+            <?php if ($search !== ''): ?>
+                <?= $totalGroups ?> von <?= $totalGroupsUnfiltered ?> Gruppen gefunden für "<?= htmlspecialchars($search) ?>"
+            <?php else: ?>
+                <?= $totalGroups ?> Gruppe<?= $totalGroups === 1 ? '' : 'n' ?> insgesamt
+            <?php endif; ?>
+        </p>
 
         <!-- Ab ca. 5-10 Zeilen scrollbar (max-height), damit die Seite bei vielen eigenen
              Gruppen nicht beliebig lang wird - unabhängig von der gewählten Seitengröße. -->
@@ -103,7 +120,9 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                 <tbody>
                     <?php if (empty($pagedGroups)): ?>
                         <tr>
-                            <td colspan="4" style="padding: 1rem; text-align: center; color: #888;">Keine Gruppen auf dieser Seite.</td>
+                            <td colspan="4" style="padding: 1rem; text-align: center; color: #888;">
+                                <?= $search !== '' ? 'Keine Gruppen für diese Suche gefunden.' : 'Keine Gruppen auf dieser Seite.' ?>
+                            </td>
                         </tr>
                     <?php endif; ?>
                     <?php foreach ($pagedGroups as $group): ?>
@@ -121,7 +140,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                                 <?= htmlspecialchars(summarizeGroupPermissions($group, $permissions[(int)$group['id']] ?? [], $totalPermissionCount)) ?>
                             </td>
                             <td style="padding: 0.4rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                <a href="/admin/groups?group=<?= (int)$group['id'] ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page ?>" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.85rem;">
+                                <a href="/admin/groups?group=<?= (int)$group['id'] ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page ?>&search=<?= urlencode($search) ?>" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.85rem;">
                                     <?= (int)$group['id'] === $selectedGroupId ? 'Ausgewählt' : 'Bearbeiten' ?>
                                 </a>
                                 <?php if (!$group['is_builtin']): ?>
@@ -141,11 +160,11 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
         <?php if ($totalPages > 1): ?>
             <div style="display: flex; justify-content: center; align-items: center; gap: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
                 <?php if ($page > 1): ?>
-                    <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page - 1 ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">← Zurück</a>
+                    <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page - 1 ?>&search=<?= urlencode($search) ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">← Zurück</a>
                 <?php endif; ?>
                 <span>Seite <?= $page ?> von <?= $totalPages ?></span>
                 <?php if ($page < $totalPages): ?>
-                    <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page + 1 ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">Weiter →</a>
+                    <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page + 1 ?>&search=<?= urlencode($search) ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">Weiter →</a>
                 <?php endif; ?>
             </div>
         <?php endif; ?>

@@ -71,6 +71,19 @@ class GroupController extends BaseController {
             $selectedGroupId = $defaultGroup ? (int)$defaultGroup['id'] : (int)($groups[0]['id'] ?? 0);
         }
 
+        // Suche in der Übersichtstabelle (Name/Beschreibung, case-insensitive) - wirkt nur
+        // auf $pagedGroups/die Pagination unten, NICHT auf $groups selbst (die "Gruppe zur
+        // Bearbeitung auswählen"- und "Berechtigungen kopieren von"-Dropdowns bleiben
+        // unabhängig von einer aktiven Suche immer vollständig, siehe oben).
+        $search = trim((string)($_GET['search'] ?? ''));
+        $searchableGroups = $groups;
+        if ($search !== '') {
+            $searchableGroups = array_values(array_filter($groups, function ($g) use ($search) {
+                return mb_stripos($g['name'], $search) !== false
+                    || mb_stripos((string)($g['description'] ?? ''), $search) !== false;
+            }));
+        }
+
         // Pagination der Übersichtstabelle (nicht der Bearbeiten-Auswahl oben): "alle" oder
         // eine feste Seitengröße aus PER_PAGE_OPTIONS. Ungültige/fehlende Werte -> Default 25.
         $perPageParam = $_GET['per_page'] ?? '25';
@@ -79,21 +92,23 @@ class GroupController extends BaseController {
             $perPage = 25;
         }
 
-        $totalGroups = count($groups);
+        $totalGroups = count($searchableGroups);
         if ($perPage === 'all') {
             $totalPages = 1;
             $page = 1;
-            $pagedGroups = $groups;
+            $pagedGroups = $searchableGroups;
         } else {
             $totalPages = max(1, (int)ceil($totalGroups / $perPage));
             $page = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
-            $pagedGroups = array_slice($groups, ($page - 1) * $perPage, $perPage);
+            $pagedGroups = array_slice($searchableGroups, ($page - 1) * $perPage, $perPage);
         }
 
         $this->render('admin_groups', [
             'title' => 'Gruppen & Berechtigungen',
             'groups' => $groups,
             'pagedGroups' => $pagedGroups,
+            'search' => $search,
+            'totalGroupsUnfiltered' => count($groups),
             'permissions' => $permissions,
             'modules' => PermissionRegistry::MODULES,
             'selectedGroupId' => $selectedGroupId,

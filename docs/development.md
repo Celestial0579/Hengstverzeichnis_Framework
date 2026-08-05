@@ -171,10 +171,14 @@ Controller-Aktionen mit einem Functional-Test.
 
 Zwei unterstützte Wege, siehe README für Details:
 
-1. **Docker/VPS** über Umgebungsvariablen (`docker-compose.yml` als Referenz).
+1. **Docker/VPS** über Umgebungsvariablen (`docker-compose.yml` als Referenz,
+   fertige Images unter `ghcr.io/celestial0579/hengstverzeichnis_framework`,
+   siehe [releasing.md](releasing.md)).
 2. **Klassisches Shared-Hosting** über den Setup-Wizard, der
    `config/db_config.php` schreibt (Docroot muss auf `public/` zeigen,
    `config/` und `public/uploads` müssen für den PHP-Prozess beschreibbar sein).
+   Für Releases steht dafür ein bereinigtes Source-Zip ohne Dev-Tooling als
+   Release-Asset bereit, siehe [releasing.md](releasing.md).
 
 Bei Betrieb hinter einem Reverse Proxy/Load Balancer unbedingt
 `TRUSTED_PROXIES` setzen (siehe [security.md](security.md#reverse-proxy--client-ip-erkennung)),

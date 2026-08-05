@@ -16,6 +16,7 @@ Admins/Betreiber und Endnutzer.
 - [database.md](database.md) – Datenmodell, Tabellen, Beziehungen, Schema-Migration
 - [security.md](security.md) – Auth, 2FA, Sessions, Verschlüsselung, Rate-Limiting, Audit-Log
 - [development.md](development.md) – Lokale Entwicklungsumgebung, Coding-Konventionen, Deployment
+- [releasing.md](releasing.md) – Release-Prozess, automatisierte Artefakte (Docker-Image, Shared-Hosting-Archiv)
 
 ## Projektüberblick
 

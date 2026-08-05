@@ -1,6 +1,17 @@
 .git
+.github
 .claude
 .env
 config/db_config.php
 public/uploads/*
 !public/uploads/.htaccess
+
+# Dev-only Testtooling (siehe docs/development.md, Abschnitt "Tests") - die
+# Anwendung selbst läuft ohne Composer/vendor, das Docker-Image braucht das
+# also nicht.
+tests
+vendor
+composer.json
+composer.lock
+phpunit.xml
+.phpunit.cache

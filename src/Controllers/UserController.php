@@ -4,6 +4,7 @@
 namespace App\Controllers;
 
 use App\Database;
+use App\Helper\Paginator;
 
 class UserController extends BaseController {
 
@@ -18,16 +19,35 @@ class UserController extends BaseController {
         $stmt = $db->query("SELECT id, username, email, role, created_at, totp_enabled FROM users WHERE deleted_at IS NULL ORDER BY username ASC");
         $users = $stmt->fetchAll();
 
+        // Suche + Seitengrößen-Auswahl/Pagination (10/25/50/100/alle), analog zu
+        // GroupController::index() - siehe App\Helper\Paginator.
+        $search = trim((string)($_GET['search'] ?? ''));
+        $searchableUsers = Paginator::search($users, $search, ['username', 'email']);
+        $perPage = Paginator::readPerPage($_GET);
+        $result = Paginator::paginate($searchableUsers, $perPage, (int)($_GET['page'] ?? 1));
+
         $this->render('admin_users', [
             'title' => 'Benutzer verwalten',
-            'users' => $users
+            'users' => $result['items'],
+            'search' => $search,
+            'totalUsersUnfiltered' => count($users),
+            'perPage' => $perPage,
+            'perPageOptions' => Paginator::PER_PAGE_OPTIONS,
+            'page' => $result['page'],
+            'totalPages' => $result['totalPages'],
+            'totalUsers' => $result['total'],
         ]);
     }
 
     public function create(): void {
+        $db = Database::getInstance();
+        $assignableGroups = $this->assignableGroups($db);
+
         $this->render('admin_user_form', [
             'title' => 'Neuen Benutzer anlegen',
-            'user' => null
+            'user' => null,
+            'assignableGroups' => $assignableGroups,
+            'userGroupIds' => []
         ]);
     }
 
@@ -63,7 +83,9 @@ class UserController extends BaseController {
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, role, must_change_password) VALUES (?, ?, ?, ?, 1)");
             $stmt->execute([$username, $email, $passwordHash, $role]);
-            $newUserId = $db->lastInsertId();
+            $newUserId = (int)$db->lastInsertId();
+
+            $this->syncUserGroups($db, $newUserId, $_POST['groups'] ?? []);
 
             \App\Service\AuditLogger::log("Benutzer angelegt", "users", "Benutzer: {$username} ({$email}), Rolle: {$role}");
 
@@ -102,9 +124,17 @@ class UserController extends BaseController {
             exit;
         }
 
+        $assignableGroups = $this->assignableGroups($db);
+
+        $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
+        $stmt->execute([$id]);
+        $userGroupIds = array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+
         $this->render('admin_user_form', [
             'title' => 'Benutzer bearbeiten',
-            'user' => $user
+            'user' => $user,
+            'assignableGroups' => $assignableGroups,
+            'userGroupIds' => $userGroupIds
         ]);
     }
 
@@ -153,6 +183,8 @@ class UserController extends BaseController {
             $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, role = ? WHERE id = ?");
             $stmt->execute([$username, $email, $role, $id]);
         }
+
+        $this->syncUserGroups($db, (int)$id, $_POST['groups'] ?? []);
 
         \App\Service\AuditLogger::log("Benutzer aktualisiert", "users", "Benutzer ID {$id}: {$username} ({$email}), Rolle: {$role}");
 
@@ -210,5 +242,62 @@ class UserController extends BaseController {
 
         header("Location: /admin/users?success=2fa_reset");
         exit;
+    }
+
+    /**
+     * Alle Gruppen, die einem Benutzer über `user_groups` zugewiesen werden
+     * dürfen (#66) - jede Gruppe außer den beiden Sonderfällen
+     * GroupController::PROTECTED_PERMISSION_SLUGS (`admin` braucht das nie,
+     * hart codierter Bypass; `public` ist ausschließlich für nicht angemeldete
+     * Besucher gedacht). Das schließt seit der Security-by-Design-Umstellung
+     * ausdrücklich die eingebaute `editor`-Gruppe mit ein - sie ist eine ganz
+     * normale, bewusst zuzuweisende Gruppe wie jede eigene, kein automatischer
+     * Standard mehr (siehe BaseController::userGroupIds()).
+     *
+     * @return array<int, array{id:int, name:string, is_builtin:int}>
+     */
+    private function assignableGroups(\PDO $db): array {
+        $protected = \App\Controllers\GroupController::PROTECTED_PERMISSION_SLUGS;
+        $placeholders = implode(',', array_fill(0, count($protected), '?'));
+        $stmt = $db->prepare("SELECT id, name, is_builtin FROM `groups` WHERE slug NOT IN ({$placeholders}) ORDER BY is_builtin DESC, name ASC");
+        $stmt->execute($protected);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Gleicht die Gruppen eines Benutzers mit der übermittelten Auswahl ab
+     * (#66, siehe docs/user-groups-plan.md). Mitgliedschaft ist seit der
+     * Security-by-Design-Umstellung für JEDE Gruppe ausschließlich explizit
+     * über `user_groups` (siehe BaseController::userGroupIds()) - hier werden
+     * bewusst nur assignableGroups() akzeptiert, damit eine manipulierte
+     * Anfrage niemals `admin` oder `public` über user_groups zuweisen kann.
+     *
+     * @param array<int, mixed> $groupIds
+     */
+    private function syncUserGroups(\PDO $db, int $userId, array $groupIds): void {
+        $stmt = $db->prepare("DELETE FROM user_groups WHERE user_id = ?");
+        $stmt->execute([$userId]);
+
+        $groupIds = array_map('intval', $groupIds);
+        $groupIds = array_filter($groupIds, fn($id) => $id > 0);
+        if (empty($groupIds)) {
+            return;
+        }
+
+        $protected = \App\Controllers\GroupController::PROTECTED_PERMISSION_SLUGS;
+        $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
+        $protectedPlaceholders = implode(',', array_fill(0, count($protected), '?'));
+        $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug NOT IN ({$protectedPlaceholders}) AND id IN ({$groupPlaceholders})");
+        $stmt->execute(array_merge($protected, array_values($groupIds)));
+        $validIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        if (empty($validIds)) {
+            return;
+        }
+
+        $insertStmt = $db->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)");
+        foreach ($validIds as $groupId) {
+            $insertStmt->execute([$userId, (int)$groupId]);
+        }
     }
 }

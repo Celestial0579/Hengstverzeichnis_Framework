@@ -267,6 +267,130 @@ class Database {
                 INDEX (`created_at`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (\Throwable $e) {}
+
+        // 12. Plugin-System (siehe src/Plugin/PluginManager.php, #56): Aktivierungsstatus
+        // pro Plugin, unabhängig vom Verzeichnis-Scan in plugins/ - ein deaktiviertes
+        // Plugin bleibt so nach einem Deployment ohne DB-Zugriff sicher inaktiv.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `plugins` (
+                `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
+                `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+                `installed_version` VARCHAR(20) NOT NULL DEFAULT '0.0.0',
+                `content_hash` VARCHAR(64) NULL DEFAULT NULL,
+                `activated_at` DATETIME NULL DEFAULT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        // content_hash: eindeutiger Inhalts-Fingerabdruck (SHA-256 über alle Dateien des
+        // Plugin-Verzeichnisses) der bei Aktivierung freigegebenen Version - verhindert,
+        // dass ein nachträglich unter demselben Slug ausgetauschter Plugin-Code stillschweigend
+        // unter der alten Freigabe weiterläuft (siehe PluginManager::loadEnabledPlugins()).
+        // Für Bestandsinstallationen von vor Einführung dieser Spalte nachgerüstet.
+        $addColumn('plugins', 'content_hash', "VARCHAR(64) NULL DEFAULT NULL AFTER `installed_version`");
+
+        // 13. Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
+        // BaseController::hasPermission()). Drei feste Gruppen admin/editor/public
+        // werden geseedet. Security-by-Design: Mitgliedschaft ist für JEDE Gruppe
+        // (auch `editor`) ausschließlich explizit über `user_groups` - `editor` ist
+        // eine von Anfang an vorhandene, aber nicht automatisch zugewiesene
+        // Komfort-Gruppe, kein impliziter Standard mehr (siehe
+        // BaseController::userGroupIds() und die Migration weiter unten). `admin`
+        // bleibt komplett separat über users.role hart codiert (siehe
+        // hasPermission()) und braucht daher nie eine user_groups-Zeile. `public`
+        // repräsentiert nicht angemeldete Besucher und erhält nie Berechtigungs-
+        // Zeilen (serverseitig erzwungen, siehe GroupController).
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `groups` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `slug` VARCHAR(50) NOT NULL UNIQUE,
+                `name` VARCHAR(100) NOT NULL,
+                `description` VARCHAR(255) NULL,
+                `is_builtin` TINYINT(1) NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
+                ('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
+                ('editor', 'Editor', 'Vorlage für Bearbeiter mit Verwaltungszugriff - muss Benutzern wie jede andere Gruppe bewusst zugewiesen werden, kein automatischer Standard.', 1),
+                ('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend (/admin/...) und keine Berechtigungen, unabhängig von dieser Tabelle (siehe BaseController::checkAuth()).', 1)");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `user_groups` (
+                `user_id` INT NOT NULL,
+                `group_id` INT NOT NULL,
+                PRIMARY KEY (`user_id`, `group_id`),
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        // Erkennen, ob group_permissions gerade NEU angelegt wird (Bestandsinstallation
+        // ohne dieses Feature) - nur dann die Editor-Standardrechte seeden, damit eine
+        // spätere, bewusste Rechte-Entziehung durch einen Admin nicht bei jedem
+        // Request erneut rückgängig gemacht wird (siehe docs/user-groups-plan.md, 3.4/8).
+        $groupPermissionsExisted = true;
+        try {
+            $checkStmt = $pdo->query("SHOW TABLES LIKE 'group_permissions'");
+            $groupPermissionsExisted = $checkStmt && $checkStmt->rowCount() > 0;
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `group_permissions` (
+                `group_id` INT NOT NULL,
+                `module` VARCHAR(50) NOT NULL,
+                `action` VARCHAR(50) NOT NULL,
+                PRIMARY KEY (`group_id`, `module`, `action`),
+                FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        if (!$groupPermissionsExisted) {
+            try {
+                $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
+                if ($editorGroupId) {
+                    // Editor behält beim Upgrade exakt die Rechte, die er schon vorher hatte
+                    // (uneingeschränkter CRUD-Zugriff) - siehe docs/user-groups-plan.md, 8.
+                    $defaultEditorPermissions = [
+                        ['horses', 'create'], ['horses', 'edit'], ['horses', 'delete'], ['horses', 'publish'],
+                        ['persons', 'create'], ['persons', 'edit'], ['persons', 'delete'],
+                        ['breeding_stations', 'create'], ['breeding_stations', 'edit'], ['breeding_stations', 'delete'],
+                    ];
+                    $insertPermStmt = $pdo->prepare("INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`) VALUES (?, ?, ?)");
+                    foreach ($defaultEditorPermissions as [$module, $action]) {
+                        $insertPermStmt->execute([$editorGroupId, $module, $action]);
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        // Einmalige Migration: Vor dieser Änderung ergab sich die Editor-Gruppen-
+        // mitgliedschaft implizit aus users.role (siehe alte Fassung von
+        // BaseController::userGroupIds()) - jede Gruppe, auch `editor`, braucht
+        // jetzt eine EXPLIZITE user_groups-Zeile (Security-by-Design: neue Gruppen
+        // und neue Benutzer erben nichts, sondern starten bei null Rechten wie
+        // `public`, siehe docs/user-groups-plan.md, Abschnitt 8). Damit sich die
+        // Rechte bestehender Editoren durch dieses Update nicht rückwirkend ändern,
+        // werden hier einmalig echte user_groups-Zeilen für alle vorhandenen
+        // role='editor'-Benutzer nachgezogen. Über die `settings`-Tabelle (existiert
+        // seit der allerersten Version) als dauerhafter Einmal-Marker abgesichert -
+        // NICHT über die aktuelle Zeilenzahl in user_groups, da ein Admin später
+        // bewusst alle Benutzer aus der Editor-Gruppe entfernen können soll, ohne
+        // dass diese Migration das bei jedem Request wieder rückgängig macht.
+        try {
+            $migrationDone = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'migration_editor_explicit_group'")->fetchColumn();
+            if ($migrationDone === false) {
+                $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
+                if ($editorGroupId) {
+                    $stmt = $pdo->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) SELECT id, ? FROM users WHERE role = 'editor'");
+                    $stmt->execute([$editorGroupId]);
+                }
+                $pdo->exec("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES ('migration_editor_explicit_group', '1')");
+            }
+        } catch (\Throwable $e) {}
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

@@ -141,11 +141,14 @@ Controller-Aktionen mit einem Functional-Test.
 
 ## Branches
 
-- **`main`**: stabiler Branch. PRs brauchen 1 Review + grüne Pflicht-Checks
-  (CodeQL, PHPUnit, Semgrep SAST, Merge Source Gate) und werden manuell
-  gemerged. Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
-  [semgrep.yml](../.github/workflows/semgrep.yml). Quelle
-  für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
+- **`main`**: stabiler Branch. PRs brauchen grüne Pflicht-Checks (CodeQL,
+  PHPUnit, Semgrep SAST, Merge Source Gate) und werden manuell gemerged.
+  **Kein** Pflicht-Review (0 Required Reviews) – bei einem Solo-/
+  Kleinteam-Projekt kann man eigene PRs ohnehin nicht selbst genehmigen
+  (GitHub verbietet Self-Approval), die eigentliche Kontrollinstanz ist der
+  manuelle Merge-Klick plus die Pflicht-Checks. Semgrep blockiert dabei nur
+  bei ERROR-Severity-Funden, siehe [semgrep.yml](../.github/workflows/semgrep.yml).
+  Quelle für die öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
   Direkte Feature-/Fix-PRs nach `main` sind gesperrt – der
   [`Merge Source Gate`](../.github/workflows/merge-source-gate.yml)-Check
   lässt nur PRs vom `beta`-Branch (regulärer Promote-Weg) oder von
@@ -159,7 +162,12 @@ Controller-Aktionen mit einem Functional-Test.
 - **Promotion nach `main`**: einmal im Monat öffnet
   [`beta-promote.yml`](../.github/workflows/beta-promote.yml) automatisch
   eine PR `beta → main`; gemerged wird sie bewusst manuell (siehe Kommentar
-  im Workflow).
+  im Workflow). **Wichtig: Diese PR immer per „Create a merge commit"
+  mergen, niemals per Squash.** Ein Squash-Merge kappt die gemeinsame
+  Historie zwischen `beta` und `main` – der nächste Promote bekommt dann
+  einen unnötigen (wenn auch harmlosen) Merge-Konflikt in allen seither auf
+  `beta` geänderten Dateien, weil Git keinen gemeinsamen Vorfahren mehr
+  findet.
 - Beta-Releases für die IGFjordpferd werden als `vX.Y.Z-beta.N`-Tag von
   `beta` aus geschnitten – wöchentlich automatisch (falls es Änderungen
   gibt) über [`beta-release.yml`](../.github/workflows/beta-release.yml),

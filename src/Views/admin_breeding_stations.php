@@ -2,6 +2,9 @@
 // src/Views/admin_breeding_stations.php
 /**
  * @var array $stations
+ * @var bool $canCreate
+ * @var bool $canEdit
+ * @var bool $canDelete
  */
 ?>
 <div class="card">
@@ -10,7 +13,9 @@
             <h2>🏠 Deckstationen & Gestüte verwalten</h2>
             <p style="color: #666; font-size: 0.95rem; margin-top: 0.2rem;">Zentrale Pflege von Deckstationen, Ansprechpartnern und Kontaktdaten für Hengststandorte.</p>
         </div>
-        <a href="/admin/breeding-stations/create" class="btn">+ Neue Deckstation anlegen</a>
+        <?php if ($canCreate): ?>
+            <a href="/admin/breeding-stations/create" class="btn">+ Neue Deckstation anlegen</a>
+        <?php endif; ?>
     </div>
 
     <?php if (isset($_GET['success'])): ?>
@@ -57,12 +62,16 @@
                             </span>
                         </td>
                         <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <a href="/admin/breeding-stations/edit?id=<?= $st['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">Bearbeiten</a>
-                            <form action="/admin/breeding-stations/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Deckstation wirklich löschen?');" style="display:inline;">
-                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                <input type="hidden" name="id" value="<?= $st['id'] ?>">
-                                <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #dc3545;">Löschen</button>
-                            </form>
+                            <?php if ($canEdit): ?>
+                                <a href="/admin/breeding-stations/edit?id=<?= $st['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">Bearbeiten</a>
+                            <?php endif; ?>
+                            <?php if ($canDelete): ?>
+                                <form action="/admin/breeding-stations/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Deckstation wirklich löschen?');" style="display:inline;">
+                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                    <input type="hidden" name="id" value="<?= $st['id'] ?>">
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #dc3545;">Löschen</button>
+                                </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

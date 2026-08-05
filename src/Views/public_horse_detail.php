@@ -289,6 +289,15 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
     </div>
 </div>
 
+<?php if (!empty($pluginDetailSections)): ?>
+    <!-- Plugin-Erweiterungspunkt 'horse.detail_sections' (#56) -->
+    <?php foreach ($pluginDetailSections as $section): ?>
+        <div class="card" style="margin-bottom: 2rem;">
+            <?= $section ?>
+        </div>
+    <?php endforeach; ?>
+<?php endif; ?>
+
 <!-- Pedigree Styling & Interactivity -->
 <style>
 .pedigree-grid {

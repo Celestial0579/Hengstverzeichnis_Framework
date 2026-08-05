@@ -127,6 +127,86 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
     INDEX (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Plugins (Aktivierungsstatus, siehe src/Plugin/PluginManager.php, #56)
+-- content_hash: Inhalts-Fingerabdruck der bei Aktivierung freigegebenen Version,
+-- verhindert stillschweigendes Weiterlaufen nachträglich ausgetauschten Codes.
+CREATE TABLE IF NOT EXISTS `plugins` (
+    `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
+    `enabled` TINYINT(1) NOT NULL DEFAULT 0,
+    `installed_version` VARCHAR(20) NOT NULL DEFAULT '0.0.0',
+    `content_hash` VARCHAR(64) NULL DEFAULT NULL,
+    `activated_at` DATETIME NULL DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
+-- BaseController::hasPermission()). Security-by-Design: Mitgliedschaft ist für
+-- JEDE Gruppe (auch `editor`) ausschließlich explizit über `user_groups` -
+-- `editor` ist eine von Anfang an vorhandene, aber nicht automatisch
+-- zugewiesene Komfort-Gruppe, kein impliziter Standard (siehe
+-- BaseController::userGroupIds()). `admin` bleibt komplett separat über
+-- users.role hart codiert und braucht daher nie eine user_groups-Zeile.
+-- `public` repräsentiert nicht angemeldete Besucher und erhält nie
+-- Berechtigungs-Zeilen.
+CREATE TABLE IF NOT EXISTS `groups` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `slug` VARCHAR(50) NOT NULL UNIQUE,
+    `name` VARCHAR(100) NOT NULL,
+    `description` VARCHAR(255) NULL,
+    `is_builtin` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
+('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
+('editor', 'Editor', 'Vorlage für Bearbeiter mit Verwaltungszugriff - muss Benutzern wie jede andere Gruppe bewusst zugewiesen werden, kein automatischer Standard.', 1),
+('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend (/admin/...) und keine Berechtigungen, unabhängig von dieser Tabelle (siehe BaseController::checkAuth()).', 1);
+
+CREATE TABLE IF NOT EXISTS `user_groups` (
+    `user_id` INT NOT NULL,
+    `group_id` INT NOT NULL,
+    PRIMARY KEY (`user_id`, `group_id`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `group_permissions` (
+    `group_id` INT NOT NULL,
+    `module` VARCHAR(50) NOT NULL,
+    `action` VARCHAR(50) NOT NULL,
+    PRIMARY KEY (`group_id`, `module`, `action`),
+    FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Editor-GRUPPE (nicht: automatische Mitgliedschaft) behält bei einer frischen
+-- Installation dieselben Rechte, die die Rolle vor #66 schon hatte
+-- (uneingeschränkter CRUD-Zugriff) - siehe docs/user-groups-plan.md. Wer
+-- tatsächlich Mitglied dieser Gruppe wird, entscheidet der Admin bewusst je
+-- Benutzer (siehe UserController).
+INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
+SELECT `id`, `module`, `action` FROM `groups`
+CROSS JOIN (
+    SELECT 'horses' AS `module`, 'create' AS `action` UNION ALL
+    SELECT 'horses', 'edit' UNION ALL
+    SELECT 'horses', 'delete' UNION ALL
+    SELECT 'horses', 'publish' UNION ALL
+    SELECT 'persons', 'create' UNION ALL
+    SELECT 'persons', 'edit' UNION ALL
+    SELECT 'persons', 'delete' UNION ALL
+    SELECT 'breeding_stations', 'create' UNION ALL
+    SELECT 'breeding_stations', 'edit' UNION ALL
+    SELECT 'breeding_stations', 'delete'
+) AS `defaults`
+WHERE `groups`.`slug` = 'editor';
+
+-- Marker für die Einmal-Migration in Database::ensureSchemaUpToDate(), die
+-- bei Bestandsinstallationen die vorher implizite Editor-Gruppenmitgliedschaft
+-- in echte user_groups-Zeilen überführt (siehe dortiger Kommentar) - bei einer
+-- frischen Installation gibt es dafür nichts zu tun (der Setup-Wizard legt nur
+-- einen admin-Benutzer an), daher hier direkt als erledigt markiert.
+INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES
+('migration_editor_explicit_group', '1');
+
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS `audit_logs` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,

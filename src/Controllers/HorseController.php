@@ -362,6 +362,8 @@ class HorseController extends BaseController {
      * Merge Tool: Scans DB for placeholders and suggests probabilities
      */
     public function matches(): void {
+        $this->requirePermission('horses', 'edit');
+
         $unlinkedMatches = \App\Service\MatchSuggestionFinder::findAll();
 
         $db = Database::getInstance();
@@ -378,6 +380,8 @@ class HorseController extends BaseController {
      * Link/Merge a parent match manually or via suggestion
      */
     public function linkMatch(): void {
+        $this->requirePermission('horses', 'edit');
+
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }

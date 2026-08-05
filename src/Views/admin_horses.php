@@ -2,6 +2,9 @@
 // src/Views/admin_horses.php
 /**
  * @var array $horses
+ * @var bool $canCreate
+ * @var bool $canEdit
+ * @var bool $canDelete
  */
 ?>
 <div class="card">
@@ -9,7 +12,9 @@
         <h2>🐴 Pferde verwalten</h2>
         <div style="display: flex; gap: 0.5rem;">
             <a href="/admin/matches" class="btn btn-secondary">🔗 Blutlinien Zusammenführen</a>
-            <a href="/admin/horses/create" class="btn">Neues Pferd anlegen</a>
+            <?php if ($canCreate): ?>
+                <a href="/admin/horses/create" class="btn">Neues Pferd anlegen</a>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -56,12 +61,16 @@
                             </span>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">
-                            <a href="/admin/horses/edit?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
-                            <form action="/admin/horses/delete" method="POST" onsubmit="return confirm('Möchten Sie dieses Pferd wirklich löschen?');" style="display:inline;">
-                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                <input type="hidden" name="id" value="<?= $horse['id'] ?>">
-                                <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #dc3545;">Löschen</button>
-                            </form>
+                            <?php if ($canEdit): ?>
+                                <a href="/admin/horses/edit?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
+                            <?php endif; ?>
+                            <?php if ($canDelete): ?>
+                                <form action="/admin/horses/delete" method="POST" onsubmit="return confirm('Möchten Sie dieses Pferd wirklich löschen?');" style="display:inline;">
+                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                    <input type="hidden" name="id" value="<?= $horse['id'] ?>">
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #dc3545;">Löschen</button>
+                                </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

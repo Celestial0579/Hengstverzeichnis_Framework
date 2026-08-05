@@ -280,6 +280,78 @@ class Database {
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (\Throwable $e) {}
+
+        // 13. Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
+        // BaseController::hasPermission()). Drei feste Gruppen admin/editor/public
+        // werden geseedet - admin/editor-Mitgliedschaft ergibt sich weiterhin aus
+        // users.role, `public` repräsentiert nicht angemeldete Besucher und erhält nie
+        // Berechtigungs-Zeilen (serverseitig erzwungen, siehe GroupController).
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `groups` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `slug` VARCHAR(50) NOT NULL UNIQUE,
+                `name` VARCHAR(100) NOT NULL,
+                `description` VARCHAR(255) NULL,
+                `is_builtin` TINYINT(1) NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
+                ('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
+                ('editor', 'Editor', 'Standard-Bearbeiterrolle mit Verwaltungszugriff.', 1),
+                ('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - kann aus Sicherheitsgründen keine Berechtigungen erhalten.', 1)");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `user_groups` (
+                `user_id` INT NOT NULL,
+                `group_id` INT NOT NULL,
+                PRIMARY KEY (`user_id`, `group_id`),
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        // Erkennen, ob group_permissions gerade NEU angelegt wird (Bestandsinstallation
+        // ohne dieses Feature) - nur dann die Editor-Standardrechte seeden, damit eine
+        // spätere, bewusste Rechte-Entziehung durch einen Admin nicht bei jedem
+        // Request erneut rückgängig gemacht wird (siehe docs/user-groups-plan.md, 3.4/8).
+        $groupPermissionsExisted = true;
+        try {
+            $checkStmt = $pdo->query("SHOW TABLES LIKE 'group_permissions'");
+            $groupPermissionsExisted = $checkStmt && $checkStmt->rowCount() > 0;
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `group_permissions` (
+                `group_id` INT NOT NULL,
+                `module` VARCHAR(50) NOT NULL,
+                `action` VARCHAR(50) NOT NULL,
+                PRIMARY KEY (`group_id`, `module`, `action`),
+                FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        if (!$groupPermissionsExisted) {
+            try {
+                $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
+                if ($editorGroupId) {
+                    // Editor behält beim Upgrade exakt die Rechte, die er schon vorher hatte
+                    // (uneingeschränkter CRUD-Zugriff) - siehe docs/user-groups-plan.md, 8.
+                    $defaultEditorPermissions = [
+                        ['horses', 'create'], ['horses', 'edit'], ['horses', 'delete'], ['horses', 'publish'],
+                        ['persons', 'create'], ['persons', 'edit'], ['persons', 'delete'],
+                        ['breeding_stations', 'create'], ['breeding_stations', 'edit'], ['breeding_stations', 'delete'],
+                    ];
+                    $insertPermStmt = $pdo->prepare("INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`) VALUES (?, ?, ?)");
+                    foreach ($defaultEditorPermissions as [$module, $action]) {
+                        $insertPermStmt->execute([$editorGroupId, $module, $action]);
+                    }
+                }
+            } catch (\Throwable $e) {}
+        }
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

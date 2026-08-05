@@ -1,6 +1,7 @@
 # Benutzergruppen-/Berechtigungskonzept — Umsetzungsplanung
 
-**Status:** Planungsphase (noch keine Implementierung)
+**Status:** Phase 1 (siehe Abschnitt 6, nach der Konkretisierung in
+Abschnitt 8) umgesetzt.
 **Bezug:** [#66](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/66) (Kern-Anforderung, Vorgänger-Issue), [#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56) (Plugin-System, wartet laut Issue-Kommentaren auf dieses Konzept), [#57](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/57) (Rolle „Mitglied“, erster konkreter Anwendungsfall)
 
 Dieses Dokument bricht #66 auf eine konkrete, mit der bestehenden
@@ -270,3 +271,66 @@ Nach Freigabe dieser Planung (insbesondere der offenen Punkte in Abschnitt
 5): Umsetzung gemäß Phase 1, beginnend mit dem Datenmodell und
 `requireFeatureAccess()` (Punkte 1–2), da alle weiteren Punkte darauf
 aufbauen - analog zum Vorgehen bei #56.
+
+## 8. Konkretisierung durch den Repo-Owner (finales Design für die Umsetzung)
+
+Nach Rücksprache wurden die offenen Punkte aus Abschnitt 5 wie folgt konkret
+entschieden - dieser Abschnitt ersetzt das abstraktere `feature_access`-
+Konzept aus Abschnitt 3 durch ein konkretes RBAC-Modell (Rollen-/
+Gruppen-basierte Rechtevergabe je Modul × Aktion):
+
+- **Drei feste (`is_builtin`), nicht löschbare Gruppen**: `admin`, `editor`,
+  `public`. Zusätzliche, frei benennbare Gruppen können angelegt werden.
+- **`admin`**: hat serverseitig **hart codiert** immer alle Rechte - keine
+  Datenbank-Zeile nötig/möglich, nicht über die Admin-UI einschränkbar.
+- **`editor`**: Standardmäßig alle Rechte, die Editoren schon heute haben
+  (uneingeschränkter CRUD-Zugriff auf Pferde/Personen/Deckstationen) - beim
+  allerersten Anlegen der Tabellen als echte, editierbare
+  `group_permissions`-Zeilen geseedet (kein Hardcoding), ein Admin kann sie
+  später über die UI granular einschränken.
+- **`public`** (nicht angemeldete Besucher): darf **niemals**
+  sicherheitsrelevante (schreibende) Berechtigungen erhalten - sowohl in der
+  Admin-UI (Checkboxen deaktiviert) als auch serverseitig beim Speichern
+  (harte Ablehnung, unabhängig vom UI) durchgesetzt.
+- **Mitgliedschaft**: `admin`/`editor`-Zugehörigkeit ergibt sich weiterhin
+  aus der bestehenden Spalte `users.role` (kein Bruch der bestehenden
+  Auth-Logik) - zusätzlich kann ein Benutzer beliebig vielen **eigenen**
+  Gruppen zugeordnet werden (`user_groups`, Mehrfachauswahl im
+  Benutzer-Formular). `public` hat keine Zeilen in `user_groups` - es
+  repräsentiert implizit "nicht angemeldet".
+- **Berechtigungen je Modul × Aktion** statt eines einzelnen
+  öffentlich/authenticated/groups-Modus pro Feature: Erstumsetzung deckt die
+  drei bestehenden CRUD-Bereiche ab, mit dem vom Repo-Owner explizit
+  genannten Beispiel Pferde (create/edit/delete/**publish**):
+
+  | Modul | Aktionen |
+  |---|---|
+  | `horses` | `create`, `edit`, `delete`, `publish` |
+  | `persons` | `create`, `edit`, `delete` |
+  | `breeding_stations` | `create`, `edit`, `delete` |
+
+  `publish` = darf den Status eines Pferdes auf `active` setzen (damit im
+  öffentlichen Katalog sichtbar, siehe `PublicController::index()`/`catalog()`
+  Filter `status = 'active'`) - ohne diese Berechtigung wird eine
+  übermittelte Statusänderung zu `active` serverseitig ignoriert
+  (Neuanlage: erzwungen `inactive`; Bearbeitung: bestehender Status bleibt
+  erhalten), alle anderen Statusübergänge (z. B. `inactive` ↔ `deceased`)
+  bleiben unabhängig von `publish` möglich, da sie die öffentliche
+  Sichtbarkeit nicht erhöhen.
+  Benutzerverwaltung, DSGVO, System-/Mail-Einstellungen, Papierkorb und
+  Plugin-Aktivierung bleiben in dieser Erstumsetzung bewusst weiterhin
+  ausschließlich `admin`-only (unverändert `requireAdmin()`) - das sind
+  System-/Konfigurationsbereiche, keine "Einträge in einem Bereich" im vom
+  Repo-Owner genannten Sinn, und würden den Scope dieser Umsetzung
+  erheblich vergrößern. Kandidat für eine spätere Erweiterung der
+  Modul-Tabelle.
+- **Fail-closed** (siehe 3.4) bleibt bestehen: fehlt eine Berechtigung oder
+  schlägt die DB-Abfrage fehl, wird der Zugriff verweigert, nie gewährt.
+
+Der `feature_access`/`feature_access_groups`-Vorschlag aus Abschnitt 3.1–3.4
+sowie die Anbindung an #56 über ein `gated_features`-Manifestfeld
+(Abschnitt 4.2) bleiben als **spätere, generischere Erweiterung** relevant
+(z. B. für Plugin-eigene, nicht in der festen Modul-Tabelle abgebildete
+Funktionen) - für die Erstumsetzung wird stattdessen das oben beschriebene,
+konkretere Modul×Aktion-Modell umgesetzt, das die vom Repo-Owner genannten
+Anforderungen direkter abbildet.

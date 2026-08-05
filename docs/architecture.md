@@ -163,3 +163,28 @@ die zugrundeliegenden Architekturentscheidungen.
 - `plugins/` ist bewusst nicht Teil des Kern-Repositories (nur
   `plugins/.gitkeep` versioniert) – Plugins werden separat gepflegt, siehe
   Referenz-/Beispielplugin unter `docs/examples/demo-plugin/`.
+
+## Gruppen-/Berechtigungssystem (`src/Permission/`, `groups`/`user_groups`/`group_permissions`, #66)
+
+Granulare, admin-konfigurierbare Rechtevergabe je Modul × Aktion (Erstellen/
+Bearbeiten/Löschen/Veröffentlichen) – siehe
+[user-groups-plan.md](user-groups-plan.md) für die Architekturentscheidungen.
+
+- Drei feste (`is_builtin`) Gruppen: `admin` (hart codiert immer alle
+  Rechte), `editor` (standardmäßig alle Rechte wie vor Einführung dieses
+  Systems, über die Admin-UI granular einschränkbar), `public` (nicht
+  angemeldete Besucher – kann serverseitig erzwungen nie schreibende
+  Berechtigungen erhalten). admin/editor-Mitgliedschaft ergibt sich weiter
+  aus `users.role`; zusätzlich können Benutzer beliebig vielen eigenen,
+  frei anlegbaren Gruppen zugeordnet werden (`user_groups`, Verwaltung
+  unter `/admin/groups` bzw. im Benutzer-Formular).
+- `App\Permission\PermissionRegistry`: statischer Katalog der verfügbaren
+  Module/Aktionen (aktuell `horses` inkl. `publish`, `persons`,
+  `breeding_stations`) – bewusst als PHP-Array, keine DB-Katalogtabelle.
+- `BaseController::hasPermission()`/`requirePermission()`: Prüfung fail-closed
+  (fehlende Zuordnung oder DB-Fehler → Zugriff verweigert), Admin-Bypass hart
+  codiert. Eingesetzt in `HorseController`/`PersonController`/
+  `BreedingStationController` anstelle eines reinen `checkAuth()`.
+- Benutzerverwaltung, DSGVO, System-/Mail-Einstellungen, Papierkorb und
+  Plugin-Aktivierung bleiben bewusst weiterhin ausschließlich admin-only
+  (`requireAdmin()`), nicht Teil der Modul-Tabelle.

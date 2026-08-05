@@ -146,6 +146,12 @@ $router->get('/admin/logs', [App\Controllers\AdminController::class, 'logs']);
 $router->get('/admin/plugins', [App\Controllers\PluginController::class, 'index']);
 $router->post('/admin/plugins/toggle', [App\Controllers\PluginController::class, 'toggle']);
 
+// Admin Gruppen-/Berechtigungsverwaltung (#66)
+$router->get('/admin/groups', [App\Controllers\GroupController::class, 'index']);
+$router->post('/admin/groups/create', [App\Controllers\GroupController::class, 'createGroup']);
+$router->post('/admin/groups/delete', [App\Controllers\GroupController::class, 'deleteGroup']);
+$router->post('/admin/groups/permissions', [App\Controllers\GroupController::class, 'updatePermissions']);
+
 // Plugin-Routen: von aktivierten Plugins über eine optionale routes()-Methode
 // deklariert (siehe App\Plugin\PluginManager::registerPluginRoute()). Der
 // Präfix "/plugin/<slug>/" wird dabei zwingend vom PluginManager selbst

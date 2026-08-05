@@ -136,6 +136,57 @@ CREATE TABLE IF NOT EXISTS `plugins` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
+-- BaseController::hasPermission()). admin/editor-Mitgliedschaft ergibt sich aus
+-- users.role, `public` repräsentiert nicht angemeldete Besucher.
+CREATE TABLE IF NOT EXISTS `groups` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `slug` VARCHAR(50) NOT NULL UNIQUE,
+    `name` VARCHAR(100) NOT NULL,
+    `description` VARCHAR(255) NULL,
+    `is_builtin` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
+('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
+('editor', 'Editor', 'Standard-Bearbeiterrolle mit Verwaltungszugriff.', 1),
+('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - kann aus Sicherheitsgründen keine Berechtigungen erhalten.', 1);
+
+CREATE TABLE IF NOT EXISTS `user_groups` (
+    `user_id` INT NOT NULL,
+    `group_id` INT NOT NULL,
+    PRIMARY KEY (`user_id`, `group_id`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `group_permissions` (
+    `group_id` INT NOT NULL,
+    `module` VARCHAR(50) NOT NULL,
+    `action` VARCHAR(50) NOT NULL,
+    PRIMARY KEY (`group_id`, `module`, `action`),
+    FOREIGN KEY (`group_id`) REFERENCES `groups`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Editor behält bei einer frischen Installation dieselben Rechte, die die Rolle
+-- schon vorher hatte (uneingeschränkter CRUD-Zugriff) - siehe docs/user-groups-plan.md.
+INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
+SELECT `id`, `module`, `action` FROM `groups`
+CROSS JOIN (
+    SELECT 'horses' AS `module`, 'create' AS `action` UNION ALL
+    SELECT 'horses', 'edit' UNION ALL
+    SELECT 'horses', 'delete' UNION ALL
+    SELECT 'horses', 'publish' UNION ALL
+    SELECT 'persons', 'create' UNION ALL
+    SELECT 'persons', 'edit' UNION ALL
+    SELECT 'persons', 'delete' UNION ALL
+    SELECT 'breeding_stations', 'create' UNION ALL
+    SELECT 'breeding_stations', 'edit' UNION ALL
+    SELECT 'breeding_stations', 'delete'
+) AS `defaults`
+WHERE `groups`.`slug` = 'editor';
+
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS `audit_logs` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,

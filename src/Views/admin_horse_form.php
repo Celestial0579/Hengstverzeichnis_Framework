@@ -4,6 +4,7 @@
  * @var array|null $horse
  * @var array $allHorses
  * @var string $title
+ * @var bool $canPublish Berechtigung 'horses.publish' (#66)
  */
 $isEdit = !empty($horse);
 $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
@@ -300,10 +301,15 @@ foreach (($allBreedingStations ?? []) as $bs) {
         <div class="form-group">
             <label for="status">Status</label>
             <select id="status" name="status" class="form-control">
-                <option value="active" <?= ($horse['status'] ?? '') === 'active' ? 'selected' : '' ?>>Aktiv (Gekört)</option>
+                <option value="active" <?= ($horse['status'] ?? '') === 'active' ? 'selected' : '' ?> <?= $canPublish ? '' : 'disabled' ?>>Aktiv (Gekört, im öffentlichen Katalog sichtbar)</option>
                 <option value="inactive" <?= ($horse['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inaktiv</option>
                 <option value="deceased" <?= ($horse['status'] ?? '') === 'deceased' ? 'selected' : '' ?>>Verstorben</option>
             </select>
+            <?php if (!$canPublish): ?>
+                <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                    Ihnen fehlt die Berechtigung "Veröffentlichen" - der Status kann daher nicht auf "Aktiv" gesetzt werden.
+                </p>
+            <?php endif; ?>
         </div>
 
         <div class="form-group">

@@ -27,6 +27,12 @@ abstract class BaseController {
     protected array $settings = [];
 
     /**
+     * Request-lokaler Cache der Gruppen-IDs des aktuellen Benutzers (#66).
+     * @var array<int, int>|null
+     */
+    private ?array $groupIdsCache = null;
+
+    /**
      * Basis-Konstruktor. Lädt automatisch alle Einstellungen aus der Datenbank.
      */
     public function __construct() {
@@ -193,6 +199,95 @@ abstract class BaseController {
     protected function requireAdmin(): void {
         if (($_SESSION['role'] ?? '') !== 'admin') {
             $this->renderForbidden("Zugriff verweigert: Diese Funktion steht ausschließlich Administratoren zur Verfügung.");
+        }
+    }
+
+    /**
+     * Gruppen-Zugehörigkeit des aktuellen Session-Benutzers (#66, siehe
+     * docs/user-groups-plan.md). Admin-/Editor-Mitgliedschaft ergibt sich aus der
+     * bestehenden Spalte users.role, zusätzlich kann ein Benutzer beliebig vielen
+     * eigenen (nicht eingebauten) Gruppen zugeordnet sein. Innerhalb eines Requests
+     * gecacht, da mehrere hasPermission()-Aufrufe pro Seite üblich sind.
+     *
+     * @return array<int, int> IDs aller Gruppen, denen der aktuelle Benutzer angehört
+     */
+    protected function userGroupIds(): array {
+        if ($this->groupIdsCache !== null) {
+            return $this->groupIdsCache;
+        }
+
+        $this->groupIdsCache = [];
+        if (empty($_SESSION['user_id'])) {
+            // Nicht angemeldet: keine expliziten Gruppen-Zeilen (siehe 'public' in groups,
+            // die nie eine user_groups-Zuordnung braucht/erhält).
+            return $this->groupIdsCache;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $ids = [];
+
+            $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug = ?");
+            $stmt->execute([$_SESSION['role'] ?? 'editor']);
+            $roleGroupId = $stmt->fetchColumn();
+            if ($roleGroupId) {
+                $ids[] = (int)$roleGroupId;
+            }
+
+            $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $groupId) {
+                $ids[] = (int)$groupId;
+            }
+
+            $this->groupIdsCache = array_values(array_unique($ids));
+        } catch (\Throwable $e) {
+            $this->groupIdsCache = [];
+        }
+
+        return $this->groupIdsCache;
+    }
+
+    /**
+     * Prüft, ob der aktuelle Benutzer eine Berechtigung für ein Modul × Aktion aus
+     * App\Permission\PermissionRegistry besitzt (#66). Reine Prüfung ohne
+     * Seiten-Abbruch, z. B. um einen Button bedingt anzuzeigen - für den erzwingenden
+     * Abbruch siehe requirePermission().
+     *
+     * Sicherheits-Leitplanken:
+     * - `admin` hat IMMER alle Rechte, hart codiert - unabhängig vom DB-Inhalt und
+     *   nicht über die Admin-UI entziehbar (siehe docs/user-groups-plan.md, Abschnitt 8).
+     * - Fail-closed: fehlt eine passende group_permissions-Zeile oder schlägt die
+     *   DB-Abfrage fehl, wird der Zugriff verweigert, nie gewährt.
+     */
+    protected function hasPermission(string $module, string $action): bool {
+        if (($_SESSION['role'] ?? '') === 'admin') {
+            return true;
+        }
+
+        $groupIds = $this->userGroupIds();
+        if (empty($groupIds)) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+            $stmt = $db->prepare("SELECT COUNT(*) FROM group_permissions WHERE module = ? AND action = ? AND group_id IN ({$placeholders})");
+            $stmt->execute(array_merge([$module, $action], $groupIds));
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Erzwingt eine Modul × Aktion-Berechtigung (#66) und bricht andernfalls mit einer
+     * protokollierten 403-Seite ab - im selben Stil wie requireAdmin().
+     */
+    protected function requirePermission(string $module, string $action): void {
+        if (!$this->hasPermission($module, $action)) {
+            $this->renderForbidden("Zugriff verweigert: Für diese Aktion fehlt Ihnen die Berechtigung '{$action}' im Bereich '{$module}'.");
         }
     }
 

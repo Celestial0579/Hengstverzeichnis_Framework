@@ -18,6 +18,13 @@ Breaking Changes sind jederzeit möglich).
   `horse.after_save`, `horse.detail_sections`, `admin.dashboard_tiles`) sowie
   optionale, zwingend unter `/plugin/<slug>/...` laufende Plugin-Routen.
   Siehe [docs/plugin-development.md](docs/plugin-development.md).
+- Gruppen-/Berechtigungssystem (#66): Admin-konfigurierbare Rechtevergabe je
+  Modul × Aktion (Erstellen/Bearbeiten/Löschen/Veröffentlichen) für Pferde,
+  Personen und Deckstationen. Drei feste Gruppen (Admin mit stets allen
+  Rechten, Editor standardmäßig wie bisher, Öffentlich/Gäste ohne
+  Möglichkeit für schreibende Rechte) sowie beliebig viele eigene Gruppen,
+  denen Benutzer im Benutzer-Formular zugeordnet werden können. Verwaltung
+  unter `/admin/groups`. Siehe [docs/user-groups-plan.md](docs/user-groups-plan.md).
 
 ## [0.1.0-beta.1] – 2026-08-04
 

@@ -75,6 +75,9 @@ $trashCount = \App\Controllers\TrashController::getTrashCount();
                 <a href="/admin/users" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                     👥 Benutzer verwalten
                 </a>
+                <a href="/admin/groups" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
+                    🛂 Gruppen & Berechtigungen
+                </a>
                 <a href="/admin/gdpr" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                     🛡️ DSGVO Anfragen
                 </a>

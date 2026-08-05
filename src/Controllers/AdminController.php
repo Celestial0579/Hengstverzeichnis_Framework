@@ -140,7 +140,23 @@ class AdminController extends BaseController {
             $baseUrl = rtrim($baseUrl, '/') . '/';
 
             $parsedUrl = parse_url($baseUrl);
-            if (filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL) === false || empty($parsedUrl['host'])) {
+            $host = $parsedUrl['host'] ?? '';
+
+            // Verteidigung in die Tiefe (OWASP SSRF Cheat Sheet): "localhost" sowie
+            // literale private/reservierte IPs als Host blockieren. base_url wird
+            // aktuell nur zur Erzeugung von Links genutzt (Mailer.php, layout.php)
+            // und nie serverseitig abgerufen - kein aktiver SSRF-Sink -, das soll
+            // aber auch so bleiben, falls hier künftig ein serverseitiger Abruf
+            // hinzukommt.
+            $isPrivateOrLoopbackIp = filter_var($host, FILTER_VALIDATE_IP) !== false
+                && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+
+            if (
+                filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL) === false
+                || empty($host)
+                || strcasecmp($host, 'localhost') === 0
+                || $isPrivateOrLoopbackIp
+            ) {
                 header("Location: /admin/system-settings?error=invalid_base_url");
                 exit;
             }

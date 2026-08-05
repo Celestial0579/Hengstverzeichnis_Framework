@@ -1,11 +1,17 @@
 <?php
 // src/Views/admin_groups.php
 /**
- * @var array $groups Zeilen aus `groups`
+ * @var array $groups Alle Gruppen (für Bearbeiten-/Kopieren-Dropdowns, NICHT paginiert)
+ * @var array $pagedGroups Ausschnitt von $groups für die aktuelle Seite der Übersichtstabelle
  * @var array $permissions [group_id => [module => [action => true]]]
  * @var array $modules App\Permission\PermissionRegistry::MODULES
  * @var int $selectedGroupId Aktuell zur Bearbeitung ausgewählte Gruppe
  * @var int $totalPermissionCount Gesamtzahl aller Modul/Aktion-Kombinationen (für die Zusammenfassung)
+ * @var int|string $perPage Seitengröße der Übersichtstabelle (10/25/50/100 oder 'all')
+ * @var array $perPageOptions Erlaubte feste Seitengrößen (ohne 'all')
+ * @var int $page Aktuelle Seite der Übersichtstabelle
+ * @var int $totalPages
+ * @var int $totalGroups
  */
 
 $errorMessages = [
@@ -68,46 +74,81 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             den bestehenden Login-Zwang abgesichert.
         </p>
 
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 1.5rem;">
-            <thead>
-                <tr style="border-bottom: 2px solid #eee; text-align: left;">
-                    <th style="padding: 0.4rem;">Gruppe</th>
-                    <th style="padding: 0.4rem;">Typ</th>
-                    <th style="padding: 0.4rem;">Berechtigungen</th>
-                    <th style="padding: 0.4rem;">Aktion</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($groups as $group): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
-                        <td style="padding: 0.4rem;">
-                            <strong><?= htmlspecialchars($group['name']) ?></strong>
-                            <?php if (!empty($group['description'])): ?>
-                                <br><span style="color: #888; font-size: 0.8rem;"><?= htmlspecialchars($group['description']) ?></span>
-                            <?php endif; ?>
-                        </td>
-                        <td style="padding: 0.4rem; font-size: 0.85rem; color: #666;">
-                            <?= $group['is_builtin'] ? 'Eingebaut' : 'Eigene Gruppe' ?>
-                        </td>
-                        <td style="padding: 0.4rem; font-size: 0.85rem;">
-                            <?= htmlspecialchars(summarizeGroupPermissions($group, $permissions[(int)$group['id']] ?? [], $totalPermissionCount)) ?>
-                        </td>
-                        <td style="padding: 0.4rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <a href="/admin/groups?group=<?= (int)$group['id'] ?>" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.85rem;">
-                                <?= (int)$group['id'] === $selectedGroupId ? 'Ausgewählt' : 'Bearbeiten' ?>
-                            </a>
-                            <?php if (!$group['is_builtin']): ?>
-                                <form action="/admin/groups/delete" method="POST" onsubmit="return confirm('Gruppe \'<?= htmlspecialchars(addslashes($group['name'])) ?>\' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen.');">
-                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                    <input type="hidden" name="id" value="<?= (int)$group['id'] ?>">
-                                    <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #dc3545;">Löschen</button>
-                                </form>
-                            <?php endif; ?>
-                        </td>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <span style="font-size: 0.85rem; color: #666;"><?= $totalGroups ?> Gruppe<?= $totalGroups === 1 ? '' : 'n' ?> insgesamt</span>
+            <form action="/admin/groups" method="GET" style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                <input type="hidden" name="group" value="<?= $selectedGroupId ?>">
+                <label for="per-page-select" style="font-size: 0.85rem; margin: 0; font-weight: normal;">Anzeigen:</label>
+                <select id="per-page-select" name="per_page" class="form-control" onchange="this.form.submit()" style="width: auto; padding: 0.3rem 0.5rem; font-size: 0.85rem;">
+                    <?php foreach ($perPageOptions as $opt): ?>
+                        <option value="<?= $opt ?>" <?= $perPage === $opt ? 'selected' : '' ?>><?= $opt ?></option>
+                    <?php endforeach; ?>
+                    <option value="all" <?= $perPage === 'all' ? 'selected' : '' ?>>Alle</option>
+                </select>
+            </form>
+        </div>
+
+        <!-- Ab ca. 5-10 Zeilen scrollbar (max-height), damit die Seite bei vielen eigenen
+             Gruppen nicht beliebig lang wird - unabhängig von der gewählten Seitengröße. -->
+        <div style="max-height: 420px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; margin-bottom: 1rem;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #eee; text-align: left; position: sticky; top: 0; background: #fff; z-index: 1;">
+                        <th style="padding: 0.4rem;">Gruppe</th>
+                        <th style="padding: 0.4rem;">Typ</th>
+                        <th style="padding: 0.4rem;">Berechtigungen</th>
+                        <th style="padding: 0.4rem;">Aktion</th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php if (empty($pagedGroups)): ?>
+                        <tr>
+                            <td colspan="4" style="padding: 1rem; text-align: center; color: #888;">Keine Gruppen auf dieser Seite.</td>
+                        </tr>
+                    <?php endif; ?>
+                    <?php foreach ($pagedGroups as $group): ?>
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 0.4rem;">
+                                <strong><?= htmlspecialchars($group['name']) ?></strong>
+                                <?php if (!empty($group['description'])): ?>
+                                    <br><span style="color: #888; font-size: 0.8rem;"><?= htmlspecialchars($group['description']) ?></span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 0.4rem; font-size: 0.85rem; color: #666;">
+                                <?= $group['is_builtin'] ? 'Eingebaut' : 'Eigene Gruppe' ?>
+                            </td>
+                            <td style="padding: 0.4rem; font-size: 0.85rem;">
+                                <?= htmlspecialchars(summarizeGroupPermissions($group, $permissions[(int)$group['id']] ?? [], $totalPermissionCount)) ?>
+                            </td>
+                            <td style="padding: 0.4rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <a href="/admin/groups?group=<?= (int)$group['id'] ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page ?>" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.85rem;">
+                                    <?= (int)$group['id'] === $selectedGroupId ? 'Ausgewählt' : 'Bearbeiten' ?>
+                                </a>
+                                <?php if (!$group['is_builtin']): ?>
+                                    <form action="/admin/groups/delete" method="POST" onsubmit="return confirm('Gruppe \'<?= htmlspecialchars(addslashes($group['name'])) ?>\' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen.');">
+                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                        <input type="hidden" name="id" value="<?= (int)$group['id'] ?>">
+                                        <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #dc3545;">Löschen</button>
+                                    </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+        <?php if ($totalPages > 1): ?>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
+                <?php if ($page > 1): ?>
+                    <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page - 1 ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">← Zurück</a>
+                <?php endif; ?>
+                <span>Seite <?= $page ?> von <?= $totalPages ?></span>
+                <?php if ($page < $totalPages): ?>
+                    <a href="/admin/groups?group=<?= $selectedGroupId ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page + 1 ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">Weiter →</a>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
 
         <form action="/admin/groups/create" method="POST" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; border-top: 1px solid #eee; padding-top: 1rem;">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">

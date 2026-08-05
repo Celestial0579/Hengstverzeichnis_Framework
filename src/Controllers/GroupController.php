@@ -39,6 +39,9 @@ class GroupController extends BaseController {
         $this->requireAdmin();
     }
 
+    /** Erlaubte Werte für die Seitengröße der Gruppen-Übersichtstabelle. */
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
     public function index(): void {
         $db = Database::getInstance();
         $groups = $db->query("SELECT * FROM `groups` ORDER BY is_builtin DESC, name ASC")->fetchAll();
@@ -53,6 +56,8 @@ class GroupController extends BaseController {
         // Kompaktheit: es wird immer nur die Berechtigungsmatrix EINER Gruppe angezeigt,
         // nicht mehr aller Gruppen untereinander. Default: die erste nicht-eingebaute
         // Gruppe (meist "Editor"), da das der häufigste Bearbeitungsfall ist.
+        // WICHTIG: Diese Auswahl bezieht sich immer auf die VOLLSTÄNDIGE Gruppenliste,
+        // unabhängig von der Pagination der Übersichtstabelle unten (siehe $pagedGroups).
         $groupIds = array_column($groups, 'id');
         $selectedGroupId = isset($_GET['group']) ? (int)$_GET['group'] : 0;
         if (!in_array($selectedGroupId, array_map('intval', $groupIds), true)) {
@@ -66,13 +71,38 @@ class GroupController extends BaseController {
             $selectedGroupId = $defaultGroup ? (int)$defaultGroup['id'] : (int)($groups[0]['id'] ?? 0);
         }
 
+        // Pagination der Übersichtstabelle (nicht der Bearbeiten-Auswahl oben): "alle" oder
+        // eine feste Seitengröße aus PER_PAGE_OPTIONS. Ungültige/fehlende Werte -> Default 25.
+        $perPageParam = $_GET['per_page'] ?? '25';
+        $perPage = $perPageParam === 'all' ? 'all' : (int)$perPageParam;
+        if ($perPage !== 'all' && !in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $totalGroups = count($groups);
+        if ($perPage === 'all') {
+            $totalPages = 1;
+            $page = 1;
+            $pagedGroups = $groups;
+        } else {
+            $totalPages = max(1, (int)ceil($totalGroups / $perPage));
+            $page = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
+            $pagedGroups = array_slice($groups, ($page - 1) * $perPage, $perPage);
+        }
+
         $this->render('admin_groups', [
             'title' => 'Gruppen & Berechtigungen',
             'groups' => $groups,
+            'pagedGroups' => $pagedGroups,
             'permissions' => $permissions,
             'modules' => PermissionRegistry::MODULES,
             'selectedGroupId' => $selectedGroupId,
             'totalPermissionCount' => PermissionRegistry::countAll(),
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'page' => $page,
+            'totalPages' => $totalPages,
+            'totalGroups' => $totalGroups,
         ]);
     }
 

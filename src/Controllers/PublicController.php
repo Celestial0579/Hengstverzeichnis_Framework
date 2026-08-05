@@ -214,8 +214,11 @@ class PublicController extends BaseController {
         $stmt->execute([$id]);
         $horsePersons = $stmt->fetchAll();
 
-        // Build 4-generation pedigree tree
-        $pedigreeTree = \App\Service\PedigreeBuilder::build((int)$id, 4);
+        // Build 6-generation pedigree tree (#53) - die öffentliche Seite selbst
+        // zeigt per Default weiterhin 3 Generationen an (JS-Umschalter bis 6),
+        // die tieferen Ebenen werden serverseitig mitgeliefert, damit der
+        // Generationswechsel ohne Nachladen rein clientseitig funktioniert.
+        $pedigreeTree = \App\Service\PedigreeBuilder::build((int)$id, 6);
 
         // Plugin-Hook (#56): Erweiterungspunkt für einen zusätzlichen Abschnitt auf der
         // Pferde-Detailseite. Callbacks liefern bereits fertiges, selbst escapetes HTML

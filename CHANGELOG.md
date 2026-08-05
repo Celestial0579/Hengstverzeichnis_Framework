@@ -36,6 +36,10 @@ Breaking Changes sind jederzeit möglich).
   Filter erhält zusätzlich den bereits berechneten Baum als vierten,
   rückwärtskompatiblen Parameter (siehe
   [docs/plugin-development.md](docs/plugin-development.md)).
+- Erweiterte Generationstiefe im Stammbaum der öffentlichen Pferde-
+  Detailseite (#53): der interaktive Umschalter reicht jetzt bis zur
+  6. Generation (Urururgroßeltern) statt bisher maximal 4
+  (Urgroßeltern), aufbauend auf `App\Service\PedigreeBuilder`.
 
 ## [0.2.0-beta.1] – 2026-08-05
 

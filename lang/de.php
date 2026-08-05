@@ -99,6 +99,8 @@ return [
     'horse.gen_2' => '2 Generationen (Eltern)',
     'horse.gen_3' => '3 Generationen (Großeltern)',
     'horse.gen_4' => '4 Generationen (Urgroßeltern)',
+    'horse.gen_5' => '5 Generationen (Ururgroßeltern)',
+    'horse.gen_6' => '6 Generationen (Urururgroßeltern)',
     'horse.zoom_in_title' => 'Vergrößern',
     'horse.zoom_out_title' => 'Verkleinern',
     'horse.zoom_reset_title' => 'Zoom zurücksetzen',

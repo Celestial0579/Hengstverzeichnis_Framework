@@ -111,7 +111,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                             <td style="padding: 0.4rem;">
                                 <strong><?= htmlspecialchars($group['name']) ?></strong>
                                 <?php if (!empty($group['description'])): ?>
-                                    <br><span style="color: #888; font-size: 0.8rem;"><?= htmlspecialchars($group['description']) ?></span>
+                                    <span title="<?= htmlspecialchars($group['description']) ?>" style="cursor: help; color: #888; margin-left: 0.3rem;">ℹ️</span>
                                 <?php endif; ?>
                             </td>
                             <td style="padding: 0.4rem; font-size: 0.85rem; color: #666;">
@@ -187,14 +187,15 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                 <?php if ($selected['is_builtin']): ?>
                     <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background-color: #e2e3e5; color: #383d41; font-weight: 600; vertical-align: middle;">Eingebaut</span>
                 <?php endif; ?>
+                <?php if (!empty($selected['description'])): ?>
+                    <span title="<?= htmlspecialchars($selected['description']) ?>" style="cursor: help; color: #888; font-size: 0.85rem; font-weight: normal; margin-left: 0.3rem;">ℹ️</span>
+                <?php endif; ?>
             </h3>
 
             <?php if ($selected['slug'] === 'admin'): ?>
                 <p style="color: #666; font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
             <?php elseif ($selected['slug'] === 'public'): ?>
                 <p style="color: #666; font-size: 0.85rem;">🚫 Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend und keine Berechtigungen.</p>
-            <?php elseif (!empty($selected['description'])): ?>
-                <p style="color: #666; font-size: 0.85rem;"><?= htmlspecialchars($selected['description']) ?></p>
             <?php endif; ?>
 
             <?php if (!$isProtected && count($groups) > 1): ?>

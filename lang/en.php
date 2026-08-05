@@ -97,6 +97,8 @@ return [
     'horse.gen_2' => '2 Generations (Parents)',
     'horse.gen_3' => '3 Generations (Grandparents)',
     'horse.gen_4' => '4 Generations (Great-Grandparents)',
+    'horse.gen_5' => '5 Generations (Great-Great-Grandparents)',
+    'horse.gen_6' => '6 Generations (Great-Great-Great-Grandparents)',
     'horse.zoom_in_title' => 'Zoom in',
     'horse.zoom_out_title' => 'Zoom out',
     'horse.zoom_reset_title' => 'Reset zoom',

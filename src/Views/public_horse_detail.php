@@ -31,6 +31,50 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
         echo '</div>';
     }
 }
+
+/**
+ * Erzeugt alle Abstammungspfade einer bestimmten Tiefe in fester
+ * Sire-vor-Dam-Reihenfolge, z. B. depth=2: [sire,sire], [sire,dam],
+ * [dam,sire], [dam,dam].
+ * @return array<int, array<int, 'sire'|'dam'>>
+ */
+function pedigreePaths(int $depth): array {
+    if ($depth <= 0) {
+        return [[]];
+    }
+    $paths = [];
+    foreach (['sire', 'dam'] as $branch) {
+        foreach (pedigreePaths($depth - 1) as $rest) {
+            $paths[] = array_merge([$branch], $rest);
+        }
+    }
+    return $paths;
+}
+
+function pedigreeAncestor(?array $pedigree, array $path): ?array {
+    $node = $pedigree;
+    foreach ($path as $branch) {
+        $node = $node[$branch] ?? null;
+        if ($node === null) {
+            return null;
+        }
+    }
+    return $node;
+}
+
+/**
+ * Rendert eine unbeschriftete Generationsspalte (ab den Urgroßeltern):
+ * je eine Box-Gruppe für den väterlichen und mütterlichen Zweig.
+ */
+function renderPedigreeGeneration(?array $pedigree, int $depth): void {
+    foreach (['sire', 'dam'] as $rootBranch) {
+        echo '<div class="pedigree-group">';
+        foreach (pedigreePaths($depth - 1) as $subPath) {
+            renderPedigreeNode(pedigreeAncestor($pedigree, array_merge([$rootBranch], $subPath)));
+        }
+        echo '</div>';
+    }
+}
 ?>
 <div style="margin-bottom: 1rem;">
     <a href="/katalog" style="color: var(--primary-color); text-decoration: none; font-weight: 500;"><?= htmlspecialchars(App\I18n\Translator::t('common.back_to_catalog')) ?></a>
@@ -206,6 +250,8 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
                 <option value="2"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_2')) ?></option>
                 <option value="3" selected><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_3')) ?></option>
                 <option value="4"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_4')) ?></option>
+                <option value="5"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_5')) ?></option>
+                <option value="6"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_6')) ?></option>
             </select>
 
             <div style="width: 1px; height: 24px; background: #ccc; margin: 0 0.5rem;"></div>
@@ -267,18 +313,17 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
 
                 <!-- Gen 4: Urgroßeltern -->
                 <div class="pedigree-col gen-4">
-                    <div class="pedigree-group">
-                        <?php renderPedigreeNode($pedigree['sire']['sire']['sire'] ?? null); ?>
-                        <?php renderPedigreeNode($pedigree['sire']['sire']['dam'] ?? null); ?>
-                        <?php renderPedigreeNode($pedigree['sire']['dam']['sire'] ?? null); ?>
-                        <?php renderPedigreeNode($pedigree['sire']['dam']['dam'] ?? null); ?>
-                    </div>
-                    <div class="pedigree-group">
-                        <?php renderPedigreeNode($pedigree['dam']['sire']['sire'] ?? null); ?>
-                        <?php renderPedigreeNode($pedigree['dam']['sire']['dam'] ?? null); ?>
-                        <?php renderPedigreeNode($pedigree['dam']['dam']['sire'] ?? null); ?>
-                        <?php renderPedigreeNode($pedigree['dam']['dam']['dam'] ?? null); ?>
-                    </div>
+                    <?php renderPedigreeGeneration($pedigree, 3); ?>
+                </div>
+
+                <!-- Gen 5: Ururgroßeltern -->
+                <div class="pedigree-col gen-5">
+                    <?php renderPedigreeGeneration($pedigree, 4); ?>
+                </div>
+
+                <!-- Gen 6: Urururgroßeltern -->
+                <div class="pedigree-col gen-6">
+                    <?php renderPedigreeGeneration($pedigree, 5); ?>
                 </div>
 
             </div>
@@ -391,16 +436,25 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
 
 /* Generation Hiding Logic */
 .gen-view-2 .gen-3,
-.gen-view-2 .gen-4 {
+.gen-view-2 .gen-4,
+.gen-view-2 .gen-5,
+.gen-view-2 .gen-6 {
     display: none !important;
 }
 
-.gen-view-3 .gen-4 {
+.gen-view-3 .gen-4,
+.gen-view-3 .gen-5,
+.gen-view-3 .gen-6 {
     display: none !important;
 }
 
-.gen-view-4 .gen-4 {
-    display: flex !important;
+.gen-view-4 .gen-5,
+.gen-view-4 .gen-6 {
+    display: none !important;
+}
+
+.gen-view-5 .gen-6 {
+    display: none !important;
 }
 </style>
 

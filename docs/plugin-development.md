@@ -155,7 +155,7 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 |---|---|---|---|
 | `horse.before_save` | Action | Direkt vor `INSERT`/`UPDATE` in `HorseController::store()`/`update()` | `function(?int $horseId, array $postData): void` — `$horseId` ist `null` beim Anlegen |
 | `horse.after_save` | Action | Direkt nach dem erfolgreichen Speichern (inkl. Personen-/Match-Verknüpfung) | `function(int $horseId, array $postData, bool $isNew): void` |
-| `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 4-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde |
+| `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
 
 **Wichtig zu `horse.before_save`:** Da ein fehlgeschlagener Hook-Aufruf den
@@ -175,8 +175,9 @@ als Issue.
 Die Pedigree-Baum-Logik hinter `horse.detail_sections`' viertem Parameter
 steht Plugins auch unabhängig vom Hook zur Verfügung — z. B. für einen
 Inzuchtkoeffizienten-Rechner, der eine größere Generationstiefe braucht als
-die öffentliche Detailseite standardmäßig anzeigt (dort fest 4), oder für
-einen Pedigree-Export mit eigener Aufbereitung:
+die öffentliche Detailseite serverseitig lädt (dort fest 6, per UI bis zu
+dieser Tiefe umschaltbar), oder für einen Pedigree-Export mit eigener
+Aufbereitung:
 
 ```php
 $tree = \App\Service\PedigreeBuilder::build($horseId, $maxDepth);

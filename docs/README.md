@@ -19,6 +19,7 @@ Admins/Betreiber und Endnutzer.
 - [plugin-development.md](plugin-development.md) – Plugin-System: Manifest-Format, verfügbare Hooks, Routen, Sicherheitsgrenzen ([#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56))
 - [plugin-system-plan.md](plugin-system-plan.md) – Zugrundeliegende Architekturentscheidungen/Umsetzungsplanung für das Plugin-System
 - [user-groups-plan.md](user-groups-plan.md) – Gruppen-/Berechtigungskonzept: Architekturentscheidungen und tatsächliche Umsetzung ([#66](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/66), Voraussetzung für #56/#57)
+- [releasing.md](releasing.md) – Release-Prozess, automatisierte Artefakte (Docker-Image, Shared-Hosting-Archiv)
 
 ## Projektüberblick
 

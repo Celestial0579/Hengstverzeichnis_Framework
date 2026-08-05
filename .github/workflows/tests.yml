@@ -1,0 +1,102 @@
+# PHPUnit Test Suite
+#
+# Führt alle drei Testebenen aus (siehe docs/development.md, Abschnitt "Tests"):
+#   - Unit:        reine Logik ohne DB (tests/Unit)
+#   - Integration:  App\Database direkt im PHPUnit-Prozess gegen eine echte
+#                   MariaDB-Testdatenbank (tests/Integration)
+#   - Functional:   HTTP-Requests (curl) gegen eine per `php -S` gestartete
+#                   Instanz - nötig, weil praktisch jede Controller-Aktion mit
+#                   header()+exit; endet und sich daher nicht in-process testen
+#                   lässt (tests/Functional)
+# PHPUnit ist eine reine Dev-Abhängigkeit (Composer wird ausschließlich hier
+# und lokal für Tests genutzt, nicht für den Anwendungsbetrieb - siehe
+# docs/development.md).
+name: Tests
+
+on:
+  push:
+    branches: ["main", "beta"]
+  pull_request:
+    branches: ["main", "beta"]
+  # Wiederverwendbar für release.yml, das denselben Testlauf als Gate vor
+  # jedem Release braucht, ohne die Steps zu duplizieren.
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  phpunit:
+    name: PHPUnit
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2 (2.37.2)
+        with:
+          php-version: "8.3"
+          extensions: pdo, pdo_mysql, curl
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Prepare test databases
+        run: |
+          mysql -h127.0.0.1 -uroot -proot -e "
+            CREATE DATABASE IF NOT EXISTS hengst_integration;
+            CREATE DATABASE IF NOT EXISTS hengst_functional;
+            CREATE USER IF NOT EXISTS 'hengst'@'%' IDENTIFIED BY 'hengst';
+            GRANT ALL PRIVILEGES ON *.* TO 'hengst'@'%' WITH GRANT OPTION;
+            FLUSH PRIVILEGES;
+          "
+
+      - name: Run Unit tests
+        run: composer test -- --testsuite Unit
+
+      - name: Run Integration tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_NAME: hengst_integration
+          DB_USER: hengst
+          DB_PASS: hengst
+          APP_ENV: development
+        run: composer test -- --testsuite Integration
+
+      - name: Run Functional tests
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: "3306"
+          DB_NAME: hengst_functional
+          DB_USER: hengst
+          DB_PASS: hengst
+          APP_ENV: development
+          APP_KEY: ci-functional-test-key-not-for-production-use
+          SITE_NAME: CI Testverband
+          ADMIN_USERNAME: e2eadmin
+          ADMIN_EMAIL: e2e-admin@example.com
+          ADMIN_PASSWORD: FunctionalTest123!
+        run: composer test -- --testsuite Functional

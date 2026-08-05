@@ -15,3 +15,8 @@ public/uploads/*
 # nicht im Kern-Repo - nur die leere Verzeichnisstruktur wird versioniert.
 plugins/*
 !plugins/.gitkeep
+
+# Dev-only Composer-Abhängigkeiten (PHPUnit) - nicht Teil der Anwendungs-Runtime,
+# siehe composer.json und docs/development.md
+vendor/
+.phpunit.cache/

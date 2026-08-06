@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS `persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL,
     `contact_info` TEXT,
+    -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
+    -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
+    -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
+    `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -58,6 +62,10 @@ CREATE TABLE IF NOT EXISTS `breeding_stations` (
     `phone` VARCHAR(50) NULL,
     `email` VARCHAR(100) NULL,
     `website` VARCHAR(255) NULL,
+    -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
+    -- erscheint auf der öffentlichen Stations-Detailseite und in den Katalog-Filterlisten.
+    -- Neu angelegte Stationen sind standardmäßig unveröffentlicht.
+    `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL

@@ -129,12 +129,19 @@ class ImportController extends BaseController {
         unset($_SESSION[self::SESSION_KEY]);
 
         $canPublish = $this->hasPermission('horses', 'publish');
+        // Veröffentlichung ist seit der Entkopplung von Status/Sichtbarkeit unabhängig
+        // vom Lebenszyklus-`status` und wird für den gesamten Import über eine explizite
+        // Checkbox gesteuert (analog HorseController::store()): nur mit horses.publish UND
+        // angehaktem Feld werden die importierten Pferde direkt öffentlich sichtbar,
+        // sonst bleiben sie unveröffentlicht und können später über die Massen-
+        // Veröffentlichung in /admin/horses freigegeben werden.
+        $isPublished = (!empty($_POST['is_published']) && $canPublish) ? 1 : 0;
         $importedCount = 0;
         $skippedCount = 0;
 
         $insertStmt = $db->prepare("
-            INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, breeding_station, description, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, breeding_station, description, status, is_published)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         foreach ($validated as $entry) {
@@ -144,16 +151,12 @@ class ImportController extends BaseController {
             }
 
             $data = $entry['data'];
-            // Dieselbe Sperre wie bei der Einzelanlage (HorseController::store()):
-            // ohne horses.publish darf ein importiertes Pferd nie direkt öffentlich
-            // sichtbar ('active') werden.
-            $status = ($data['status'] === 'active' && !$canPublish) ? 'inactive' : $data['status'];
 
             $insertStmt->execute([
                 $data['name'], $data['ueln'], $data['foreign_ueln'],
                 $data['sire_name'], $data['sire_ueln'], $data['dam_name'], $data['dam_ueln'],
                 $data['birth_year'], $data['color'], $data['breeding_station'], $data['description'],
-                $status,
+                $data['status'], $isPublished,
             ]);
             $importedCount++;
         }

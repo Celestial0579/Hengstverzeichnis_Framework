@@ -166,8 +166,10 @@ class PublicController extends BaseController {
 
         // Fetch distinct filter options for dropdowns
         $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        // Nur veröffentlichte Stationen/Personen als öffentliche Filteroptionen anbieten
+        // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
+        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         // Plugin-Hook (#56, #97): Erweiterungspunkt für zusätzlichen Inhalt je Katalog-Karte
         // (z. B. ein "Merken"-Button), analog zu horse.detail_sections auf der Detailseite.
@@ -291,8 +293,10 @@ class PublicController extends BaseController {
             $this->renderNotFound(\App\I18n\Translator::t('station.not_found'));
         }
 
+        // Nur veröffentlichte Stationen (is_published) sind öffentlich erreichbar -
+        // unveröffentlichte liefern wie ein fehlender Datensatz eine 404.
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ? AND deleted_at IS NULL AND is_published = 1");
         $stmt->execute([$id]);
         $station = $stmt->fetch();
 

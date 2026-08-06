@@ -195,6 +195,25 @@ class Database {
             }
         } catch (\Throwable $e) {}
 
+        // Öffentliche Sichtbarkeit auch für Personen und Deckstationen (Massen-
+        // Veröffentlichung, siehe Admin-Listen). Diese Datensätze waren vor dem
+        // Upgrade uneingeschränkt öffentlich (Stations-Detailseite, Katalog-Filter),
+        // daher der EINMALIGE Backfill auf is_published=1 für den Bestand - sonst
+        // würden bestehende Stationen/Personen durch das Upgrade unsichtbar. Neu
+        // angelegte Datensätze starten dagegen unveröffentlicht (DEFAULT 0) und
+        // müssen bewusst veröffentlicht werden. Der Backfill ist an die
+        // SHOW COLUMNS-Prüfung gekoppelt und läuft nur beim erstmaligen Hinzufügen
+        // (analog zum Pferde-Block oben).
+        foreach (['persons', 'breeding_stations'] as $table) {
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE 'is_published'");
+                if ($stmt && $stmt->rowCount() === 0) {
+                    $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `is_published` TINYINT(1) NOT NULL DEFAULT 0");
+                    $pdo->exec("UPDATE `{$table}` SET `is_published` = 1");
+                }
+            } catch (\Throwable $e) {}
+        }
+
         // 5. Zuordnungen zwischen Pferden & Personen/Besitzern anlegen
         try {
             $pdo->exec("

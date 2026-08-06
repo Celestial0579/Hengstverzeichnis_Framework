@@ -5,7 +5,9 @@
  * @var string|null $error
  * @var array|null $old
  * @var string $title
+ * @var bool|null $canPublish
  */
+$canPublish = $canPublish ?? false;
 $isEdit = !empty($person);
 $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
 ?>
@@ -34,6 +36,16 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
             <label for="contact_info">Kontaktinformationen & Standort (Adresse, E-Mail, Telefon)</label>
             <textarea id="contact_info" name="contact_info" class="form-control" rows="4" placeholder="Musterstraße 12, 12345 Musterstadt&#10;E-Mail: kontakt@example.de&#10;Tel: 01234-56789"><?= htmlspecialchars($old['contact_info'] ?? $person['contact_info'] ?? '') ?></textarea>
         </div>
+
+        <?php if ($canPublish): ?>
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="is_published" value="1" <?= !empty($old['is_published'] ?? $person['is_published'] ?? 0) ? 'checked' : '' ?>>
+                <span>🌐 Öffentlich sichtbar (in Katalog-Filterlisten anzeigen)</span>
+            </label>
+            <small style="color: #666;">Ohne Häkchen bleibt die Person unveröffentlicht und erscheint nicht in den öffentlichen Filtern.</small>
+        </div>
+        <?php endif; ?>
 
         <div style="display: flex; gap: 1rem; margin-top: 2rem;">
             <button type="submit" class="btn">Speichern</button>

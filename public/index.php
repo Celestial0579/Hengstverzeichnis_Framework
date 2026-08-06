@@ -132,6 +132,7 @@ $router->post('/admin/persons/store', [App\Controllers\PersonController::class, 
 $router->get('/admin/persons/edit', [App\Controllers\PersonController::class, 'edit']);
 $router->post('/admin/persons/update', [App\Controllers\PersonController::class, 'update']);
 $router->post('/admin/persons/delete', [App\Controllers\PersonController::class, 'delete']);
+$router->post('/admin/persons/publish', [App\Controllers\PersonController::class, 'bulkPublish']);
 
 // Admin Breeding Station Routes (Gestüte / Deckstationen)
 $router->get('/admin/breeding-stations', [App\Controllers\BreedingStationController::class, 'index']);
@@ -140,6 +141,7 @@ $router->post('/admin/breeding-stations/store', [App\Controllers\BreedingStation
 $router->get('/admin/breeding-stations/edit', [App\Controllers\BreedingStationController::class, 'edit']);
 $router->post('/admin/breeding-stations/update', [App\Controllers\BreedingStationController::class, 'update']);
 $router->post('/admin/breeding-stations/delete', [App\Controllers\BreedingStationController::class, 'delete']);
+$router->post('/admin/breeding-stations/publish', [App\Controllers\BreedingStationController::class, 'bulkPublish']);
 
 // Admin Horse CRUD & Merge Tool Routes
 $router->get('/admin/horses', [App\Controllers\HorseController::class, 'index']);
@@ -148,6 +150,7 @@ $router->post('/admin/horses/store', [App\Controllers\HorseController::class, 's
 $router->get('/admin/horses/edit', [App\Controllers\HorseController::class, 'edit']); // Requires ?id=
 $router->post('/admin/horses/update', [App\Controllers\HorseController::class, 'update']);
 $router->post('/admin/horses/delete', [App\Controllers\HorseController::class, 'delete']);
+$router->post('/admin/horses/publish', [App\Controllers\HorseController::class, 'bulkPublish']);
 $router->get('/admin/matches', [App\Controllers\HorseController::class, 'matches']);
 $router->post('/admin/matches/link', [App\Controllers\HorseController::class, 'linkMatch']);
 

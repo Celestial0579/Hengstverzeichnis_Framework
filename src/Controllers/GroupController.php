@@ -223,6 +223,49 @@ class GroupController extends BaseController {
     }
 
     /**
+     * Schaltet die 2FA-Pflicht einer Gruppe um (#84). Für die Gruppen `admin`
+     * (2FA fest verdrahtet immer verpflichtend, siehe
+     * AuthController::userRequires2fa()) und `public` (meldet sich nie an)
+     * serverseitig abgelehnt - zusätzlich zur ausgeblendeten UI, eine
+     * manipulierte Anfrage darf das nicht umgehen können.
+     */
+    public function updateRequire2fa(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $groupId = (int)($_POST['group_id'] ?? 0);
+        $db = Database::getInstance();
+
+        $stmt = $db->prepare("SELECT slug, name FROM `groups` WHERE id = ?");
+        $stmt->execute([$groupId]);
+        $group = $stmt->fetch();
+
+        if (!$group) {
+            header("Location: /admin/groups?error=unknown_group");
+            exit;
+        }
+
+        if (in_array($group['slug'], ['admin', 'public'], true)) {
+            header("Location: /admin/groups?error=protected_group");
+            exit;
+        }
+
+        $require = !empty($_POST['require_2fa']) ? 1 : 0;
+        $stmt = $db->prepare("UPDATE `groups` SET require_2fa = ? WHERE id = ?");
+        $stmt->execute([$require, $groupId]);
+
+        AuditLogger::log(
+            "2FA-Pflicht einer Gruppe geändert",
+            "groups",
+            "Gruppe: {$group['name']} -> " . ($require ? 'verpflichtend' : 'optional')
+        );
+
+        header("Location: /admin/groups?group={$groupId}&success=require_2fa_updated");
+        exit;
+    }
+
+    /**
      * Kopiert die komplette Berechtigungsmenge einer Quell-Gruppe auf eine Ziel-Gruppe
      * (überschreibt die bisherigen Berechtigungen der Ziel-Gruppe vollständig). Für die
      * Quelle "admin" wird dabei bewusst nicht group_permissions abgefragt (dort gibt es

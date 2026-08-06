@@ -175,6 +175,7 @@ $router->get('/admin/groups', [App\Controllers\GroupController::class, 'index'])
 $router->post('/admin/groups/create', [App\Controllers\GroupController::class, 'createGroup']);
 $router->post('/admin/groups/delete', [App\Controllers\GroupController::class, 'deleteGroup']);
 $router->post('/admin/groups/permissions', [App\Controllers\GroupController::class, 'updatePermissions']);
+$router->post('/admin/groups/require-2fa', [App\Controllers\GroupController::class, 'updateRequire2fa']);
 $router->post('/admin/groups/copy-permissions', [App\Controllers\GroupController::class, 'copyPermissions']);
 
 // Admin Cron-/Scheduler-Verwaltung (#67)

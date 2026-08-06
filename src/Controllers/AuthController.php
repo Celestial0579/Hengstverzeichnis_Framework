@@ -57,17 +57,25 @@ class AuthController extends BaseController {
             // die Spuren von Spraying-Versuchen gegen andere Konten löscht.
             \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
 
-            $_SESSION['pending_2fa_user_id'] = $user['id'];
-
-            if (!$user['totp_enabled']) {
-                // Mandatory 2FA Setup
-                header("Location: /2fa/setup");
-                exit;
-            } else {
+            if ($user['totp_enabled']) {
                 // Prompt for 2FA Code
+                $_SESSION['pending_2fa_user_id'] = $user['id'];
                 header("Location: /login/2fa");
                 exit;
             }
+
+            // 2FA-Pflicht pro Gruppe (#84): Nur wenn mindestens eine Gruppe des
+            // Benutzers (oder die fest verdrahtete Admin-Pflicht) 2FA verlangt,
+            // wird das Setup erzwungen - sonst ist der Login hier abgeschlossen.
+            // Kein Bestandsschutz: Wird die Pflicht später aktiviert, greift sie
+            // automatisch beim nächsten Login.
+            if ($this->userRequires2fa((int)$user['id'])) {
+                $_SESSION['pending_2fa_user_id'] = $user['id'];
+                header("Location: /2fa/setup");
+                exit;
+            }
+
+            $this->completeLogin((int)$user['id']);
         }
 
         \App\Security\RateLimiter::recordAttempt($accountIdentifier, 'login');
@@ -77,6 +85,36 @@ class AuthController extends BaseController {
             'title' => \App\I18n\Translator::t('meta.title_login_failed'),
             'error' => \App\I18n\Translator::t('auth.invalid_credentials')
         ]);
+    }
+
+    /**
+     * Prüft, ob für den Benutzer TOTP-2FA verpflichtend ist (#84): fest
+     * verdrahtet für Mitglieder der Gruppe `admin` (unabhängig von deren
+     * require_2fa-Spalte), sonst sobald mindestens eine seiner Gruppen
+     * `require_2fa = 1` gesetzt hat. Fail-safe: Benutzer ohne Gruppen sowie
+     * DB-Fehler führen zu "verpflichtend" (Status quo vor #84), nie zu einem
+     * stillen Entfall der Pflicht.
+     */
+    private function userRequires2fa(int $userId): bool {
+        try {
+            $db = Database::getInstance();
+
+            $stmt = $db->prepare("SELECT COUNT(*) FROM user_groups WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            if ((int)$stmt->fetchColumn() === 0) {
+                return true;
+            }
+
+            $stmt = $db->prepare(
+                "SELECT COUNT(*) FROM user_groups ug
+                 JOIN `groups` g ON g.id = ug.group_id
+                 WHERE ug.user_id = ? AND (g.slug = 'admin' OR g.require_2fa = 1)"
+            );
+            $stmt->execute([$userId]);
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (\Throwable $e) {
+            return true;
+        }
     }
 
     /**

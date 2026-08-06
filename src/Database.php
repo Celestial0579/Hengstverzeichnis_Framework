@@ -445,6 +445,12 @@ class Database {
         // Totp::verifyCodeReturnSlice() lehnt Schlitze <= diesem Wert ab, ein
         // Code ist damit single-use (siehe AuthController::process2faVerify()).
         $addColumn('users', 'last_totp_timeslice', 'BIGINT NULL DEFAULT NULL');
+
+        // 17. 2FA-Pflicht pro Gruppe (#84): Default 1 = verpflichtend (Status
+        // quo für Bestandsgruppen). Für die Gruppe `admin` fest verdrahtet
+        // immer verpflichtend, unabhängig von dieser Spalte (siehe
+        // AuthController::userRequires2fa() und GroupController).
+        $addColumn('groups', 'require_2fa', 'TINYINT(1) NOT NULL DEFAULT 1');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

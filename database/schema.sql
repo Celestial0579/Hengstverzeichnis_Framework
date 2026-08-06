@@ -157,6 +157,10 @@ CREATE TABLE IF NOT EXISTS `groups` (
     `name` VARCHAR(100) NOT NULL,
     `description` VARCHAR(255) NULL,
     `is_builtin` TINYINT(1) NOT NULL DEFAULT 0,
+    -- 2FA-Pflicht pro Gruppe (#84): 1 = Mitglieder müssen TOTP-2FA einrichten.
+    -- Für `admin` fest verdrahtet immer verpflichtend, unabhängig von dieser
+    -- Spalte (siehe AuthController::userRequires2fa()).
+    `require_2fa` TINYINT(1) NOT NULL DEFAULT 1,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

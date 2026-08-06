@@ -7,10 +7,17 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
 ## Authentifizierung & Sessions
 
 - **Passwort-Hashing:** `password_hash()` mit `PASSWORD_DEFAULT` (bcrypt).
-- **2FA ist verpflichtend** für alle Admin-Bereich-Accounts (TOTP,
-  `src/Security/Totp.php`, RFC-6238-kompatibel, 30s-Zeitfenster, ±1 Fenster
-  Toleranz). Setup erzeugt einen `otpauth://`-Link (QR-Code via
-  `public/js/qrcode.js`) sowie 10 Einmal-Backup-Codes.
+- **2FA-Pflicht pro Gruppe konfigurierbar (#84):** TOTP-2FA
+  (`src/Security/Totp.php`, RFC-6238-kompatibel, 30s-Zeitfenster, ±1 Fenster
+  Toleranz; Setup erzeugt einen `otpauth://`-Link mit QR-Code via
+  `public/js/qrcode.js` sowie 10 Einmal-Backup-Codes). Ob das Setup beim
+  Login erzwungen wird, steuert `groups.require_2fa` pro Gruppe (Default:
+  verpflichtend). Fest verdrahtete Ausnahmen: Mitglieder der Gruppe `admin`
+  brauchen 2FA **immer** (nicht abschaltbar), Benutzer ganz ohne Gruppen
+  ebenfalls (fail-safe). Ein Benutzer braucht 2FA, sobald mindestens eine
+  seiner Gruppen sie verlangt - ohne Bestandsschutz: Wird die Pflicht
+  nachträglich aktiviert, greift sie beim nächsten Login. Bereits
+  aktivierte 2FA bleibt unabhängig von der Gruppen-Einstellung aktiv.
 - **Step-up-Reauth für 2FA-Änderungen (#112):** Ist 2FA bereits aktiv, kann
   eine Session die Konfiguration (neues Secret, neue Backup-Codes) nur nach
   erneuter Bestätigung von Passwort UND aktuellem TOTP-Code ändern

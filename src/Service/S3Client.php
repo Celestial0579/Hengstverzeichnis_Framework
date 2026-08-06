@@ -18,7 +18,7 @@ namespace App\Service;
  * benötigt) und Virtual-Hosted-Style (`https://bucket.endpoint/key`, AWS-
  * Standard) URLs.
  */
-final class S3Client {
+final class S3Client implements BackupTarget {
 
     public function __construct(
         private readonly string $endpoint,

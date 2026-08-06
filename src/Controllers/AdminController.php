@@ -509,23 +509,43 @@ class AdminController extends BaseController {
 
         $db = Database::getInstance();
 
+        // Ziel-Typ (#93): unbekannte/manipulierte Werte fallen sicher auf 's3'
+        // zurück, analog zu App\Service\BackupService::targetType().
+        $target = $_POST['backup_target'] ?? \App\Service\BackupService::TARGET_S3;
+        if (!in_array($target, [\App\Service\BackupService::TARGET_S3, \App\Service\BackupService::TARGET_FTPS, \App\Service\BackupService::TARGET_WEBDAV], true)) {
+            $target = \App\Service\BackupService::TARGET_S3;
+        }
+
         $settings = [
             'backup_enabled' => !empty($_POST['backup_enabled']) ? '1' : '0',
+            'backup_target' => $target,
             'backup_s3_endpoint' => trim($_POST['backup_s3_endpoint'] ?? ''),
             'backup_s3_region' => trim($_POST['backup_s3_region'] ?? ''),
             'backup_s3_bucket' => trim($_POST['backup_s3_bucket'] ?? ''),
             'backup_s3_access_key' => trim($_POST['backup_s3_access_key'] ?? ''),
             'backup_s3_path_style' => !empty($_POST['backup_s3_path_style']) ? '1' : '0',
             'backup_s3_use_https' => !empty($_POST['backup_s3_use_https']) ? '1' : '0',
+            'backup_ftps_host' => trim($_POST['backup_ftps_host'] ?? ''),
+            'backup_ftps_port' => (string)max(1, (int)($_POST['backup_ftps_port'] ?? 21)),
+            'backup_ftps_user' => trim($_POST['backup_ftps_user'] ?? ''),
+            'backup_ftps_path' => trim($_POST['backup_ftps_path'] ?? ''),
+            'backup_webdav_url' => trim($_POST['backup_webdav_url'] ?? ''),
+            'backup_webdav_user' => trim($_POST['backup_webdav_user'] ?? ''),
             'backup_interval_hours' => (string)max(1, (int)($_POST['backup_interval_hours'] ?? 24)),
             'backup_retention_count' => (string)max(1, (int)($_POST['backup_retention_count'] ?? 14)),
         ];
 
-        // Secret Key nur überschreiben, wenn tatsächlich ein neuer Wert eingegeben
-        // wurde (analog zum SMTP-Passwort in updateMailSettings()) - ein leeres Feld
-        // bedeutet "unverändert lassen", nicht "Secret löschen".
+        // Passwörter/Secrets nur überschreiben, wenn tatsächlich ein neuer Wert
+        // eingegeben wurde (analog zum SMTP-Passwort in updateMailSettings()) -
+        // ein leeres Feld bedeutet "unverändert lassen", nicht "löschen".
         if (!empty($_POST['backup_s3_secret_key'])) {
             $settings['backup_s3_secret_key'] = \App\Security\Crypto::encrypt($_POST['backup_s3_secret_key']);
+        }
+        if (!empty($_POST['backup_ftps_pass'])) {
+            $settings['backup_ftps_pass'] = \App\Security\Crypto::encrypt($_POST['backup_ftps_pass']);
+        }
+        if (!empty($_POST['backup_webdav_pass'])) {
+            $settings['backup_webdav_pass'] = \App\Security\Crypto::encrypt($_POST['backup_webdav_pass']);
         }
 
         foreach ($settings as $key => $value) {
@@ -536,7 +556,7 @@ class AdminController extends BaseController {
         \App\Service\AuditLogger::log(
             "Backup-Einstellungen aktualisiert",
             "settings",
-            "Aktiviert: {$settings['backup_enabled']}, Endpoint: {$settings['backup_s3_endpoint']}, Bucket: {$settings['backup_s3_bucket']}"
+            "Aktiviert: {$settings['backup_enabled']}, Ziel: {$target}"
         );
 
         header("Location: /admin/backups?success=1");

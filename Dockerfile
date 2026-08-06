@@ -1,6 +1,9 @@
 FROM php:8.5-apache
 
-RUN docker-php-ext-install pdo_mysql \
+# ftp: für App\Service\FtpsClient (#93, FTPS als Backup-Ziel) - das
+# FTP-Protokoll selbst lässt sich anders als S3/WebDAV nicht über PHP-Streams
+# nachbilden, siehe dortige Begründung.
+RUN docker-php-ext-install pdo_mysql ftp \
     && a2enmod rewrite headers expires
 
 # Docroot direkt auf public/ setzen, damit src/, config/ und database/

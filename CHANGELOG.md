@@ -10,6 +10,21 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Weitere Backup-Ziele: FTPS und WebDAV (#93):
+  - Neben Amazon S3 (bzw. S3-kompatiblen Diensten) können automatische
+    Backups jetzt auch auf ein FTPS-Ziel (klassischer Hoster-Zugang) oder
+    einen WebDAV-Server (z. B. eine vereinseigene Nextcloud-/ownCloud-
+    Instanz) hochgeladen werden. Die Auswahl erfolgt in den
+    Backup-Einstellungen (`/admin/backup`) über ein neues Dropdown, das die
+    passenden Zugangsdaten-Felder einblendet.
+  - `App\Service\WebDavClient` nutzt wie `App\Service\S3Client` reine
+    PHP-Streams (kein curl nötig). `App\Service\FtpsClient` benötigt die
+    PHP-`ftp`-Extension (jetzt im mitgelieferten `Dockerfile` enthalten) und
+    verschlüsselt die Verbindung immer per TLS (`ftp_ssl_connect()`) - reines
+    unverschlüsseltes FTP wird bewusst nicht angeboten.
+  - Zugangsdaten (FTPS-Passwort, WebDAV-Passwort) werden wie das bestehende
+    SMTP-/S3-Secret verschlüsselt in der Datenbank abgelegt.
+
 - Barrierefreiheit (a11y) im öffentlichen Katalog verbessert (#51):
   - Alle Filterfelder in der Katalog-Suche (`/katalog`) haben jetzt über
     `for`/`id` korrekt zugeordnete `<label>`-Elemente statt rein visuell

@@ -18,6 +18,7 @@ class FakeS3Server {
     private static $process = null;
     private static bool $shutdownRegistered = false;
     private static ?string $storageDir = null;
+    private static ?string $logFile = null;
 
     public static function endpoint(): string {
         return self::HOST . ':' . self::PORT;
@@ -36,10 +37,15 @@ class FakeS3Server {
         mkdir(self::$storageDir);
 
         $script = __DIR__ . '/fake-s3-server.php';
+
+        // stdout/stderr in eine Logdatei statt in nie ausgelesene Pipes umleiten -
+        // sonst blockiert der Single-Worker-Server, sobald der Pipe-Buffer durch die
+        // Access-Logs volläuft (siehe PhpBuiltInServer.php und Issue #102).
+        self::$logFile = tempnam(sys_get_temp_dir(), 'fake_s3_server_');
         $descriptorSpec = [
             0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            1 => ['file', self::$logFile, 'a'],
+            2 => ['file', self::$logFile, 'a'],
         ];
 
         self::$process = proc_open(
@@ -53,9 +59,6 @@ class FakeS3Server {
         if (!is_resource(self::$process)) {
             throw new \RuntimeException('Konnte Fake-S3-Testserver nicht starten.');
         }
-
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
 
         if (!self::$shutdownRegistered) {
             register_shutdown_function([self::class, 'stop']);
@@ -77,6 +80,10 @@ class FakeS3Server {
             }
             rmdir(self::$storageDir);
             self::$storageDir = null;
+        }
+        if (self::$logFile !== null && is_file(self::$logFile)) {
+            unlink(self::$logFile);
+            self::$logFile = null;
         }
     }
 

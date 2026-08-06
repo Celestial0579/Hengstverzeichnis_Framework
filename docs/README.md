@@ -16,6 +16,7 @@ Admins/Betreiber und Endnutzer.
 - [database.md](database.md) – Datenmodell, Tabellen, Beziehungen, Schema-Migration
 - [security.md](security.md) – Auth, 2FA, Sessions, Verschlüsselung, Rate-Limiting, Audit-Log
 - [development.md](development.md) – Lokale Entwicklungsumgebung, Coding-Konventionen, Deployment
+- [api.md](api.md) – Öffentliche Read-only-JSON-API für Katalogdaten ([#47](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/47))
 - [plugin-development.md](plugin-development.md) – Plugin-System: Manifest-Format, verfügbare Hooks, Routen, Sicherheitsgrenzen ([#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56))
 - [plugin-system-plan.md](plugin-system-plan.md) – Zugrundeliegende Architekturentscheidungen/Umsetzungsplanung für das Plugin-System
 - [user-groups-plan.md](user-groups-plan.md) – Gruppen-/Berechtigungskonzept: Architekturentscheidungen und tatsächliche Umsetzung ([#66](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/66), Voraussetzung für #56/#57)

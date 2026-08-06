@@ -10,6 +10,11 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Öffentliche Read-only-JSON-API für Katalogdaten (#47): `GET /api/horses`
+  (Liste, filterbar/paginierbar) und `GET /api/horses/show?ueln=...`
+  (Einzelpferd). Liefert ausschließlich Felder, die bereits über den
+  öffentlichen HTML-Katalog einsehbar sind, bewusst ohne
+  Authentifizierung/API-Key. Siehe [docs/api.md](docs/api.md).
 - Neuer Plugin-Filter-Hook `catalog.card_sections` (#97): Erweiterungspunkt
   für zusätzlichen Inhalt je Karte im öffentlichen Katalog (z. B. ein
   "Merken"-Button), analog zu `horse.detail_sections` auf der Detailseite.

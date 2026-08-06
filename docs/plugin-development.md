@@ -341,6 +341,57 @@ das vollständig: registriert `horses.export`, und die Route
 `/plugin/demo-plugin/export-preview` ist nur erreichbar, wenn die aktuelle
 Gruppe diese Berechtigung besitzt.
 
+## Zusatzfunktionen mit admin-konfigurierbarer Sichtbarkeit (#57)
+
+Für Funktionen, die sich an Besucher bzw. Vereins-/Verbandsmitglieder richten
+(z. B. der Verpaarungsrechner aus Hengstverzeichnis_Addons), gibt es neben den
+Backend-Berechtigungen ein eigenes Konzept: **Zusatzfunktionen**, deren
+Sichtbarkeit der Admin pro Installation umschaltet — „Öffentlich" (jeder
+Besucher) oder „Nur für Gruppen mit Leseberechtigung" (ausschließlich
+angemeldete Benutzer, deren Gruppe die zugehörige Leseberechtigung besitzt;
+Admin-Mitglieder immer).
+
+Registrierung über die optionale `features()`-Methode der Plugin-Klasse:
+
+```php
+public function features(): array {
+    return [
+        [
+            'key' => 'verpaarungsrechner',          // a-z, 0-9, '-', '_'
+            'label' => 'Verpaarungsrechner',        // Anzeigetext in der Admin-UI
+            'default_visibility' => 'members',      // optional, Default 'members'
+        ],
+    ];
+}
+```
+
+Die Registrierung bewirkt zweierlei:
+
+- Die Funktion erscheint unter **Admin → Systemeinstellungen** mit dem
+  Sichtbarkeits-Umschalter (gespeichert als Setting
+  `feature_visibility__<key>`). Solange der Admin nichts wählt, gilt
+  `default_visibility` — Standard ist `members` (fail-closed: neue
+  Premium-Funktionen erscheinen nicht ungefragt öffentlich).
+- In der Berechtigungsmatrix unter **Admin → Gruppen** erscheint automatisch
+  das Modul `feature_<key>` mit der Aktion `read` („Sehen/Nutzen"), die pro
+  Gruppe zuweisbar ist.
+
+Die **Durchsetzung** ist — wie bei normalen Berechtigungen — Aufgabe des
+Plugins selbst, in der eigenen (typischerweise öffentlichen, also ohne
+`checkAuth()` erreichbaren) Route bzw. im eigenen Hook:
+
+```php
+if (!\App\Permission\FeatureGate::isVisible('verpaarungsrechner', $this->settings)) {
+    $this->renderForbidden('Diese Zusatzfunktion ist Mitgliedern vorbehalten.');
+}
+```
+
+`FeatureGate::isVisible()` ist fail-closed: unbekannte Funktionen sind nie
+sichtbar, ohne Anmeldung gibt es bei `members` keinen Zugriff, und DB-Fehler
+führen zu „nicht sichtbar". Das Referenz-Plugin demonstriert das Muster mit
+dem Feature `demo-premium` und der öffentlichen Route
+`/plugin/demo-plugin/premium`.
+
 ## Mehrsprachigkeit (i18n, #48)
 
 Der Kern übersetzt UI-Texte über `App\I18n\Translator` - flache,

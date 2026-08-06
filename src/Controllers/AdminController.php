@@ -122,6 +122,7 @@ class AdminController extends BaseController {
             'trackingDomains' => $trackingDomainsFromEnv ? getenv('TRACKING_DOMAINS') : (SetupController::readDbConfig()['tracking_domains'] ?? ''),
             'trackingDomainsFromEnv' => $trackingDomainsFromEnv,
             'availableLocales' => \App\I18n\Translator::getAvailableLocales(),
+            'registeredFeatures' => \App\Permission\FeatureRegistry::all(),
         ]);
     }
 
@@ -207,6 +208,24 @@ class AdminController extends BaseController {
                     exit;
                 }
                 \App\Service\AuditLogger::log("Trusted Proxies aktualisiert", "security", "Wert: " . ($normalized !== '' ? $normalized : '(leer)'));
+            }
+        }
+
+        // Sichtbarkeit von Zusatzfunktionen (#57): pro registrierter Funktion
+        // 'public' oder 'members' - nur bekannte Schlüssel/Werte werden
+        // übernommen (fail-safe gegen manipulierte Formulare), die
+        // Leseberechtigung pro Gruppe wird separat in /admin/groups gepflegt.
+        $featureVisibility = $_POST['feature_visibility'] ?? [];
+        if (is_array($featureVisibility)) {
+            foreach (\App\Permission\FeatureRegistry::all() as $featureKey => $featureDef) {
+                $chosen = $featureVisibility[$featureKey] ?? null;
+                if (!in_array($chosen, [\App\Permission\FeatureRegistry::VISIBILITY_PUBLIC, \App\Permission\FeatureRegistry::VISIBILITY_MEMBERS], true)) {
+                    continue;
+                }
+                $settingKey = \App\Permission\FeatureRegistry::settingKey($featureKey);
+                $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+                $stmt->execute([$settingKey, $chosen, $chosen]);
+                \App\Service\AuditLogger::log("Sichtbarkeit einer Zusatzfunktion geändert", "settings", "{$featureKey}: {$chosen}");
             }
         }
 

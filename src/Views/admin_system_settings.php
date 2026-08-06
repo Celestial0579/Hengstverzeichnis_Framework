@@ -73,6 +73,28 @@
             </small>
         </div>
 
+        <?php if (!empty($registeredFeatures)): ?>
+            <div class="form-group" style="margin-top: 1.5rem;">
+                <label>✨ Sichtbarkeit von Zusatzfunktionen</label>
+                <small style="color: #666; display: block; margin-bottom: 0.5rem;">
+                    Von Plugins bereitgestellte Zusatzfunktionen (#57): „Öffentlich" sehen alle Besucher,
+                    „Nur für Gruppen mit Leseberechtigung" sehen ausschließlich angemeldete Benutzer,
+                    deren Gruppe die jeweilige Leseberechtigung besitzt (zuweisbar unter
+                    <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>; Administratoren immer).
+                </small>
+                <?php foreach ($registeredFeatures as $featureKey => $featureDef): ?>
+                    <?php $currentVisibility = $settings['feature_visibility__' . $featureKey] ?? $featureDef['default']; ?>
+                    <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
+                        <span style="flex: 1;"><?= htmlspecialchars($featureDef['label']) ?> <code style="font-size: 0.8rem; color: #888;"><?= htmlspecialchars($featureKey) ?></code></span>
+                        <select name="feature_visibility[<?= htmlspecialchars($featureKey) ?>]" class="form-control" style="max-width: 320px;">
+                            <option value="public" <?= $currentVisibility === 'public' ? 'selected' : '' ?>>Öffentlich</option>
+                            <option value="members" <?= $currentVisibility === 'members' ? 'selected' : '' ?>>Nur für Gruppen mit Leseberechtigung</option>
+                        </select>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+
         <div class="form-group" style="margin-top: 1.5rem;">
             <label for="trusted_proxies">🛡️ Vertrauenswürdige Reverse-Proxy-IPs (TRUSTED_PROXIES)</label>
             <input

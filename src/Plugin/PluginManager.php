@@ -414,6 +414,34 @@ final class PluginManager {
                 $this->registerPluginPermission($entry);
             }
         }
+
+        if (method_exists($instance, 'features')) {
+            foreach ((array)$instance->features() as $entry) {
+                $this->registerPluginFeature($entry);
+            }
+        }
+    }
+
+    /**
+     * Verarbeitet einen Eintrag aus der optionalen Plugin::features()-Methode und
+     * meldet ihn bei App\Permission\FeatureRegistry an (#57): Zusatzfunktionen mit
+     * admin-konfigurierbarer Sichtbarkeit (öffentlich vs. nur für Gruppen mit
+     * Leseberechtigung, siehe /admin/system-settings). Erwartetes Format je
+     * Eintrag: ['key' => string, 'label' => string,
+     * 'default_visibility' => 'public'|'members' (optional, Default 'members')].
+     * Ungültige Einträge werden ignoriert, konsistent mit
+     * registerPluginPermission().
+     */
+    private function registerPluginFeature(mixed $entry): void {
+        if (!is_array($entry) || empty($entry['key']) || empty($entry['label'])) {
+            return;
+        }
+
+        \App\Permission\FeatureRegistry::register(
+            (string)$entry['key'],
+            (string)$entry['label'],
+            isset($entry['default_visibility']) ? (string)$entry['default_visibility'] : \App\Permission\FeatureRegistry::VISIBILITY_MEMBERS
+        );
     }
 
     /**

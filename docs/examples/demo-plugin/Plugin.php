@@ -93,6 +93,13 @@ class Plugin {
                 // eigene, von BaseController erbende Klasse, siehe ExportPreviewController.
                 'callback' => [ExportPreviewController::class, 'show'],
             ],
+            [
+                'method' => 'GET',
+                'path' => '/premium',
+                // Beispiel für eine Zusatzfunktion mit admin-konfigurierbarer
+                // Sichtbarkeit (#57), siehe features() und PremiumPageController.
+                'callback' => [PremiumPageController::class, 'show'],
+            ],
         ];
     }
 
@@ -121,12 +128,58 @@ class Plugin {
             ['module' => 'horses', 'action' => 'export', 'label' => 'Exportieren'],
         ];
     }
+
+    /**
+     * Zusatzfunktions-Beispiel (#57): registriert eine Funktion mit
+     * admin-konfigurierbarer Sichtbarkeit. Der Admin wählt unter
+     * /admin/system-settings zwischen "Öffentlich" und "Nur für Gruppen mit
+     * Leseberechtigung"; die Leseberechtigung selbst (Modul
+     * `feature_demo-premium`, Aktion `read`) erscheint automatisch in der
+     * Berechtigungsmatrix unter /admin/groups. Die Durchsetzung übernimmt das
+     * Plugin in seiner Route über App\Permission\FeatureGate::isVisible()
+     * (siehe PremiumPageController) - analog zu hasPermission() bei normalen
+     * Berechtigungen.
+     *
+     * @return array<int, array{key:string, label:string, default_visibility:string}>
+     */
+    public function features(): array {
+        return [
+            [
+                'key' => 'demo-premium',
+                'label' => 'Demo-Premium-Bereich',
+                // fail-closed: ohne Admin-Entscheidung nur für berechtigte Gruppen
+                'default_visibility' => 'members',
+            ],
+        ];
+    }
 }
 
 /**
  * Demonstriert, wie eine Plugin-Route die neu registrierte Berechtigung
  * tatsächlich durchsetzt - analog zu einem Kern-Controller über BaseController.
  */
+/**
+ * Demonstriert die Durchsetzung einer Zusatzfunktion mit admin-konfigurierbarer
+ * Sichtbarkeit (#57): Die Seite ist bewusst eine ÖFFENTLICHE Route (kein
+ * checkAuth()) - ob ein anonymer Besucher sie sehen darf, entscheidet allein
+ * die vom Admin gewählte Sichtbarkeit bzw. die Gruppen-Leseberechtigung des
+ * angemeldeten Benutzers (FeatureGate::isVisible(), fail-closed).
+ */
+class PremiumPageController extends \App\Controllers\BaseController {
+
+    public function show(): void {
+        if (!\App\Permission\FeatureGate::isVisible('demo-premium', $this->settings)) {
+            $this->renderForbidden('Diese Zusatzfunktion ist Mitgliedern mit entsprechender Leseberechtigung vorbehalten.');
+        }
+
+        echo '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Demo-Plugin: Premium-Bereich</title></head>';
+        echo '<body style="font-family: sans-serif; padding: 2rem;">';
+        echo '<h1>✨ Demo-Premium-Bereich</h1>';
+        echo '<p>Diese Zusatzfunktion ist sichtbar, weil sie entweder öffentlich geschaltet ist oder Ihre Gruppe die Leseberechtigung besitzt (#57).</p>';
+        echo '</body></html>';
+    }
+}
+
 class ExportPreviewController extends \App\Controllers\BaseController {
 
     public function __construct() {

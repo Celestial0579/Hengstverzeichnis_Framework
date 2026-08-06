@@ -7,15 +7,16 @@
 $lastStatus = $settings['backup_last_status'] ?? null;
 $lastRunAt = isset($settings['backup_last_run_at']) ? (int)$settings['backup_last_run_at'] : null;
 $lastError = $settings['backup_last_error'] ?? '';
+$currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGET_S3;
 ?>
 <div class="card" style="max-width: 800px;">
     <h2>💾 Backups</h2>
     <p style="color: #666;">
-        Automatisierte, periodische Sicherung der Datenbank an einen externen,
-        S3-kompatiblen Speicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.) - als
-        Kernfunktion (#59), aufbauend auf der Cron-/Scheduler-Infrastruktur (#67,
-        siehe <a href="/admin/cron">Automatisierung (Cron)</a>). Enthält aktuell nur
-        die Datenbank, keine hochgeladenen Dateien (Logos/Pferdebilder).
+        Automatisierte, periodische Sicherung der Datenbank an ein von drei
+        wählbaren externen Zielen (#59, #93) - als Kernfunktion, aufbauend auf der
+        Cron-/Scheduler-Infrastruktur (#67, siehe
+        <a href="/admin/cron">Automatisierung (Cron)</a>). Enthält aktuell nur die
+        Datenbank, keine hochgeladenen Dateien (Logos/Pferdebilder).
     </p>
 
     <?php if (!empty($_GET['success'])): ?>
@@ -63,7 +64,16 @@ $lastError = $settings['backup_last_error'] ?? '';
             </label>
         </div>
 
-        <div style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+        <div class="form-group">
+            <label for="backup_target">Backup-Ziel</label>
+            <select id="backup_target" name="backup_target" class="form-control" onchange="updateBackupTargetVisibility(this.value)">
+                <option value="s3" <?= $currentTarget === 's3' ? 'selected' : '' ?>>🪣 S3-kompatibler Speicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.)</option>
+                <option value="ftps" <?= $currentTarget === 'ftps' ? 'selected' : '' ?>>📁 FTPS</option>
+                <option value="webdav" <?= $currentTarget === 'webdav' ? 'selected' : '' ?>>☁️ WebDAV (z. B. Nextcloud/ownCloud)</option>
+            </select>
+        </div>
+
+        <div id="backup-target-s3" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
             <h4 style="margin-top: 0; color: var(--primary-color);">🪣 S3-kompatibler Speicher</h4>
 
             <div style="display: flex; gap: 1rem;">
@@ -107,6 +117,73 @@ $lastError = $settings['backup_last_error'] ?? '';
                 </label>
             </div>
         </div>
+
+        <div id="backup-target-ftps" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-color);">📁 FTPS</h4>
+            <p style="color: #666; font-size: 0.85rem; margin-top: 0;">
+                Ausschließlich TLS-verschlüsseltes FTP (FTPS) - unverschlüsseltes FTP wird
+                aus Sicherheitsgründen nicht angeboten.
+            </p>
+
+            <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 3;">
+                    <label for="backup_ftps_host">Host *</label>
+                    <input type="text" id="backup_ftps_host" name="backup_ftps_host" class="form-control" value="<?= htmlspecialchars($settings['backup_ftps_host'] ?? '') ?>" placeholder="ftp.beispiel-hoster.de">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_ftps_port">Port</label>
+                    <input type="number" id="backup_ftps_port" name="backup_ftps_port" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['backup_ftps_port'] ?? '21')) ?>">
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_ftps_user">Benutzername *</label>
+                    <input type="text" id="backup_ftps_user" name="backup_ftps_user" class="form-control" value="<?= htmlspecialchars($settings['backup_ftps_user'] ?? '') ?>">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_ftps_pass">Passwort *</label>
+                    <input type="password" id="backup_ftps_pass" name="backup_ftps_pass" class="form-control" placeholder="<?= !empty($settings['backup_ftps_pass']) ? '•••••••• (unverändert)' : 'Passwort eingeben' ?>">
+                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="backup_ftps_path">Zielverzeichnis</label>
+                <input type="text" id="backup_ftps_path" name="backup_ftps_path" class="form-control" value="<?= htmlspecialchars($settings['backup_ftps_path'] ?? '') ?>" placeholder="/hengstverzeichnis-backups (muss bereits existieren)">
+            </div>
+        </div>
+
+        <div id="backup-target-webdav" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-color);">☁️ WebDAV</h4>
+
+            <div class="form-group">
+                <label for="backup_webdav_url">WebDAV-URL (bis einschließlich Zielordner) *</label>
+                <input type="text" id="backup_webdav_url" name="backup_webdav_url" class="form-control" value="<?= htmlspecialchars($settings['backup_webdav_url'] ?? '') ?>" placeholder="https://cloud.beispiel-verband.de/remote.php/dav/files/verband/backups">
+                <small style="color: #666;">Bei Nextcloud/ownCloud über "Einstellungen &rarr; Sicherheit &rarr; WebDAV" zu finden. Der Zielordner wird bei Bedarf automatisch angelegt.</small>
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_webdav_user">Benutzername *</label>
+                    <input type="text" id="backup_webdav_user" name="backup_webdav_user" class="form-control" value="<?= htmlspecialchars($settings['backup_webdav_user'] ?? '') ?>">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="backup_webdav_pass">Passwort / App-Passwort *</label>
+                    <input type="password" id="backup_webdav_pass" name="backup_webdav_pass" class="form-control" placeholder="<?= !empty($settings['backup_webdav_pass']) ? '•••••••• (unverändert)' : 'Passwort eingeben' ?>">
+                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert. Bei Nextcloud/ownCloud wird ein eigenes App-Passwort empfohlen statt des Hauptpassworts.</small>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function updateBackupTargetVisibility(target) {
+                ['s3', 'ftps', 'webdav'].forEach(function (t) {
+                    document.getElementById('backup-target-' + t).style.display = (t === target) ? 'block' : 'none';
+                });
+            }
+            updateBackupTargetVisibility(document.getElementById('backup_target').value);
+        </script>
 
         <h4 style="color: var(--primary-color);">Zeitplan & Aufbewahrung</h4>
 

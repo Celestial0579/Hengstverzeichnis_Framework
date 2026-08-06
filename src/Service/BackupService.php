@@ -9,10 +9,21 @@ use App\Security\Crypto;
 /**
  * Class BackupService
  *
- * Automatisierte externe Backups (#59): sichert die Datenbank periodisch an
- * einen S3-kompatiblen Speicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.)
- * - als Kernfunktion, nicht als optionales Plugin. Baut auf der Cron-/
- * Scheduler-Infrastruktur (#67, App\Service\Scheduler) auf.
+ * Automatisierte externe Backups (#59, #93): sichert die Datenbank
+ * periodisch an ein von drei wählbaren Zielen - als Kernfunktion, nicht als
+ * optionales Plugin. Baut auf der Cron-/Scheduler-Infrastruktur (#67,
+ * App\Service\Scheduler) auf.
+ *
+ * Drei Ziel-Typen (`backup_target`-Einstellung, siehe TARGET_*-Konstanten):
+ * - `s3` (Standard, Ursprungsimplementierung aus #59): S3-kompatibler
+ *   Objektspeicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.).
+ * - `ftps` (#93): FTPS-Zugang, z. B. bereits beim Hoster vorhanden.
+ * - `webdav` (#93): WebDAV, z. B. eine bereits genutzte Nextcloud-/
+ *   ownCloud-Instanz des Vereins.
+ * Die eigentliche Übertragung ist hinter App\Service\BackupTarget
+ * abstrahiert (S3Client/FtpsClient/WebDavClient) - der Rest dieser Klasse
+ * (Dump-Erzeugung, Aufbewahrungsrotation, Status-Protokollierung) ist
+ * bewusst komplett ziel-unabhängig.
  *
  * Bewusst NICHT enthalten: Sicherung hochgeladener Dateien (Logos/
  * Pferdebilder) - im Issue selbst nur als "ggf." (optional) genannt, die
@@ -25,6 +36,10 @@ final class BackupService {
     private const DEFAULT_INTERVAL_HOURS = 24;
     private const DEFAULT_RETENTION_COUNT = 14;
     private const OBJECT_PREFIX = 'backups/';
+
+    public const TARGET_S3 = 's3';
+    public const TARGET_FTPS = 'ftps';
+    public const TARGET_WEBDAV = 'webdav';
 
     /**
      * Registriert die Backup-Aufgabe beim Scheduler, falls in den
@@ -46,11 +61,32 @@ final class BackupService {
      * @param array<string, string> $settings
      */
     public static function isConfigured(array $settings): bool {
-        return ($settings['backup_enabled'] ?? '') === '1'
-            && trim($settings['backup_s3_endpoint'] ?? '') !== ''
-            && trim($settings['backup_s3_bucket'] ?? '') !== ''
-            && trim($settings['backup_s3_access_key'] ?? '') !== ''
-            && trim($settings['backup_s3_secret_key'] ?? '') !== '';
+        if (($settings['backup_enabled'] ?? '') !== '1') {
+            return false;
+        }
+
+        return match (self::targetType($settings)) {
+            self::TARGET_FTPS => trim($settings['backup_ftps_host'] ?? '') !== ''
+                && trim($settings['backup_ftps_user'] ?? '') !== ''
+                && trim($settings['backup_ftps_pass'] ?? '') !== '',
+            self::TARGET_WEBDAV => trim($settings['backup_webdav_url'] ?? '') !== ''
+                && trim($settings['backup_webdav_user'] ?? '') !== ''
+                && trim($settings['backup_webdav_pass'] ?? '') !== '',
+            default => trim($settings['backup_s3_endpoint'] ?? '') !== ''
+                && trim($settings['backup_s3_bucket'] ?? '') !== ''
+                && trim($settings['backup_s3_access_key'] ?? '') !== ''
+                && trim($settings['backup_s3_secret_key'] ?? '') !== '',
+        };
+    }
+
+    /**
+     * @param array<string, string> $settings
+     */
+    private static function targetType(array $settings): string {
+        $target = $settings['backup_target'] ?? self::TARGET_S3;
+        return in_array($target, [self::TARGET_S3, self::TARGET_FTPS, self::TARGET_WEBDAV], true)
+            ? $target
+            : self::TARGET_S3;
     }
 
     /**
@@ -99,7 +135,7 @@ final class BackupService {
     /**
      * @param array<string, string> $settings
      */
-    private static function applyRetention(S3Client $client, array $settings): void {
+    private static function applyRetention(BackupTarget $client, array $settings): void {
         $keepCount = max(1, (int)($settings['backup_retention_count'] ?? self::DEFAULT_RETENTION_COUNT));
         $objects = $client->listObjects(self::OBJECT_PREFIX);
 
@@ -115,22 +151,34 @@ final class BackupService {
     /**
      * @param array<string, string> $settings
      */
-    private static function buildClient(array $settings): S3Client {
-        $secretKey = Crypto::decrypt($settings['backup_s3_secret_key'] ?? '') ?? '';
-
-        return new S3Client(
-            trim($settings['backup_s3_endpoint'] ?? ''),
-            trim($settings['backup_s3_region'] ?? '') ?: 'us-east-1',
-            trim($settings['backup_s3_bucket'] ?? ''),
-            trim($settings['backup_s3_access_key'] ?? ''),
-            $secretKey,
-            ($settings['backup_s3_path_style'] ?? '') === '1',
-            // Standard: HTTPS (AWS S3 erzwingt es ohnehin). Abschaltbar für
-            // selbstgehostetes MinIO/Object Storage ohne TLS in einem
-            // vertrauenswürdigen internen Netz - Standardwert bei fehlendem
-            // Setting bewusst "an" (sicherer Default).
-            ($settings['backup_s3_use_https'] ?? '1') !== '0'
-        );
+    private static function buildClient(array $settings): BackupTarget {
+        return match (self::targetType($settings)) {
+            self::TARGET_FTPS => new FtpsClient(
+                trim($settings['backup_ftps_host'] ?? ''),
+                max(1, (int)($settings['backup_ftps_port'] ?? 21)),
+                trim($settings['backup_ftps_user'] ?? ''),
+                Crypto::decrypt($settings['backup_ftps_pass'] ?? '') ?? '',
+                trim($settings['backup_ftps_path'] ?? '')
+            ),
+            self::TARGET_WEBDAV => new WebDavClient(
+                rtrim(trim($settings['backup_webdav_url'] ?? ''), '/'),
+                trim($settings['backup_webdav_user'] ?? ''),
+                Crypto::decrypt($settings['backup_webdav_pass'] ?? '') ?? ''
+            ),
+            default => new S3Client(
+                trim($settings['backup_s3_endpoint'] ?? ''),
+                trim($settings['backup_s3_region'] ?? '') ?: 'us-east-1',
+                trim($settings['backup_s3_bucket'] ?? ''),
+                trim($settings['backup_s3_access_key'] ?? ''),
+                Crypto::decrypt($settings['backup_s3_secret_key'] ?? '') ?? '',
+                ($settings['backup_s3_path_style'] ?? '') === '1',
+                // Standard: HTTPS (AWS S3 erzwingt es ohnehin). Abschaltbar für
+                // selbstgehostetes MinIO/Object Storage ohne TLS in einem
+                // vertrauenswürdigen internen Netz - Standardwert bei fehlendem
+                // Setting bewusst "an" (sicherer Default).
+                ($settings['backup_s3_use_https'] ?? '1') !== '0'
+            ),
+        };
     }
 
     private static function recordStatus(string $status, ?string $error): void {

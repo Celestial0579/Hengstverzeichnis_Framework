@@ -304,40 +304,55 @@ synchron innerhalb dieses einen Requests ausführt.
 - Verbraucher: `App\Service\BackupService` (#59, siehe unten) und
   `App\Service\DigestService` (#52, siehe unten).
 
-## Automatisierte externe Backups (`src/Service/BackupService.php`, `src/Service/DatabaseDumper.php`, `src/Service/S3Client.php`, #59)
+## Automatisierte externe Backups (`src/Service/BackupService.php`, `src/Service/DatabaseDumper.php`, `src/Service/BackupTarget.php`, #59, #93)
 
-Periodische Sicherung der Datenbank an einen externen, S3-kompatiblen
-Speicher (AWS S3, MinIO, Hetzner Object Storage o. Ä.) - als Kernfunktion,
-nicht als optionales Plugin, da die hier verwalteten Zucht-/Blutlinien-Daten
-teils unwiederbringlich sind. Registriert sich bei aktivierter/vollständiger
-Konfiguration selbst über `App\Service\Scheduler` (siehe oben).
+Periodische Sicherung der Datenbank an ein externes Speicherziel - als
+Kernfunktion, nicht als optionales Plugin, da die hier verwalteten
+Zucht-/Blutlinien-Daten teils unwiederbringlich sind. Registriert sich bei
+aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
+(siehe oben).
 
 - `App\Service\DatabaseDumper::dump()`: reine-PHP-Alternative zu
   `mysqldump` (PDO-basiert, `SHOW CREATE TABLE` + `INSERT`-Anweisungen je
   Tabelle) - kein `mysqldump`-Client-Binary nötig, das im mitgelieferten
   Dockerfile nicht installiert ist und auf klassischem Webhosting oft fehlt
   oder per `shell_exec` gesperrt ist.
-- `App\Service\S3Client`: signiert Anfragen selbst mit AWS Signature Version
-  4, ohne AWS-SDK/Composer-Laufzeitabhängigkeit. Nutzt wie `App\Service\Mailer`
-  PHP-Streams statt der curl-Extension. Unterstützt Path-Style- (MinIO) und
-  Virtual-Hosted-Style-URLs (AWS-Standard) sowie optional HTTP statt HTTPS
-  (nur für selbstgehosteten Speicher in einem vertrauenswürdigen internen
-  Netz gedacht).
+- `App\Service\BackupTarget`: gemeinsame Schnittstelle (`putObject`/
+  `deleteObject`/`listObjects`) für alle drei unterstützten Ziele (#93),
+  damit `BackupService` unabhängig vom konkret gewählten Ziel arbeitet:
+  - `App\Service\S3Client`: ein externer, S3-kompatibler Speicher (AWS S3,
+    MinIO, Hetzner Object Storage o. Ä.). Signiert Anfragen selbst mit AWS
+    Signature Version 4, ohne AWS-SDK/Composer-Laufzeitabhängigkeit. Nutzt
+    wie `App\Service\Mailer` PHP-Streams statt der curl-Extension.
+    Unterstützt Path-Style- (MinIO) und Virtual-Hosted-Style-URLs
+    (AWS-Standard) sowie optional HTTP statt HTTPS (nur für
+    selbstgehosteten Speicher in einem vertrauenswürdigen internen Netz
+    gedacht).
+  - `App\Service\WebDavClient`: ein WebDAV-Server, z. B. eine vereinseigene
+    Nextcloud-/ownCloud-Instanz. Ebenfalls reine PHP-Streams, kein curl
+    nötig. Legt den Zielordner bei Bedarf selbst per `MKCOL` an.
+  - `App\Service\FtpsClient`: ein klassischer FTPS-Zugang (z. B. beim
+    Hoster). Anders als die beiden anderen Ziele auf die PHP-`ftp`-Extension
+    angewiesen (im mitgelieferten Dockerfile installiert), da sich das
+    FTP-Protokoll nicht über PHP-Streams nachbilden lässt. Verbindet sich
+    immer per TLS (`ftp_ssl_connect()`) - reines unverschlüsseltes FTP wird
+    bewusst nicht angeboten.
 - `App\Service\BackupService::run()`: Dump erzeugen, mit `gzip` komprimieren
-  (Fallback auf unkomprimiert, falls die zlib-Extension fehlt), hochladen,
-  anschließend Aufbewahrungsrotation anwenden (älteste Backups über dem
-  konfigurierten Zähler löschen - ein Rotationsfehler zählt dabei bewusst
-  NICHT als Fehlschlag des gesamten Laufs, da das eigentliche Backup zu
-  diesem Zeitpunkt bereits sicher hochgeladen ist). Status des letzten Laufs
+  (Fallback auf unkomprimiert, falls die zlib-Extension fehlt), über das
+  konfigurierte `BackupTarget` hochladen, anschließend Aufbewahrungsrotation
+  anwenden (älteste Backups über dem konfigurierten Zähler löschen - ein
+  Rotationsfehler zählt dabei bewusst NICHT als Fehlschlag des gesamten
+  Laufs, da das eigentliche Backup zu diesem Zeitpunkt bereits sicher
+  hochgeladen ist). Status des letzten Laufs
   (`backup_last_status`/`backup_last_run_at`/`backup_last_error`) wird in
   der `settings`-Tabelle für die Admin-Anzeige unter `/admin/backups`
   persistiert.
-- S3-Zugangsdaten (Endpunkt, Region, Bucket, Access/Secret Key,
-  Path-Style/HTTPS-Umschalter), Intervall und Aufbewahrungsanzahl sind unter
-  `/admin/backups` konfigurierbar (`AdminController::backupSettings()`/
-  `updateBackupSettings()`/`testBackup()` für einen sofortigen manuellen
-  Testlauf). Der Secret Key wird wie das SMTP-Passwort mit AES-256-GCM
-  verschlüsselt gespeichert (`App\Security\Crypto`).
+- Zielauswahl (S3/FTPS/WebDAV) sowie die jeweiligen Zugangsdaten, Intervall
+  und Aufbewahrungsanzahl sind unter `/admin/backups` konfigurierbar
+  (`AdminController::backupSettings()`/`updateBackupSettings()`/
+  `testBackup()` für einen sofortigen manuellen Testlauf). Alle Passwörter/
+  Secret Keys werden wie das SMTP-Passwort mit AES-256-GCM verschlüsselt
+  gespeichert (`App\Security\Crypto`).
 - Bewusst **nicht** enthalten: Sicherung hochgeladener Dateien
   (Logos/Pferdebilder) - im Issue nur als optional genannt, die
   Datenbank ist der eigentlich unwiederbringliche Teil.

@@ -79,6 +79,17 @@ class AuthController extends BaseController {
         ]);
     }
 
+    /**
+     * Gültigkeitsdauer einer Step-up-Reauthentifizierung für die 2FA-
+     * (Neu-)Einrichtung (#112) in Sekunden.
+     */
+    private const TWOFA_REAUTH_TTL = 600;
+
+    private function hasFresh2faReauth(): bool {
+        return isset($_SESSION['twofa_reauth_at'])
+            && (time() - (int)$_SESSION['twofa_reauth_at']) <= self::TWOFA_REAUTH_TTL;
+    }
+
     public function show2faSetup(): void {
         if (!isset($_SESSION['pending_2fa_user_id']) && !isset($_SESSION['user_id'])) {
             header("Location: /login");
@@ -87,20 +98,108 @@ class AuthController extends BaseController {
 
         $userId = $_SESSION['pending_2fa_user_id'] ?? $_SESSION['user_id'];
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
+        if (!$user) {
+            header("Location: /login");
+            exit;
+        }
+
+        // Step-up-Reauth (#112): Ist 2FA bereits aktiv, darf eine bestehende
+        // Session die Konfiguration (neues Secret + neue Backup-Codes) nur nach
+        // erneuter Bestätigung von Passwort UND aktuellem TOTP-Code ändern -
+        // sonst könnte ein Angreifer mit übernommener Session (z. B.
+        // unbeaufsichtigter Arbeitsplatz) die 2FA dauerhaft an sich binden.
+        if ((int)$user['totp_enabled'] === 1) {
+            if (!isset($_SESSION['user_id'])) {
+                // Pending-Session hat nur das Passwort bewiesen - für Konten
+                // mit aktiver 2FA führt der Weg ausschließlich über /login/2fa.
+                header("Location: /login/2fa");
+                exit;
+            }
+            if (!$this->hasFresh2faReauth()) {
+                $this->render('2fa_reauth', ['title' => '2FA-Änderung bestätigen']);
+                return;
+            }
+        }
+
+        // Secret und Backup-Codes entstehen ausschließlich serverseitig und
+        // werden bis zur Bestätigung in der Session gehalten (#112) - der
+        // Client kann sie anzeigen, aber nicht per POST eigene Werte vorgeben.
         $secret = Totp::generateSecret();
+        $backupCodes = Totp::generateBackupCodes(10);
+        $_SESSION['totp_setup'] = ['secret' => $secret, 'backup_codes' => $backupCodes];
+
         $siteName = $this->settings['site_name'] ?? 'Hengstverzeichnis';
         $otpAuthUrl = Totp::getOtpAuthUrl($user['email'], $siteName, $secret);
-        $backupCodes = Totp::generateBackupCodes(10);
 
         $this->render('2fa_setup', [
             'title' => '2FA Einrichtung',
             'secret' => $secret,
             'otpAuthUrl' => $otpAuthUrl,
             'backupCodes' => $backupCodes
+        ]);
+    }
+
+    /**
+     * Step-up-Reauthentifizierung vor einer 2FA-Neukonfiguration (#112):
+     * verlangt das aktuelle Passwort UND einen aktuellen TOTP-Code der
+     * bestehenden 2FA. Erfolg wird zeitlich begrenzt in der Session vermerkt
+     * (siehe hasFresh2faReauth()).
+     */
+    public function process2faReauth(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $userId = $_SESSION['user_id'] ?? null;
+        if (!$userId) {
+            header("Location: /login");
+            exit;
+        }
+
+        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+            $this->render('2fa_reauth', [
+                'title' => '2FA-Änderung bestätigen',
+                'error' => \App\I18n\Translator::t('auth.rate_limited_2fa')
+            ]);
+            return;
+        }
+
+        $password = $_POST['password'] ?? '';
+        $code = trim($_POST['totp_code'] ?? '');
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT password_hash, totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch();
+
+        if ($user && !empty($user['totp_secret']) && password_verify($password, $user['password_hash'])) {
+            $decryptedSecret = \App\Security\Crypto::decrypt($user['totp_secret']) ?? $user['totp_secret'];
+            $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
+            $matchedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, $code, $lastSlice);
+
+            if ($matchedSlice !== null) {
+                $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
+                $update->execute([$matchedSlice, $userId]);
+                \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
+
+                $_SESSION['twofa_reauth_at'] = time();
+
+                \App\Service\AuditLogger::log("2FA-Neukonfiguration freigeschaltet", "auth", "Step-up-Reauth erfolgreich", (int)$userId, $_SESSION['username'] ?? null);
+
+                header("Location: /2fa/setup");
+                exit;
+            }
+        }
+
+        \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
+
+        $this->render('2fa_reauth', [
+            'title' => '2FA-Änderung bestätigen',
+            'error' => 'Passwort oder 6-stelliger Code ungültig. Bitte versuchen Sie es erneut.'
         ]);
     }
 
@@ -115,28 +214,55 @@ class AuthController extends BaseController {
             exit;
         }
 
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$userId]);
+        $dbUser = $stmt->fetch();
+        if (!$dbUser) {
+            header("Location: /login");
+            exit;
+        }
+
+        // Step-up-Reauth (#112): Bei bereits aktiver 2FA muss die Session die
+        // Neukonfiguration zuvor über /2fa/reauth freigeschaltet haben - die
+        // Prüfung aus show2faSetup() wird hier serverseitig wiederholt, damit
+        // ein direkter POST sie nicht umgehen kann.
+        if ((int)$dbUser['totp_enabled'] === 1) {
+            if (!isset($_SESSION['user_id'])) {
+                header("Location: /login/2fa");
+                exit;
+            }
+            if (!$this->hasFresh2faReauth()) {
+                $this->renderForbidden("Für die Änderung der 2FA-Konfiguration ist eine erneute Bestätigung mit Passwort und aktuellem Code erforderlich.");
+            }
+        }
+
+        // Secret/Backup-Codes stammen ausschließlich aus dem Server-State der
+        // Session (#112, siehe show2faSetup()) - POST-Werte werden ignoriert.
+        $setup = $_SESSION['totp_setup'] ?? null;
+        if (!is_array($setup) || empty($setup['secret']) || empty($setup['backup_codes'])) {
+            header("Location: /2fa/setup");
+            exit;
+        }
+        $secret = (string)$setup['secret'];
+        $backupCodesRaw = (array)$setup['backup_codes'];
+
         if (empty($_POST['confirm_backup'])) {
             die("Sie müssen bestätigen, dass Sie Ihre 10 Backup-Codes gespeichert haben.");
         }
 
-        $secret = trim($_POST['totp_secret'] ?? '');
         $code = trim($_POST['totp_code'] ?? '');
-        $backupCodesRaw = json_decode($_POST['backup_codes'] ?? '[]', true);
 
         // Replay-Schutz (#111): Auch der Bestätigungscode der Einrichtung
         // verbraucht seinen Zeitschlitz (frisches Secret, daher ohne Vorwert).
         $matchedSlice = Totp::verifyCodeReturnSlice($secret, $code, null);
         if ($matchedSlice === null) {
             $siteName = $this->settings['site_name'] ?? 'Hengstverzeichnis';
-            $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
-            $stmt->execute([$userId]);
-            $user = $stmt->fetch();
 
             $this->render('2fa_setup', [
                 'title' => '2FA Einrichtung',
                 'secret' => $secret,
-                'otpAuthUrl' => Totp::getOtpAuthUrl($user['email'], $siteName, $secret),
+                'otpAuthUrl' => Totp::getOtpAuthUrl($dbUser['email'], $siteName, $secret),
                 'backupCodes' => $backupCodesRaw,
                 'error' => 'Ungültiger 6-stelliger Code. Bitte versuchen Sie es erneut.'
             ]);
@@ -151,9 +277,11 @@ class AuthController extends BaseController {
         // Encrypt TOTP Secret at rest using AES-256-GCM
         $encryptedSecret = \App\Security\Crypto::encrypt($secret);
 
-        $db = Database::getInstance();
         $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ?, last_totp_timeslice = ? WHERE id = ?");
         $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $matchedSlice, $userId]);
+
+        // Server-State der Einrichtung und Reauth-Freischaltung verbrauchen.
+        unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth_at']);
 
         $this->completeLogin($userId, '/admin?2fa=enabled');
     }

@@ -11,6 +11,12 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
   `src/Security/Totp.php`, RFC-6238-kompatibel, 30s-Zeitfenster, ±1 Fenster
   Toleranz). Setup erzeugt einen `otpauth://`-Link (QR-Code via
   `public/js/qrcode.js`) sowie 10 Einmal-Backup-Codes.
+- **Step-up-Reauth für 2FA-Änderungen (#112):** Ist 2FA bereits aktiv, kann
+  eine Session die Konfiguration (neues Secret, neue Backup-Codes) nur nach
+  erneuter Bestätigung von Passwort UND aktuellem TOTP-Code ändern
+  (`/2fa/reauth`, Freischaltung 10 Minuten gültig). Secret und Backup-Codes
+  entstehen ausschließlich serverseitig und liegen bis zur Bestätigung in der
+  Session - POST-Werte des Clients werden ignoriert.
 - **TOTP-Replay-Schutz (#111):** Jeder erfolgreich verwendete Code verbraucht
   seinen 30s-Zeitschlitz (`users.last_totp_timeslice`);
   `Totp::verifyCodeReturnSlice()` lehnt bereits verbrauchte und ältere

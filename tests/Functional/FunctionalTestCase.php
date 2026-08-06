@@ -21,6 +21,13 @@ abstract class FunctionalTestCase extends TestCase {
     protected static ?string $adminPassword = null;
     protected static ?string $totpSecret = null;
 
+    /**
+     * TOTP-Secret des zuletzt über createAndLoginEditor() angelegten Editors -
+     * für Tests, die anschließend eine Step-up-Reauth (#112) mit dem aktuellen
+     * Code dieses Editors durchführen müssen.
+     */
+    protected ?string $lastEditorTotpSecret = null;
+
     public static function setUpBeforeClass(): void {
         PhpBuiltInServer::ensureStarted();
     }
@@ -53,6 +60,17 @@ abstract class FunctionalTestCase extends TestCase {
      * HTTP-Flow abgesichert. Direkter DB-Zugriff aus dem PHPUnit-Prozess,
      * analog zu tests/Integration (DB_*-Konstanten, siehe tests/bootstrap.php).
      */
+    /**
+     * Extrahiert das serverseitig erzeugte TOTP-Secret aus der /2fa/setup-Seite
+     * (#112: Secret/Backup-Codes sind Server-State in der Session und werden
+     * nicht mehr als Formularfelder zurückgeschickt - die Seite zeigt das
+     * Secret aber weiterhin zur manuellen Eingabe in die Authentikator-App an).
+     */
+    protected static function extractTotpSecret(\Tests\Support\HttpResponse $setupPage): ?string {
+        preg_match('/Geheimer Schlüssel:\s*<strong>([A-Z2-7]+)<\/strong>/u', $setupPage->body, $matches);
+        return $matches[1] ?? null;
+    }
+
     protected static function resetTotpReplayGuard(string $email): void {
         $db = \App\Database::getInstance();
         $stmt = $db->prepare("UPDATE users SET last_totp_timeslice = NULL WHERE email = ?");
@@ -142,13 +160,12 @@ abstract class FunctionalTestCase extends TestCase {
         );
 
         $setupPage = $client->get('/2fa/setup');
-        $secret = $setupPage->formField('totp_secret');
-        self::assertNotNull($secret, 'Konnte totp_secret nicht aus /2fa/setup extrahieren');
+        $secret = self::extractTotpSecret($setupPage);
+        self::assertNotNull($secret, 'Konnte TOTP-Secret nicht aus /2fa/setup extrahieren');
+        $this->lastEditorTotpSecret = $secret;
 
         $enableResponse = $client->post('/2fa/enable', [
             'csrf_token' => $setupPage->formField('csrf_token') ?? '',
-            'totp_secret' => $secret,
-            'backup_codes' => $setupPage->formField('backup_codes') ?? '[]',
             'confirm_backup' => '1',
             'totp_code' => Totp::getCode($secret),
         ]);
@@ -253,14 +270,12 @@ abstract class FunctionalTestCase extends TestCase {
         );
 
         $setupPage = $client->get('/2fa/setup');
-        $secret = $setupPage->formField('totp_secret');
-        self::assertNotNull($secret, 'Konnte totp_secret nicht aus /2fa/setup extrahieren');
+        $secret = self::extractTotpSecret($setupPage);
+        self::assertNotNull($secret, 'Konnte TOTP-Secret nicht aus /2fa/setup extrahieren');
         self::$totpSecret = $secret;
 
         $enableResponse = $client->post('/2fa/enable', [
             'csrf_token' => $setupPage->formField('csrf_token') ?? '',
-            'totp_secret' => $secret,
-            'backup_codes' => $setupPage->formField('backup_codes') ?? '[]',
             'confirm_backup' => '1',
             'totp_code' => Totp::getCode($secret),
         ]);

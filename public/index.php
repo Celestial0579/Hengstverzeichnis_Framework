@@ -86,6 +86,7 @@ $router->post('/force-password-change', [App\Controllers\AuthController::class, 
 // 2FA Routes
 $router->get('/2fa/setup', [App\Controllers\AuthController::class, 'show2faSetup']);
 $router->post('/2fa/enable', [App\Controllers\AuthController::class, 'enable2fa']);
+$router->post('/2fa/reauth', [App\Controllers\AuthController::class, 'process2faReauth']);
 $router->get('/2fa/verify', [App\Controllers\AuthController::class, 'show2faVerify']);
 $router->post('/2fa/verify', [App\Controllers\AuthController::class, 'process2faVerify']);
 $router->get('/login/2fa', [App\Controllers\AuthController::class, 'show2faVerify']);

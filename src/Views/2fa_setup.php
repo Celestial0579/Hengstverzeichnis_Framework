@@ -22,10 +22,11 @@
         </div>
     <?php endif; ?>
 
+    <!-- Secret und Backup-Codes liegen serverseitig in der Session (#112,
+         siehe AuthController::show2faSetup()) - sie werden hier nur angezeigt
+         und bewusst NICHT als Formularfelder zurückgeschickt. -->
     <form action="/2fa/enable" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-        <input type="hidden" name="totp_secret" value="<?= htmlspecialchars($secret) ?>">
-        <input type="hidden" name="backup_codes" value="<?= htmlspecialchars(json_encode($backupCodes)) ?>">
 
         <h3 style="color: var(--primary-color); margin-bottom: 0.5rem;">Schritt 1: Authentikator-App verknüpfen</h3>
         <p style="font-size: 0.95rem; color: #666; margin-bottom: 1rem;">

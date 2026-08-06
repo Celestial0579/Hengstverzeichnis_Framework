@@ -204,6 +204,7 @@ return [
     'admin.dashboard.tile_cron' => 'Automation (Cron)',
     'admin.dashboard.tile_backups' => 'Backups',
     'admin.dashboard.tile_digest' => 'Email Digest',
+    'admin.dashboard.tile_updates' => 'Updates',
 
     // Self-service registration (#83)
     'register.title' => 'Register',

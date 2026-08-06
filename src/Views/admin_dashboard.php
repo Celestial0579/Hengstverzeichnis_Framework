@@ -119,6 +119,9 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
                 <a href="/admin/digest" class="btn btn-secondary" style="<?= $tileStyle ?>">
                     📋 <?= htmlspecialchars($t('admin.dashboard.tile_digest')) ?>
                 </a>
+                <a href="/admin/updates" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    🔄 <?= htmlspecialchars($t('admin.dashboard.tile_updates')) ?>
+                </a>
                 <?php foreach ($pluginTiles ?? [] as $tile): ?>
                     <?php if (empty($tile['url']) || empty($tile['label'])) continue; ?>
                     <a href="<?= htmlspecialchars($tile['url']) ?>" class="btn btn-secondary" style="<?= $tileStyle ?>">

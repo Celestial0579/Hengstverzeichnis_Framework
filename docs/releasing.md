@@ -1,5 +1,14 @@
 # Releases
 
+> **Automatisches Update (#85):** Installationen können neue Releases direkt
+> im Admin-Bereich unter `/admin/updates` prüfen und einspielen
+> (`App\Service\UpdateService`). Voraussetzung ist ein konfiguriertes
+> automatisches Backup (#59) - vor jedem Update läuft zwingend ein
+> Backup-Lauf; schlägt er fehl, wird das Update abgebrochen. Angewendet wird
+> das unten beschriebene bereinigte Shared-Hosting-Zip; `config/db_config.php`,
+> `public/uploads/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
+> laufen wie gewohnt beim nächsten Request (`Database::ensureSchemaUpToDate()`).
+
 Release-**Notes** bleiben bewusst manuell kuratiert (siehe
 [CHANGELOG.md](../CHANGELOG.md) und bestehende
 [Releases](../../../releases)) – nur die **Artefakte** werden automatisch

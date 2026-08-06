@@ -195,6 +195,10 @@ $router->get('/cron/run', [App\Controllers\CronController::class, 'run']);
 $router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
 
 // Admin Backup-Verwaltung (#59)
+// Automatisches Update (#85, nur manuell und mit Pflicht-Backup)
+$router->get('/admin/updates', [App\Controllers\UpdateController::class, 'index']);
+$router->post('/admin/updates/run', [App\Controllers\UpdateController::class, 'run']);
+
 $router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);
 $router->post('/admin/backups', [App\Controllers\AdminController::class, 'updateBackupSettings']);
 $router->post('/admin/backups/test', [App\Controllers\AdminController::class, 'testBackup']);

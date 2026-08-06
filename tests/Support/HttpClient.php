@@ -39,9 +39,32 @@ class HttpClient {
     }
 
     /**
+     * POST als multipart/form-data mit Datei-Upload (z. B. für den CSV-Import,
+     * siehe ImportController) - $fileFieldName entspricht dem $_FILES-Schlüssel,
+     * $content wird für die Dauer des Requests in eine temporäre Datei
+     * geschrieben (CURLFile benötigt einen echten Dateipfad).
+     *
+     * @param array<string, string> $fields
+     */
+    public function postFile(string $path, array $fields, string $fileFieldName, string $filename, string $content, string $mimeType = 'text/csv'): HttpResponse {
+        $tmpFile = tempnam(sys_get_temp_dir(), 'hengst_test_upload_');
+        file_put_contents($tmpFile, $content);
+        try {
+            $multipartFields = $fields;
+            $multipartFields[$fileFieldName] = new \CURLFile($tmpFile, $mimeType, $filename);
+            return $this->request('POST', $path, $multipartFields);
+        } finally {
+            unlink($tmpFile);
+        }
+    }
+
+    /**
+     * @param string|array<string, mixed>|null $body String für application/x-www-form-urlencoded,
+     *   Array (ggf. mit \CURLFile-Werten) für multipart/form-data - curl wählt den
+     *   Content-Type je nach Typ automatisch, siehe postFile().
      * @param array<string, string> $headers
      */
-    private function request(string $method, string $path, ?string $body = null, array $headers = []): HttpResponse {
+    private function request(string $method, string $path, string|array|null $body = null, array $headers = []): HttpResponse {
         $ch = curl_init($this->baseUrl . $path);
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => $method,

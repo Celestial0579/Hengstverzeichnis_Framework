@@ -62,6 +62,10 @@ $router->get('/katalog', [App\Controllers\PublicController::class, 'catalog']);
 $router->get('/hengst', [App\Controllers\PublicController::class, 'horseDetail']); // Requires ?id=
 $router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
 
+// Öffentliche Read-only-JSON-API für Katalogdaten (#47, siehe docs/api.md)
+$router->get('/api/horses', [App\Controllers\ApiController::class, 'index']);
+$router->get('/api/horses/show', [App\Controllers\ApiController::class, 'show']); // Requires ?ueln=
+
 // Compliance Routes
 $router->get('/impressum', [App\Controllers\PublicController::class, 'impressum']);
 $router->get('/datenschutz', [App\Controllers\PublicController::class, 'datenschutz']);

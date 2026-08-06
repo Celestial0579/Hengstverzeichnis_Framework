@@ -147,6 +147,22 @@ Eigener minimaler SMTP-Client (kein PHPMailer/Symfony-Mailer-Abhängigkeit).
 Zertifikatsprüfung (`verify_peer`/`verify_peer_name`) ist aktiv,
 selbstsignierte Zertifikate werden abgelehnt. STARTTLS erzwingt TLS 1.2/1.3.
 
+## Host-Header-Validierung (`src/Security/TrustedHost.php`)
+
+Absolute URLs in ausgehenden Mails (u. a. der Passwort-Reset-Link) entstehen
+bevorzugt aus `settings.base_url` bzw. der Umgebungsvariable `APP_URL`. Nur
+wenn beides fehlt, wird auf den vom Client mitgeschickten `Host:`-Header
+zurückgegriffen — und dieser ist Angreifer-kontrolliert (Reset-Link-Poisoning,
+siehe #116). `TrustedHost::resolve()` validiert den Header daher syntaktisch
+(Hostname/IP-Literal, optional `:Port`, keine Sonderzeichen) und prüft ihn
+zusätzlich gegen die optionale Allowlist `TRUSTED_HOSTS` (kommagetrennte
+Hostnamen; führender Punkt = beliebige Subdomain, z. B. `.example.org`;
+Konfiguration per Umgebungsvariable oder `db_config.php`, analog
+`TRUSTED_PROXIES`). Wird der Header verworfen, fällt die URL-Erzeugung auf
+einen neutralen Platzhalter zurück statt auf den Angreifer-Wert.
+**Empfehlung:** In Produktion immer `base_url` (Admin → Systemeinstellungen)
+oder `APP_URL` setzen — dann wird der Host-Header gar nicht erst befragt.
+
 ## Reservierte Benutzernamen
 
 `BaseController::isReservedUsername()` verhindert Accounts mit Namen wie

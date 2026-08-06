@@ -30,8 +30,10 @@ class Mailer {
         if (defined('APP_URL') && !empty(APP_URL)) {
             return rtrim(APP_URL, '/') . '/';
         }
+        // Fallback ohne base_url/APP_URL: Host-Header nur validiert übernehmen
+        // (Issue #116, Reset-Link-Poisoning) - siehe App\Security\TrustedHost.
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-        $host = $_SERVER['HTTP_HOST'] ?? 'hengstverzeichnis.de';
+        $host = \App\Security\TrustedHost::resolve() ?: 'hengstverzeichnis.de';
         return $scheme . $host . '/';
     }
 
@@ -40,7 +42,7 @@ class Mailer {
      */
     public function send(string $toEmail, string $subject, string $htmlBody, string $textBody = ''): bool {
         $driver = $this->config['mail_driver'] ?? 'smtp';
-        $fromEmail = $this->config['mail_from_email'] ?? ($this->config['smtp_user'] ?? 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
+        $fromEmail = $this->config['mail_from_email'] ?? ($this->config['smtp_user'] ?? 'noreply@' . (\App\Security\TrustedHost::resolve() ?: 'localhost'));
         $fromName = $this->config['mail_from_name'] ?? ($this->config['site_name'] ?? 'Hengstverzeichnis');
 
         if (empty($textBody)) {

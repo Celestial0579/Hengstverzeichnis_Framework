@@ -25,7 +25,20 @@ class AuthController extends BaseController {
         $email = $_POST['email'] ?? '';
         $password = $_POST['password'] ?? '';
 
-        if (\App\Security\RateLimiter::tooManyAttempts($email, 'login')) {
+        // Zwei getrennte Zähler (Issue #115): Der Konto-Zähler ist an die
+        // Client-IP gekoppelt (email|ip), damit ein Angreifer mit gezielten
+        // Fehlversuchen nicht beliebige bekannte E-Mail-Adressen global
+        // aussperren kann (Account-Lockout-DoS). Der zusätzliche reine
+        // IP-Zähler (höheres Limit) bremst Passwort-Spraying über viele
+        // Konten von derselben Adresse. Beide Zähler bleiben durch den
+        // fail-open-Charakter des RateLimiters bei DB-Fehlern ausfallsicher.
+        $clientIp = \App\Security\ClientIp::resolve();
+        $accountIdentifier = $email . '|' . $clientIp;
+
+        if (
+            \App\Security\RateLimiter::tooManyAttempts($accountIdentifier, 'login')
+            || \App\Security\RateLimiter::tooManyAttempts($clientIp, 'login_ip', 20)
+        ) {
             $this->render('login', [
                 'title' => \App\I18n\Translator::t('meta.title_login_failed'),
                 'error' => \App\I18n\Translator::t('auth.rate_limited_login')
@@ -39,7 +52,10 @@ class AuthController extends BaseController {
         $user = $stmt->fetch();
 
         if ($user && password_verify($password, $user['password_hash'])) {
-            \App\Security\RateLimiter::clearAttempts($email, 'login');
+            // Nur den eigenen Konto-Zähler (email|ip) zurücksetzen - der reine
+            // IP-Zähler bleibt bestehen, damit ein erfolgreicher Login nicht
+            // die Spuren von Spraying-Versuchen gegen andere Konten löscht.
+            \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
 
             $_SESSION['pending_2fa_user_id'] = $user['id'];
 
@@ -54,7 +70,8 @@ class AuthController extends BaseController {
             }
         }
 
-        \App\Security\RateLimiter::recordAttempt($email, 'login');
+        \App\Security\RateLimiter::recordAttempt($accountIdentifier, 'login');
+        \App\Security\RateLimiter::recordAttempt($clientIp, 'login_ip');
 
         $this->render('login', [
             'title' => \App\I18n\Translator::t('meta.title_login_failed'),

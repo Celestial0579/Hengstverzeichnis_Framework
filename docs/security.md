@@ -55,9 +55,16 @@ für Nicht-Admins (siehe [database.md](database.md#soft-delete--papierkorb)).
 ## Brute-Force-Schutz (`src/Security/RateLimiter.php`)
 
 Datenbankgestützter Zähler fehlgeschlagener Versuche pro `identifier` + `type`
-(`login`, `2fa`, `backup`) in einem Zeitfenster (Default: 5 Versuche / 15 Min).
-Bei DB-Fehlern **fail-open** (blockiert nicht) – bewusste Ausfallsicherheits-
-Entscheidung, damit ein DB-Problem nicht versehentlich alle Logins sperrt.
+(`login`, `login_ip`, `2fa`, `backup`) in einem Zeitfenster (Default: 5
+Versuche / 15 Min). Bei DB-Fehlern **fail-open** (blockiert nicht) – bewusste
+Ausfallsicherheits-Entscheidung, damit ein DB-Problem nicht versehentlich alle
+Logins sperrt.
+
+Der Login nutzt zwei getrennte Zähler (#115): Der Konto-Zähler ist an die
+Client-IP gekoppelt (`email|ip`, 5 Versuche), damit gezielte Fehlversuche
+eines Angreifers keine bekannten E-Mail-Adressen global aussperren können
+(Account-Lockout-DoS); ein zusätzlicher reiner IP-Zähler (`login_ip`, 20
+Versuche) bremst Passwort-Spraying über viele Konten von derselben Adresse.
 
 ## Verschlüsselung sensibler Werte (`src/Security/Crypto.php`)
 

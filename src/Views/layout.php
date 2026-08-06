@@ -185,7 +185,11 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
     <header>
         <a href="/" class="brand">
             <?php if (!empty($logoUrl)): ?>
-                <img src="<?= $logoUrl ?>" alt="Logo">
+                <!-- Barrierefreiheit (#51): alt="" statt eines Textes wie "Logo" - der
+                     Vereinsname steht als sichtbarer Text direkt daneben im selben
+                     Link, ein zusätzlicher Alt-Text würde vom Screenreader doppelt
+                     vorgelesen. -->
+                <img src="<?= $logoUrl ?>" alt="">
             <?php endif; ?>
             <?= $siteName ?>
         </a>

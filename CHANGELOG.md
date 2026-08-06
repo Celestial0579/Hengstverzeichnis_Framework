@@ -10,6 +10,25 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Barrierefreiheit (a11y) im öffentlichen Katalog verbessert (#51):
+  - Alle Filterfelder in der Katalog-Suche (`/katalog`) haben jetzt über
+    `for`/`id` korrekt zugeordnete `<label>`-Elemente statt rein visuell
+    danebenstehendem Text - vorher gab es für Screenreader-Nutzer keine
+    programmatische Verknüpfung. Die Volltextsuche erhält ein zusätzliches,
+    visuell verstecktes Label (neue `.sr-only`-Utility-Klasse) statt sich
+    allein auf den verschwindenden `placeholder` zu verlassen.
+  - Dynamisch per AJAX aktualisierte Inhalte (Trefferanzahl im Katalog,
+    Zoomstufe im Pedigree-Baum) sind jetzt als `aria-live="polite"`-Regionen
+    markiert, damit Screenreader die Änderung automatisch ankündigen.
+  - Icon-only Zoom-Buttons im Pedigree-Baum haben jetzt zusätzlich zum
+    `title` ein `aria-label`, da `title` allein nicht zuverlässig von
+    assistiven Technologien vorgelesen wird.
+  - Das Vereinslogo im Header hat jetzt `alt=""` statt dem generischen Text
+    "Logo" - der Vereinsname steht bereits als sichtbarer Text im selben
+    Link, ein zusätzlicher Alt-Text würde doppelt vorgelesen.
+  - Ein WCAG-AA-Kontrastverstoß (`#888` auf Weiß, ~3.5:1 statt der
+    geforderten 4.5:1) in den Pedigree-Baum-Beschriftungen behoben.
+
 - CSV-Bulk-Import für Pferde (#49, `/admin/import/horses`): Vorschau mit
   Validierung je Zeile (Pflichtfeld, Feldlängen, UELN-Eindeutigkeit
   innerhalb der Datei und gegen bestehende Pferde, gültiger Status,

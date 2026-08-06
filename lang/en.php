@@ -74,6 +74,7 @@ return [
     'catalog.birth_year_to' => 'Birth Year To',
     'catalog.birth_year_from_placeholder' => 'e.g. 2010',
     'catalog.birth_year_to_placeholder' => 'e.g. 2024',
+    'catalog.status_label' => 'Status',
     'catalog.all_statuses' => '-- All Statuses --',
     'catalog.status_active_option' => 'Active in Studbook',
     'catalog.apply_filters' => 'Apply Filters',

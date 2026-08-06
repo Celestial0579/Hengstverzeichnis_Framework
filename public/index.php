@@ -154,6 +154,12 @@ $router->get('/admin/logs', [App\Controllers\AdminController::class, 'logs']);
 $router->get('/admin/plugins', [App\Controllers\PluginController::class, 'index']);
 $router->post('/admin/plugins/toggle', [App\Controllers\PluginController::class, 'toggle']);
 
+// Addon-Store: Installation aus registrierten GitHub-Repos (siehe docs/plugin-system-plan.md, Phase 3)
+$router->get('/admin/plugins/store', [App\Controllers\AddonStoreController::class, 'index']);
+$router->post('/admin/plugins/store/add-repo', [App\Controllers\AddonStoreController::class, 'addRepo']);
+$router->post('/admin/plugins/store/remove-repo', [App\Controllers\AddonStoreController::class, 'removeRepo']);
+$router->post('/admin/plugins/store/install', [App\Controllers\AddonStoreController::class, 'install']);
+
 // Admin Gruppen-/Berechtigungsverwaltung (#66)
 $router->get('/admin/groups', [App\Controllers\GroupController::class, 'index']);
 $router->post('/admin/groups/create', [App\Controllers\GroupController::class, 'createGroup']);

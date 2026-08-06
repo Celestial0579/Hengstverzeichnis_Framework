@@ -10,6 +10,16 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Addon-Store (`/admin/plugins/store`, siehe
+  [docs/plugin-system-plan.md](docs/plugin-system-plan.md), Abschnitt 2.7):
+  listet Plugins aus dem offiziellen
+  [Hengstverzeichnis_Addons](https://github.com/Celestial0579/Hengstverzeichnis_Addons)-Repo
+  sowie beliebigen, per GitHub-Link hinzugefügten weiteren Repos
+  (`App\Service\GithubAddonRepository`, `App\Controllers\AddonStoreController`)
+  und installiert eine gewählte Version direkt nach `plugins/<slug>/` -
+  entspricht dem bisherigen manuellen `cp -r`-Workflow, nur automatisiert.
+  Installieren aktiviert ein Plugin dabei **nie** automatisch, das bleibt
+  weiterhin ein separater, bewusster Schritt unter „Plugins verwalten“.
 - i18n-Gerüst für Mehrsprachigkeit (#48): `App\I18n\Translator` mit
   Array-basierten Sprachdateien (`lang/de.php`, `lang/en.php`) statt
   `gettext`, dynamisches `<html lang>`, admin-konfigurierbare

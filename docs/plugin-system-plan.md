@@ -1,8 +1,9 @@
 # Plugin-/Erweiterungssystem — Umsetzungsplanung
 
-**Status:** Phase 1 (siehe Abschnitt 3) umgesetzt - Kern-Plugin-System,
-Admin-UI, initiale Hooks, Referenz-Plugin und Entwickler-Doku
-([plugin-development.md](plugin-development.md)) sind implementiert.
+**Status:** Phase 1 und Phase 3 (siehe Abschnitt 3) umgesetzt -
+Kern-Plugin-System, Admin-UI, initiale Hooks, Referenz-Plugin, Entwickler-Doku
+([plugin-development.md](plugin-development.md)) sowie der Addon-Store
+(`/admin/plugins/store`) sind implementiert.
 **Bezug:** [#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56) (Kern-Anforderung), [#58](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/58) (Anwendungsfälle für spätere Plugins)
 
 Dieses Dokument bricht die Anforderung aus Issue #56 auf eine konkrete,
@@ -195,16 +196,34 @@ wird daher wie folgt eingehalten, mit klar kommunizierten Grenzen:
 ### 2.7 Verhältnis zum separaten Plugin-Repository / zur Registry
 
 Laut Klärung in den Issue-Kommentaren sollen die eigentlichen Plugins in
-einem **separaten Repository** leben (eigener Lebenszyklus/Versionierung),
-mit einer möglichen späteren Registry auf Basis eines statischen
-`index.json` über `raw.githubusercontent.com` (Tag-/Release-gebunden,
-nicht `main`, plus Prüfsumme/Signatur pro Release-Asset). Das ist bewusst
-**nicht Teil dieses Kern-Issues (#56)** — der Plugin-*Manager* im Kern muss
-nur lokal in `plugins/` abgelegte Plugins laden können. Ein optionaler
-Registry-Client (Abruf von `index.json`, Anzeige verfügbarer/kompatibler
-Plugins im Admin-Bereich, Download+Entpacken eines Release-Assets nach
-Prüfsummenverifikation) ist als **spätere, separate Ausbaustufe** geplant
-(vermutlich eigenes Issue nach #56, sobald das Plugin-Repo existiert).
+einem **separaten Repository** leben (eigener Lebenszyklus/Versionierung).
+Das ist bewusst **nicht Teil des Kern-Issues #56** — der Plugin-*Manager*
+im Kern muss nur lokal in `plugins/` abgelegte Plugins laden können.
+
+**Umgesetzt (Addon-Store, siehe Phase 3):** Statt der ursprünglich skizzierten
+kuratierten `index.json`-Registry (Tag-/Release-gebunden, mit Prüfsumme pro
+Asset) liest `App\Service\GithubAddonRepository` den Katalog **live** aus dem
+Tarball eines GitHub-Repos (`plugins/<slug>/plugin.json` je Addon, wie im
+mitgelieferten [Hengstverzeichnis_Addons](https://github.com/Celestial0579/Hengstverzeichnis_Addons)-Repo,
+oder ein einzelnes `plugin.json` im Repo-Root für ein Ein-Plugin-Repo).
+Grund für die Abweichung: Ein Admin soll nicht nur das eine offizielle Repo,
+sondern **beliebige GitHub-Repos per Link** als weitere Addon-Quelle
+hinzufügen können (`AddonStoreController::addRepo()`, Tabelle `addon_repos`)
+- eine feste, kuratierte `index.json` mit Prüfsumme ergibt für ein vom Admin
+selbst gewähltes, beliebiges Drittanbieter-Repo keinen zusätzlichen
+Sicherheitsgewinn (das Repo kontrolliert seine eigene Prüfsumme ohnehin
+selbst). Die Vertrauensentscheidung liegt hier bewusst und ausschließlich
+beim Admin, der ein Repo hinzufügt - identisch zum bestehenden Modell "nur
+Plugins aus vertrauenswürdiger Quelle aktivieren" (siehe
+[plugin-development.md](plugin-development.md), Abschnitt "Sicherheitsmodell").
+Technisch abgesichert wird stattdessen: striktes Owner/Repo/Ref-Validieren
+vor jeder URL-Konstruktion (fester Zielhost `api.github.com`, kein SSRF über
+einen manipulierten Host), Größenlimit + Timeout beim Download, und
+Entpacken ausschließlich in ein isoliertes temporäres Verzeichnis mit
+anschließender Pfad-/Symlink-Prüfung (`verifyExtractedTreeIsSafe()`) - siehe
+Docblock von `GithubAddonRepository` für Details. **Installieren aktiviert
+ein Plugin weiterhin nie automatisch** - das bleibt der bestehende, separate
+Schritt unter `/admin/plugins` (`PluginController`/`PluginManager`).
 
 ## 3. Phasenplan
 
@@ -232,10 +251,12 @@ Plugin-Ideen konkret umgesetzt werden (z. B. Hooks für Deckstations-
 Detailseite, Personen-CRUD, eigene DB-Tabellen pro Plugin über einen
 `plugin.schema`-Hook analog zu `ensureSchemaUpToDate()`).
 
-**Phase 3 — Externe Registry/Installation (separates Issue, nach
-Existenz des Plugin-Repos):** `index.json`-Registry-Client, Tag-gebundener
-Download, Prüfsummen-/Signaturverifikation vor Installation, In-App-
-Update-Hinweise.
+**Phase 3 — Addon-Store (umgesetzt):** `App\Service\GithubAddonRepository`
+(Download, sicheres Entpacken, Katalog-Scan) + `App\Controllers\AddonStoreController`
+(`/admin/plugins/store`) - Auflisten und Installieren von Plugins aus dem
+mitgelieferten offiziellen Repo sowie beliebigen, per Link hinzugefügten
+GitHub-Repos, siehe Abschnitt 2.7 für die Sicherheitsabwägung gegenüber der
+ursprünglich skizzierten kuratierten `index.json`-Registry.
 
 ## 4. Entscheidungen zu den offenen Punkten (bei Umsetzung getroffen)
 

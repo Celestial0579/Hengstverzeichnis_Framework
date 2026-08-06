@@ -49,16 +49,40 @@ class Totp {
      * Verifies code allowing clock drift of +/- 1 window (30 seconds)
      */
     public static function verifyCode(string $secret, string $code, int $discrepancy = 1): bool {
-        $currentTimeSlice = floor(time() / 30);
+        return self::verifyCodeReturnSlice($secret, $code, null, $discrepancy) !== null;
+    }
+
+    /**
+     * Wie verifyCode(), gibt aber den tatsächlich getroffenen Zeitschlitz zurück
+     * (floor(time()/30) +/- Toleranz) statt nur true/false - Grundlage für den
+     * Replay-Schutz: der Aufrufer speichert den zurückgegebenen Wert und übergibt
+     * ihn beim nächsten Mal als $minSlice, sodass derselbe (oder ein älterer)
+     * Code innerhalb seines Toleranzfensters nicht erneut akzeptiert wird.
+     *
+     * @param int|null $minSlice Zuletzt akzeptierter Zeitschlitz; Codes aus diesem
+     *                           oder einem früheren Schlitz werden abgelehnt. null =
+     *                           keine Einschränkung (z. B. Erst-Einrichtung).
+     * @return int|null Getroffener Zeitschlitz oder null, wenn kein gültiger,
+     *                  noch nicht verbrauchter Code vorlag.
+     */
+    public static function verifyCodeReturnSlice(string $secret, string $code, ?int $minSlice = null, int $discrepancy = 1): ?int {
+        $currentTimeSlice = (int)floor(time() / 30);
 
         for ($i = -$discrepancy; $i <= $discrepancy; $i++) {
-            $calculatedCode = self::getCode($secret, $currentTimeSlice + $i);
+            $slice = $currentTimeSlice + $i;
+
+            // Replay-Schutz: bereits verbrauchte oder ältere Zeitschlitze überspringen.
+            if ($minSlice !== null && $slice <= $minSlice) {
+                continue;
+            }
+
+            $calculatedCode = self::getCode($secret, $slice);
             if (hash_equals($calculatedCode, trim($code))) {
-                return true;
+                return $slice;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
@@ -71,12 +95,19 @@ class Totp {
     }
 
     /**
-     * Generates 10 single-use backup recovery codes
+     * Generates 10 single-use backup recovery codes.
+     *
+     * Jeder Code liefert 64 Bit Entropie (2x 4 Byte, als 16 Hex-Zeichen im Format
+     * XXXXXXXX-XXXXXXXX) - genug Spielraum für einen 2FA-Wiederherstellungscode,
+     * auch falls der (bewusst ausfallsichere, also im DB-Fehlerfall fail-open)
+     * Rate-Limiter einmal nicht greift. Die Codes werden vor dem Speichern mit
+     * password_hash() gehasht; die Länge ist für die Verifizierung unerheblich,
+     * daher bleiben bereits ausgegebene ältere Codes weiterhin gültig.
      */
     public static function generateBackupCodes(int $count = 10): array {
         $codes = [];
         for ($i = 0; $i < $count; $i++) {
-            $code = strtoupper(bin2hex(random_bytes(2)) . '-' . bin2hex(random_bytes(2)));
+            $code = strtoupper(bin2hex(random_bytes(4)) . '-' . bin2hex(random_bytes(4)));
             $codes[] = $code;
         }
         return $codes;

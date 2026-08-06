@@ -43,6 +43,16 @@ class Mailer {
         $fromEmail = $this->config['mail_from_email'] ?? ($this->config['smtp_user'] ?? 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
         $fromName = $this->config['mail_from_name'] ?? ($this->config['site_name'] ?? 'Hengstverzeichnis');
 
+        // Defense in depth gegen SMTP-Command-/Header-Injection: Empfänger- und
+        // Absenderadresse fließen roh in MAIL FROM/RCPT TO bzw. die To:/From:-Header
+        // ein. In den Aufrufpfaden sind sie zwar bereits per FILTER_VALIDATE_EMAIL
+        // geprüft, ein hier durchrutschendes CR/LF könnte aber zusätzliche
+        // Befehle/Header einschleusen - daher zusätzlich hart ablehnen.
+        if (preg_match('/[\r\n]/', $toEmail) || preg_match('/[\r\n]/', $fromEmail)) {
+            AuditLogger::log("E-Mail-Versand abgelehnt (ungültige Adresse)", "email", "CR/LF in Empfänger- oder Absenderadresse", null, "SYSTEM");
+            return false;
+        }
+
         if (empty($textBody)) {
             $textBody = strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], "\n", $htmlBody));
         }

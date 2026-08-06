@@ -239,7 +239,7 @@ class UserController extends BaseController {
             $stmt->execute([$id]);
             $targetUsername = $stmt->fetchColumn() ?: "ID {$id}";
 
-            $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL, last_totp_timeslice = NULL WHERE id = ?");
             $stmt->execute([$id]);
 
             \App\Service\AuditLogger::log("2FA zurückgesetzt", "users", "2FA für Benutzer {$targetUsername} (ID: {$id}) durch Admin zurückgesetzt");

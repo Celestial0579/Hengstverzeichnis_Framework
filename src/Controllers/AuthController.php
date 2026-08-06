@@ -106,7 +106,8 @@ class AuthController extends BaseController {
         $code = trim($_POST['totp_code'] ?? '');
         $backupCodesRaw = json_decode($_POST['backup_codes'] ?? '[]', true);
 
-        if (!Totp::verifyCode($secret, $code)) {
+        $usedSlice = Totp::verifyCodeReturnSlice($secret, $code);
+        if ($usedSlice === null) {
             $siteName = $this->settings['site_name'] ?? 'Hengstverzeichnis';
             $db = Database::getInstance();
             $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
@@ -131,9 +132,12 @@ class AuthController extends BaseController {
         // Encrypt TOTP Secret at rest using AES-256-GCM
         $encryptedSecret = \App\Security\Crypto::encrypt($secret);
 
+        // Den bei der Einrichtung verbrauchten Zeitschlitz gleich festhalten, damit
+        // derselbe Bestätigungscode nicht unmittelbar danach für den Login
+        // wiederverwendet werden kann (Replay-Schutz, siehe process2faVerify()).
         $db = Database::getInstance();
-        $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ? WHERE id = ?");
-        $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $userId]);
+        $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ?, last_totp_timeslice = ? WHERE id = ?");
+        $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $usedSlice, $userId]);
 
         $this->completeLogin($userId, '/admin?2fa=enabled');
     }
@@ -169,7 +173,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT totp_secret FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -180,7 +184,18 @@ class AuthController extends BaseController {
                 $decryptedSecret = $user['totp_secret'];
             }
 
-            if (Totp::verifyCode($decryptedSecret, $code)) {
+            // Replay-Schutz: ein bereits verwendeter (oder älterer) TOTP-Zeitschlitz
+            // wird abgelehnt, damit ein abgefangener gültiger Code nicht innerhalb
+            // seines Toleranzfensters ein zweites Mal zum Login genutzt werden kann.
+            $minSlice = isset($user['last_totp_timeslice']) && $user['last_totp_timeslice'] !== null
+                ? (int)$user['last_totp_timeslice'] : null;
+            $usedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, $code, $minSlice);
+
+            if ($usedSlice !== null) {
+                // Verbrauchten Zeitschlitz festhalten, bevor die Session steht.
+                $updateStmt = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
+                $updateStmt->execute([$usedSlice, $userId]);
+
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
                 $this->completeLogin($userId, '/admin');
             }

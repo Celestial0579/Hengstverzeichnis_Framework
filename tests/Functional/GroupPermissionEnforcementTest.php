@@ -5,26 +5,27 @@ namespace Tests\Functional;
 
 /**
  * HTTP-Funktionstests für das Gruppen-/Berechtigungssystem (#66,
- * src/Controllers/GroupController.php): Anlegen eigener Gruppen, Vergeben und
- * Entziehen von Berechtigungen und deren tatsächliche Wirkung auf eine echte
- * Nicht-Admin-Sitzung (Admin hat immer alle Rechte, siehe
+ * src/Controllers/GroupController.php) - EINZIGES Rechtesystem der App
+ * (users.role wurde vollständig entfernt): Anlegen eigener Gruppen, Vergeben
+ * und Entziehen von Berechtigungen und deren tatsächliche Wirkung auf eine
+ * echte Nicht-Admin-Sitzung (Admin hat immer alle Rechte, siehe
  * BaseController::hasPermission() - ein reiner DB-/Unit-Test würde die
  * eigentliche Durchsetzung in requirePermission() nicht abdecken), sowie die
  * serverseitigen Sicherheits-Leitplanken aus GroupController (eingebaute
  * Gruppen unlöschbar, admin/public nie editierbar, CSRF-Pflicht) und das
- * Security-by-Design-Prinzip: role='editor' allein gewährt KEINE Rechte mehr,
- * Mitgliedschaft in JEDER Gruppe (auch der eingebauten `editor`-Gruppe) ist
- * ausschließlich explizit über eigene Gruppen (siehe
+ * Security-by-Design-Prinzip: ein Benutzer ganz ohne Gruppenzuweisung hat
+ * KEINE Rechte, Mitgliedschaft in JEDER Gruppe (auch der eingebauten
+ * `editor`-Gruppe) ist ausschließlich explizit über eigene Gruppen (siehe
  * BaseController::userGroupIds()).
  */
 class GroupPermissionEnforcementTest extends FunctionalTestCase {
 
-    public function testEditorRoleAloneGrantsNoPermissions(): void {
+    public function testUserWithoutAnyGroupGrantsNoPermissions(): void {
         $admin = $this->authenticatedClient();
 
-        // Bewusst OHNE jede Gruppenzuweisung - role='editor' allein darf seit der
-        // Security-by-Design-Umstellung keinerlei Rechte mehr gewähren, exakt wie
-        // 'public' (siehe BaseController::userGroupIds()).
+        // Bewusst OHNE jede Gruppenzuweisung - ein Benutzer ganz ohne Gruppen darf
+        // keinerlei Rechte haben, exakt wie 'public' (siehe
+        // BaseController::userGroupIds()).
         $unique = uniqid();
         $editor = $this->createAndLoginEditor($admin, "norights{$unique}", "no-rights-{$unique}@example.com");
 
@@ -210,6 +211,32 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
                 "Berechtigungsänderung für {$label} hätte serverseitig blockiert werden müssen"
             );
         }
+    }
+
+    /**
+     * Seit der Entfernung von users.role ist Mitgliedschaft in der eingebauten
+     * Gruppe `admin` die EINZIGE Quelle für Adminrechte (siehe
+     * BaseController::requireAdmin()/isAdmin()) - anders als jede andere
+     * Gruppe muss `admin` deshalb regulär über /admin/users zuweisbar sein
+     * (siehe UserController::assignableGroups()), auch wenn ihre eigene
+     * Berechtigungs-Matrix weiterhin nicht editierbar ist (siehe
+     * testAdminAndPublicPermissionsCannotBeModified()).
+     */
+    public function testAssigningBuiltinAdminGroupGrantsFullAdminAccess(): void {
+        $admin = $this->authenticatedClient();
+        $adminGroupId = $this->findBuiltinGroupId($admin, 'Administrator');
+
+        $unique = uniqid();
+        $newAdmin = $this->createAndLoginEditor(
+            $admin,
+            "newadmin{$unique}",
+            "new-admin-{$unique}@example.com",
+            [$adminGroupId]
+        );
+
+        // Vorher requireAdmin()-only, unabhängig von group_permissions.
+        $usersPage = $newAdmin->get('/admin/users');
+        $this->assertSame(200, $usersPage->statusCode);
     }
 
     public function testGroupMutationsRequireCsrfToken(): void {

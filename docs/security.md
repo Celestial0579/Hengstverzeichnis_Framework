@@ -37,11 +37,20 @@ konsequent übernommen werden.
 
 ## Autorisierung
 
-Zwei Rollen: `admin` und `editor` (`users.role`). `BaseController::requireAdmin()`
-schützt Admin-only-Bereiche (Benutzerverwaltung, Systemeinstellungen, Mail-
-Konfiguration, System-Reset, DSGVO-Verwaltung, Papierkorb-Vollzugriff). Editoren
-haben Zugriff auf die fachlichen CRUD-Bereiche (Pferde, Personen, Deckstationen)
-mit eingeschränkten Papierkorb-Rechten (siehe [database.md](database.md#soft-delete--papierkorb)).
+Einziges Rechtesystem: Gruppen (`groups`/`user_groups`/`group_permissions`,
+#66). Mitgliedschaft ist für JEDE Gruppe ausschließlich explizit über
+`user_groups` – es gibt keine implizite Ableitung (kein `users.role` mehr).
+`BaseController::requireAdmin()`/`isAdmin()` prüfen Mitgliedschaft in der
+eingebauten Gruppe `admin` (via `App\Permission\GroupMembership`) und schützen
+so die Admin-only-Bereiche (Benutzerverwaltung, Gruppenverwaltung,
+Systemeinstellungen, Mail-Konfiguration, System-Reset, DSGVO-Verwaltung,
+Papierkorb-Vollzugriff) – Mitglieder haben systemseitig immer alle Rechte,
+unabhängig vom Inhalt von `group_permissions`. Granulare CRUD-Rechte auf die
+fachlichen Bereiche (Pferde, Personen, Deckstationen) regelt
+`BaseController::hasPermission()`/`requirePermission()` über
+`App\Permission\PermissionRegistry` und die je Gruppe frei konfigurierbare
+Berechtigungsmatrix (`/admin/groups`) mit eingeschränkten Papierkorb-Rechten
+für Nicht-Admins (siehe [database.md](database.md#soft-delete--papierkorb)).
 
 ## Brute-Force-Schutz (`src/Security/RateLimiter.php`)
 

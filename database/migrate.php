@@ -30,7 +30,7 @@ try {
     };
 
     // Users table migrations (2FA)
-    $addColumn('users', 'totp_secret', 'VARCHAR(64) NULL AFTER `role`');
+    $addColumn('users', 'totp_secret', 'VARCHAR(64) NULL');
     $addColumn('users', 'totp_enabled', 'TINYINT(1) DEFAULT 0 AFTER `totp_secret`');
     $addColumn('users', 'backup_codes', 'TEXT NULL AFTER `totp_enabled`');
     $addColumn('users', 'passkeys', 'TEXT NULL AFTER `backup_codes`');

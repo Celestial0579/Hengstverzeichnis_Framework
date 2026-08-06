@@ -16,7 +16,18 @@ class UserController extends BaseController {
 
     public function index(): void {
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, username, email, role, created_at, totp_enabled FROM users WHERE deleted_at IS NULL ORDER BY username ASC");
+        // group_names: für die Anzeige aggregierte Gruppenmitgliedschaft (#66) -
+        // ersetzt die frühere "Rolle"-Spalte, seit Gruppen das einzige Rechtesystem sind.
+        $stmt = $db->query("
+            SELECT u.id, u.username, u.email, u.created_at, u.totp_enabled,
+                   GROUP_CONCAT(g.name ORDER BY g.is_builtin DESC, g.name SEPARATOR ', ') AS group_names
+            FROM users u
+            LEFT JOIN user_groups ug ON ug.user_id = u.id
+            LEFT JOIN `groups` g ON g.id = ug.group_id
+            WHERE u.deleted_at IS NULL
+            GROUP BY u.id
+            ORDER BY u.username ASC
+        ");
         $users = $stmt->fetchAll();
 
         // Suche + Seitengrößen-Auswahl/Pagination (10/25/50/100/alle), analog zu
@@ -59,14 +70,12 @@ class UserController extends BaseController {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
-        $role = $_POST['role'] ?? 'editor';
 
         $errors = [];
         if (empty($username)) $errors[] = "Benutzername erforderlich.";
         if ($this->isReservedUsername($username)) $errors[] = "Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht verwendet werden.";
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = "Gültige E-Mail-Adresse erforderlich.";
         if (strlen($password) < 8) $errors[] = "Passwort muss mindestens 8 Zeichen lang sein.";
-        if (!in_array($role, ['admin', 'editor'])) $role = 'editor';
 
         if (!empty($errors)) {
             $this->render('admin_user_form', [
@@ -81,13 +90,13 @@ class UserController extends BaseController {
         try {
             $db = Database::getInstance();
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, role, must_change_password) VALUES (?, ?, ?, ?, 1)");
-            $stmt->execute([$username, $email, $passwordHash, $role]);
+            $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, must_change_password) VALUES (?, ?, ?, 1)");
+            $stmt->execute([$username, $email, $passwordHash]);
             $newUserId = (int)$db->lastInsertId();
 
             $this->syncUserGroups($db, $newUserId, $_POST['groups'] ?? []);
 
-            \App\Service\AuditLogger::log("Benutzer angelegt", "users", "Benutzer: {$username} ({$email}), Rolle: {$role}");
+            \App\Service\AuditLogger::log("Benutzer angelegt", "users", "Benutzer: {$username} ({$email})");
 
             // Send Welcome E-Mail with initial credentials if requested
             if (!empty($_POST['send_welcome_email'])) {
@@ -115,7 +124,7 @@ class UserController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, username, email, role FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT id, username, email FROM users WHERE id = ?");
         $stmt->execute([$id]);
         $user = $stmt->fetch();
 
@@ -152,18 +161,15 @@ class UserController extends BaseController {
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
-        $role = $_POST['role'] ?? 'editor';
 
         if ($this->isReservedUsername($username)) {
             $this->render('admin_user_form', [
                 'title' => 'Benutzer bearbeiten',
-                'user' => ['id' => $id, 'username' => $username, 'email' => $email, 'role' => $role],
+                'user' => ['id' => $id, 'username' => $username, 'email' => $email],
                 'errors' => ["Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht gewählt werden."]
             ]);
             return;
         }
-
-        if (!in_array($role, ['admin', 'editor'])) $role = 'editor';
 
         $db = Database::getInstance();
 
@@ -171,26 +177,25 @@ class UserController extends BaseController {
             if (strlen($password) < 8) {
                 $this->render('admin_user_form', [
                     'title' => 'Benutzer bearbeiten',
-                    'user' => ['id' => $id, 'username' => $username, 'email' => $email, 'role' => $role],
+                    'user' => ['id' => $id, 'username' => $username, 'email' => $email],
                     'errors' => ['Das Passwort muss mindestens 8 Zeichen lang sein.']
                 ]);
                 return;
             }
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ?, role = ? WHERE id = ?");
-            $stmt->execute([$username, $email, $passwordHash, $role, $id]);
+            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ? WHERE id = ?");
+            $stmt->execute([$username, $email, $passwordHash, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, role = ? WHERE id = ?");
-            $stmt->execute([$username, $email, $role, $id]);
+            $stmt = $db->prepare("UPDATE users SET username = ?, email = ? WHERE id = ?");
+            $stmt->execute([$username, $email, $id]);
         }
 
         $this->syncUserGroups($db, (int)$id, $_POST['groups'] ?? []);
 
-        \App\Service\AuditLogger::log("Benutzer aktualisiert", "users", "Benutzer ID {$id}: {$username} ({$email}), Rolle: {$role}");
+        \App\Service\AuditLogger::log("Benutzer aktualisiert", "users", "Benutzer ID {$id}: {$username} ({$email})");
 
-        // If updating self role, update session
+        // If updating self, keep the displayed username in sync
         if ($id == $_SESSION['user_id']) {
-            $_SESSION['role'] = $role;
             $_SESSION['username'] = $username;
         }
 
@@ -246,31 +251,33 @@ class UserController extends BaseController {
 
     /**
      * Alle Gruppen, die einem Benutzer über `user_groups` zugewiesen werden
-     * dürfen (#66) - jede Gruppe außer den beiden Sonderfällen
-     * GroupController::PROTECTED_PERMISSION_SLUGS (`admin` braucht das nie,
-     * hart codierter Bypass; `public` ist ausschließlich für nicht angemeldete
-     * Besucher gedacht). Das schließt seit der Security-by-Design-Umstellung
-     * ausdrücklich die eingebaute `editor`-Gruppe mit ein - sie ist eine ganz
-     * normale, bewusst zuzuweisende Gruppe wie jede eigene, kein automatischer
-     * Standard mehr (siehe BaseController::userGroupIds()).
+     * dürfen (#66) - jede Gruppe außer GroupController::NON_ASSIGNABLE_SLUGS
+     * (`public` ist ausschließlich für nicht angemeldete Besucher gedacht).
+     * Das schließt ausdrücklich die eingebauten Gruppen `admin` und `editor`
+     * mit ein - Mitgliedschaft in JEDER Gruppe ist bewusst zuzuweisen, kein
+     * automatischer Standard (siehe BaseController::userGroupIds()). `admin`
+     * MUSS hier zuweisbar sein, sonst könnte nie ein Administrator angelegt
+     * werden (siehe GroupController::PROTECTED_PERMISSION_SLUGS für den davon
+     * unabhängigen Schutz ihrer Berechtigungs-Matrix).
      *
      * @return array<int, array{id:int, name:string, is_builtin:int}>
      */
     private function assignableGroups(\PDO $db): array {
-        $protected = \App\Controllers\GroupController::PROTECTED_PERMISSION_SLUGS;
-        $placeholders = implode(',', array_fill(0, count($protected), '?'));
+        $nonAssignable = \App\Controllers\GroupController::NON_ASSIGNABLE_SLUGS;
+        $placeholders = implode(',', array_fill(0, count($nonAssignable), '?'));
         $stmt = $db->prepare("SELECT id, name, is_builtin FROM `groups` WHERE slug NOT IN ({$placeholders}) ORDER BY is_builtin DESC, name ASC");
-        $stmt->execute($protected);
+        $stmt->execute($nonAssignable);
         return $stmt->fetchAll();
     }
 
     /**
      * Gleicht die Gruppen eines Benutzers mit der übermittelten Auswahl ab
-     * (#66, siehe docs/user-groups-plan.md). Mitgliedschaft ist seit der
-     * Security-by-Design-Umstellung für JEDE Gruppe ausschließlich explizit
-     * über `user_groups` (siehe BaseController::userGroupIds()) - hier werden
-     * bewusst nur assignableGroups() akzeptiert, damit eine manipulierte
-     * Anfrage niemals `admin` oder `public` über user_groups zuweisen kann.
+     * (#66, siehe docs/user-groups-plan.md). Mitgliedschaft ist für JEDE
+     * Gruppe ausschließlich explizit über `user_groups` (siehe
+     * BaseController::userGroupIds()) - hier werden bewusst nur
+     * assignableGroups() akzeptiert, damit eine manipulierte Anfrage niemals
+     * `public` über user_groups zuweisen kann (`admin` ist hier absichtlich
+     * NICHT ausgeschlossen, siehe assignableGroups()).
      *
      * @param array<int, mixed> $groupIds
      */
@@ -284,11 +291,11 @@ class UserController extends BaseController {
             return;
         }
 
-        $protected = \App\Controllers\GroupController::PROTECTED_PERMISSION_SLUGS;
+        $nonAssignable = \App\Controllers\GroupController::NON_ASSIGNABLE_SLUGS;
         $groupPlaceholders = implode(',', array_fill(0, count($groupIds), '?'));
-        $protectedPlaceholders = implode(',', array_fill(0, count($protected), '?'));
-        $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug NOT IN ({$protectedPlaceholders}) AND id IN ({$groupPlaceholders})");
-        $stmt->execute(array_merge($protected, array_values($groupIds)));
+        $nonAssignablePlaceholders = implode(',', array_fill(0, count($nonAssignable), '?'));
+        $stmt = $db->prepare("SELECT id FROM `groups` WHERE slug NOT IN ({$nonAssignablePlaceholders}) AND id IN ({$groupPlaceholders})");
+        $stmt->execute(array_merge($nonAssignable, array_values($groupIds)));
         $validIds = $stmt->fetchAll(\PDO::FETCH_COLUMN);
 
         if (empty($validIds)) {

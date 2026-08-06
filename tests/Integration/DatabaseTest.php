@@ -18,6 +18,10 @@ use PHPUnit\Framework\TestCase;
  * bevor Database::getInstance() zum ersten Mal aufgerufen wird - database/schema.sql
  * ist mittlerweile selbst schon vollständig aktuell und würde die Migration gar
  * nicht mehr sichtbar testen (jeder $addColumn()-Aufruf wäre von vornherein ein No-Op).
+ * Das Alt-Schema behält bewusst die inzwischen aus database/schema.sql entfernte
+ * users.role-Spalte samt zweier Bestandsbenutzer, um die Einmal-Migration
+ * (Backfill nach user_groups + DROP COLUMN role, siehe
+ * Database::ensureSchemaUpToDate()) tatsächlich zu durchlaufen.
  */
 class DatabaseTest extends TestCase {
 
@@ -56,6 +60,17 @@ class DatabaseTest extends TestCase {
                 `role` ENUM('admin', 'editor') DEFAULT 'editor',
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+
+        // Bestandsbenutzer mit dem inzwischen entfernten users.role - simuliert
+        // eine Installation von VOR der Rollensystem-Entfernung. Muss vor dem
+        // ersten Database::getInstance()-Aufruf existieren, damit
+        // ensureSchemaUpToDate() sie in echte user_groups-Zeilen überführen kann
+        // (siehe testEnsureSchemaUpToDateMigratesLegacySchema()).
+        self::$setupPdo->exec("
+            INSERT INTO `users` (`username`, `email`, `password_hash`, `role`) VALUES
+            ('legacy-admin', 'legacy-admin@example.com', 'x', 'admin'),
+            ('legacy-editor', 'legacy-editor@example.com', 'x', 'editor')
         ");
         self::$setupPdo->exec("
             CREATE TABLE `persons` (
@@ -123,6 +138,19 @@ class DatabaseTest extends TestCase {
         $this->assertTableExists($pdo, 'password_resets');
         $this->assertTableExists($pdo, 'gdpr_requests');
         $this->assertTableExists($pdo, 'login_attempts');
+        $this->assertTableExists($pdo, 'groups');
+        $this->assertTableExists($pdo, 'user_groups');
+        $this->assertTableExists($pdo, 'group_permissions');
+
+        // Rollensystem entfernt: users.role muss weg sein, und die vorher per
+        // role='admin'/'editor' angelegten Bestandsbenutzer (siehe
+        // setUpBeforeClass()) müssen die passende user_groups-Zeile bekommen
+        // haben, damit sich ihre Rechte durch die Migration nicht ändern.
+        $stmt = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'role'");
+        $this->assertSame(0, $stmt->rowCount(), "Spalte users.role sollte nach ensureSchemaUpToDate() entfernt sein");
+
+        $this->assertUserIsMemberOfGroup($pdo, 'legacy-admin@example.com', 'admin');
+        $this->assertUserIsMemberOfGroup($pdo, 'legacy-editor@example.com', 'editor');
 
         // Verbindung bleibt trotz der vielen ALTER/CREATE-Statements funktionsfähig
         $this->assertSame('1', (string)$pdo->query("SELECT 1")->fetchColumn());
@@ -140,5 +168,20 @@ class DatabaseTest extends TestCase {
     private function assertTableExists(PDO $pdo, string $table): void {
         $stmt = $pdo->query("SHOW TABLES LIKE " . $pdo->quote($table));
         $this->assertGreaterThan(0, $stmt->rowCount(), "Erwartete Tabelle {$table} fehlt nach ensureSchemaUpToDate()");
+    }
+
+    private function assertUserIsMemberOfGroup(PDO $pdo, string $email, string $groupSlug): void {
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) FROM user_groups ug
+            JOIN users u ON u.id = ug.user_id
+            JOIN `groups` g ON g.id = ug.group_id
+            WHERE u.email = ? AND g.slug = ?
+        ");
+        $stmt->execute([$email, $groupSlug]);
+        $this->assertGreaterThan(
+            0,
+            (int)$stmt->fetchColumn(),
+            "Erwartete user_groups-Zeile für {$email} in Gruppe '{$groupSlug}' fehlt nach der role-Migration"
+        );
     }
 }

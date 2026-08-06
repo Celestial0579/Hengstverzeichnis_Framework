@@ -66,7 +66,7 @@ bereitstellt:
 | `__construct()` | Lädt globale Einstellungen (`settings`-Tabelle: Site-Name, Farben, Logo) |
 | `render($view, $data)` | Rendert eine View aus `src/Views/` innerhalb von `layout.php` |
 | `checkAuth()` | Session-Prüfung inkl. Anti-Session-Hijacking, Inaktivitäts-Timeout, ID-Rotation, Passwortänderungs-Zwang |
-| `requireAdmin()` | Rollenprüfung (nur `role = admin`), sonst 403 |
+| `requireAdmin()` | Prüft Mitgliedschaft in der Gruppe `admin` (#66), sonst 403 |
 | `renderForbidden()/renderNotFound()/renderServerError()` | Einheitliche Fehlerseiten (403/404/500), 403 wird zusätzlich im Audit-Log protokolliert |
 | `isReservedUsername()` | Verhindert reservierte Benutzernamen wie `admin`, `root`, `system` |
 
@@ -189,25 +189,31 @@ die zugrundeliegenden Architekturentscheidungen.
 
 ## Gruppen-/Berechtigungssystem (`src/Permission/`, `groups`/`user_groups`/`group_permissions`, #66)
 
-Granulare, admin-konfigurierbare Rechtevergabe je Modul × Aktion (Erstellen/
-Bearbeiten/Löschen/Veröffentlichen) – siehe
-[user-groups-plan.md](user-groups-plan.md) für die Architekturentscheidungen.
+Einziges Rechtesystem der App (das frühere `users.role` wurde vollständig
+entfernt, siehe [user-groups-plan.md](user-groups-plan.md) für die
+Architekturentscheidungen und deren spätere Ablösung). Granulare,
+admin-konfigurierbare Rechtevergabe je Modul × Aktion (Erstellen/Bearbeiten/
+Löschen/Veröffentlichen) plus ein fest verdrahteter Admin-Sonderfall.
 
-- Drei feste (`is_builtin`) Gruppen: `admin` (hart codiert immer alle
-  Rechte, komplett separat über `users.role` geregelt, nie über
-  `user_groups`), `editor` (Komfort-Gruppe mit denselben Standardrechten
-  wie vor Einführung dieses Systems, über die Admin-UI frei editierbar),
-  `public` (die nicht angemeldeten Besucher – erhält serverseitig mehrfach
-  unabhängig abgesichert niemals Zugriff auf das Backend oder irgendeine
-  Berechtigung, siehe user-groups-plan.md Abschnitt 8 für die drei
-  unabhängigen Mechanismen). **Security-by-Design (Abschnitt 10):**
-  Mitgliedschaft ist für JEDE Gruppe außer `admin` ausschließlich explizit
-  über `user_groups` – auch `editor` ist keine automatisch zugewiesene
-  Standardgruppe mehr, sondern verhält sich identisch zu jeder eigenen
-  Gruppe (frei zuweisbar/entziehbar, startet bei Anlage ohne Rechte wie
-  `public`). `admin`/`public` sind damit die einzigen beiden Sonderfälle
-  im gesamten Gruppensystem (`GroupController::PROTECTED_PERMISSION_SLUGS`).
-  Verwaltung unter `/admin/groups` bzw. Gruppenzuordnung im
+- Drei feste (`is_builtin`) Gruppen: `admin` (hat systemseitig immer implizit
+  ALLE Rechte, unabhängig vom Inhalt von `group_permissions` – ihre eigene
+  Berechtigungs-Matrix bleibt deshalb leer und nicht editierbar, ist aber wie
+  jede andere Gruppe regulär über `user_groups` zuweisbar, sonst könnte nie
+  ein Administrator angelegt werden), `editor` (Komfort-Gruppe mit
+  Standardrechten für die fachlichen CRUD-Bereiche, über die Admin-UI frei
+  editierbar), `public` (die nicht angemeldeten Besucher – erhält
+  serverseitig mehrfach unabhängig abgesichert niemals Zugriff auf das
+  Backend oder irgendeine Berechtigung). **Security-by-Design:**
+  Mitgliedschaft ist für JEDE Gruppe (auch `admin`/`editor`) ausschließlich
+  explizit über `user_groups` – keine Gruppe wird automatisch zugewiesen,
+  jede startet bei Anlage ohne Rechte wie `public`. `App\Permission\GroupMembership`
+  bündelt "Gruppen-IDs eines Benutzers" und "ist Mitglied von `admin`" als
+  einzige Quelle für beide Fragen (genutzt sowohl von `BaseController` als
+  auch von Stellen ohne Controller-Instanz). Die Matrix-Bearbeitung von
+  `admin`/`public` bleibt serverseitig gesperrt
+  (`GroupController::PROTECTED_PERMISSION_SLUGS`), ihre Zuweisbarkeit an
+  Benutzer regelt die kleinere `GroupController::NON_ASSIGNABLE_SLUGS`
+  (nur `public`). Verwaltung unter `/admin/groups` bzw. Gruppenzuordnung im
   Benutzer-Formular.
 - `App\Permission\PermissionRegistry`: Katalog der verfügbaren Module/
   Aktionen – fester Kern-Anteil (`horses` inkl. `publish`, `persons`,
@@ -216,12 +222,14 @@ Bearbeiten/Löschen/Veröffentlichen) – siehe
   zuerst registriert, gewinnt" gegen Überschreiben). Bewusst als PHP-Array,
   keine DB-Katalogtabelle.
 - `BaseController::hasPermission()`/`requirePermission()`: Prüfung fail-closed
-  (fehlende Zuordnung oder DB-Fehler → Zugriff verweigert), Admin-Bypass hart
-  codiert. Eingesetzt in `HorseController`/`PersonController`/
-  `BreedingStationController` anstelle eines reinen `checkAuth()`.
-- Benutzerverwaltung, DSGVO, System-/Mail-Einstellungen, Papierkorb und
-  Plugin-Aktivierung bleiben bewusst weiterhin ausschließlich admin-only
-  (`requireAdmin()`), nicht Teil der Modul-Tabelle.
+  (fehlende Zuordnung oder DB-Fehler → Zugriff verweigert), Admin-Bypass über
+  `isAdmin()`/`GroupMembership::isAdmin()`. Eingesetzt in
+  `HorseController`/`PersonController`/`BreedingStationController` anstelle
+  eines reinen `checkAuth()`.
+- Benutzerverwaltung, Gruppenverwaltung selbst, DSGVO, System-/Mail-
+  Einstellungen, Papierkorb-Vollzugriff und Plugin-Aktivierung bleiben
+  bewusst weiterhin ausschließlich admin-only (`requireAdmin()`, geprüft über
+  Mitgliedschaft in der Gruppe `admin`), nicht Teil der Modul-Tabelle.
 
 ## Mehrsprachigkeit / i18n (`src/I18n/`, `lang/`, #48)
 
@@ -360,8 +368,9 @@ dafür bereits sofort informiert. Registriert sich analog zu
   "alles ruhig"-Digest) - `run()` protokolliert diesen Fall dennoch als
   erfolgreichen Lauf (`digest_last_status`/`digest_last_run_at`/
   `digest_last_sent_count` in der `settings`-Tabelle).
-- Empfänger: alle nicht gelöschten Benutzerkonten mit `role IN ('admin',
-  'editor')`. Ein vollständiger Versandfehlschlag (keine Empfänger oder
+- Empfänger: alle nicht gelöschten Benutzerkonten, die Mitglied der Gruppe
+  `admin` oder `editor` sind (`user_groups`/`groups`, #66). Ein vollständiger
+  Versandfehlschlag (keine Empfänger oder
   Versand an niemanden erfolgreich) wirft eine Exception, die der
   Scheduler zentral im Audit-Log protokolliert - ein NUR teilweiser
   Fehlschlag (einzelne Empfänger nicht erreichbar) gilt als Erfolg des

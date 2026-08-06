@@ -15,7 +15,7 @@ class TrashController extends BaseController {
     public static function getTrashCount(): int {
         try {
             $db = Database::getInstance();
-            $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+            $isAdmin = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
 
             $horses = (int)$db->query("SELECT COUNT(*) FROM horses WHERE deleted_at IS NOT NULL")->fetchColumn();
             $persons = (int)$db->query("SELECT COUNT(*) FROM persons WHERE deleted_at IS NOT NULL")->fetchColumn();
@@ -30,7 +30,7 @@ class TrashController extends BaseController {
 
     public function index(): void {
         $db = Database::getInstance();
-        $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+        $isAdmin = $this->isAdmin();
 
         $deletedHorses = $db->query("SELECT * FROM horses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll();
         $deletedPersons = $db->query("SELECT * FROM persons WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll();
@@ -55,7 +55,7 @@ class TrashController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+        $isAdmin = $this->isAdmin();
         $type = $_POST['type'] ?? '';
         $id = (int)($_POST['id'] ?? 0);
 
@@ -90,7 +90,7 @@ class TrashController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+        $isAdmin = $this->isAdmin();
         $type = $_POST['type'] ?? '';
         $id = (int)($_POST['id'] ?? 0);
 
@@ -144,7 +144,7 @@ class TrashController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+        $isAdmin = $this->isAdmin();
         $db = Database::getInstance();
 
         if ($isAdmin) {

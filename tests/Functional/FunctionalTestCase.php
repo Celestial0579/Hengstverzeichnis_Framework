@@ -102,7 +102,6 @@ abstract class FunctionalTestCase extends TestCase {
             'username' => $username,
             'email' => $email,
             'password' => $password,
-            'role' => 'editor',
             'groups' => array_map('strval', $customGroupIds),
         ]);
         self::assertSame(
@@ -160,13 +159,13 @@ abstract class FunctionalTestCase extends TestCase {
 
     /**
      * Standardrechte der eingebauten Editor-Gruppe (siehe
-     * Database::ensureSchemaUpToDate(), Editor-Defaults-Seeding) - jeder
-     * Benutzer mit role=editor erhält diese automatisch über seine
-     * Rollen-Gruppen-Mitgliedschaft (BaseController::userGroupIds()). Tests der
+     * Database::ensureSchemaUpToDate(), Editor-Defaults-Seeding) - nur
+     * Benutzer, die EXPLIZIT dieser Gruppe zugewiesen wurden, erhalten sie
+     * (BaseController::userGroupIds(), kein automatischer Standard). Tests der
      * Berechtigungsdurchsetzung über EIGENE Gruppen müssen diese Standardrechte
-     * daher temporär entziehen, sonst hätte ein Editor die getestete
-     * Berechtigung ohnehin schon unabhängig von der eigenen Gruppe - siehe
-     * setGroupPermissions().
+     * daher meiden (eigene Gruppe statt der eingebauten Editor-Gruppe nutzen),
+     * sonst hätte der Testbenutzer die getestete Berechtigung ohnehin schon
+     * unabhängig von der eigenen Gruppe - siehe setGroupPermissions().
      *
      * @var array<string, array<int, string>>
      */

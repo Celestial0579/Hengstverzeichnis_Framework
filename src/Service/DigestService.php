@@ -126,7 +126,13 @@ final class DigestService {
      */
     private static function loadRecipients(): array {
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT email FROM users WHERE role IN ('admin', 'editor') AND deleted_at IS NULL");
+        $stmt = $db->query("
+            SELECT DISTINCT u.email
+            FROM users u
+            JOIN user_groups ug ON ug.user_id = u.id
+            JOIN `groups` g ON g.id = ug.group_id
+            WHERE g.slug IN ('admin', 'editor') AND u.deleted_at IS NULL
+        ");
         return array_values(array_filter($stmt->fetchAll(\PDO::FETCH_COLUMN)));
     }
 

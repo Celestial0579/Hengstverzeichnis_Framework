@@ -34,7 +34,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, password_hash, role, totp_enabled, totp_secret FROM users WHERE email = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT id, password_hash, totp_enabled, totp_secret FROM users WHERE email = ? AND deleted_at IS NULL");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
@@ -42,7 +42,6 @@ class AuthController extends BaseController {
             \App\Security\RateLimiter::clearAttempts($email, 'login');
 
             $_SESSION['pending_2fa_user_id'] = $user['id'];
-            $_SESSION['pending_2fa_role'] = $user['role'];
 
             if (!$user['totp_enabled']) {
                 // Mandatory 2FA Setup
@@ -136,8 +135,7 @@ class AuthController extends BaseController {
         $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ? WHERE id = ?");
         $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $userId]);
 
-        $role = $_SESSION['pending_2fa_role'] ?? 'editor';
-        $this->completeLogin($userId, $role, '/admin?2fa=enabled');
+        $this->completeLogin($userId, '/admin?2fa=enabled');
     }
 
     public function show2faVerify(): void {
@@ -184,8 +182,7 @@ class AuthController extends BaseController {
 
             if (Totp::verifyCode($decryptedSecret, $code)) {
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
-                $role = $_SESSION['pending_2fa_role'] ?? 'editor';
-                $this->completeLogin($userId, $role, '/admin');
+                $this->completeLogin($userId, '/admin');
             }
         }
 
@@ -259,8 +256,7 @@ class AuthController extends BaseController {
             $stmt = $db->prepare("UPDATE users SET backup_codes = ? WHERE id = ?");
             $stmt->execute([json_encode($updatedCodes), $userId]);
 
-            $role = $_SESSION['pending_2fa_role'] ?? 'editor';
-            $this->completeLogin($userId, $role, '/admin?backup_code_used=1');
+            $this->completeLogin($userId, '/admin?backup_code_used=1');
         }
 
         \App\Security\RateLimiter::recordAttempt((string)$userId, 'backup');
@@ -398,13 +394,13 @@ class AuthController extends BaseController {
         $stmt->execute([$reset['email']]);
 
         // Ensure no auto-login occurs: User MUST authenticate via normal login + 2FA
-        unset($_SESSION['user_id'], $_SESSION['role'], $_SESSION['pending_2fa_user_id'], $_SESSION['pending_2fa_role'], $_SESSION['must_change_password']);
+        unset($_SESSION['user_id'], $_SESSION['pending_2fa_user_id'], $_SESSION['must_change_password']);
 
         header("Location: /login?success=password_reset");
         exit;
     }
 
-    private function completeLogin(int $userId, string $role, string $redirectSuccess = '/admin'): void {
+    private function completeLogin(int $userId, string $redirectSuccess = '/admin'): void {
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT username, must_change_password FROM users WHERE id = ?");
         $stmt->execute([$userId]);
@@ -415,15 +411,14 @@ class AuthController extends BaseController {
 
         $_SESSION['user_id'] = $userId;
         $_SESSION['username'] = $username;
-        $_SESSION['role'] = $role;
         $_SESSION['user_agent_hash'] = hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? '');
         $_SESSION['last_activity'] = time();
         $_SESSION['created_time'] = time();
 
-        unset($_SESSION['pending_2fa_user_id'], $_SESSION['pending_2fa_role']);
+        unset($_SESSION['pending_2fa_user_id']);
         session_regenerate_id(true);
 
-        \App\Service\AuditLogger::log("Benutzer eingeloggt", "auth", "Rolle: {$role}", $userId, $username);
+        \App\Service\AuditLogger::log("Benutzer eingeloggt", "auth", "Erfolgreich angemeldet", $userId, $username);
 
         if ($mustChange === 1) {
             $_SESSION['must_change_password'] = 1;

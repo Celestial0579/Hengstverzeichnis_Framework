@@ -44,7 +44,11 @@ class SetupController extends BaseController {
 
         try {
             $db = Database::getInstance();
-            $stmt = $db->query("SELECT COUNT(*) FROM users WHERE role = 'admin'");
+            $stmt = $db->query("
+                SELECT COUNT(*) FROM user_groups ug
+                JOIN `groups` g ON g.id = ug.group_id
+                WHERE g.slug = 'admin'
+            ");
             $count = (int)$stmt->fetchColumn();
             return $count === 0;
         } catch (\PDOException $e) {
@@ -322,13 +326,21 @@ class SetupController extends BaseController {
 
             // Create Admin User (must_change_password = 0 since password was set during setup)
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $testPdo->prepare("INSERT INTO users (username, email, password_hash, role, must_change_password) VALUES (?, ?, ?, 'admin', 0)");
+            $stmt = $testPdo->prepare("INSERT INTO users (username, email, password_hash, must_change_password) VALUES (?, ?, ?, 0)");
             $stmt->execute([$username, $email, $passwordHash]);
+            $newUserId = $testPdo->lastInsertId();
+
+            // Mitgliedschaft in der Gruppe `admin` (#66) - einziges Rechtesystem,
+            // macht diesen Benutzer zum vollwertigen Administrator. Die Gruppe wurde
+            // bereits durch den oben importierten schema.sql geseedet.
+            $adminGroupId = $testPdo->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
+            if ($adminGroupId) {
+                $stmt = $testPdo->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)");
+                $stmt->execute([$newUserId, $adminGroupId]);
+            }
 
             // Set pending 2FA session for setup
-            $newUserId = $testPdo->lastInsertId();
             $_SESSION['pending_2fa_user_id'] = $newUserId;
-            $_SESSION['pending_2fa_role'] = 'admin';
 
             header("Location: /2fa/setup");
             exit;

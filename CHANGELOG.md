@@ -121,6 +121,17 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- Rollensystem entfernt (#66): `users.role` (früher `admin`/`editor`) gibt es
+  nicht mehr - Gruppen (`groups`/`user_groups`/`group_permissions`) sind jetzt
+  das EINZIGE Rechtesystem. Administrator-Status ergibt sich ausschließlich
+  aus Mitgliedschaft in der eingebauten Gruppe `admin` (bisher hart über
+  `users.role` codiert), die dafür jetzt wie jede andere Gruppe im
+  Benutzer-Formular zuweisbar ist. Die "Rolle"-Spalte in der
+  Benutzerverwaltung wurde durch eine "Gruppen"-Spalte ersetzt. Bestehende
+  Installationen: Beim ersten Verbindungsaufbau nach dem Update übernimmt
+  eine automatische, einmalige Migration alle bisherigen `role='admin'`- und
+  `role='editor'`-Benutzer unverändert in die entsprechende Gruppe, bevor die
+  Spalte entfernt wird - keine manuelle Aktion nötig.
 - Gruppen-/Berechtigungssystem (#66): Gruppenmitgliedschaft ist jetzt für
   jede Gruppe außer `admin` ausschließlich explizit (Security-by-Design) -
   auch die eingebaute `editor`-Gruppe wird nicht mehr automatisch anhand der

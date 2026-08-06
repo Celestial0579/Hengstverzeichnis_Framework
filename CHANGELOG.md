@@ -10,6 +10,21 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Darkmode (#91): Umschaltbares dunkles Farbschema für den öffentlichen
+  Katalog und den Admin-Bereich, zentral über CSS-Variablen in
+  `public/css/style.css` (`--bg-color`, `--text-color`, `--card-bg`, `--border-color`,
+  `--header-bg`) - bestehende und künftige Views (inkl. Plugin-Views) werden
+  automatisch mit umgeschaltet, ohne Doppelpflege. Standardmäßig richtet sich
+  die Anzeige nach der Systemeinstellung des Browsers
+  (`prefers-color-scheme`), ein manueller Umschalter im Header (🌙/☀️)
+  überschreibt das in beide Richtungen und merkt sich die Wahl dauerhaft im
+  `localStorage` des Browsers. Ein synchron im `<head>` laufendes Init-Script
+  verhindert dabei ein kurzes Aufblitzen des falschen Farbschemas beim
+  Seitenaufbau (FOUC). Farbige Status-Badges/Meldungsboxen mit fest
+  codierten Inline-Styles (z. B. grüne "Erfolg"-Hinweise) bleiben bewusst
+  unangetastet, da sie Hintergrund- und Textfarbe bereits als
+  zusammengehöriges, unabhängig vom Seitenthema lesbares Paar setzen.
+
 - Öffentliche Read-only-JSON-API für Katalogdaten (#47): `GET /api/horses`
   (Liste, filterbar/paginierbar) und `GET /api/horses/show?ueln=...`
   (Einzelpferd). Liefert ausschließlich Felder, die bereits über den

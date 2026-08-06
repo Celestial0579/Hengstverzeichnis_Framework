@@ -53,10 +53,10 @@
 
     <!-- Ab ca. 5-10 Zeilen scrollbar (max-height), damit die Seite bei vielen Benutzern
          nicht beliebig lang wird - unabhängig von der gewählten Seitengröße. -->
-    <div style="max-height: 420px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; margin-bottom: 1rem;">
+    <div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 1rem;">
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
-                <tr style="border-bottom: 2px solid #eee; text-align: left; position: sticky; top: 0; background: #fff; z-index: 1;">
+                <tr style="border-bottom: 2px solid var(--border-color); text-align: left; position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
                     <th style="padding: 0.5rem;">ID</th>
                     <th style="padding: 0.5rem;">Benutzername</th>
                     <th style="padding: 0.5rem;">E-Mail</th>
@@ -74,7 +74,7 @@
                     </tr>
                 <?php endif; ?>
                 <?php foreach ($users as $user): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$user['id']) ?></td>
                         <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$user['username']) ?></strong></td>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$user['email']) ?></td>

@@ -88,7 +88,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
         </div>
     </form>
 
-    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3>🧪 Digest jetzt manuell auslösen</h3>
     <p style="color: #666; font-size: 0.9rem;">Prüft sofort auf offene Punkte und versendet bei Bedarf an alle Admin-/Editor-Konten, unabhängig vom konfigurierten Intervall.</p>

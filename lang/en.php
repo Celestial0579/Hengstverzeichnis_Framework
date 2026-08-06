@@ -7,6 +7,7 @@ return [
     'nav.catalog' => 'Stallion Catalog',
     'nav.admin_login' => 'Admin Login',
     'nav.admin_portal' => 'Admin Portal',
+    'nav.toggle_theme' => 'Toggle color scheme (light/dark)',
 
     'footer.tagline' => 'The Stallion Registry - An Open-Source Framework.',
     'footer.impressum' => 'Legal Notice',

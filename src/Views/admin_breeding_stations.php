@@ -26,7 +26,7 @@
 
     <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
         <thead>
-            <tr style="border-bottom: 2px solid #eee; text-align: left;">
+            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                 <th style="padding: 0.6rem;">ID</th>
                 <th style="padding: 0.6rem;">Name der Station / Gestüt</th>
                 <th style="padding: 0.6rem;">Ansprechpartner</th>
@@ -42,7 +42,7 @@
                 </tr>
             <?php else: ?>
                 <?php foreach ($stations as $st): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <td style="padding: 0.6rem;"><?= htmlspecialchars((string)$st['id']) ?></td>
                         <td style="padding: 0.6rem;">
                             <strong><?= htmlspecialchars((string)$st['name']) ?></strong>

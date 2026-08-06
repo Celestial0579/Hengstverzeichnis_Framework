@@ -110,10 +110,10 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
         <!-- Ab ca. 5-10 Zeilen scrollbar (max-height), damit die Seite bei vielen eigenen
              Gruppen nicht beliebig lang wird - unabhängig von der gewählten Seitengröße. -->
-        <div style="max-height: 420px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; margin-bottom: 1rem;">
+        <div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 1rem;">
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
-                    <tr style="border-bottom: 2px solid #eee; text-align: left; position: sticky; top: 0; background: #fff; z-index: 1;">
+                    <tr style="border-bottom: 2px solid var(--border-color); text-align: left; position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
                         <th style="padding: 0.4rem;">Gruppe</th>
                         <th style="padding: 0.4rem;">Typ</th>
                         <th style="padding: 0.4rem;">Berechtigungen</th>
@@ -129,7 +129,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                         </tr>
                     <?php endif; ?>
                     <?php foreach ($pagedGroups as $group): ?>
-                        <tr style="border-bottom: 1px solid #eee;">
+                        <tr style="border-bottom: 1px solid var(--border-color);">
                             <td style="padding: 0.4rem;">
                                 <strong><?= htmlspecialchars($group['name']) ?></strong>
                                 <?php if (!empty($group['description'])): ?>
@@ -172,7 +172,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             </div>
         <?php endif; ?>
 
-        <form action="/admin/groups/create" method="POST" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; border-top: 1px solid #eee; padding-top: 1rem;">
+        <form action="/admin/groups/create" method="POST" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; border-top: 1px solid var(--border-color); padding-top: 1rem;">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
             <div class="form-group" style="margin: 0; flex: 1; min-width: 180px;">
                 <label for="name">Neue Gruppe: Name</label>
@@ -245,7 +245,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
                     <?php foreach ($modules as $moduleKey => $moduleDef): ?>
-                        <div style="border: 1px solid #eee; border-radius: 6px; padding: 0.7rem;">
+                        <div style="border: 1px solid var(--border-color); border-radius: 6px; padding: 0.7rem;">
                             <strong style="font-size: 0.9rem;"><?= htmlspecialchars($moduleDef['label']) ?></strong>
                             <div style="margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.3rem;">
                                 <?php foreach ($moduleDef['actions'] as $actionKey => $actionLabel): ?>

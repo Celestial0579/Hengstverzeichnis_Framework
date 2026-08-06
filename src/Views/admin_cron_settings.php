@@ -46,7 +46,7 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
         </button>
     </form>
 
-    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3 style="color: var(--primary-color);">2. Registrierte Aufgaben</h3>
     <?php if (empty($tasks)): ?>
@@ -58,7 +58,7 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
     <?php else: ?>
         <table style="width: 100%; border-collapse: collapse;">
             <thead>
-                <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                     <th style="padding: 0.5rem 0;">Aufgabe</th>
                     <th style="padding: 0.5rem 0;">Intervall</th>
                     <th style="padding: 0.5rem 0;">Zuletzt ausgeführt</th>

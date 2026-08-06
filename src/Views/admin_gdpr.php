@@ -37,7 +37,7 @@
                     $statusBadge = $req['status'] === 'processed' ? 'background: #28a745; color: white;' : ($req['status'] === 'rejected' ? 'background: #dc3545; color: white;' : 'background: #ffc107; color: #212529;');
                     $statusLabel = $req['status'] === 'processed' ? '✓ Erledigt' : ($req['status'] === 'rejected' ? '✕ Abgelehnt' : '⏳ Offen (Ausstehend)');
                 ?>
-                <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1.2rem; background: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+                <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1.2rem; background: var(--card-bg); box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid #f0f0f0; padding-bottom: 0.8rem; margin-bottom: 1rem;">
                         <div>
                             <span style="display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: bold; margin-bottom: 0.4rem; <?= $isDeletion ? 'background: #f8d7da; color: #721c24;' : 'background: #cce5ff; color: #004085;' ?>">
@@ -77,7 +77,7 @@
                             <?php else: ?>
                                 <div style="display: flex; flex-direction: column; gap: 0.8rem; margin-top: 0.8rem;">
                                     <?php foreach ($req['matching_persons'] as $p): ?>
-                                        <div style="background: #ffffff; padding: 0.8rem; border-radius: 6px; border: 1px solid #eedc9e; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                                        <div style="background: var(--card-bg); padding: 0.8rem; border-radius: 6px; border: 1px solid #eedc9e; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
                                             <div>
                                                 <strong>👤 <?= htmlspecialchars($p['name']) ?></strong> (ID #<?= $p['id'] ?>)
                                                 <?php if (!empty($p['contact_info'])): ?>

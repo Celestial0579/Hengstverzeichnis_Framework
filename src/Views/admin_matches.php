@@ -30,7 +30,7 @@
     <?php else: ?>
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
             <?php foreach ($unlinkedMatches as $match): ?>
-                <div class="card" style="border-left: 4px solid var(--primary-color); margin-bottom: 0; background: #fff;">
+                <div class="card" style="border-left: 4px solid var(--primary-color); margin-bottom: 0; background: var(--card-bg);">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
                         <div>
                             <span style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: #777; font-weight: bold;">
@@ -50,7 +50,7 @@
                     </div>
 
                     <!-- Match Proposals -->
-                    <div style="margin-top: 1.2rem; border-top: 1px solid #eee; padding-top: 1rem;">
+                    <div style="margin-top: 1.2rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
                         <h4 style="font-size: 0.95rem; color: #444; margin-bottom: 0.8rem;">Beste Wahrscheinlichkeits-Vorschläge aus der Datenbank:</h4>
 
                         <div style="display: flex; flex-direction: column; gap: 0.6rem;">

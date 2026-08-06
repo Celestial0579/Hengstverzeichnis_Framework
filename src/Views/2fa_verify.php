@@ -27,7 +27,7 @@
         <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.login_button')) ?></button>
     </form>
 
-    <div style="text-align: center; margin-top: 1.5rem; border-top: 1px solid #eee; padding-top: 1rem;">
+    <div style="text-align: center; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
         <a href="/2fa/backup" style="font-size: 0.9rem; color: #666; text-decoration: none;">
             <?= htmlspecialchars(App\I18n\Translator::t('auth.2fa_lost_phone')) ?>
         </a>

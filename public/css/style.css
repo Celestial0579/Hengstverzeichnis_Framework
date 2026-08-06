@@ -7,12 +7,54 @@
     --bg-color: #f8f9fa;
     --text-color: #333333;
     --card-bg: #ffffff;
+    --border-color: #e0e0e0;
+    --header-bg: #ffffff;
     --font-family: 'Inter', system-ui, sans-serif;
     --border-radius: 8px;
     --transition-speed: 0.3s;
     --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
     --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
     --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
+}
+
+/*
+ * Darkmode (#91): Theming ausschließlich über zentrale CSS-Variablen, damit
+ * bestehende UND künftige Views (inkl. Plugin-Views, siehe
+ * docs/plugin-development.md) automatisch mit umgeschaltet werden, ohne
+ * Doppelpflege. Zwei Auslöser, wie im Issue vorgeschlagen:
+ * 1. `prefers-color-scheme: dark` (Browser-/System-Einstellung) als Standard,
+ *    solange der Besucher noch keine manuelle Wahl getroffen hat.
+ * 2. Manuelle Wahl über den Umschalter in layout.php (`data-theme` Attribut
+ *    auf <html>, persistiert in localStorage) - überschreibt die
+ *    Systemeinstellung in beide Richtungen (erzwingt hell ODER dunkel).
+ * Farbige Status-Badges/Meldungsboxen mit fest codierten Inline-Styles
+ * (z. B. grüne "Erfolg"-/rote "Fehler"-Hinweise) setzen bewusst IMMER sowohl
+ * Hintergrund- als auch Textfarbe explizit als zusammengehöriges Paar (siehe
+ * grep-Befund in den Views) und bleiben deshalb unabhängig vom Seitenthema
+ * lesbar - sie werden hier nicht angefasst.
+ */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg-color: #16181c;
+        --text-color: #e4e6eb;
+        --card-bg: #22252a;
+        --border-color: #383b40;
+        --header-bg: #1c1e22;
+        --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
+        --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
+        --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
+    }
+}
+
+:root[data-theme="dark"] {
+    --bg-color: #16181c;
+    --text-color: #e4e6eb;
+    --card-bg: #22252a;
+    --border-color: #383b40;
+    --header-bg: #1c1e22;
+    --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
 }
 
 /* Reset & Base Styles */
@@ -30,6 +72,29 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    transition: background-color var(--transition-speed), color var(--transition-speed);
+}
+
+/* Darkmode-Umschalter (#91), siehe layout.php für das zugehörige Markup/Script */
+.theme-toggle {
+    background: transparent;
+    border: 2px solid var(--border-color);
+    color: var(--text-color);
+    border-radius: 999px;
+    width: 2.4rem;
+    height: 2.4rem;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color var(--transition-speed), border-color var(--transition-speed), transform 0.15s;
+}
+
+.theme-toggle:hover {
+    border-color: var(--primary-color);
+    transform: scale(1.05);
 }
 
 /* Premium Header */
@@ -163,10 +228,12 @@ h1, h2, h3 {
 .form-control {
     width: 100%;
     padding: 0.75rem;
-    border: 1px solid #ccc;
+    border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     font-family: inherit;
-    transition: border-color var(--transition-speed), box-shadow var(--transition-speed);
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    transition: border-color var(--transition-speed), box-shadow var(--transition-speed), background-color var(--transition-speed), color var(--transition-speed);
 }
 
 .form-control:focus {

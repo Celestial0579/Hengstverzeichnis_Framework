@@ -52,6 +52,21 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
     <meta name="description" content="<?= htmlspecialchars($siteName) ?> - <?= htmlspecialchars($t('meta.description_suffix')) ?>">
     <title><?= htmlspecialchars($title ?? $siteName) ?></title>
 
+    <script>
+        // Darkmode (#91): synchron und so früh wie möglich im <head>, damit das
+        // data-theme-Attribut bereits vor dem ersten Rendern von <body> steht -
+        // verhindert ein kurzes Aufblitzen des falschen Farbschemas (FOUC).
+        // Gespeicherte manuelle Wahl (localStorage) hat Vorrang, sonst greift
+        // die CSS-Regel @media (prefers-color-scheme: dark) in style.css von
+        // selbst (kein "system"-Wert nötig, siehe dortiger Kommentar).
+        (function () {
+            var stored = localStorage.getItem('theme');
+            if (stored === 'dark' || stored === 'light') {
+                document.documentElement.setAttribute('data-theme', stored);
+            }
+        })();
+    </script>
+
     <?php if (!empty($settings['base_url'])): ?>
         <?php $canonicalUrl = htmlspecialchars(rtrim($settings['base_url'], '/') . $currentPath); ?>
         <link rel="canonical" href="<?= $canonicalUrl ?>">
@@ -88,10 +103,11 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
 
         /* Menu alignment matching Admin Login aesthetic */
         header {
-            background: #ffffff;
-            border-bottom: 2px solid #f0f0f0;
+            background: var(--header-bg);
+            border-bottom: 2px solid var(--border-color);
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
             padding: 0.8rem 2rem;
+            transition: background-color var(--transition-speed), border-color var(--transition-speed);
         }
 
         nav ul {
@@ -105,14 +121,14 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             padding: 0.5rem 1rem;
             border-radius: 6px;
             text-decoration: none;
-            color: #495057;
+            color: var(--text-color);
             font-weight: 500;
             font-size: 0.95rem;
             transition: all 0.2s ease-in-out;
         }
 
         nav a.nav-link:hover {
-            background: #f8f9fa;
+            background: var(--bg-color);
             color: var(--primary-color);
         }
 
@@ -192,6 +208,24 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
                         </a>
                     <?php endif; ?>
                 </li>
+                <li>
+                    <?php
+                        // Darkmode-Umschalter (#91): togglt data-theme auf <html> und
+                        // persistiert die Wahl in localStorage (siehe Init-Script im
+                        // <head>). Icon/aria-label werden per JS anhand des aktuell
+                        // AKTIVEN Farbschemas gesetzt (nicht des gespeicherten Werts -
+                        // ohne gespeicherte Wahl greift ja die Systemeinstellung, siehe
+                        // style.css), daher hier nur ein neutraler Startzustand.
+                    ?>
+                    <button
+                        type="button"
+                        id="theme-toggle"
+                        class="theme-toggle"
+                        aria-label="<?= htmlspecialchars($t('nav.toggle_theme')) ?>"
+                        title="<?= htmlspecialchars($t('nav.toggle_theme')) ?>"
+                        onclick="window.__toggleTheme()"
+                    >🌙</button>
+                </li>
             </ul>
         </nav>
     </header>
@@ -217,5 +251,36 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             <?php endforeach; ?>
         </p>
     </footer>
+
+    <script>
+        // Darkmode-Umschalter (#91): Klick-Handler + Icon-Sync. Getrennt vom
+        // FOUC-Präventions-Script im <head> (siehe dort) - dieses hier braucht
+        // ein bereits vorhandenes DOM (Button), jenes muss vor dem ersten
+        // Rendern laufen.
+        (function () {
+            var toggleBtn = document.getElementById('theme-toggle');
+            if (!toggleBtn) return;
+
+            function isDarkActive() {
+                var explicit = document.documentElement.getAttribute('data-theme');
+                if (explicit === 'dark') return true;
+                if (explicit === 'light') return false;
+                return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            }
+
+            function syncIcon() {
+                toggleBtn.textContent = isDarkActive() ? '☀️' : '🌙';
+            }
+
+            window.__toggleTheme = function () {
+                var next = isDarkActive() ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('theme', next);
+                syncIcon();
+            };
+
+            syncIcon();
+        })();
+    </script>
 </body>
 </html>

@@ -40,6 +40,43 @@ class UpdateAdminTest extends FunctionalTestCase {
         $this->assertSame(403, $response->statusCode);
     }
 
+    public function testChannelSelectionIsShownAndPersisted(): void {
+        $admin = $this->authenticatedClient();
+
+        // Default: Kanal Stabil, Auswahlfeld mit beiden Optionen vorhanden.
+        $page = $admin->get('/admin/updates');
+        $this->assertStringContainsString('Update-Kanal', $page->body);
+        $this->assertStringContainsString('Beta (Vorabversionen einbeziehen)', $page->body);
+        $this->assertStringContainsString('Kanal: Stabil', $page->body);
+        $this->assertStringContainsString('Downgrade findet niemals statt', $page->body);
+
+        // Beta-Opt-in speichern (Redirect führt zur Release-Prüfung; hier wird
+        // bewusst nicht gefolgt, um keinen Netzwerkzugriff im Test auszulösen).
+        $save = $admin->post('/admin/updates/channel', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'update_channel' => 'beta',
+        ]);
+        $this->assertSame('/admin/updates?check=1&channel_saved=1', $save->location());
+
+        $afterSave = $admin->get('/admin/updates');
+        $this->assertStringContainsString('Kanal: Beta', $afterSave->body);
+
+        // Unbekannte Werte fallen serverseitig auf Stabil zurück.
+        $reset = $admin->post('/admin/updates/channel', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'update_channel' => 'nightly-kaputt',
+        ]);
+        $this->assertSame('/admin/updates?check=1&channel_saved=1', $reset->location());
+        $this->assertStringContainsString('Kanal: Stabil', $admin->get('/admin/updates')->body);
+    }
+
+    public function testChannelSaveRequiresCsrfToken(): void {
+        $admin = $this->authenticatedClient();
+
+        $response = $admin->post('/admin/updates/channel', ['update_channel' => 'beta']);
+        $this->assertSame(403, $response->statusCode);
+    }
+
     public function testRunIsRejectedWithoutConfiguredBackup(): void {
         $admin = $this->authenticatedClient();
 

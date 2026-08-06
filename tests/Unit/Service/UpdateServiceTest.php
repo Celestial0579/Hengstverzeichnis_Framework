@@ -30,6 +30,64 @@ class UpdateServiceTest extends TestCase {
         $this->assertTrue(UpdateService::isNewer('1.0.0', '0.9.9'));
     }
 
+    public function testNormalizeChannelFallsBackToStable(): void {
+        $this->assertSame('stable', UpdateService::normalizeChannel('stable'));
+        $this->assertSame('beta', UpdateService::normalizeChannel('beta'));
+        $this->assertSame('stable', UpdateService::normalizeChannel(''));
+        $this->assertSame('stable', UpdateService::normalizeChannel('nightly'));
+    }
+
+    public function testSelectBestReleaseSkipsPrereleasesOnStableChannel(): void {
+        $releases = [
+            ['tag_name' => 'v0.3.0-beta.1', 'prerelease' => true],
+            ['tag_name' => 'v0.2.0', 'prerelease' => false],
+        ];
+
+        $best = UpdateService::selectBestRelease($releases, false, '0.1.0');
+        $this->assertSame('v0.2.0', $best['tag_name']);
+    }
+
+    public function testSelectBestReleaseIncludesPrereleasesWithBetaOptIn(): void {
+        $releases = [
+            ['tag_name' => 'v0.2.0', 'prerelease' => false],
+            ['tag_name' => 'v0.3.0-beta.1', 'prerelease' => true],
+        ];
+
+        $best = UpdateService::selectBestRelease($releases, true, '0.1.0');
+        $this->assertSame('v0.3.0-beta.1', $best['tag_name']);
+    }
+
+    public function testSelectBestReleaseNeverOffersDowngradeOrSameVersion(): void {
+        $releases = [
+            ['tag_name' => 'v0.2.0', 'prerelease' => false],
+            ['tag_name' => 'v0.3.0-beta.2', 'prerelease' => true],
+        ];
+
+        // Installierte Beta ist neuer als alles Verfügbare (typischer Fall
+        // nach Wechsel von Beta zurück auf Stabil): kein Kandidat, statt
+        // Downgrade auf das ältere stabile Release.
+        $this->assertNull(UpdateService::selectBestRelease($releases, false, '0.3.0-beta.1'));
+
+        // Gleiche Version ist ebenfalls nie ein Kandidat.
+        $this->assertNull(UpdateService::selectBestRelease($releases, true, '0.3.0-beta.2'));
+
+        // Nur mit Beta-Opt-in ist die strikt neuere Beta ein Kandidat.
+        $best = UpdateService::selectBestRelease($releases, true, '0.3.0-beta.1');
+        $this->assertSame('v0.3.0-beta.2', $best['tag_name']);
+    }
+
+    public function testSelectBestReleaseIgnoresDraftsAndInvalidEntries(): void {
+        $releases = [
+            ['tag_name' => 'v9.9.9', 'draft' => true],
+            ['tag_name' => ''],
+            'kein-array',
+            ['tag_name' => 'v0.2.0'],
+        ];
+
+        $best = UpdateService::selectBestRelease($releases, true, '0.1.0');
+        $this->assertSame('v0.2.0', $best['tag_name']);
+    }
+
     public function testApplyUpdateArchiveCopiesFilesButProtectsLocalPaths(): void {
         // Zielinstallation mit lokaler Konfiguration und Uploads simulieren.
         $target = $this->makeTempDir('hengst_target_');

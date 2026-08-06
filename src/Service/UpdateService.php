@@ -32,10 +32,21 @@ use App\Database;
 class UpdateService {
 
     /**
-     * Per Umgebungsvariable übersteuerbar (Tests/Staging), Default: offizielle
-     * Releases dieses Projekts.
+     * Per Umgebungsvariable UPDATE_RELEASES_URL übersteuerbar (Tests/Staging),
+     * Default: die Release-LISTE dieses Projekts. Bewusst nicht der
+     * "/releases/latest"-Endpunkt: der schließt Prereleases immer aus und
+     * könnte den Beta-Kanal (siehe CHANNEL_BETA) nicht bedienen - die
+     * Kanal-Filterung übernimmt selectBestRelease().
      */
-    private const DEFAULT_RELEASES_URL = 'https://api.github.com/repos/Celestial0579/Hengstverzeichnis_Framework/releases/latest';
+    private const DEFAULT_RELEASES_URL = 'https://api.github.com/repos/Celestial0579/Hengstverzeichnis_Framework/releases?per_page=30';
+
+    /**
+     * Update-Kanäle (#85-Follow-up): 'stable' (Default) sieht nur reguläre
+     * Releases, 'beta' zusätzlich als Prerelease markierte Vorabversionen.
+     * Admin-Auswahl unter /admin/updates (Setting `update_channel`).
+     */
+    public const CHANNEL_STABLE = 'stable';
+    public const CHANNEL_BETA = 'beta';
 
     /** Pfade (relativ zur Installationswurzel), die ein Update nie anfasst. */
     private const PROTECTED_PATHS = [
@@ -58,20 +69,51 @@ class UpdateService {
     }
 
     /**
-     * Prüft das neueste GitHub-Release gegen die laufende Version.
+     * Normalisiert einen Kanal-Wert; unbekannte Werte fallen auf 'stable'
+     * zurück (fail-safe: nie versehentlich Vorabversionen anbieten).
+     */
+    public static function normalizeChannel(string $channel): string {
+        return $channel === self::CHANNEL_BETA ? self::CHANNEL_BETA : self::CHANNEL_STABLE;
+    }
+
+    /**
+     * Der aktuell konfigurierte Update-Kanal (Setting `update_channel`).
+     */
+    public static function configuredChannel(): string {
+        return self::normalizeChannel((string)(self::loadSettings()['update_channel'] ?? self::CHANNEL_STABLE));
+    }
+
+    /**
+     * Prüft die GitHub-Releases gegen die laufende Version - im gewählten
+     * Kanal ('stable' ohne, 'beta' mit Prereleases).
      *
-     * @return array{current:string, latest:string, update_available:bool, zip_url:?string, html_url:?string}
+     * @return array{current:string, channel:string, latest:?string, update_available:bool, zip_url:?string, html_url:?string, is_prerelease:bool}
      * @throws \RuntimeException bei Netzwerk-/API-Fehlern
      */
-    public static function checkForUpdate(): array {
-        $release = self::fetchLatestRelease();
-        $latest = self::normalizeVersion((string)($release['tag_name'] ?? ''));
-        if ($latest === '') {
-            throw new \RuntimeException('Antwort der Release-API enthielt keinen Versions-Tag.');
+    public static function checkForUpdate(?string $channel = null): array {
+        $channel = self::normalizeChannel($channel ?? self::configuredChannel());
+        $releases = self::fetchReleases();
+
+        $best = self::selectBestRelease($releases, $channel === self::CHANNEL_BETA, self::currentVersion());
+
+        if ($best === null) {
+            // Kein Kandidat, der STRIKT neuer ist als die installierte Version
+            // (Gleichstand und ältere Releases zählen nie - kein Downgrade,
+            // auch nicht nach einem Kanalwechsel von Beta zurück auf Stabil).
+            $newestSeen = self::newestVersionInChannel($releases, $channel === self::CHANNEL_BETA);
+            return [
+                'current' => self::currentVersion(),
+                'channel' => $channel,
+                'latest' => $newestSeen,
+                'update_available' => false,
+                'zip_url' => null,
+                'html_url' => null,
+                'is_prerelease' => false,
+            ];
         }
 
         $zipUrl = null;
-        foreach ((array)($release['assets'] ?? []) as $asset) {
+        foreach ((array)($best['assets'] ?? []) as $asset) {
             $name = (string)($asset['name'] ?? '');
             if (preg_match('/^hengstverzeichnis-framework-.*\.zip$/', $name) === 1) {
                 $zipUrl = (string)($asset['browser_download_url'] ?? '');
@@ -81,11 +123,76 @@ class UpdateService {
 
         return [
             'current' => self::currentVersion(),
-            'latest' => $latest,
-            'update_available' => self::isNewer($latest, self::currentVersion()),
-            'zip_url' => $zipUrl !== '' ? $zipUrl : null,
-            'html_url' => isset($release['html_url']) ? (string)$release['html_url'] : null,
+            'channel' => $channel,
+            'latest' => self::normalizeVersion((string)$best['tag_name']),
+            'update_available' => true,
+            'zip_url' => $zipUrl !== '' && $zipUrl !== null ? $zipUrl : null,
+            'html_url' => isset($best['html_url']) ? (string)$best['html_url'] : null,
+            'is_prerelease' => !empty($best['prerelease']),
         ];
+    }
+
+    /**
+     * Wählt aus einer Release-Liste den besten Update-Kandidaten: Drafts sind
+     * nie zulässig, Prereleases nur mit Beta-Opt-in, und es zählen
+     * ausschließlich Versionen, die STRIKT neuer sind als die installierte -
+     * ein Downgrade (oder Neuinstallieren derselben Version) ist damit
+     * konstruktionsbedingt unmöglich, unabhängig davon, was die Release-API
+     * liefert oder wie der Kanal gewechselt wird. Öffentlich und ohne
+     * Netzwerkzugriff, damit die Auswahl-Logik isoliert testbar ist.
+     *
+     * @param array<int, array<string, mixed>> $releases
+     * @return array<string, mixed>|null Das beste Release oder null
+     */
+    public static function selectBestRelease(array $releases, bool $includePrereleases, string $currentVersion): ?array {
+        $best = null;
+        $bestVersion = null;
+
+        foreach ($releases as $release) {
+            if (!is_array($release) || !empty($release['draft'])) {
+                continue;
+            }
+            if (!empty($release['prerelease']) && !$includePrereleases) {
+                continue;
+            }
+
+            $version = self::normalizeVersion((string)($release['tag_name'] ?? ''));
+            if ($version === '' || !self::isNewer($version, $currentVersion)) {
+                continue;
+            }
+            if ($bestVersion === null || self::isNewer($version, $bestVersion)) {
+                $best = $release;
+                $bestVersion = $version;
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * Höchste im Kanal sichtbare Version (nur zur Anzeige "neuestes Release"
+     * auf der Update-Seite, wenn kein Update ansteht).
+     *
+     * @param array<int, array<string, mixed>> $releases
+     */
+    private static function newestVersionInChannel(array $releases, bool $includePrereleases): ?string {
+        $newest = null;
+        foreach ($releases as $release) {
+            if (!is_array($release) || !empty($release['draft'])) {
+                continue;
+            }
+            if (!empty($release['prerelease']) && !$includePrereleases) {
+                continue;
+            }
+            $version = self::normalizeVersion((string)($release['tag_name'] ?? ''));
+            if ($version === '') {
+                continue;
+            }
+            if ($newest === null || self::isNewer($version, $newest)) {
+                $newest = $version;
+            }
+        }
+        return $newest;
     }
 
     /**
@@ -106,10 +213,20 @@ class UpdateService {
 
         $check = self::checkForUpdate();
         if (!$check['update_available']) {
-            throw new \RuntimeException("Kein Update verfügbar: Version {$check['current']} ist aktuell (neuestes Release: {$check['latest']}).");
+            $latestInfo = $check['latest'] !== null ? " (neuestes Release im Kanal '{$check['channel']}': {$check['latest']})" : '';
+            throw new \RuntimeException("Kein Update verfügbar: Version {$check['current']} ist aktuell{$latestInfo}.");
         }
+
+        // Doppelte Absicherung gegen Downgrades: selectBestRelease() liefert
+        // bereits nur strikt neuere Versionen - dieser Guard stellt das
+        // zusätzlich unmittelbar vor dem Anwenden sicher, unabhängig von der
+        // Kandidaten-Auswahl (Defense in depth, niemals ein Downgrade).
+        if ($check['latest'] === null || !self::isNewer($check['latest'], $check['current'])) {
+            throw new \RuntimeException("Update abgebrochen: Zielversion {$check['latest']} ist nicht neuer als die installierte Version {$check['current']} - Downgrades sind nicht zulässig.");
+        }
+
         if (empty($check['zip_url'])) {
-            throw new \RuntimeException('Das neueste Release enthält kein Shared-Hosting-Zip als Asset.');
+            throw new \RuntimeException('Das gewählte Release enthält kein Shared-Hosting-Zip als Asset.');
         }
 
         // Pflicht-Backup: wirft bei jedem Fehler und bricht das Update damit ab.
@@ -255,15 +372,20 @@ class UpdateService {
     }
 
     /**
-     * @return array<string, mixed>
+     * Lädt die Release-Liste. Antwortet die (ggf. per UPDATE_RELEASES_URL
+     * übersteuerte) API mit einem einzelnen Release-Objekt statt einer Liste,
+     * wird es als Ein-Element-Liste behandelt.
+     *
+     * @return array<int, array<string, mixed>>
      */
-    private static function fetchLatestRelease(): array {
+    private static function fetchReleases(): array {
         $raw = self::httpGet(self::releasesUrl(), ['Accept: application/vnd.github+json']);
         $data = json_decode($raw, true);
         if (!is_array($data)) {
             throw new \RuntimeException('Antwort der Release-API war kein gültiges JSON.');
         }
-        return $data;
+        // Einzelnes Release-Objekt (assoziativ) vs. Liste von Releases
+        return array_is_list($data) ? $data : [$data];
     }
 
     private static function downloadToTempFile(string $url): string {

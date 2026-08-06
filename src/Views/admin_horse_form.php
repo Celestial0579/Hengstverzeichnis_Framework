@@ -299,15 +299,32 @@ foreach (($allBreedingStations ?? []) as $bs) {
         </script>
 
         <div class="form-group">
-            <label for="status">Status</label>
+            <label for="status">Status (Lebenszyklus)</label>
             <select id="status" name="status" class="form-control">
-                <option value="active" <?= ($horse['status'] ?? '') === 'active' ? 'selected' : '' ?> <?= $canPublish ? '' : 'disabled' ?>>Aktiv (Gekört, im öffentlichen Katalog sichtbar)</option>
+                <option value="active" <?= ($horse['status'] ?? '') === 'active' ? 'selected' : '' ?>>Aktiv (Gekört)</option>
                 <option value="inactive" <?= ($horse['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inaktiv</option>
                 <option value="deceased" <?= ($horse['status'] ?? '') === 'deceased' ? 'selected' : '' ?>>Verstorben</option>
             </select>
+            <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                Der Status ist rein informativ und beeinflusst die öffentliche Sichtbarkeit nicht.
+            </p>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; <?= $canPublish ? 'cursor: pointer;' : 'opacity: 0.6;' ?>">
+                <input
+                    type="checkbox"
+                    name="is_published"
+                    value="1"
+                    style="width: auto;"
+                    <?= !empty($horse['is_published']) ? 'checked' : '' ?>
+                    <?= $canPublish ? '' : 'disabled' ?>
+                >
+                Im öffentlichen Katalog veröffentlichen
+            </label>
             <?php if (!$canPublish): ?>
                 <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
-                    Ihnen fehlt die Berechtigung "Veröffentlichen" - der Status kann daher nicht auf "Aktiv" gesetzt werden.
+                    Ihnen fehlt die Berechtigung "Veröffentlichen" - die öffentliche Sichtbarkeit kann daher nicht geändert werden.
                 </p>
             <?php endif; ?>
         </div>

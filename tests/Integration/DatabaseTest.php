@@ -123,6 +123,7 @@ class DatabaseTest extends TestCase {
         $this->assertColumnExists($pdo, 'horses', 'breeding_station_id');
         $this->assertColumnExists($pdo, 'horses', 'breeding_station');
         $this->assertColumnExists($pdo, 'horses', 'image_url');
+        $this->assertColumnExists($pdo, 'horses', 'is_published');
         $this->assertColumnExists($pdo, 'horses', 'deleted_at');
 
         // birth_year wird von YEAR auf SMALLINT UNSIGNED umgestellt (historische

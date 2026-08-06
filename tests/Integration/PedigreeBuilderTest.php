@@ -60,13 +60,14 @@ class PedigreeBuilderTest extends TestCase {
         $data = array_merge([
             'name' => 'Testpferd ' . uniqid(),
             'ueln' => null,
+            'is_published' => 0,
             'sire_id' => null, 'sire_name' => null, 'sire_ueln' => null,
             'dam_id' => null, 'dam_name' => null, 'dam_ueln' => null,
         ], $overrides);
 
         $stmt = self::$db->prepare("
-            INSERT INTO horses (name, ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln)
-            VALUES (:name, :ueln, :sire_id, :sire_name, :sire_ueln, :dam_id, :dam_name, :dam_ueln)
+            INSERT INTO horses (name, ueln, is_published, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln)
+            VALUES (:name, :ueln, :is_published, :sire_id, :sire_name, :sire_ueln, :dam_id, :dam_name, :dam_ueln)
         ");
         $stmt->execute($data);
         return (int)self::$db->lastInsertId();
@@ -115,6 +116,46 @@ class PedigreeBuilderTest extends TestCase {
         $this->assertTrue($tree['sire']['is_placeholder']);
         $this->assertSame(2, $tree['sire']['depth']); // maxDepth(1) + 1
         $this->assertSame('Unbekannter Hengst', $tree['sire']['name']);
+    }
+
+    public function testPublishedOnlyHidesUnpublishedLinkedAncestor(): void {
+        $sireId = $this->insertHorse(['name' => 'Unveröff-Vater', 'is_published' => 0]);
+        $damId = $this->insertHorse(['name' => 'Veröff-Mutter', 'is_published' => 1]);
+        $foalId = $this->insertHorse([
+            'name' => 'Publ-Fohlen',
+            'is_published' => 1,
+            'sire_id' => $sireId,
+            'dam_id' => $damId,
+        ]);
+
+        // publishedOnly=true: der unveröffentlichte, verknüpfte Vater darf gar nicht
+        // erscheinen (leerer Ast), damit aus unveröffentlichten Daten (auch abgeleiteten
+        // wie einem Inzuchtkoeffizienten) nichts hergeleitet werden kann.
+        $tree = PedigreeBuilder::build($foalId, 2, true);
+        $this->assertNull($tree['sire'], 'Unveröffentlichter verknüpfter Vater darf im publishedOnly-Modus nicht erscheinen');
+        $this->assertSame('Veröff-Mutter', $tree['dam']['name']);
+
+        // Ohne publishedOnly (Backend-Standard): voller Baum inkl. unveröffentlichtem Vater.
+        $full = PedigreeBuilder::build($foalId, 2, false);
+        $this->assertSame('Unveröff-Vater', $full['sire']['name']);
+    }
+
+    public function testPublishedOnlyUnlinkedUnpublishedAncestorUsesFreetextPlaceholder(): void {
+        // Ein per UELN grundsätzlich auffindbarer, aber unveröffentlichter Vater darf
+        // im publishedOnly-Modus NICHT über seinen DB-Datensatz aufgelöst werden -
+        // stattdessen bleibt nur der im Kind gespeicherte Freitext als Platzhalter.
+        $this->insertHorse(['name' => 'Geheim-Vater', 'ueln' => 'DE000SECRET01', 'is_published' => 0]);
+        $foalId = $this->insertHorse([
+            'name' => 'Freitext-Fohlen',
+            'is_published' => 1,
+            'sire_ueln' => 'DE000SECRET01',
+            'sire_name' => 'Vatername laut Papier',
+        ]);
+
+        $tree = PedigreeBuilder::build($foalId, 2, true);
+        $this->assertNull($tree['sire']['id'], 'Der unveröffentlichte DB-Datensatz darf nicht aufgelöst werden');
+        $this->assertTrue($tree['sire']['is_placeholder']);
+        $this->assertSame('Vatername laut Papier', $tree['sire']['name']);
     }
 
     public function testUnknownHorseIdReturnsNull(): void {

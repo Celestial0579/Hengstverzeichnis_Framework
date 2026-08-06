@@ -46,12 +46,16 @@ class GroupController extends BaseController {
      * Gruppen, deren Berechtigungs-MATRIX serverseitig nie verändert werden darf
      * (siehe updatePermissions()/copyPermissions()) - `admin` hat systemseitig
      * immer implizit alle Rechte und braucht daher nie eigene
-     * group_permissions-Zeilen, `public` darf nie irgendeine Berechtigung
-     * erhalten. Betrifft NICHT die Zuweisbarkeit einer Gruppe zu Benutzern
-     * (siehe NON_ASSIGNABLE_SLUGS) - `admin` MUSS Benutzern zuweisbar sein,
-     * sonst könnte nie ein Administrator angelegt werden.
+     * group_permissions-Zeilen. Die Gast-Gruppe `public` ist hier bewusst NICHT
+     * (mehr) enthalten: ihre Rechte steuern, was nicht angemeldete Besucher
+     * öffentlich sehen dürfen, und müssen daher normal editierbar sein ("wie bei
+     * anderen Gruppen auch"). Backend-Zugriff bleibt für Gäste dennoch
+     * ausgeschlossen, da checkAuth() jeden ohne Session auf /login umleitet.
+     * Betrifft NICHT die Zuweisbarkeit einer Gruppe zu Benutzern (siehe
+     * NON_ASSIGNABLE_SLUGS) - `admin` MUSS Benutzern zuweisbar sein, sonst
+     * könnte nie ein Administrator angelegt werden.
      */
-    public const PROTECTED_PERMISSION_SLUGS = ['admin', 'public'];
+    public const PROTECTED_PERMISSION_SLUGS = ['admin'];
 
     /**
      * Gruppen, die serverseitig nie über `user_groups` einem echten Benutzer

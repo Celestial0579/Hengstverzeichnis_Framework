@@ -170,9 +170,9 @@ abstract class FunctionalTestCase extends TestCase {
      * @var array<string, array<int, string>>
      */
     protected const EDITOR_DEFAULT_PERMISSIONS = [
-        'horses' => ['create', 'edit', 'delete', 'publish'],
-        'persons' => ['create', 'edit', 'delete'],
-        'breeding_stations' => ['create', 'edit', 'delete'],
+        'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
+        'persons' => ['view', 'create', 'edit', 'delete', 'publish'],
+        'breeding_stations' => ['view', 'create', 'edit', 'delete', 'publish'],
     ];
 
     /**

@@ -306,6 +306,21 @@ Aktion); `module_label` ist nur relevant, wenn `module` noch nicht existiert
 - bei einem bereits vorhandenen Modul (Kern oder anderes Plugin) wird es
 ignoriert.
 
+**Standard-Aktionen `view` und `publish`:** Jedes Modul - Kern **wie Plugin** -
+erhält automatisch die beiden Standard-Aktionen `view` (Lesen: darf den Bereich
+sehen) und `publish` (Veröffentlichen), siehe
+`App\Permission\PermissionRegistry::STANDARD_ACTIONS`. Ein Plugin muss diese
+also **nicht** selbst registrieren; sie erscheinen für sein eigenes Modul
+ebenso als Checkboxen unter `/admin/groups`. Möchte das Plugin eine eigene
+Beschriftung, kann es `view`/`publish` mit eigenem `label` registrieren (greift
+nur, wenn es das zuerst tut - "wer zuerst registriert, gewinnt", siehe unten).
+Die **Durchsetzung** bleibt Aufgabe des Plugins: Öffentliche Ausgaben über die
+Gast-Gruppe (`public`) mit `hasPermission('<modul>','view')` gaten, das
+Veröffentlichen eigener Inhalte mit `hasPermission('<modul>','publish')`. Für
+öffentliche Ableitungen/Berechnungen auf Basis von Pferdedaten immer den
+`publishedOnly`-Modus nutzen (`PedigreeBuilder::build(..., true)`), damit keine
+unveröffentlichten Daten durchsickern.
+
 **Sicherheits-Leitplanke ("wer zuerst registriert, gewinnt"):** Existiert die
 Kombination aus `module` und `action` bereits (egal ob aus dem Kern oder
 einem zuvor geladenen Plugin), wird die neue Registrierung stillschweigend

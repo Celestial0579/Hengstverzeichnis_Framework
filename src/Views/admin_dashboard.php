@@ -45,18 +45,26 @@ $ownGroupLabel = $isAdmin ? 'Administrator' : ($ownGroupNames ? implode(', ', $o
         </p>
         
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+            <?php if ($canViewHorses ?? false): ?>
             <a href="/admin/horses" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                 🐴 Pferde verwalten
             </a>
+            <?php endif; ?>
+            <?php if ($canViewPersons ?? false): ?>
             <a href="/admin/persons" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                 👤 Personen verwalten
             </a>
+            <?php endif; ?>
+            <?php if ($canViewBreedingStations ?? false): ?>
             <a href="/admin/breeding-stations" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                 🏠 Deckstationen verwalten
             </a>
+            <?php endif; ?>
+            <?php if ($canViewHorses ?? false): ?>
             <a href="/admin/matches" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
                 🔗 Blutlinien zusammenführen
             </a>
+            <?php endif; ?>
             <a href="/admin/trash" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem; position: relative;">
                 🗑️ Papierkorb
                 <?php if ($trashCount > 0): ?>

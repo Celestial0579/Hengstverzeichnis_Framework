@@ -52,7 +52,6 @@ final class PermissionRegistry {
                 'create' => 'Erstellen',
                 'edit' => 'Bearbeiten',
                 'delete' => 'Löschen',
-                'publish' => 'Veröffentlichen (im öffentlichen Katalog sichtbar machen)',
             ],
         ],
         'persons' => [
@@ -74,6 +73,27 @@ final class PermissionRegistry {
     ];
 
     /**
+     * Standard-Aktionen, die JEDES Modul (Kern wie Plugin) automatisch erhält -
+     * damit die Lese- und Veröffentlichen-Berechtigung einheitlich auf alle
+     * Website- und Plugin-Funktionen anwendbar sind, ohne sie pro Modul/Plugin
+     * einzeln pflegen zu müssen (siehe modules()).
+     *
+     * - `view`: steuert, ob eine Gruppe einen Bereich überhaupt sehen darf
+     *   (Backend-Listen sowie - über die Gast-Gruppe - öffentliche Seiten).
+     * - `publish`: steuert, ob ein Benutzer Inhalte des Bereichs veröffentlichen
+     *   darf (unabhängig vom Lebenszyklus-Status, siehe horses.is_published).
+     *
+     * Ein Modul/Plugin, das eine dieser Aktionen bereits selbst mit eigenem
+     * Label registriert, behält sein Label ("wer zuerst registriert, gewinnt").
+     *
+     * @var array<string, string>
+     */
+    private const STANDARD_ACTIONS = [
+        'view' => 'Lesen (Bereich anzeigen)',
+        'publish' => 'Veröffentlichen',
+    ];
+
+    /**
      * Kern-Module + zur Laufzeit von Plugins registrierte Ergänzungen.
      *
      * @var array<string, array{label:string, actions:array<string,string>}>|null
@@ -87,7 +107,32 @@ final class PermissionRegistry {
      */
     public static function modules(): array {
         self::ensureInitialized();
+        self::mergeStandardActions();
         return self::$modules;
+    }
+
+    /**
+     * Stellt sicher, dass jedes derzeit bekannte Modul (Kern + zur Laufzeit von
+     * Plugins registrierte) die STANDARD_ACTIONS `view`/`publish` enthält. Wird
+     * bei jedem modules()-Aufruf angewandt, damit auch nach modules() erfolgte
+     * Plugin-Registrierungen (registerAction()) die Standard-Aktionen erhalten -
+     * idempotent, da bereits vorhandene Aktionen (inkl. plugin-eigener Labels)
+     * nie überschrieben werden. `view` steht bewusst an erster, `publish` an
+     * letzter Position je Modul (konsistente Reihenfolge in der Admin-UI).
+     */
+    private static function mergeStandardActions(): void {
+        foreach (self::$modules as $module => $def) {
+            $existing = $def['actions'];
+            $ordered = ['view' => $existing['view'] ?? self::STANDARD_ACTIONS['view']];
+            foreach ($existing as $action => $label) {
+                if ($action === 'view' || $action === 'publish') {
+                    continue;
+                }
+                $ordered[$action] = $label;
+            }
+            $ordered['publish'] = $existing['publish'] ?? self::STANDARD_ACTIONS['publish'];
+            self::$modules[$module]['actions'] = $ordered;
+        }
     }
 
     /**

@@ -31,21 +31,31 @@ class PedigreeBuilder {
      *
      * @param int|null $horseId ID des Wurzel-Pferdes (Proband)
      * @param int $maxDepth Maximale Generationstiefe (1 = nur das Pferd selbst)
+     * @param bool $publishedOnly Wenn true, werden ausschließlich veröffentlichte
+     *   Pferde (is_published = 1) als Ahnen aufgelöst. Ein unveröffentlichter,
+     *   verknüpfter Vorfahre erscheint dann gar nicht (leerer Ast); ein nur per
+     *   Freitext (sire_name/dam_name) hinterlegter Vorfahre bleibt als
+     *   Platzhalter aus genau diesem Freitext sichtbar - ohne Profil-Link,
+     *   ohne DB-Felder des unveröffentlichten Pferdes und ohne weitere Rekursion.
+     *   ZWINGEND für jede öffentliche Ausgabe/Berechnung (Katalog, Detailseite,
+     *   API, Inzuchtkoeffizient etc.), damit aus unveröffentlichten Daten nichts
+     *   hergeleitet werden kann. Der Backend-Standard (false) liefert den vollen Baum.
      * @return array|null Verschachtelte Knotenstruktur mit `id`, `name`, `ueln`,
      *   `birth_year`, `color`, `depth`, `is_placeholder`, `sire`, `dam` - oder
      *   `null`, wenn `$horseId` leer ist oder kein passendes Pferd existiert.
      */
-    public static function build(?int $horseId, int $maxDepth = 4): ?array {
-        return self::buildRecursive($horseId, 1, $maxDepth);
+    public static function build(?int $horseId, int $maxDepth = 4, bool $publishedOnly = false): ?array {
+        return self::buildRecursive($horseId, 1, $maxDepth, $publishedOnly);
     }
 
-    private static function buildRecursive(?int $horseId, int $currentDepth, int $maxDepth): ?array {
+    private static function buildRecursive(?int $horseId, int $currentDepth, int $maxDepth, bool $publishedOnly = false): ?array {
         if (!$horseId || $currentDepth > $maxDepth) {
             return null;
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, name, ueln, birth_year, color, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln FROM horses WHERE id = ? AND deleted_at IS NULL");
+        $publishedFilter = $publishedOnly ? " AND is_published = 1" : "";
+        $stmt = $db->prepare("SELECT id, name, ueln, birth_year, color, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln FROM horses WHERE id = ? AND deleted_at IS NULL{$publishedFilter}");
         $stmt->execute([$horseId]);
         $horse = $stmt->fetch();
 
@@ -57,11 +67,11 @@ class PedigreeBuilder {
 
         // Sire resolution (FK or UELN/Foreign UELN/Name lookup fallback)
         if ($horse['sire_id']) {
-            $horse['sire'] = self::buildRecursive($horse['sire_id'], $currentDepth + 1, $maxDepth);
+            $horse['sire'] = self::buildRecursive($horse['sire_id'], $currentDepth + 1, $maxDepth, $publishedOnly);
         } else if (!empty($horse['sire_name']) || !empty($horse['sire_ueln'])) {
-            $parentSireId = self::findParentByUelnOrName($db, $horse['sire_ueln'], $horse['sire_name']);
+            $parentSireId = self::findParentByUelnOrName($db, $horse['sire_ueln'], $horse['sire_name'], $publishedOnly);
             if ($parentSireId) {
-                $horse['sire'] = self::buildRecursive($parentSireId, $currentDepth + 1, $maxDepth);
+                $horse['sire'] = self::buildRecursive($parentSireId, $currentDepth + 1, $maxDepth, $publishedOnly);
             } else {
                 $horse['sire'] = [
                     'id' => null,
@@ -79,11 +89,11 @@ class PedigreeBuilder {
 
         // Dam resolution (FK or UELN/Foreign UELN/Name lookup fallback)
         if ($horse['dam_id']) {
-            $horse['dam'] = self::buildRecursive($horse['dam_id'], $currentDepth + 1, $maxDepth);
+            $horse['dam'] = self::buildRecursive($horse['dam_id'], $currentDepth + 1, $maxDepth, $publishedOnly);
         } else if (!empty($horse['dam_name']) || !empty($horse['dam_ueln'])) {
-            $parentDamId = self::findParentByUelnOrName($db, $horse['dam_ueln'], $horse['dam_name']);
+            $parentDamId = self::findParentByUelnOrName($db, $horse['dam_ueln'], $horse['dam_name'], $publishedOnly);
             if ($parentDamId) {
-                $horse['dam'] = self::buildRecursive($parentDamId, $currentDepth + 1, $maxDepth);
+                $horse['dam'] = self::buildRecursive($parentDamId, $currentDepth + 1, $maxDepth, $publishedOnly);
             } else {
                 $horse['dam'] = [
                     'id' => null,
@@ -103,21 +113,24 @@ class PedigreeBuilder {
     }
 
     /**
-     * Searches for a matching parent horse by primary UELN, foreign UELN or Name if FK is NULL
+     * Searches for a matching parent horse by primary UELN, foreign UELN or Name if FK is NULL.
+     * Im publishedOnly-Modus werden unveröffentlichte Treffer ignoriert, sodass der
+     * Aufrufer stattdessen den Freitext-Platzhalter verwendet (kein Datenleck).
      */
-    private static function findParentByUelnOrName(\PDO $db, ?string $ueln, ?string $name): ?int {
+    private static function findParentByUelnOrName(\PDO $db, ?string $ueln, ?string $name, bool $publishedOnly = false): ?int {
         $cleanUeln = trim($ueln ?? '');
         $cleanName = trim($name ?? '');
+        $publishedFilter = $publishedOnly ? " AND is_published = 1" : "";
 
         if (!empty($cleanUeln)) {
-            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL AND (ueln = ? OR foreign_ueln = ?) LIMIT 1");
+            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL{$publishedFilter} AND (ueln = ? OR foreign_ueln = ?) LIMIT 1");
             $stmt->execute([$cleanUeln, $cleanUeln]);
             $foundId = $stmt->fetchColumn();
             if ($foundId) return (int)$foundId;
         }
 
         if (!empty($cleanName)) {
-            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL AND LOWER(name) = LOWER(?) LIMIT 1");
+            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL{$publishedFilter} AND LOWER(name) = LOWER(?) LIMIT 1");
             $stmt->execute([$cleanName]);
             $foundId = $stmt->fetchColumn();
             if ($foundId) return (int)$foundId;

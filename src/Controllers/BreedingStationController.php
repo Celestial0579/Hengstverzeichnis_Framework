@@ -18,17 +18,23 @@ class BreedingStationController extends BaseController {
         // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
         // BaseController::normalizePublishedFilter().
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
-        $publishedSql = $publishedFilter === null ? '' : ' AND bs.is_published = ' . $publishedFilter;
+        $publishedSql = $publishedFilter === null ? '' : ' AND bs.is_published = ?';
 
         $db = Database::getInstance();
-        $stmt = $db->query("
+        $sql = "
             SELECT bs.*, COUNT(h.id) as horse_count
             FROM breeding_stations bs
             LEFT JOIN horses h ON h.breeding_station_id = bs.id AND h.deleted_at IS NULL
             WHERE bs.deleted_at IS NULL{$publishedSql}
             GROUP BY bs.id
             ORDER BY bs.name ASC
-        ");
+        ";
+        if ($publishedFilter === null) {
+            $stmt = $db->query($sql);
+        } else {
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$publishedFilter]);
+        }
         $stations = $stmt->fetchAll();
 
         $this->render('admin_breeding_stations', [

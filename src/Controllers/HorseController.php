@@ -16,12 +16,19 @@ class HorseController extends BaseController {
         $this->requirePermission('horses', 'view');
 
         // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
-        // BaseController::normalizePublishedFilter().
+        // BaseController::normalizePublishedFilter(). Der normalisierte Wert (0/1)
+        // wird als gebundener Parameter übergeben statt in die Abfrage interpoliert.
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
-        $publishedSql = $publishedFilter === null ? '' : ' AND is_published = ' . $publishedFilter;
+        $publishedSql = $publishedFilter === null ? '' : ' AND is_published = ?';
 
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, name, ueln, birth_year, status, is_published, image_url FROM horses WHERE deleted_at IS NULL{$publishedSql} ORDER BY name ASC");
+        $sql = "SELECT id, name, ueln, birth_year, status, is_published, image_url FROM horses WHERE deleted_at IS NULL{$publishedSql} ORDER BY name ASC";
+        if ($publishedFilter === null) {
+            $stmt = $db->query($sql);
+        } else {
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$publishedFilter]);
+        }
         $horses = $stmt->fetchAll();
 
         $this->render('admin_horses', [

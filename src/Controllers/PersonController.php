@@ -19,17 +19,23 @@ class PersonController extends BaseController {
         // alle Personen angezeigt; nur die exakten Werte '1'/'0' filtern, alles andere
         // wird als "alle" behandelt.
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
-        $publishedSql = $publishedFilter === null ? '' : ' AND p.is_published = ' . $publishedFilter;
+        $publishedSql = $publishedFilter === null ? '' : ' AND p.is_published = ?';
 
         $db = Database::getInstance();
-        $stmt = $db->query("
+        $sql = "
             SELECT p.*, COUNT(hp.id) as horse_count
             FROM persons p
             LEFT JOIN horse_persons hp ON hp.person_id = p.id
             WHERE p.deleted_at IS NULL{$publishedSql}
             GROUP BY p.id
             ORDER BY p.name ASC
-        ");
+        ";
+        if ($publishedFilter === null) {
+            $stmt = $db->query($sql);
+        } else {
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$publishedFilter]);
+        }
         $persons = $stmt->fetchAll();
 
         $this->render('admin_persons', [

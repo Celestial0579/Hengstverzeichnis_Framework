@@ -78,33 +78,6 @@ class TotpTest extends TestCase {
         $this->assertTrue(Totp::verifyCode($secret, " {$code}\n"));
     }
 
-    public function testVerifyCodeReturnSliceReturnsMatchedSlice(): void {
-        $secret = Totp::generateSecret();
-        $currentSlice = (int) floor(time() / 30);
-        $code = Totp::getCode($secret, $currentSlice);
-
-        $this->assertSame($currentSlice, Totp::verifyCodeReturnSlice($secret, $code));
-    }
-
-    public function testVerifyCodeReturnSliceRejectsAlreadyConsumedSlice(): void {
-        $secret = Totp::generateSecret();
-        $currentSlice = (int) floor(time() / 30);
-        $code = Totp::getCode($secret, $currentSlice);
-
-        // Wird der aktuelle Zeitschlitz als bereits verbraucht markiert, darf
-        // derselbe Code nicht erneut akzeptiert werden (Replay-Schutz).
-        $this->assertNull(Totp::verifyCodeReturnSlice($secret, $code, $currentSlice));
-    }
-
-    public function testVerifyCodeReturnSliceAcceptsNewerSliceAfterConsumed(): void {
-        $secret = Totp::generateSecret();
-        $currentSlice = (int) floor(time() / 30);
-        $code = Totp::getCode($secret, $currentSlice);
-
-        // Ein früherer Schlitz gilt als verbraucht; der aktuelle (neuere) Code bleibt gültig.
-        $this->assertSame($currentSlice, Totp::verifyCodeReturnSlice($secret, $code, $currentSlice - 1));
-    }
-
     public function testGenerateBackupCodesReturnsExpectedCountAndFormat(): void {
         $codes = Totp::generateBackupCodes();
 

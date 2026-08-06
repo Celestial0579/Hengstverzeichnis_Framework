@@ -149,12 +149,6 @@ class Database {
         $addColumn('users', 'totp_enabled', 'TINYINT(1) DEFAULT 0 AFTER `totp_secret`');
         $addColumn('users', 'backup_codes', 'TEXT NULL AFTER `totp_enabled`');
         $addColumn('users', 'passkeys', 'TEXT NULL AFTER `backup_codes`');
-        // Zuletzt akzeptierter TOTP-Zeitschlitz (floor(time()/30)) je Benutzer -
-        // verhindert das Wiedereinspielen eines gültigen 6-stelligen Codes innerhalb
-        // seines ~90-Sekunden-Toleranzfensters: ein bereits verwendeter (oder älterer)
-        // Zeitschlitz wird bei der nächsten Verifizierung abgelehnt (siehe
-        // App\Security\Totp::verifyCodeReturnSlice() und AuthController).
-        $addColumn('users', 'last_totp_timeslice', 'BIGINT NULL DEFAULT NULL AFTER `passkeys`');
 
         // 3. Erweiterungen für Pferdeprofile (Ausländische UELN, Abstammung, Deckstation)
         $addColumn('horses', 'foreign_ueln', 'VARCHAR(50) NULL DEFAULT NULL AFTER `ueln`');

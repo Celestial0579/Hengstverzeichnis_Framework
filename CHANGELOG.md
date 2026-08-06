@@ -177,6 +177,19 @@ Breaking Changes sind jederzeit möglich).
   [docs/architecture.md](docs/architecture.md), Abschnitt „E-Mail-Digest
   für Admins/Editoren“.
 
+### Behoben
+
+- Functional-Test-Suite hängte sich reproduzierbar in einer späten Testklasse
+  auf (#102): Der `php -S`-Testserver (`tests/Support/PhpBuiltInServer.php`,
+  ebenso `FakeS3Server.php`) leitete stdout/stderr in Pipes um, die nie
+  ausgelesen wurden. Über die volle Suite lief deren Kernel-Buffer durch die
+  Access-Logs voll, woraufhin der Single-Worker-Server beim nächsten Schreiben
+  blockierte und alle folgenden Requests in den Timeout liefen. Die Ausgabe
+  geht jetzt in eine Logdatei (blockiert nie). Der zuvor als Workaround
+  entfernte Regressionstest (`ApiHorsesTest::testDeletedHorseIsNeverExposed`)
+  ist damit wieder aktiv und prüft zusätzlich, dass ein gelöschtes Pferd auch
+  über `GET /api/horses/show` nicht mehr sichtbar ist.
+
 ## [0.2.0-beta.1] – 2026-08-05
 
 ### Hinzugefügt

@@ -18,6 +18,7 @@ class PhpBuiltInServer {
     /** @var resource|null */
     private static $process = null;
     private static bool $shutdownRegistered = false;
+    private static ?string $logFile = null;
 
     public static function baseUrl(): string {
         return 'http://' . self::HOST . ':' . self::PORT;
@@ -34,10 +35,19 @@ class PhpBuiltInServer {
         }
 
         $publicDir = __DIR__ . '/../../public';
+
+        // stdout/stderr in eine Logdatei umleiten statt in Pipes. php -S schreibt
+        // pro Request eine Access-Log-Zeile nach stderr; ginge das in eine Pipe,
+        // die niemand ausliest, liefe deren Kernel-Buffer (~64 KB) über die volle
+        // Functional-Suite hinweg voll und der Single-Worker-Server blockierte beim
+        // nächsten write() - danach liefen alle weiteren Requests in den curl-Timeout
+        // (Issue #102). stream_set_blocking auf der Leseseite verhindert das NICHT;
+        // eine Datei als Deskriptor blockiert dagegen nie.
+        self::$logFile = tempnam(sys_get_temp_dir(), 'hengst_test_server_');
         $descriptorSpec = [
             0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            1 => ['file', self::$logFile, 'a'],
+            2 => ['file', self::$logFile, 'a'],
         ];
 
         self::$process = proc_open(
@@ -50,11 +60,6 @@ class PhpBuiltInServer {
         if (!is_resource(self::$process)) {
             throw new \RuntimeException('Konnte php -S Testserver nicht starten.');
         }
-
-        // Nicht-blockierend lesen, damit die Pipes nicht volllaufen und den
-        // Server-Prozess blockieren (php -S schreibt Zugriffs-Logs nach stderr).
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
 
         if (!self::$shutdownRegistered) {
             register_shutdown_function([self::class, 'stop']);
@@ -69,6 +74,10 @@ class PhpBuiltInServer {
             proc_terminate(self::$process);
             proc_close(self::$process);
             self::$process = null;
+        }
+        if (self::$logFile !== null && is_file(self::$logFile)) {
+            unlink(self::$logFile);
+            self::$logFile = null;
         }
     }
 

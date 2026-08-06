@@ -57,9 +57,13 @@ class HorseController extends BaseController {
 
         if ($ids) {
             $db = Database::getInstance();
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $db->prepare("UPDATE horses SET is_published = ? WHERE id IN ({$placeholders}) AND deleted_at IS NULL");
-            $stmt->execute([$publish, ...$ids]);
+            // Einzelne, vollständig parametrisierte UPDATEs statt einer dynamisch
+            // zusammengesetzten IN (...)-Liste - inhaltlich identisch, vermeidet aber
+            // jede String-Interpolation im SQL (auch die des ?-Platzhalter-Strings).
+            $stmt = $db->prepare("UPDATE horses SET is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            foreach ($ids as $id) {
+                $stmt->execute([$publish, $id]);
+            }
 
             \App\Service\AuditLogger::log(
                 $publish ? "Pferde veröffentlicht" : "Veröffentlichung von Pferden zurückgenommen",

@@ -10,13 +10,23 @@ use PHPUnit\Framework\TestCase;
  * Prüft App\Service\GithubAddonRepository rein lokal (kein echter
  * Netzwerkzugriff): parseOwnerRepo() gegen verschiedene Eingabeformate sowie
  * scanTarballFile()/installFromTarballFile() gegen selbst gebaute .tar.gz-
- * Fixtures - inklusive absichtlich bösartiger Archive (Pfad-Traversal via
- * "../"-Eintrag, Symlink-Eintrag), um die in verifyExtractedTreeIsSafe()
- * dokumentierte Sicherheitsgrenze tatsächlich zu verifizieren, statt sie nur
- * zu behaupten. Die Test-Tarballs werden per Low-Level-Tar-Header-Konstruktion
- * gebaut (nicht über PharData::buildFromDirectory()), weil PharData selbst
- * beim SCHREIBEN bereits ".."-Pfade ablehnen würde - ein damit gebautes
- * Archiv könnte den zu prüfenden Angriffsvektor gar nicht erst enthalten.
+ * Fixtures.
+ *
+ * Zwei Bauweisen für Test-Tarballs, je nach Zweck:
+ * - buildTarGzFromFiles(): reguläre, gültige Archive über
+ *   PharData::buildFromDirectory() + compress() - PHPs eigener, über
+ *   PHP-Versionen hinweg korrekter Tar-Writer (siehe unten,
+ *   buildTarGz()/buildTarHeader() lieferten in einer PHP-8.5-Umgebung ein von
+ *   PharData nicht mehr akzeptiertes Archiv, obwohl es unter PHP 8.4 noch
+ *   funktionierte - Low-Level-Tar-Bytes von Hand zu konstruieren ist fragiler,
+ *   als es zunächst scheint).
+ * - buildTarGz()/buildTarHeader(): Low-Level-Konstruktion für den EINEN Test,
+ *   der einen absichtlich bösartigen ".."-Pfad-Eintrag enthalten muss -
+ *   PharData::buildFromDirectory() würde einen solchen Pfad beim Schreiben
+ *   bereits selbst ablehnen (kann ohnehin nicht aus einem echten Verzeichnis
+ *   entstehen, das Dateisystem lässt ".."-Einträge nicht zu), ein damit
+ *   gebautes Archiv könnte den zu prüfenden Angriffsvektor also gar nicht
+ *   erst enthalten.
  */
 class GithubAddonRepositoryTest extends TestCase {
 
@@ -77,18 +87,15 @@ class GithubAddonRepositoryTest extends TestCase {
     // ---- scanTarballFile() / installFromTarballFile() ------------------
 
     public function testScanTarballFileFindsValidMultiPluginManifest(): void {
-        $tarPath = $this->buildTarGz([
-            $this->tarDirEntry('testrepo-main/'),
-            $this->tarDirEntry('testrepo-main/plugins/'),
-            $this->tarDirEntry('testrepo-main/plugins/demo-addon/'),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/plugin.json', json_encode([
+        $tarPath = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon',
                 'name' => 'Demo Addon',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
                 'description' => 'Test-Plugin',
-            ])),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/Plugin.php', "<?php\nnamespace Plugin\\DemoAddon;\nclass Plugin {}\n"),
+            ]),
+            'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\nnamespace Plugin\\DemoAddon;\nclass Plugin {}\n",
         ]);
 
         $result = GithubAddonRepository::scanTarballFile($tarPath);
@@ -100,14 +107,13 @@ class GithubAddonRepositoryTest extends TestCase {
     }
 
     public function testScanTarballFileIgnoresPluginWithMismatchedSlug(): void {
-        $tarPath = $this->buildTarGz([
-            $this->tarDirEntry('testrepo-main/plugins/demo-addon/'),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/plugin.json', json_encode([
+        $tarPath = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'different-slug',
                 'name' => 'Demo Addon',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
-            ])),
+            ]),
         ]);
 
         $result = GithubAddonRepository::scanTarballFile($tarPath);
@@ -179,15 +185,14 @@ class GithubAddonRepositoryTest extends TestCase {
     }
 
     public function testInstallFromTarballFileCopiesPluginAndRefusesOverwriteWithoutFlag(): void {
-        $tarPath = $this->buildTarGz([
-            $this->tarDirEntry('testrepo-main/plugins/demo-addon/'),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/plugin.json', json_encode([
+        $tarPath = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon',
                 'name' => 'Demo Addon',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
-            ])),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/Plugin.php', "<?php\n// v1\n"),
+            ]),
+            'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v1\n",
         ]);
 
         $pluginsDir = sys_get_temp_dir() . '/hengst_addon_test_plugins_' . bin2hex(random_bytes(8));
@@ -209,19 +214,17 @@ class GithubAddonRepositoryTest extends TestCase {
     }
 
     public function testInstallFromTarballFileOverwritesWhenRequested(): void {
-        $tarV1 = $this->buildTarGz([
-            $this->tarDirEntry('testrepo-main/plugins/demo-addon/'),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/plugin.json', json_encode([
+        $tarV1 = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon', 'name' => 'Demo Addon', 'version' => '1.0.0', 'core_compatibility' => '>=0.1.0-beta.1',
-            ])),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/Plugin.php', "<?php\n// v1\n"),
+            ]),
+            'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v1\n",
         ]);
-        $tarV2 = $this->buildTarGz([
-            $this->tarDirEntry('testrepo-main/plugins/demo-addon/'),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/plugin.json', json_encode([
+        $tarV2 = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon', 'name' => 'Demo Addon', 'version' => '2.0.0', 'core_compatibility' => '>=0.1.0-beta.1',
-            ])),
-            $this->tarFileEntry('testrepo-main/plugins/demo-addon/Plugin.php', "<?php\n// v2\n"),
+            ]),
+            'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v2\n",
         ]);
 
         $pluginsDir = sys_get_temp_dir() . '/hengst_addon_test_plugins_' . bin2hex(random_bytes(8));
@@ -237,7 +240,41 @@ class GithubAddonRepositoryTest extends TestCase {
         $this->assertStringContainsString('v2', (string)file_get_contents($pluginsDir . '/demo-addon/Plugin.php'));
     }
 
-    // ---- Test-Tarball-Konstruktion (bewusst ohne PharData, siehe Klassen-PHPDoc oben) ----
+    // ---- Test-Tarball-Konstruktion -------------------------------------
+
+    /**
+     * Baut ein gültiges .tar.gz aus einer Datei-Map (relativer Pfad => Inhalt)
+     * über PharData::buildFromDirectory()/compress() - PHPs eigener Tar-Writer,
+     * siehe Klassen-PHPDoc für die Begründung gegenüber der Low-Level-Variante
+     * unten.
+     *
+     * @param array<string, string> $files Relativer Pfad => Dateiinhalt
+     */
+    private function buildTarGzFromFiles(array $files): string {
+        $sourceDir = sys_get_temp_dir() . '/hengst_addon_test_src_' . bin2hex(random_bytes(8));
+        mkdir($sourceDir, 0700, true);
+        $this->cleanupPaths[] = $sourceDir;
+
+        foreach ($files as $relativePath => $content) {
+            $fullPath = $sourceDir . '/' . $relativePath;
+            @mkdir(dirname($fullPath), 0755, true);
+            file_put_contents($fullPath, $content);
+        }
+
+        $tarPath = sys_get_temp_dir() . '/hengst_addon_test_' . bin2hex(random_bytes(8)) . '.tar';
+        $phar = new \PharData($tarPath, 0, null, \Phar::TAR);
+        $phar->buildFromDirectory($sourceDir);
+        $phar->compress(\Phar::GZ);
+        unset($phar); // Datei-Handle freigeben, bevor die unkomprimierte .tar gelöscht wird
+
+        @unlink($tarPath);
+        $gzPath = $tarPath . '.gz';
+        $this->cleanupPaths[] = $gzPath;
+
+        return $gzPath;
+    }
+
+    // ---- Low-Level-Tar-Konstruktion für den Pfad-Traversal-Test (bewusst ohne PharData, siehe Klassen-PHPDoc oben) ----
 
     /**
      * @param array<int, array{name: string, content: string, typeflag: string, linkname: string}> $entries
@@ -276,11 +313,6 @@ class GithubAddonRepositoryTest extends TestCase {
     /** @return array{name: string, content: string, typeflag: string, linkname: string} */
     private function tarDirEntry(string $name): array {
         return ['name' => rtrim($name, '/') . '/', 'content' => '', 'typeflag' => '5', 'linkname' => ''];
-    }
-
-    /** @return array{name: string, content: string, typeflag: string, linkname: string} */
-    private function tarSymlinkEntry(string $name, string $linkname): array {
-        return ['name' => $name, 'content' => '', 'typeflag' => '2', 'linkname' => $linkname];
     }
 
     private function buildTarHeader(string $name, string $typeflag, int $size, string $linkname): string {

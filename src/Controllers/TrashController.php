@@ -7,6 +7,21 @@ use App\Database;
 
 class TrashController extends BaseController {
 
+    /**
+     * Abbildung der Papierkorb-Typen auf das jeweilige Berechtigungs-Modul (#66).
+     * Papierkorb-Operationen (Wiederherstellen/endgültig Löschen/Leeren) gehören
+     * zur Lösch-Domäne des jeweiligen Inhaltstyps: Wer ein Element überhaupt in
+     * den Papierkorb verschieben darf (`<modul>.delete`, siehe z. B.
+     * HorseController::delete()), darf es auch wiederherstellen oder endgültig
+     * entfernen. `user` ist bewusst nicht enthalten - Benutzerkonten sind
+     * ausschließlich Administratoren vorbehalten (siehe unten).
+     */
+    private const TYPE_MODULE_MAP = [
+        'horse' => 'horses',
+        'person' => 'persons',
+        'breeding_station' => 'breeding_stations',
+    ];
+
     public function __construct() {
         parent::__construct();
         $this->checkAuth();
@@ -15,11 +30,18 @@ class TrashController extends BaseController {
     public static function getTrashCount(): int {
         try {
             $db = Database::getInstance();
-            $isAdmin = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
+            $userId = $_SESSION['user_id'] ?? null;
+            $isAdmin = \App\Permission\GroupMembership::isAdmin($userId);
 
-            $horses = (int)$db->query("SELECT COUNT(*) FROM horses WHERE deleted_at IS NOT NULL")->fetchColumn();
-            $persons = (int)$db->query("SELECT COUNT(*) FROM persons WHERE deleted_at IS NOT NULL")->fetchColumn();
-            $stations = (int)$db->query("SELECT COUNT(*) FROM breeding_stations WHERE deleted_at IS NOT NULL")->fetchColumn();
+            // Nur das zählen, was der aktuelle Benutzer auch tatsächlich verwalten
+            // darf - andernfalls würde die Badge-Zahl im Menü Elemente offenlegen,
+            // auf die der Benutzer über den Papierkorb gar nicht zugreifen darf.
+            $horses = self::userCanManage($userId, $isAdmin, 'horses')
+                ? (int)$db->query("SELECT COUNT(*) FROM horses WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
+            $persons = self::userCanManage($userId, $isAdmin, 'persons')
+                ? (int)$db->query("SELECT COUNT(*) FROM persons WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
+            $stations = self::userCanManage($userId, $isAdmin, 'breeding_stations')
+                ? (int)$db->query("SELECT COUNT(*) FROM breeding_stations WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
             $users = $isAdmin ? (int)$db->query("SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
 
             return $horses + $persons + $stations + $users;
@@ -28,13 +50,50 @@ class TrashController extends BaseController {
         }
     }
 
+    /**
+     * Statische Berechtigungs-Prüfung "darf Benutzer X Elemente des Moduls
+     * verwalten (löschen)" für Kontexte ohne Controller-Instanz (getTrashCount()).
+     * Spiegelt BaseController::hasPermission() wider: `admin` hat immer alle
+     * Rechte, sonst muss eine passende `group_permissions`-Zeile mit action
+     * 'delete' vorliegen. Fail-closed bei DB-Fehlern.
+     */
+    private static function userCanManage(?int $userId, bool $isAdmin, string $module): bool {
+        if ($isAdmin) {
+            return true;
+        }
+        if ($userId === null) {
+            return false;
+        }
+        try {
+            $groupIds = \App\Permission\GroupMembership::groupIds($userId);
+            if (empty($groupIds)) {
+                return false;
+            }
+            $db = Database::getInstance();
+            $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+            $stmt = $db->prepare("SELECT COUNT(*) FROM group_permissions WHERE module = ? AND action = 'delete' AND group_id IN ({$placeholders})");
+            $stmt->execute(array_merge([$module], $groupIds));
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
     public function index(): void {
         $db = Database::getInstance();
         $isAdmin = $this->isAdmin();
 
-        $deletedHorses = $db->query("SELECT * FROM horses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll();
-        $deletedPersons = $db->query("SELECT * FROM persons WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll();
-        $deletedStations = $db->query("SELECT * FROM breeding_stations WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll();
+        // Fail-closed: jede Inhalts-Sektion nur laden, wenn der Benutzer für das
+        // jeweilige Modul die Lösch-Berechtigung besitzt (siehe TYPE_MODULE_MAP).
+        // Ohne diese Prüfung könnte jeder eingeloggte Benutzer - unabhängig von
+        // seinen Gruppenrechten - fremde Papierkorb-Inhalte einsehen und darüber
+        // die Aktionen unten auslösen.
+        $deletedHorses = $this->hasPermission('horses', 'delete')
+            ? $db->query("SELECT * FROM horses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
+        $deletedPersons = $this->hasPermission('persons', 'delete')
+            ? $db->query("SELECT * FROM persons WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
+        $deletedStations = $this->hasPermission('breeding_stations', 'delete')
+            ? $db->query("SELECT * FROM breeding_stations WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
         $deletedUsers = $isAdmin ? $db->query("SELECT * FROM users WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
 
         $totalCount = count($deletedHorses) + count($deletedPersons) + count($deletedStations) + count($deletedUsers);
@@ -50,19 +109,44 @@ class TrashController extends BaseController {
         ]);
     }
 
+    /**
+     * Erzwingt die zum Papierkorb-Typ passende Berechtigung und bricht sonst mit
+     * einer protokollierten 403-Seite ab. Gemeinsame Zugriffsschranke für
+     * restore()/permanentDelete(): Benutzerkonten sind Administratoren
+     * vorbehalten, alle anderen Typen erfordern `<modul>.delete`. Unbekannte
+     * Typen führen zurück zum Papierkorb (No-Op), damit ein manipulierter
+     * `type`-Wert keine ungeprüfte Aktion auslöst.
+     *
+     * @return bool True, wenn die Aktion fortgesetzt werden darf.
+     */
+    private function authorizeForType(string $type): bool {
+        if ($type === 'user') {
+            if (!$this->isAdmin()) {
+                $this->renderForbidden("Zugriff verweigert: Benutzerkonten dürfen ausschließlich von Administratoren verwaltet werden.");
+            }
+            return true;
+        }
+
+        if (isset(self::TYPE_MODULE_MAP[$type])) {
+            $this->requirePermission(self::TYPE_MODULE_MAP[$type], 'delete');
+            return true;
+        }
+
+        header("Location: /admin/trash");
+        exit;
+    }
+
     public function restore(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $isAdmin = $this->isAdmin();
         $type = $_POST['type'] ?? '';
         $id = (int)($_POST['id'] ?? 0);
 
-        // Editors cannot restore user accounts
-        if ($type === 'user' && !$isAdmin) {
-            die("Zugriff verweigert: Nur Administratoren können Benutzerkonten wiederherstellen.");
-        }
+        // Serverseitige Berechtigungsprüfung (renderForbidden/requirePermission
+        // brechen intern mit 403 ab, wenn sie fehlschlägt).
+        $this->authorizeForType($type);
 
         if ($id > 0) {
             $db = Database::getInstance();
@@ -94,10 +178,9 @@ class TrashController extends BaseController {
         $type = $_POST['type'] ?? '';
         $id = (int)($_POST['id'] ?? 0);
 
-        // Editors cannot purge users
-        if ($type === 'user' && !$isAdmin) {
-            die("Zugriff verweigert.");
-        }
+        // Serverseitige Berechtigungsprüfung (bricht intern mit 403 ab bzw. leitet
+        // bei unbekanntem Typ zurück).
+        $this->authorizeForType($type);
 
         $validTypes = ['horse', 'person', 'breeding_station', 'user'];
 
@@ -156,10 +239,18 @@ class TrashController extends BaseController {
 
             \App\Service\AuditLogger::log("Papierkorb geleert (Admin)", "trash", "Alle gelöschten Elemente endgültig bereinigt");
         } else {
-            // Editors can only purge items older than 30 days
-            $db->exec("DELETE FROM horses WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
-            $db->exec("DELETE FROM persons WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
-            $db->exec("DELETE FROM breeding_stations WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+            // Nicht-Admins können pro Modul nur dann (und nur >30 Tage alte)
+            // Elemente bereinigen, wenn sie die jeweilige Lösch-Berechtigung
+            // besitzen - ein Benutzer ohne Rechte bereinigt so nichts.
+            if ($this->hasPermission('horses', 'delete')) {
+                $db->exec("DELETE FROM horses WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+            }
+            if ($this->hasPermission('persons', 'delete')) {
+                $db->exec("DELETE FROM persons WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+            }
+            if ($this->hasPermission('breeding_stations', 'delete')) {
+                $db->exec("DELETE FROM breeding_stations WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+            }
 
             \App\Service\AuditLogger::log("Papierkorb bereinigt (>30 Tage)", "trash", "Ältere Elemente durch Editor bereinigt");
         }

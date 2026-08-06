@@ -71,12 +71,19 @@ class Totp {
     }
 
     /**
-     * Generates 10 single-use backup recovery codes
+     * Generates 10 single-use backup recovery codes.
+     *
+     * Jeder Code liefert 64 Bit Entropie (2x 4 Byte, als 16 Hex-Zeichen im Format
+     * XXXXXXXX-XXXXXXXX) - genug Spielraum für einen 2FA-Wiederherstellungscode,
+     * auch falls der (bewusst ausfallsichere, also im DB-Fehlerfall fail-open)
+     * Rate-Limiter einmal nicht greift. Die Codes werden vor dem Speichern mit
+     * password_hash() gehasht; die Länge ist für die Verifizierung unerheblich,
+     * daher bleiben bereits ausgegebene ältere Codes weiterhin gültig.
      */
     public static function generateBackupCodes(int $count = 10): array {
         $codes = [];
         for ($i = 0; $i < $count; $i++) {
-            $code = strtoupper(bin2hex(random_bytes(2)) . '-' . bin2hex(random_bytes(2)));
+            $code = strtoupper(bin2hex(random_bytes(4)) . '-' . bin2hex(random_bytes(4)));
             $codes[] = $code;
         }
         return $codes;

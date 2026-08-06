@@ -83,7 +83,8 @@ class TotpTest extends TestCase {
 
         $this->assertCount(10, $codes);
         foreach ($codes as $code) {
-            $this->assertMatchesRegularExpression('/^[0-9A-F]{4}-[0-9A-F]{4}$/', $code);
+            // 64 Bit Entropie je Code: 2x 4 Byte als 8+8 Hex-Zeichen (siehe Totp::generateBackupCodes()).
+            $this->assertMatchesRegularExpression('/^[0-9A-F]{8}-[0-9A-F]{8}$/', $code);
         }
         $this->assertCount(10, array_unique($codes), 'Backup-Codes sollten (praktisch sicher) eindeutig sein');
     }

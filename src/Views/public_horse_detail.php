@@ -256,10 +256,10 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
             <div style="width: 1px; height: 24px; background: #ccc; margin: 0 0.5rem;"></div>
 
-            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_in_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 +</button>
-            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(-0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_out_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 -</button>
+            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_in_title')) ?>" aria-label="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_in_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 +</button>
+            <button type="button" class="btn btn-secondary" onclick="zoomPedigree(-0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_out_title')) ?>" aria-label="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_out_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 -</button>
             <button type="button" class="btn btn-secondary" onclick="resetZoom()" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_reset_title')) ?>" style="padding: 0.3rem 0.7rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_reset_label')) ?></button>
-            <span id="zoomLevelText" style="font-size: 0.85rem; color: #555; min-width: 45px; text-align: center;">100%</span>
+            <span id="zoomLevelText" aria-live="polite" style="font-size: 0.85rem; color: #555; min-width: 45px; text-align: center;">100%</span>
         </div>
     </div>
 
@@ -372,7 +372,10 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 .pedigree-label {
     font-size: 0.75rem;
     text-transform: uppercase;
-    color: #888;
+    /* Barrierefreiheit (#51): #888 auf Weiß erreicht nur ~3.5:1 Kontrast,
+       WCAG AA verlangt für diese Textgröße (12px, auch fett unter der
+       "große Schrift"-Schwelle) mindestens 4.5:1 - #666 erreicht ~5.7:1. */
+    color: #666;
     font-weight: bold;
     margin-bottom: 0.2rem;
 }

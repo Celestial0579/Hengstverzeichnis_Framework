@@ -265,6 +265,25 @@ footer a:hover {
 .mt-2 { margin-top: 2rem; }
 .mb-2 { margin-bottom: 2rem; }
 
+/*
+ * Barrierefreiheit (#51): visuell verstecktes, aber für Screenreader
+ * erreichbares Label - Standard-Muster ("sr-only"/"visually-hidden") statt
+ * display:none (das würde den Text auch vor Screenreadern verbergen).
+ * Genutzt z. B. für die Katalog-Volltextsuche, deren einziges sichtbares
+ * Label bisher nur ein verschwindendes placeholder-Attribut war.
+ */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* Responsive & Mobile Touch Optimization */
 @media (max-width: 768px) {
     header {

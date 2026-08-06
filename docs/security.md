@@ -196,6 +196,25 @@ einen neutralen Platzhalter zurück statt auf den Angreifer-Wert.
 **Empfehlung:** In Produktion immer `base_url` (Admin → Systemeinstellungen)
 oder `APP_URL` setzen — dann wird der Host-Header gar nicht erst befragt.
 
+## Selfservice-Registrierung (#83, `src/Controllers/RegistrationController.php`)
+
+Standardmäßig **deaktiviert** — die öffentliche Registrierung unter `/register`
+ist die einzige unauthentifizierte Schreibfläche für Benutzerkonten und wird
+nur aktiv, wenn der Admin sie in den Systemeinstellungen einschaltet
+(`registration_enabled`). Schutzmechanismen:
+
+- **E-Mail-Verifizierung vor Erstaktivierung:** Das Konto erhält einen
+  Einmal-Token (48 h gültig, `users.email_verification_token`); solange er
+  gesetzt ist, blockiert der Login. Admin-angelegte Konten erhalten nie
+  einen Token.
+- **Rate-Limiting pro Client-IP** (5 Versuche/Stunde, RateLimiter-Typ
+  `registration`), reservierte Benutzernamen sind gesperrt.
+- **Minimale Rechte:** Neue Konten landen ausschließlich in der vom Admin
+  gewählten Standard-Gruppe (`registration_default_group`, nie
+  admin/public) oder ganz ohne Gruppe (keinerlei Rechte). Ob für sie
+  2FA-Pflicht gilt, steuert die Gruppe (#84); ohne Gruppe greift die
+  Fail-safe-Pflicht.
+
 ## Reservierte Benutzernamen
 
 `BaseController::isReservedUsername()` verhindert Accounts mit Namen wie

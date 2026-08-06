@@ -47,11 +47,23 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, password_hash, totp_enabled, totp_secret FROM users WHERE email = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT id, password_hash, totp_enabled, totp_secret, email_verification_token FROM users WHERE email = ? AND deleted_at IS NULL");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
         if ($user && password_verify($password, $user['password_hash'])) {
+            // Selfservice-Registrierung (#83): Ein gesetzter Verifizierungs-
+            // Token bedeutet, dass die E-Mail-Adresse noch nicht bestätigt
+            // wurde - der Login bleibt bis dahin gesperrt (erst NACH der
+            // Passwortprüfung gemeldet, damit die Meldung nichts über fremde
+            // Konten verrät).
+            if (!empty($user['email_verification_token'])) {
+                $this->render('login', [
+                    'title' => \App\I18n\Translator::t('meta.title_login_failed'),
+                    'error' => \App\I18n\Translator::t('auth.email_not_verified')
+                ]);
+                return;
+            }
             // Nur den eigenen Konto-Zähler (email|ip) zurücksetzen - der reine
             // IP-Zähler bleibt bestehen, damit ein erfolgreicher Login nicht
             // die Spuren von Spraying-Versuchen gegen andere Konten löscht.

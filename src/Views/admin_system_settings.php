@@ -73,6 +73,35 @@
             </small>
         </div>
 
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label>📝 Selfservice-Registrierung</label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal;">
+                <input type="checkbox" name="registration_enabled" value="1" <?= ($settings['registration_enabled'] ?? '0') === '1' ? 'checked' : '' ?> style="width: 16px; height: 16px;">
+                Öffentliche Registrierung unter <code>/register</code> erlauben
+            </label>
+            <small style="color: #666; display: block; margin-top: 0.3rem;">
+                Standard: deaktiviert. Neue Konten müssen ihre E-Mail-Adresse per Link bestätigen,
+                bevor die Anmeldung möglich ist (#83). Registrierungen sind pro IP begrenzt.
+            </small>
+            <div style="margin-top: 0.6rem;">
+                <label for="registration_default_group" style="font-size: 0.9rem;">Standard-Gruppe für neue Konten</label>
+                <select id="registration_default_group" name="registration_default_group" class="form-control" style="max-width: 320px;">
+                    <option value="0">— Keine Gruppe (keinerlei Rechte) —</option>
+                    <?php foreach ($registrationGroups as $rGroup): ?>
+                        <option value="<?= (int)$rGroup['id'] ?>" <?= (string)(int)$rGroup['id'] === ($settings['registration_default_group'] ?? '0') ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($rGroup['name']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <small style="color: #666; display: block; margin-top: 0.3rem;">
+                    Administrator und Öffentlich/Gäste sind nicht wählbar. Ohne Standard-Gruppe erhalten
+                    neue Konten keinerlei Rechte (und wegen der Fail-safe-Regel aus #84 eine 2FA-Pflicht) -
+                    ob die gewählte Gruppe 2FA verlangt, steuern Sie unter
+                    <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
+                </small>
+            </div>
+        </div>
+
         <?php if (!empty($registeredFeatures)): ?>
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label>✨ Sichtbarkeit von Zusatzfunktionen</label>

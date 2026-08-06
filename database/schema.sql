@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS `users` (
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
     `session_version` INT NOT NULL DEFAULT 1,
     `last_totp_timeslice` BIGINT NULL DEFAULT NULL,
+    -- Selfservice-Registrierung (#83): gesetzter Token = E-Mail noch nicht
+    -- verifiziert, Login gesperrt. Admin-angelegte Konten: immer NULL.
+    `email_verification_token` VARCHAR(64) NULL DEFAULT NULL,
+    `email_verification_expires_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

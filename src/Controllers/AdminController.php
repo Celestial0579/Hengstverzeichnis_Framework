@@ -123,6 +123,12 @@ class AdminController extends BaseController {
             'trackingDomainsFromEnv' => $trackingDomainsFromEnv,
             'availableLocales' => \App\I18n\Translator::getAvailableLocales(),
             'registeredFeatures' => \App\Permission\FeatureRegistry::all(),
+            // Für die Standard-Gruppe der Selfservice-Registrierung (#83):
+            // admin/public sind serverseitig nie zulässig, siehe
+            // RegistrationController::assignDefaultGroup().
+            'registrationGroups' => Database::getInstance()
+                ->query("SELECT id, name FROM `groups` WHERE slug NOT IN ('admin', 'public') ORDER BY name ASC")
+                ->fetchAll(),
         ]);
     }
 
@@ -210,6 +216,26 @@ class AdminController extends BaseController {
                 \App\Service\AuditLogger::log("Trusted Proxies aktualisiert", "security", "Wert: " . ($normalized !== '' ? $normalized : '(leer)'));
             }
         }
+
+        // Selfservice-Registrierung (#83): globaler Schalter (Default aus) und
+        // Standard-Gruppe für neue Konten. admin/public sind als Standard-
+        // Gruppe serverseitig ausgeschlossen (fail-safe: ungültige Werte
+        // werden als "keine Gruppe" gespeichert).
+        $registrationEnabled = !empty($_POST['registration_enabled']) ? '1' : '0';
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('registration_enabled', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$registrationEnabled, $registrationEnabled]);
+
+        $registrationGroup = (string)(int)($_POST['registration_default_group'] ?? 0);
+        if ($registrationGroup !== '0') {
+            $stmt = $db->prepare("SELECT id FROM `groups` WHERE id = ? AND slug NOT IN ('admin', 'public')");
+            $stmt->execute([(int)$registrationGroup]);
+            if ($stmt->fetchColumn() === false) {
+                $registrationGroup = '0';
+            }
+        }
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('registration_default_group', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$registrationGroup, $registrationGroup]);
+        \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Selfservice-Registrierung: " . ($registrationEnabled === '1' ? 'aktiviert' : 'deaktiviert') . ", Standard-Gruppe: {$registrationGroup}");
 
         // Sichtbarkeit von Zusatzfunktionen (#57): pro registrierter Funktion
         // 'public' oder 'members' - nur bekannte Schlüssel/Werte werden

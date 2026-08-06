@@ -451,6 +451,13 @@ class Database {
         // immer verpflichtend, unabhängig von dieser Spalte (siehe
         // AuthController::userRequires2fa() und GroupController).
         $addColumn('groups', 'require_2fa', 'TINYINT(1) NOT NULL DEFAULT 1');
+
+        // 18. Selfservice-Registrierung (#83): E-Mail-Verifizierung vor der
+        // Erstanmeldung. Ein gesetzter Token bedeutet "noch nicht verifiziert" -
+        // der Login ist bis zur Bestätigung gesperrt (AuthController). Admin-
+        // angelegte Konten erhalten nie einen Token und sind nicht betroffen.
+        $addColumn('users', 'email_verification_token', 'VARCHAR(64) NULL DEFAULT NULL');
+        $addColumn('users', 'email_verification_expires_at', 'DATETIME NULL DEFAULT NULL');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

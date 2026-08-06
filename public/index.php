@@ -76,6 +76,11 @@ $router->post('/dsgvo', [App\Controllers\PublicController::class, 'dsgvoSubmit']
 $router->get('/login', [App\Controllers\AuthController::class, 'loginForm']);
 $router->post('/login', [App\Controllers\AuthController::class, 'loginSubmit']);
 $router->post('/logout', [App\Controllers\AuthController::class, 'logout']);
+// Selfservice-Registrierung (#83, nur aktiv wenn Systemeinstellung gesetzt)
+$router->get('/register', [App\Controllers\RegistrationController::class, 'showForm']);
+$router->post('/register', [App\Controllers\RegistrationController::class, 'submit']);
+$router->get('/verify-email', [App\Controllers\RegistrationController::class, 'verify']);
+
 $router->get('/forgot-password', [App\Controllers\AuthController::class, 'forgotPassword']);
 $router->post('/forgot-password', [App\Controllers\AuthController::class, 'sendResetLink']);
 $router->get('/reset-password', [App\Controllers\AuthController::class, 'resetPassword']);

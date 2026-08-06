@@ -8,14 +8,16 @@ namespace Tests\Functional;
  * App\Controllers\ImportController und App\Service\HorseCsvImporter):
  * Vorschau mit gemischt gültigen/ungültigen Zeilen, dass nur die gültigen
  * beim tatsächlichen Import übernommen werden, Behandlung doppelter UELNs
- * und fehlender Pflichtspalte, sowie CSRF-Pflicht.
+ * innerhalb einer Datei (DB-abhängig, daher hier statt in
+ * tests/Unit/Service/HorseCsvImporterTest.php - dort die reine, DB-freie
+ * Parsing-Logik), sowie CSRF-Pflicht.
  *
  * Bewusst ALLE Szenarien in EINER Testmethode mit einer einzigen
- * authenticatedClient()-Sitzung (analog zu HorseMatchingTest) statt in
- * mehreren Testmethoden - jede eigene authenticatedClient()-Instanz
- * durchläuft einen vollständigen Login+2FA-HTTP-Roundtrip; siehe Issue
- * zur bekannten Test-Harness-Fragilität bei sehr vielen Requests innerhalb
- * der vollständigen Functional-Suite.
+ * authenticatedClient()-Sitzung und möglichst wenigen HTTP-Roundtrips
+ * (analog zu HorseMatchingTest) - jede eigene authenticatedClient()-Instanz
+ * durchläuft einen vollständigen Login+2FA-Roundtrip, und die vollständige
+ * Functional-Suite reagiert empfindlich auf die Gesamtzahl an Requests
+ * (siehe Issue zur bekannten Test-Harness-Fragilität).
  */
 class HorseCsvImportTest extends FunctionalTestCase {
 
@@ -33,19 +35,10 @@ class HorseCsvImportTest extends FunctionalTestCase {
         );
         $this->assertSame(403, $csrfCheck->statusCode);
 
-        // Fehlende Pflichtspalte "name" -> Datei wird komplett abgelehnt, keine Vorschau.
         $formPage = $admin->get('/admin/import/horses');
-        $missingColumn = $admin->postFile(
-            '/admin/import/horses/preview',
-            ['csrf_token' => $formPage->formField('csrf_token') ?? ''],
-            'csv_file',
-            'import.csv',
-            "ueln;color\nDE123456789;Fuchs\n"
-        );
-        $this->assertSame(200, $missingColumn->statusCode);
-        $this->assertStringContainsString('Pflichtspalte', $missingColumn->body);
 
-        // Doppelte UELN innerhalb derselben Datei -> nur der erste Treffer gültig.
+        // Doppelte UELN innerhalb derselben Datei -> nur der erste Treffer gültig
+        // (DB-abhängige Prüfung, siehe Klassenkommentar).
         $duplicateUeln = 'DE' . substr($unique, -9) . 'DUP';
         $duplicateCheck = $admin->postFile(
             '/admin/import/horses/preview',
@@ -89,16 +82,15 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertStringContainsString('1 Pferd(e) erfolgreich importiert', $commitText, "Body: {$commitResponse->body}");
         $this->assertStringContainsString('2 Zeile(n) wegen Fehlern übersprungen', $commitText);
 
-        // Tatsächlich in der DB gelandet: nur die eine gültige Zeile, per API-Suche verifiziert.
-        $lookup = $admin->get('/api/horses?search=' . urlencode($validName));
+        // Tatsächlich in der DB gelandet: genau die eine gültige Zeile, per
+        // API-Suche über das gemeinsame $unique-Suffix aller drei Testzeilen
+        // verifiziert (ein einziger Request statt je einem für "gefunden"
+        // und "nicht gefunden").
+        $lookup = $admin->get('/api/horses?search=' . urlencode($unique));
         $lookupBody = json_decode($lookup->body, true);
-        $this->assertSame(1, $lookupBody['meta']['total'], "Genau die gültige Zeile sollte importiert worden sein, Body: {$lookup->body}");
+        $this->assertSame(1, $lookupBody['meta']['total'], "Nur die eine gültige Zeile sollte importiert worden sein, Body: {$lookup->body}");
+        $this->assertSame($validName, $lookupBody['data'][0]['name']);
         $this->assertSame($validUeln, $lookupBody['data'][0]['ueln']);
-
-        // Die fehlerhaften Zeilen wurden übersprungen, nicht importiert.
-        $rejectedLookup = $admin->get('/api/horses?search=' . urlencode("Ungueltiges Jahr {$unique}"));
-        $rejectedBody = json_decode($rejectedLookup->body, true);
-        $this->assertSame(0, $rejectedBody['meta']['total']);
     }
 
     private function stripHtml(string $html): string {

@@ -46,6 +46,14 @@ define('TRACKING_DOMAINS', implode(',', $trackingDomainsList));
 // Env-Variable hat Vorrang, sonst db_config.php.
 define('TRUSTED_HOSTS', getenv('TRUSTED_HOSTS') !== false ? getenv('TRUSTED_HOSTS') : ($dbConfig['trusted_hosts'] ?? ''));
 
+// Microsoft Entra ID SSO (#42, siehe App\Controllers\EntraSsoController):
+// optionale zusätzliche Login-Methode per OIDC. Auflösung analog zu
+// TRUSTED_PROXIES: Umgebungsvariable hat Vorrang, sonst db_config.php. Ohne
+// vollständige Konfiguration (alle drei Werte) bleibt SSO deaktiviert.
+define('ENTRA_TENANT_ID', getenv('ENTRA_TENANT_ID') !== false ? getenv('ENTRA_TENANT_ID') : ($dbConfig['entra_tenant_id'] ?? ''));
+define('ENTRA_CLIENT_ID', getenv('ENTRA_CLIENT_ID') !== false ? getenv('ENTRA_CLIENT_ID') : ($dbConfig['entra_client_id'] ?? ''));
+define('ENTRA_CLIENT_SECRET', getenv('ENTRA_CLIENT_SECRET') !== false ? getenv('ENTRA_CLIENT_SECRET') : ($dbConfig['entra_client_secret'] ?? ''));
+
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 // isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
 // als vertrauenswürdig gelisteten Reverse Proxy. Der Host-Fallback nutzt den

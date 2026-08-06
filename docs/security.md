@@ -196,6 +196,28 @@ einen neutralen Platzhalter zurück statt auf den Angreifer-Wert.
 **Empfehlung:** In Produktion immer `base_url` (Admin → Systemeinstellungen)
 oder `APP_URL` setzen — dann wird der Host-Header gar nicht erst befragt.
 
+## EntraID-SSO (#42, `src/Controllers/EntraSsoController.php`)
+
+Optionaler Microsoft Entra ID (Azure AD)-Login per OIDC
+Authorization-Code-Flow als **zusätzliche** Login-Methode neben dem lokalen
+Login. Strikt opt-in: Ohne vollständige Konfiguration (`ENTRA_TENANT_ID`,
+`ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` — Umgebungsvariable oder
+`db_config.php`, analog `TRUSTED_PROXIES`) sind die Routen `/auth/entra*`
+nicht erreichbar und der Login-Button erscheint nicht.
+
+- **Kein Auto-Provisioning:** SSO meldet ausschließlich bestehende lokale
+  Konten an (Zuordnung über die E-Mail-Adresse); unbekannte
+  Entra-Identitäten werden abgewiesen und protokolliert.
+- **Flow-Härtung:** `state`-Parameter (Einmalwert in der Session,
+  `hash_equals`), Code-Tausch ausschließlich serverseitig mit Client-Secret
+  über TLS; ID-Token-Claims (`aud`/`iss`/`exp`) werden in
+  `App\Security\OidcIdToken` fail-closed validiert.
+- **2FA:** Die lokale TOTP-Pflicht gilt für SSO-Logins nicht zusätzlich —
+  Entra ID bringt eigene MFA-/Conditional-Access-Richtlinien mit. Die
+  Session-Härtung (`App\Service\LoginSession`) ist identisch zum lokalen
+  Login, inkl. Session-Invalidierung bei Passwortänderung (#113).
+- **Redirect-URI** in der App-Registrierung: `<Stamm-URL>/auth/entra/callback`.
+
 ## Selfservice-Registrierung (#83, `src/Controllers/RegistrationController.php`)
 
 Standardmäßig **deaktiviert** — die öffentliche Registrierung unter `/register`

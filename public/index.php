@@ -76,6 +76,10 @@ $router->post('/dsgvo', [App\Controllers\PublicController::class, 'dsgvoSubmit']
 $router->get('/login', [App\Controllers\AuthController::class, 'loginForm']);
 $router->post('/login', [App\Controllers\AuthController::class, 'loginSubmit']);
 $router->post('/logout', [App\Controllers\AuthController::class, 'logout']);
+// EntraID-SSO (#42, nur aktiv wenn ENTRA_* konfiguriert ist)
+$router->get('/auth/entra', [App\Controllers\EntraSsoController::class, 'redirect']);
+$router->get('/auth/entra/callback', [App\Controllers\EntraSsoController::class, 'callback']);
+
 // Selfservice-Registrierung (#83, nur aktiv wenn Systemeinstellung gesetzt)
 $router->get('/register', [App\Controllers\RegistrationController::class, 'showForm']);
 $router->post('/register', [App\Controllers\RegistrationController::class, 'submit']);

@@ -179,6 +179,7 @@ return [
     'auth.email_not_verified' => 'Bitte bestätigen Sie zunächst Ihre E-Mail-Adresse über den Link, den wir Ihnen bei der Registrierung gesendet haben.',
     'auth.email_verified_success' => '✓ E-Mail-Adresse bestätigt. Sie können sich jetzt anmelden.',
     'auth.register_link' => 'Noch kein Konto? Jetzt registrieren',
+    'auth.entra_login_button' => '🪟 Mit Microsoft anmelden',
     'meta.title_login_failed' => 'Login Fehlgeschlagen',
 
     // Admin-Dashboard (#48, erster i18n-Schritt im Admin-Bereich)

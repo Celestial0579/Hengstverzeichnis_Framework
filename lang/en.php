@@ -177,6 +177,7 @@ return [
     'auth.email_not_verified' => 'Please confirm your email address first using the link we sent you during registration.',
     'auth.email_verified_success' => '✓ Email address confirmed. You can sign in now.',
     'auth.register_link' => 'No account yet? Register now',
+    'auth.entra_login_button' => '🪟 Sign in with Microsoft',
     'meta.title_login_failed' => 'Login Failed',
 
     // Admin dashboard (#48, first i18n step in the admin area)

@@ -142,9 +142,10 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
             [$targetGroupId]
         );
 
-        // Von "alle Berechtigungen" kopiert -> Erstellen UND Veröffentlichen erlaubt
-        // (horses.publish ist die restriktivste der vier Standard-Aktionen, siehe
-        // HorseController::store()).
+        // Von "alle Berechtigungen" kopiert -> Erstellen UND Veröffentlichen erlaubt.
+        // Die Veröffentlichung ist seit der Entkopplung ein eigenes Flag (is_published),
+        // unabhängig vom Lebenszyklus-Status - horses.publish steuert, ob der Benutzer
+        // es setzen darf (siehe HorseController::store()).
         $createForm = $editor->get('/admin/horses/create');
         $this->assertSame(200, $createForm->statusCode);
 
@@ -156,23 +157,54 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
             'breeding_station' => 'Testgestüt',
             'birth_year' => '2020',
             'status' => 'active',
+            'is_published' => '1',
         ]);
         $this->assertSame('/admin/horses?success=created', $storeResponse->location());
 
-        // Ohne horses.publish würde HorseController::store() den übermittelten Status
-        // 'active' stillschweigend auf 'inactive' herabstufen (siehe dortige
-        // Begründung) - dass es hier 'active' bleibt, belegt, dass die per
-        // copy-permissions von Admin übernommene horses.publish-Berechtigung
-        // tatsächlich wirkt, nicht nur horses.create.
+        // Ohne horses.publish würde HorseController::store() das übermittelte
+        // is_published stillschweigend auf 0 setzen - dass das Pferd hier als
+        // veröffentlicht in der Liste erscheint, belegt, dass die per copy-permissions
+        // von Admin übernommene horses.publish-Berechtigung tatsächlich wirkt, nicht
+        // nur horses.create.
         $listPage = $editor->get('/admin/horses');
         $nameEscaped = htmlspecialchars($horseName);
         $this->assertStringContainsString($nameEscaped, $listPage->body);
-        $rowSnippet = substr($listPage->body, (int)strpos($listPage->body, $nameEscaped), 600);
+        // Fenster großzügig, damit beide Badges der Statuszelle (Lebenszyklus-Status
+        // UND Veröffentlicht-Badge) sicher enthalten sind.
+        $rowSnippet = substr($listPage->body, (int)strpos($listPage->body, $nameEscaped), 1200);
         $this->assertStringContainsString(
-            'Aktiv (Gekört)',
+            '🌐 Veröffentlicht',
             $rowSnippet,
-            'Pferd sollte dank kopierter horses.publish-Berechtigung direkt aktiv angelegt worden sein'
+            'Pferd sollte dank kopierter horses.publish-Berechtigung direkt veröffentlicht worden sein'
         );
+    }
+
+    public function testViewPermissionGatesModuleListing(): void {
+        $admin = $this->authenticatedClient();
+
+        // Eigene Gruppe anlegen (startet ohne jede Berechtigung).
+        $groupsPage = $admin->get('/admin/groups');
+        $createResponse = $admin->post('/admin/groups/create', [
+            'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
+            'name' => 'Nur Create ' . uniqid(),
+            'description' => 'Testet die Leseberechtigung getrennt von create',
+        ]);
+        preg_match('/group=(\d+)/', (string)$createResponse->location(), $matches);
+        $groupId = (int)$matches[1];
+
+        $unique = uniqid();
+        $editor = $this->createAndLoginEditor($admin, "viewtester{$unique}", "view-test-{$unique}@example.com", [$groupId]);
+
+        // Nur horses.create (ohne horses.view): die Pferde-LISTE bleibt gesperrt,
+        // obwohl das Anlegen erlaubt ist - die Leseberechtigung gated den Bereich.
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['create']]);
+        $denied = $editor->get('/admin/horses');
+        $this->assertSame(403, $denied->statusCode, 'Ohne horses.view darf die Pferde-Liste nicht zugänglich sein');
+
+        // Mit horses.view wird die Liste zugänglich (wirkt sofort, ohne erneuten Login).
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view', 'create']]);
+        $allowed = $editor->get('/admin/horses');
+        $this->assertSame(200, $allowed->statusCode);
     }
 
     public function testBuiltinGroupsCannotBeDeleted(): void {
@@ -192,25 +224,54 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         $this->assertStringContainsString('Administrator', $overviewAfter->body);
     }
 
-    public function testAdminAndPublicPermissionsCannotBeModified(): void {
+    public function testAdminPermissionsCannotBeModified(): void {
         $admin = $this->authenticatedClient();
 
         $adminGroupId = $this->findBuiltinGroupId($admin, 'Administrator');
-        $publicGroupId = $this->findBuiltinGroupId($admin, 'Öffentlich');
         $groupsOverview = $admin->get('/admin/groups');
 
-        foreach (['Administrator-Gruppe' => $adminGroupId, 'Public-Gruppe' => $publicGroupId] as $label => $groupId) {
-            $response = $admin->post('/admin/groups/permissions', [
-                'csrf_token' => $groupsOverview->formField('csrf_token') ?? '',
-                'group_id' => (string)$groupId,
-                'permissions' => ['horses' => ['create', 'edit', 'delete', 'publish']],
-            ]);
-            $this->assertSame(
-                '/admin/groups?error=protected_group',
-                $response->location(),
-                "Berechtigungsänderung für {$label} hätte serverseitig blockiert werden müssen"
-            );
-        }
+        // Die Admin-Gruppe hat systemseitig immer alle Rechte und bleibt als einzige
+        // Gruppe von der Matrix-Bearbeitung ausgeschlossen (siehe
+        // GroupController::PROTECTED_PERMISSION_SLUGS).
+        $response = $admin->post('/admin/groups/permissions', [
+            'csrf_token' => $groupsOverview->formField('csrf_token') ?? '',
+            'group_id' => (string)$adminGroupId,
+            'permissions' => ['horses' => ['create', 'edit', 'delete', 'publish']],
+        ]);
+        $this->assertSame(
+            '/admin/groups?error=protected_group',
+            $response->location(),
+            'Berechtigungsänderung für die Administrator-Gruppe hätte serverseitig blockiert werden müssen'
+        );
+    }
+
+    /**
+     * Die Gast-Gruppe (`public`) ist seit der Einführung der Leseberechtigung eine
+     * normal editierbare Gruppe: über ihre view-Rechte steuert ein Admin, welche
+     * Bereiche nicht angemeldete Besucher öffentlich sehen. Sie ist damit - anders
+     * als früher - NICHT mehr von der Matrix-Bearbeitung ausgeschlossen (Backend-
+     * Zugriff bleibt für Gäste dennoch über checkAuth() gesperrt).
+     */
+    public function testGuestGroupPermissionsCanBeModified(): void {
+        $admin = $this->authenticatedClient();
+
+        $publicGroupId = $this->findBuiltinGroupId($admin, 'Gast');
+
+        // Entziehen: Gast darf Pferde nicht mehr sehen -> öffentlicher Katalog leer.
+        $this->setGroupPermissions($admin, $publicGroupId, ['breeding_stations' => ['view']]);
+        $guest = $this->newClient();
+        $catalogWithout = $guest->get('/api/horses');
+        $this->assertSame(
+            0,
+            json_decode($catalogWithout->body, true)['meta']['total'],
+            'Ohne horses.view der Gast-Gruppe darf die öffentliche API keine Pferde liefern'
+        );
+
+        // Wiederherstellen der Standard-Lese-Rechte der Gast-Gruppe.
+        $this->setGroupPermissions($admin, $publicGroupId, [
+            'horses' => ['view'],
+            'breeding_stations' => ['view'],
+        ]);
     }
 
     /**

@@ -21,7 +21,10 @@ class AdminController extends BaseController {
 
         $this->render('admin_dashboard', [
             'title' => 'Admin Dashboard',
-            'pluginTiles' => $pluginTiles
+            'pluginTiles' => $pluginTiles,
+            'canViewHorses' => $this->hasPermission('horses', 'view'),
+            'canViewPersons' => $this->hasPermission('persons', 'view'),
+            'canViewBreedingStations' => $this->hasPermission('breeding_stations', 'view')
         ]);
     }
 

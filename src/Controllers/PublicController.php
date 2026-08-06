@@ -8,10 +8,15 @@ use App\Database;
 class PublicController extends BaseController {
 
     public function index(): void {
-        // Fetch some recent or featured horses for the homepage
+        // Fetch some recent or featured horses for the homepage - nur veröffentlichte
+        // (is_published), und nur wenn die Gast-Gruppe Pferde überhaupt sehen darf
+        // (horses.view). Sichtbarkeit hängt bewusst NICHT mehr am Lebenszyklus-Status.
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, name, color, status, image_url FROM horses WHERE status = 'active' AND deleted_at IS NULL ORDER BY id DESC LIMIT 3");
-        $featuredHorses = $stmt->fetchAll();
+        $featuredHorses = [];
+        if ($this->hasPermission('horses', 'view')) {
+            $stmt = $db->query("SELECT id, name, color, status, image_url FROM horses WHERE is_published = 1 AND deleted_at IS NULL ORDER BY id DESC LIMIT 3");
+            $featuredHorses = $stmt->fetchAll();
+        }
 
         $this->render('public_home', [
             'title' => \App\I18n\Translator::t('meta.title_home') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
@@ -36,7 +41,11 @@ class PublicController extends BaseController {
         $qSire = trim($_GET['q_sire'] ?? '');
         $qDam = trim($_GET['q_dam'] ?? '');
 
-        $where = ["h.deleted_at IS NULL"];
+        // Öffentliche Sichtbarkeit: nur veröffentlichte Pferde (is_published),
+        // unabhängig vom Lebenszyklus-Status. Ob Gäste den Bereich überhaupt sehen
+        // dürfen, entscheidet zusätzlich die Leseberechtigung der Gast-Gruppe (siehe
+        // $canViewHorses unten).
+        $where = ["h.deleted_at IS NULL", "h.is_published = 1"];
         $params = [];
 
         // General search term across horse name, ueln, foreign_ueln, sire, dam, station, breeder, owner
@@ -135,8 +144,8 @@ class PublicController extends BaseController {
                 p_owner.name as owner_name
             FROM horses h
             LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL
-            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL
-            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL
+            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
+            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
             LEFT JOIN horse_persons hp_breeder ON hp_breeder.horse_id = h.id AND hp_breeder.role = 'breeder'
             LEFT JOIN persons p_breeder ON hp_breeder.person_id = p_breeder.id AND p_breeder.deleted_at IS NULL
             LEFT JOIN horse_persons hp_owner ON hp_owner.horse_id = h.id AND hp_owner.role = 'owner'
@@ -145,14 +154,22 @@ class PublicController extends BaseController {
             ORDER BY h.name ASC
         ";
 
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-        $horses = $stmt->fetchAll();
+        // Gast-Gruppe ohne horses.view sieht keinerlei Pferde (leerer Katalog),
+        // sonst würde die Rechte-Entziehung wirkungslos bleiben.
+        if ($this->hasPermission('horses', 'view')) {
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+            $horses = $stmt->fetchAll();
+        } else {
+            $horses = [];
+        }
 
         // Fetch distinct filter options for dropdowns
         $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        // Nur veröffentlichte Stationen/Personen als öffentliche Filteroptionen anbieten
+        // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
+        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         // Plugin-Hook (#56, #97): Erweiterungspunkt für zusätzlichen Inhalt je Katalog-Karte
         // (z. B. ein "Merken"-Button), analog zu horse.detail_sections auf der Detailseite.
@@ -200,12 +217,19 @@ class PublicController extends BaseController {
             exit;
         }
 
+        // Öffentliche Detailseite: nur veröffentlichte Pferde (is_published) und nur,
+        // wenn die Gast-Gruppe Pferde sehen darf (horses.view). Andernfalls wie ein
+        // nicht existierendes Pferd behandeln, um keine Rückschlüsse zu ermöglichen.
+        if (!$this->hasPermission('horses', 'view')) {
+            $this->renderNotFound(\App\I18n\Translator::t('horse.not_found'));
+        }
+
         $db = Database::getInstance();
         $stmt = $db->prepare("
-            SELECT h.*, bs.name as station_name, bs.contact_person as station_contact, bs.address as station_address, bs.phone as station_phone, bs.email as station_email, bs.website as station_website 
-            FROM horses h 
-            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id 
-            WHERE h.id = ? AND h.deleted_at IS NULL
+            SELECT h.*, bs.name as station_name, bs.contact_person as station_contact, bs.address as station_address, bs.phone as station_phone, bs.email as station_email, bs.website as station_website
+            FROM horses h
+            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id
+            WHERE h.id = ? AND h.deleted_at IS NULL AND h.is_published = 1
         ");
         $stmt->execute([$id]);
         $horse = $stmt->fetch();
@@ -230,7 +254,11 @@ class PublicController extends BaseController {
         // zeigt per Default weiterhin 3 Generationen an (JS-Umschalter bis 6),
         // die tieferen Ebenen werden serverseitig mitgeliefert, damit der
         // Generationswechsel ohne Nachladen rein clientseitig funktioniert.
-        $pedigreeTree = \App\Service\PedigreeBuilder::build((int)$id, 6);
+        // publishedOnly = true: der öffentliche Stammbaum (und darauf aufbauende
+        // Berechnungen wie ein Inzuchtkoeffizient) darf keine unveröffentlichten
+        // Vorfahren einbeziehen - diese erscheinen nur als Platzhalter (siehe
+        // PedigreeBuilder), damit aus unveröffentlichten Daten nichts hergeleitet wird.
+        $pedigreeTree = \App\Service\PedigreeBuilder::build((int)$id, 6, true);
 
         // Plugin-Hook (#56): Erweiterungspunkt für einen zusätzlichen Abschnitt auf der
         // Pferde-Detailseite. Callbacks liefern bereits fertiges, selbst escapetes HTML
@@ -260,8 +288,15 @@ class PublicController extends BaseController {
             exit;
         }
 
+        // Öffentliche Stationsseite nur, wenn die Gast-Gruppe Deckstationen sehen darf.
+        if (!$this->hasPermission('breeding_stations', 'view')) {
+            $this->renderNotFound(\App\I18n\Translator::t('station.not_found'));
+        }
+
+        // Nur veröffentlichte Stationen (is_published) sind öffentlich erreichbar -
+        // unveröffentlichte liefern wie ein fehlender Datensatz eine 404.
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ? AND deleted_at IS NULL AND is_published = 1");
         $stmt->execute([$id]);
         $station = $stmt->fetch();
 
@@ -269,14 +304,19 @@ class PublicController extends BaseController {
             $this->renderNotFound(\App\I18n\Translator::t('station.not_found'));
         }
 
-        $stmt = $db->prepare("
-            SELECT id, name, ueln, birth_year, color, status, image_url
-            FROM horses
-            WHERE breeding_station_id = ? AND deleted_at IS NULL
-            ORDER BY name ASC
-        ");
-        $stmt->execute([$id]);
-        $horses = $stmt->fetchAll();
+        // Zugeordnete Pferde nur, wenn Gäste Pferde sehen dürfen UND das jeweilige
+        // Pferd veröffentlicht ist (Status ist für die Sichtbarkeit irrelevant).
+        $horses = [];
+        if ($this->hasPermission('horses', 'view')) {
+            $stmt = $db->prepare("
+                SELECT id, name, ueln, birth_year, color, status, image_url
+                FROM horses
+                WHERE breeding_station_id = ? AND deleted_at IS NULL AND is_published = 1
+                ORDER BY name ASC
+            ");
+            $stmt->execute([$id]);
+            $horses = $stmt->fetchAll();
+        }
 
         $this->render('public_station_detail', [
             'title' => $station['name'] . ' - ' . \App\I18n\Translator::t('meta.title_station_detail_suffix'),

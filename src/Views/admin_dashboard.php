@@ -52,18 +52,26 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </p>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+            <?php if ($canViewHorses ?? false): ?>
             <a href="/admin/horses" class="btn btn-secondary" style="<?= $tileStyle ?>">
                 🐴 <?= htmlspecialchars($t('admin.dashboard.tile_horses')) ?>
             </a>
+            <?php endif; ?>
+            <?php if ($canViewPersons ?? false): ?>
             <a href="/admin/persons" class="btn btn-secondary" style="<?= $tileStyle ?>">
                 👤 <?= htmlspecialchars($t('admin.dashboard.tile_persons')) ?>
             </a>
+            <?php endif; ?>
+            <?php if ($canViewBreedingStations ?? false): ?>
             <a href="/admin/breeding-stations" class="btn btn-secondary" style="<?= $tileStyle ?>">
                 🏠 <?= htmlspecialchars($t('admin.dashboard.tile_breeding_stations')) ?>
             </a>
+            <?php endif; ?>
+            <?php if ($canViewHorses ?? false): ?>
             <a href="/admin/matches" class="btn btn-secondary" style="<?= $tileStyle ?>">
                 🔗 <?= htmlspecialchars($t('admin.dashboard.tile_matches')) ?>
             </a>
+            <?php endif; ?>
             <a href="/admin/trash" class="btn btn-secondary" style="<?= $tileStyle ?> position: relative;">
                 🗑️ <?= htmlspecialchars($t('admin.dashboard.tile_trash')) ?>
                 <?php if ($trashCount > 0): ?>

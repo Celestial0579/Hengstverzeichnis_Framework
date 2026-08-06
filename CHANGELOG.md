@@ -58,7 +58,12 @@ Breaking Changes sind jederzeit möglich).
   dieselbe Logik auf demselben, serverseitig zwischengespeicherten
   Rohinhalt anwenden. Importierte Pferde mit unaufgelöster Vater-/
   Mutter-Angabe lassen sich anschließend wie bei der manuellen Einzelanlage
-  über das bestehende Blutlinien-Zusammenführen-Werkzeug verknüpfen.
+  über das bestehende Blutlinien-Zusammenführen-Werkzeug verknüpfen. Die
+  Veröffentlichung ist - konsistent mit der Entkopplung von Status/Sichtbarkeit
+  (siehe unten) - eine bewusste Import-Entscheidung über eine eigene
+  Checkbox (nur mit `horses.publish`): ohne Häkchen werden die Pferde
+  unveröffentlicht angelegt und können später über die Massen-Veröffentlichung
+  freigegeben werden.
 
 - Darkmode (#91): Umschaltbares dunkles Farbschema für den öffentlichen
   Katalog und den Admin-Bereich, zentral über CSS-Variablen in
@@ -74,6 +79,38 @@ Breaking Changes sind jederzeit möglich).
   codierten Inline-Styles (z. B. grüne "Erfolg"-Hinweise) bleiben bewusst
   unangetastet, da sie Hintergrund- und Textfarbe bereits als
   zusammengehöriges, unabhängig vom Seitenthema lesbares Paar setzen.
+
+- Leseberechtigung (`view`) und generalisierte Veröffentlichen-Berechtigung
+  (`publish`) als **Standard-Aktionen** für jedes Modul - Website- **und**
+  Plugin-Funktionen (`App\Permission\PermissionRegistry::STANDARD_ACTIONS`).
+  Die Leseberechtigung steuert, ob eine Gruppe einen Bereich sehen darf
+  (Backend-Listen sowie - über die Gast-Gruppe - die öffentlichen Seiten).
+  Admin erhält beide Rechte automatisch, Editor per Seed.
+- Gast-Gruppe: die eingebaute Gruppe `public` gilt automatisch für nicht
+  angemeldete Besucher und ist jetzt **normal editierbar**. Über ihre
+  Lese-Rechte steuert ein Admin, welche Bereiche öffentlich sichtbar sind
+  (z. B. `horses.view` entziehen → Katalog und `/api/horses` zeigen keine
+  Pferde mehr). Neue/Plugin-Bereiche sind für Gäste fail-closed unsichtbar,
+  bis sie bewusst freigeschaltet werden.
+- Eigenständiges Veröffentlicht-Flag (`horses.is_published`), **entkoppelt**
+  vom Lebenszyklus-Status (`active`/`inactive`/`deceased`): nur veröffentlichte
+  Pferde erscheinen im öffentlichen Katalog/API, der Status ist rein informativ
+  und beeinflusst die Sichtbarkeit nicht mehr. Bestehende `status='active'`-
+  Pferde werden beim Upgrade automatisch auf veröffentlicht migriert.
+- Veröffentlichung jetzt auch für **Personen** und **Deckstationen** (neues
+  `is_published`-Flag je Tabelle, analog zu Pferden): unveröffentlichte
+  Stationen sind öffentlich nicht mehr erreichbar (`/station?id=` → 404) und
+  unveröffentlichte Personen/Stationen erscheinen nicht in den Katalog-Filter-
+  listen. Bestehende Datensätze werden beim Upgrade auf veröffentlicht migriert,
+  neu angelegte starten unveröffentlicht. Personen-/Stations-Formular erhalten
+  dafür - wie das Pferde-Formular - eine „Öffentlich sichtbar“-Checkbox (nur mit
+  `publish`-Recht).
+- Massen-Veröffentlichung in den Admin-Listen für Pferde, Personen und
+  Deckstationen: Filter „Alle / Veröffentlicht / Nicht veröffentlicht“,
+  Zeilen-Auswahl per Checkbox (inkl. „alle auswählen“) sowie die Aktionen
+  „Veröffentlichen“ und „Veröffentlichung zurücknehmen“ für die Auswahl (nur
+  mit `publish`-Recht, CSRF-geschützt). Neue Endpunkte
+  `POST /admin/horses|persons|breeding-stations/publish`.
 
 - Öffentliche Read-only-JSON-API für Katalogdaten (#47): `GET /api/horses`
   (Liste, filterbar/paginierbar) und `GET /api/horses/show?ueln=...`
@@ -158,6 +195,19 @@ Breaking Changes sind jederzeit möglich).
   `/admin/digest` (Aktivierung, Intervall, manueller Testlauf) - siehe
   [docs/architecture.md](docs/architecture.md), Abschnitt „E-Mail-Digest
   für Admins/Editoren“.
+
+### Behoben
+
+- Functional-Test-Suite hängte sich reproduzierbar in einer späten Testklasse
+  auf (#102): Der `php -S`-Testserver (`tests/Support/PhpBuiltInServer.php`,
+  ebenso `FakeS3Server.php`) leitete stdout/stderr in Pipes um, die nie
+  ausgelesen wurden. Über die volle Suite lief deren Kernel-Buffer durch die
+  Access-Logs voll, woraufhin der Single-Worker-Server beim nächsten Schreiben
+  blockierte und alle folgenden Requests in den Timeout liefen. Die Ausgabe
+  geht jetzt in eine Logdatei (blockiert nie). Der zuvor als Workaround
+  entfernte Regressionstest (`ApiHorsesTest::testDeletedHorseIsNeverExposed`)
+  ist damit wieder aktiv und prüft zusätzlich, dass ein gelöschtes Pferd auch
+  über `GET /api/horses/show` nicht mehr sichtbar ist.
 
 ## [0.2.0-beta.1] – 2026-08-05
 

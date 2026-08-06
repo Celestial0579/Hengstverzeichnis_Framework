@@ -427,4 +427,31 @@ abstract class BaseController {
         
         return in_array(strtolower(trim($username)), $reserved, true);
     }
+
+    /**
+     * Normalisiert den Veröffentlichungs-Filter der Admin-Listen (?published=1|0).
+     * Nur die exakten Werte '1' und '0' filtern; jeder andere/fehlende Wert bedeutet
+     * "alle anzeigen" und liefert null. Der Rückgabewert ist bewusst ein Integer
+     * (0/1), damit er ohne weitere Escaping-Sorgen direkt in eine WHERE-Klausel
+     * interpoliert werden kann.
+     */
+    protected static function normalizePublishedFilter($value): ?int {
+        if ($value === '1' || $value === 1) {
+            return 1;
+        }
+        if ($value === '0' || $value === 0) {
+            return 0;
+        }
+        return null;
+    }
+
+    /**
+     * Baut das an eine Admin-Liste anzuhängende Query-Suffix, um den aktiven
+     * Veröffentlichungs-Filter über einen Redirect (nach einer Bulk-Aktion) hinweg
+     * zu erhalten - z. B. "&published=0" oder "" (kein Filter aktiv).
+     */
+    protected static function publishedFilterQuery($value): string {
+        $filter = self::normalizePublishedFilter($value);
+        return $filter === null ? '' : '&published=' . $filter;
+    }
 }

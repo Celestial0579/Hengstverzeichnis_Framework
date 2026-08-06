@@ -18,7 +18,7 @@ class PhpBuiltInServer {
     /** @var resource|null */
     private static $process = null;
     private static bool $shutdownRegistered = false;
-    private static string $logFile = '';
+    private static ?string $logFile = null;
 
     public static function baseUrl(): string {
         return 'http://' . self::HOST . ':' . self::PORT;
@@ -35,17 +35,19 @@ class PhpBuiltInServer {
         }
 
         $publicDir = __DIR__ . '/../../public';
-        // stdout/stderr in eine Log-Datei statt in Pipes: php -S schreibt jede
-        // Zugriffszeile nach stderr. Eine Pipe, die niemand ausliest, läuft
-        // nach genügend Requests voll (OS-Puffer ~64 KB) und blockiert dann den
-        // Server-Prozess dauerhaft beim Log-Schreiben - die Suite hängt ab da
-        // mit Timeouts (Issue #102). Die Datei bleibt nach dem Lauf zur
-        // Fehlersuche liegen und wird beim nächsten Start überschrieben.
-        self::$logFile = sys_get_temp_dir() . '/hengst_test_server.log';
+
+        // stdout/stderr in eine Logdatei umleiten statt in Pipes. php -S schreibt
+        // pro Request eine Access-Log-Zeile nach stderr; ginge das in eine Pipe,
+        // die niemand ausliest, liefe deren Kernel-Buffer (~64 KB) über die volle
+        // Functional-Suite hinweg voll und der Single-Worker-Server blockierte beim
+        // nächsten write() - danach liefen alle weiteren Requests in den curl-Timeout
+        // (Issue #102). stream_set_blocking auf der Leseseite verhindert das NICHT;
+        // eine Datei als Deskriptor blockiert dagegen nie.
+        self::$logFile = tempnam(sys_get_temp_dir(), 'hengst_test_server_');
         $descriptorSpec = [
             0 => ['pipe', 'r'],
-            1 => ['file', self::$logFile, 'w'],
-            2 => ['file', self::$logFile, 'w'],
+            1 => ['file', self::$logFile, 'a'],
+            2 => ['file', self::$logFile, 'a'],
         ];
 
         self::$process = proc_open(
@@ -72,6 +74,10 @@ class PhpBuiltInServer {
             proc_terminate(self::$process);
             proc_close(self::$process);
             self::$process = null;
+        }
+        if (self::$logFile !== null && is_file(self::$logFile)) {
+            unlink(self::$logFile);
+            self::$logFile = null;
         }
     }
 

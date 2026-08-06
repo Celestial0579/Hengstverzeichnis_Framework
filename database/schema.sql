@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS `persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL,
     `contact_info` TEXT,
+    -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
+    -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
+    -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
+    `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -64,6 +68,10 @@ CREATE TABLE IF NOT EXISTS `breeding_stations` (
     `phone` VARCHAR(50) NULL,
     `email` VARCHAR(100) NULL,
     `website` VARCHAR(255) NULL,
+    -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
+    -- erscheint auf der öffentlichen Stations-Detailseite und in den Katalog-Filterlisten.
+    -- Neu angelegte Stationen sind standardmäßig unveröffentlicht.
+    `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL
@@ -87,6 +95,11 @@ CREATE TABLE IF NOT EXISTS `horses` (
     `breeding_station` VARCHAR(255) NULL,
     `description` TEXT,
     `status` ENUM('active', 'inactive', 'deceased') DEFAULT 'active',
+    -- Öffentliche Sichtbarkeit, bewusst UNABHÄNGIG vom Lebenszyklus-`status`
+    -- (#66-Folge): nur is_published = 1 erscheint im öffentlichen Katalog/API,
+    -- gesteuert durch die Berechtigung horses.publish. `status` ist rein
+    -- informativ (Gekört/Inaktiv/Verstorben) und beeinflusst die Sichtbarkeit nicht.
+    `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `image_url` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -171,7 +184,7 @@ CREATE TABLE IF NOT EXISTS `groups` (
 INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
 ('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
 ('editor', 'Editor', 'Vorlage für Bearbeiter mit Verwaltungszugriff - muss Benutzern wie jede andere Gruppe bewusst zugewiesen werden, kein automatischer Standard.', 1),
-('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend (/admin/...) und keine Berechtigungen, unabhängig von dieser Tabelle (siehe BaseController::checkAuth()).', 1);
+('public', 'Gast (Öffentlich)', 'Gilt automatisch für nicht angemeldete Besucher. Über ihre Lese-Rechte steuert ein Admin, welche Bereiche im öffentlichen Teil der Website sichtbar sind. Backend-Zugriff (/admin/...) bleibt stets ausgeschlossen (siehe BaseController::checkAuth()).', 1);
 
 CREATE TABLE IF NOT EXISTS `user_groups` (
     `user_id` INT NOT NULL,
@@ -190,25 +203,44 @@ CREATE TABLE IF NOT EXISTS `group_permissions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Editor-GRUPPE (nicht: automatische Mitgliedschaft) behält bei einer frischen
--- Installation dieselben Rechte, die die Rolle vor #66 schon hatte
--- (uneingeschränkter CRUD-Zugriff) - siehe docs/user-groups-plan.md. Wer
--- tatsächlich Mitglied dieser Gruppe wird, entscheidet der Admin bewusst je
+-- Installation vollen Verwaltungszugriff auf alle Inhaltsmodule - inklusive der
+-- Standard-Aktionen 'view' (Lesen) und 'publish' (Veröffentlichen), siehe
+-- App\Permission\PermissionRegistry::STANDARD_ACTIONS und docs/user-groups-plan.md.
+-- Wer tatsächlich Mitglied dieser Gruppe wird, entscheidet der Admin bewusst je
 -- Benutzer (siehe UserController).
 INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
 SELECT `id`, `module`, `action` FROM `groups`
 CROSS JOIN (
-    SELECT 'horses' AS `module`, 'create' AS `action` UNION ALL
+    SELECT 'horses' AS `module`, 'view' AS `action` UNION ALL
+    SELECT 'horses', 'create' UNION ALL
     SELECT 'horses', 'edit' UNION ALL
     SELECT 'horses', 'delete' UNION ALL
     SELECT 'horses', 'publish' UNION ALL
+    SELECT 'persons', 'view' UNION ALL
     SELECT 'persons', 'create' UNION ALL
     SELECT 'persons', 'edit' UNION ALL
     SELECT 'persons', 'delete' UNION ALL
+    SELECT 'persons', 'publish' UNION ALL
+    SELECT 'breeding_stations', 'view' UNION ALL
     SELECT 'breeding_stations', 'create' UNION ALL
     SELECT 'breeding_stations', 'edit' UNION ALL
-    SELECT 'breeding_stations', 'delete'
+    SELECT 'breeding_stations', 'delete' UNION ALL
+    SELECT 'breeding_stations', 'publish'
 ) AS `defaults`
 WHERE `groups`.`slug` = 'editor';
+
+-- Gast-GRUPPE (`public`): erhält standardmäßig ausschließlich die Lese-Rechte für
+-- die heute öffentlich sichtbare Fläche (Katalog + Deckstationsdetail). Bewusst
+-- KEINE weiteren Rechte: neue/Plugin-Bereiche sind für nicht angemeldete Besucher
+-- damit fail-closed unsichtbar, bis ein Admin sie bewusst freischaltet
+-- (Datenleck-Schutz, siehe docs/user-groups-plan.md).
+INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
+SELECT `id`, `module`, `action` FROM `groups`
+CROSS JOIN (
+    SELECT 'horses' AS `module`, 'view' AS `action` UNION ALL
+    SELECT 'breeding_stations', 'view'
+) AS `guest_defaults`
+WHERE `groups`.`slug` = 'public';
 
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS `audit_logs` (

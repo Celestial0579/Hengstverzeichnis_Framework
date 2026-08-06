@@ -9,6 +9,15 @@ namespace Tests\Functional;
  * Pagination, Einzelabruf über UELN, sowie dass die API - wie der übrige
  * öffentliche Katalog - ohne Login erreichbar ist und gelöschte Pferde nie
  * ausliefert.
+ *
+ * Der Test, der über /admin/horses/delete löscht und danach die API abfragt,
+ * brachte in der vollständigen Functional-Suite reproduzierbar spätere,
+ * inhaltlich unabhängige Requests in SetupAndAuthTest zum Timeout (#102). Das
+ * lag nicht an dieser API, sondern an einem Bug im Test-Harness: der `php -S`-
+ * Server (tests/Support/PhpBuiltInServer.php) schrieb seine Access-Logs in eine
+ * Pipe, die niemand auslas, bis deren Kernel-Buffer volllief und der
+ * Single-Worker-Server blockierte. Seit dieser Bug behoben ist (Ausgabe geht in
+ * eine Logdatei), ist der Regressionstest unten wieder gefahrlos möglich.
  */
 class ApiHorsesTest extends FunctionalTestCase {
 
@@ -28,6 +37,9 @@ class ApiHorsesTest extends FunctionalTestCase {
             'breeding_station' => 'API-Testgestüt',
             'birth_year' => '2018',
             'status' => 'active',
+            // Öffentliche Sichtbarkeit (API/Katalog) hängt am Veröffentlicht-Flag,
+            // nicht mehr am Status - ohne dieses Flag würde das Pferd nicht ausgeliefert.
+            'is_published' => '1',
         ]);
         $this->assertSame('/admin/horses?success=created', $storeResponse->location());
 
@@ -65,22 +77,36 @@ class ApiHorsesTest extends FunctionalTestCase {
         $this->assertSame([], $noHitsBody['data']);
     }
 
+    /**
+     * Ein über den echten HTTP-Löschendpunkt gelöschtes Pferd darf über keinen
+     * der beiden API-Endpunkte (Liste und Einzelabruf) mehr sichtbar sein.
+     * Dieser Test hat #102 ausgelöst und dient nach dem Harness-Fix als
+     * Regressionsabsicherung - siehe Klassenkommentar.
+     */
     public function testDeletedHorseIsNeverExposed(): void {
         $admin = $this->authenticatedClient();
 
         $unique = uniqid();
         $horseName = "API Papierkorb Testpferd {$unique}";
+        $ueln = 'DE' . substr($unique, -9) . 'DEL';
 
         $createForm = $admin->get('/admin/horses/create');
         $storeResponse = $admin->post('/admin/horses/store', [
             'csrf_token' => $createForm->formField('csrf_token') ?? '',
             'name' => $horseName,
+            'ueln' => $ueln,
             'color' => 'Fuchs',
             'breeding_station' => 'API-Testgestüt',
             'birth_year' => '2019',
             'status' => 'active',
+            'is_published' => '1',
         ]);
         $this->assertSame('/admin/horses?success=created', $storeResponse->location());
+
+        // Vor dem Löschen ist das Pferd per UELN abrufbar - damit der spätere 404
+        // das Löschen belegt und nicht einen Tippfehler in der UELN.
+        $beforeDelete = $this->newClient()->get('/api/horses/show?ueln=' . urlencode($ueln));
+        $this->assertSame(200, $beforeDelete->statusCode);
 
         // ID über die (an dieser Stelle bereits getestete) API-Suche ermitteln,
         // statt das HTML-Markup der Admin-Liste zu parsen.
@@ -96,6 +122,14 @@ class ApiHorsesTest extends FunctionalTestCase {
         $client = $this->newClient();
         $afterDelete = $client->get('/api/horses?search=' . urlencode($horseName));
         $afterDeleteBody = json_decode($afterDelete->body, true);
-        $this->assertSame(0, $afterDeleteBody['meta']['total'], 'Gelöschtes Pferd darf nie über die API sichtbar sein');
+        $this->assertSame(0, $afterDeleteBody['meta']['total'], 'Gelöschtes Pferd darf nie über die Listen-API sichtbar sein');
+
+        // Auch der Einzelabruf per UELN darf das gelöschte Pferd nicht mehr
+        // ausliefern - die "nie sichtbar"-Eigenschaft muss über beide
+        // API-Endpunkte (Liste und Show) gelten.
+        $afterDeleteShow = $client->get('/api/horses/show?ueln=' . urlencode($ueln));
+        $this->assertSame(404, $afterDeleteShow->statusCode, 'Gelöschtes Pferd darf nie über die Show-API sichtbar sein');
+        $afterDeleteShowBody = json_decode($afterDeleteShow->body, true);
+        $this->assertSame('not_found', $afterDeleteShowBody['error']);
     }
 }

@@ -13,17 +13,67 @@ class HorseController extends BaseController {
     }
 
     public function index(): void {
+        $this->requirePermission('horses', 'view');
+
+        // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
+        // BaseController::normalizePublishedFilter(). Der normalisierte Wert (0/1)
+        // wird als gebundener Parameter übergeben statt in die Abfrage interpoliert.
+        $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
+        $publishedSql = $publishedFilter === null ? '' : ' AND is_published = ?';
+
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, name, ueln, birth_year, status, image_url FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
+        $sql = "SELECT id, name, ueln, birth_year, status, is_published, image_url FROM horses WHERE deleted_at IS NULL{$publishedSql} ORDER BY name ASC";
+        if ($publishedFilter === null) {
+            $stmt = $db->query($sql);
+        } else {
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$publishedFilter]);
+        }
         $horses = $stmt->fetchAll();
 
         $this->render('admin_horses', [
             'title' => 'Pferde verwalten',
             'horses' => $horses,
+            'publishedFilter' => $publishedFilter,
             'canCreate' => $this->hasPermission('horses', 'create'),
             'canEdit' => $this->hasPermission('horses', 'edit'),
-            'canDelete' => $this->hasPermission('horses', 'delete')
+            'canDelete' => $this->hasPermission('horses', 'delete'),
+            'canPublish' => $this->hasPermission('horses', 'publish')
         ]);
+    }
+
+    /**
+     * Massen-Veröffentlichung / -Depublikation der ausgewählten Pferde. Nur mit
+     * 'horses.publish' erlaubt; setzt is_published unabhängig vom Lebenszyklus-Status.
+     */
+    public function bulkPublish(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+        $this->requirePermission('horses', 'publish');
+
+        $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])), fn($id) => $id > 0));
+        $publish = !empty($_POST['publish']) ? 1 : 0;
+
+        if ($ids) {
+            $db = Database::getInstance();
+            // Einzelne, vollständig parametrisierte UPDATEs statt einer dynamisch
+            // zusammengesetzten IN (...)-Liste - inhaltlich identisch, vermeidet aber
+            // jede String-Interpolation im SQL (auch die des ?-Platzhalter-Strings).
+            $stmt = $db->prepare("UPDATE horses SET is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            foreach ($ids as $id) {
+                $stmt->execute([$publish, $id]);
+            }
+
+            \App\Service\AuditLogger::log(
+                $publish ? "Pferde veröffentlicht" : "Veröffentlichung von Pferden zurückgenommen",
+                "horses",
+                count($ids) . " Datensätze (IDs: " . implode(', ', $ids) . ")"
+            );
+        }
+
+        header("Location: /admin/horses?success=published" . self::publishedFilterQuery($_POST['published'] ?? null));
+        exit;
     }
 
     public function create(): void {
@@ -70,14 +120,11 @@ class HorseController extends BaseController {
         $description = trim($_POST['description'] ?? '');
         $status = $_POST['status'] ?? 'active';
 
-        // Berechtigung 'horses.publish' (#66): ohne sie darf ein neues Pferd nie direkt
-        // als 'active' (im öffentlichen Katalog sichtbar) angelegt werden - die
-        // übermittelte Statuswahl wird in diesem Fall stillschweigend auf 'inactive'
-        // heruntergestuft, alle anderen Status-Werte (inactive/deceased) bleiben erlaubt,
-        // da sie die öffentliche Sichtbarkeit nicht erhöhen.
-        if ($status === 'active' && !$this->hasPermission('horses', 'publish')) {
-            $status = 'inactive';
-        }
+        // Veröffentlichung (öffentliche Sichtbarkeit) ist bewusst UNABHÄNGIG vom
+        // Lebenszyklus-Status und wird über ein eigenes Flag gesteuert. Nur mit der
+        // Berechtigung 'horses.publish' darf ein Pferd veröffentlicht werden - fehlt
+        // sie, bleibt es unveröffentlicht, egal welchen Status es hat.
+        $isPublished = (!empty($_POST['is_published']) && $this->hasPermission('horses', 'publish')) ? 1 : 0;
 
         // Sire handling
         $sire_id = !empty($_POST['sire_id']) ? (int)$_POST['sire_id'] : null;
@@ -99,8 +146,8 @@ class HorseController extends BaseController {
         $this->hooks()->doAction('horse.before_save', null, $_POST);
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, color, breeding_station_id, breeding_station, description, status, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $imageUrl]);
+        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, color, breeding_station_id, breeding_station, description, status, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $isPublished, $imageUrl]);
         $newHorseId = (int)$db->lastInsertId();
 
         \App\Service\AuditLogger::log("Pferd angelegt", "horses", "Name: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
@@ -203,16 +250,19 @@ class HorseController extends BaseController {
         if ($dam_id === (int)$id) $dam_id = null;
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT image_url, status FROM horses WHERE id = ?");
+        $stmt = $db->prepare("SELECT image_url, status, is_published FROM horses WHERE id = ?");
         $stmt->execute([$id]);
         $existing = $stmt->fetch();
         $currentImageUrl = $existing['image_url'] ?? null;
 
-        // Berechtigung 'horses.publish' (#66): siehe store() für die Begründung -
-        // ohne sie bleibt der bisherige Status erhalten, ein Veröffentlichungswunsch
-        // (Status -> 'active') wird stillschweigend ignoriert statt gespeichert.
-        if ($status === 'active' && !$this->hasPermission('horses', 'publish')) {
-            $status = $existing['status'] ?? 'inactive';
+        // Veröffentlichung (öffentliche Sichtbarkeit) ist unabhängig vom Status und
+        // darf nur mit 'horses.publish' geändert werden. Ohne diese Berechtigung
+        // bleibt der bisherige Veröffentlichungszustand unverändert erhalten (ein
+        // übermittelter Wunsch wird stillschweigend ignoriert statt gespeichert).
+        if ($this->hasPermission('horses', 'publish')) {
+            $isPublished = !empty($_POST['is_published']) ? 1 : 0;
+        } else {
+            $isPublished = (int)($existing['is_published'] ?? 0);
         }
 
         // Check for remove image request
@@ -236,8 +286,8 @@ class HorseController extends BaseController {
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.before_save', (int)$id, $_POST);
 
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, color = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, image_url = ? WHERE id = ?");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $currentImageUrl, $id]);
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, color = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, is_published = ?, image_url = ? WHERE id = ?");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 
@@ -362,6 +412,7 @@ class HorseController extends BaseController {
      * Merge Tool: Scans DB for placeholders and suggests probabilities
      */
     public function matches(): void {
+        $this->requirePermission('horses', 'view');
         $this->requirePermission('horses', 'edit');
 
         $unlinkedMatches = \App\Service\MatchSuggestionFinder::findAll();

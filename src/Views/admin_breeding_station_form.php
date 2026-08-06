@@ -5,7 +5,9 @@
  * @var array|null $errors
  * @var array|null $old
  * @var string $title
+ * @var bool|null $canPublish
  */
+$canPublish = $canPublish ?? false;
 $isEdit = !empty($station['id']);
 $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stations/store';
 ?>
@@ -59,6 +61,16 @@ $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stat
             <label for="website">Website (URL)</label>
             <input type="url" id="website" name="website" class="form-control" value="<?= htmlspecialchars($old['website'] ?? $station['website'] ?? '') ?>" placeholder="https://www.gestuet-beispiel.de">
         </div>
+
+        <?php if ($canPublish): ?>
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="is_published" value="1" <?= !empty($old['is_published'] ?? $station['is_published'] ?? 0) ? 'checked' : '' ?>>
+                <span>🌐 Öffentlich sichtbar (Detailseite & Katalog-Filter)</span>
+            </label>
+            <small style="color: #666;">Ohne Häkchen bleibt die Deckstation unveröffentlicht und ist öffentlich nicht erreichbar.</small>
+        </div>
+        <?php endif; ?>
 
         <div style="display: flex; gap: 1rem; margin-top: 2rem;">
             <button type="submit" class="btn">Speichern</button>

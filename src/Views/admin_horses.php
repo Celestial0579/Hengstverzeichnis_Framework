@@ -5,7 +5,13 @@
  * @var bool $canCreate
  * @var bool $canEdit
  * @var bool $canDelete
+ * @var bool $canPublish
+ * @var int|null $publishedFilter Aktiver Filter: 1, 0 oder null (alle)
  */
+$canPublish = $canPublish ?? false;
+$publishedFilter = $publishedFilter ?? null;
+$publishBase = '/admin/horses'; // Basis-Pfad für Filter-/Bulk-Partials
+$publishFormId = 'horsePublishForm';
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
@@ -25,9 +31,13 @@
         </div>
     <?php endif; ?>
 
+    <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
+    <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
+
     <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
         <thead>
             <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
                 <th style="padding: 0.5rem;">ID</th>
                 <th style="padding: 0.5rem;">Foto</th>
                 <th style="padding: 0.5rem;">Name</th>
@@ -40,11 +50,12 @@
         <tbody>
             <?php if (empty($horses)): ?>
                 <tr>
-                    <td colspan="7" style="padding: 1rem; text-align: center;">Keine Pferde gefunden.</td>
+                    <td colspan="<?= $canPublish ? 8 : 7 ?>" style="padding: 1rem; text-align: center;">Keine Pferde gefunden.</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($horses as $horse): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
+                        <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$horse['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['id']) ?></td>
                         <td style="padding: 0.5rem;">
                             <?php if (!empty($horse['image_url'])): ?>
@@ -57,8 +68,11 @@
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['ueln']) ?></td>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
                         <td style="padding: 0.5rem;">
-                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #e2e3e5; color: #383d41;">
                                 <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : ($horse['status'] === 'inactive' ? 'Inaktiv' : 'Verstorben') ?>
+                            </span>
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($horse['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($horse['is_published']) ? '#155724' : '#721c24' ?>;">
+                                <?= !empty($horse['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
                             </span>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">
@@ -78,7 +92,7 @@
             <?php endif; ?>
         </tbody>
     </table>
-    
+
     <div style="margin-top: 2rem;">
         <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>
     </div>

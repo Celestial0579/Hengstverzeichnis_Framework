@@ -10,6 +10,7 @@
 $preview = $preview ?? null;
 $errors = $errors ?? [];
 $result = $result ?? null;
+$canPublish = $canPublish ?? false;
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
@@ -54,7 +55,7 @@ $result = $result ?? null;
 
         <?php if (!$canPublish): ?>
             <p style="background-color: #fff3cd; color: #856404; padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
-                ⚠️ Ohne die Berechtigung "Veröffentlichen" werden importierte Pferde mit Status "active" automatisch auf "inactive" herabgestuft (wie beim manuellen Anlegen).
+                ⚠️ Ohne die Berechtigung "Veröffentlichen" werden importierte Pferde unveröffentlicht angelegt und erscheinen nicht im öffentlichen Katalog. Sie können später von einer berechtigten Person über die Massen-Veröffentlichung in der Pferdeverwaltung freigegeben werden.
             </p>
         <?php endif; ?>
 
@@ -96,6 +97,15 @@ $result = $result ?? null;
 
         <form action="/admin/import/horses/commit" method="POST">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+            <?php if ($canPublish): ?>
+                <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; cursor: pointer;">
+                    <input type="checkbox" name="is_published" value="1">
+                    <span>🌐 Importierte Pferde direkt öffentlich sichtbar machen (veröffentlichen)</span>
+                </label>
+                <p style="color: #666; font-size: 0.85rem; margin-bottom: 1rem;">
+                    Ohne Häkchen werden die Pferde unveröffentlicht angelegt und können später über die Massen-Veröffentlichung in der Pferdeverwaltung freigegeben werden.
+                </p>
+            <?php endif; ?>
             <div style="display: flex; gap: 1rem;">
                 <button type="submit" class="btn" <?= $validCount > 0 ? '' : 'disabled' ?>>
                     <?= (int)$validCount ?> gültige Zeile(n) jetzt importieren

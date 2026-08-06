@@ -8,6 +8,19 @@
 > eingebauten Gruppe `admin` (siehe `App\Permission\GroupMembership`,
 > `BaseController::isAdmin()`). Der restliche Inhalt bleibt als historischer
 > Entscheidungskontext erhalten.
+>
+> **Nachtrag 2 (Leseberechtigung & Gast-Gruppe):** Jedes Modul hat inzwischen
+> zusätzlich die Standard-Aktionen `view` (Lesen) und `publish` (Veröffentlichen),
+> siehe `PermissionRegistry::STANDARD_ACTIONS`. Anders als in Abschnitt 8
+> beschrieben erhält die Gruppe `public` (jetzt "Gast") **doch** Berechtigungen
+> und ist editierbar: nicht angemeldete Besucher gehören ihr automatisch an
+> (`GroupMembership::groupIds(null)` → Gast-Gruppe), und ihre `view`-Rechte
+> steuern die öffentliche Sichtbarkeit (Katalog, `/api/horses`, Stationsdetail).
+> Backend-Zugriff bleibt für Gäste dennoch durch `checkAuth()` ausgeschlossen.
+> Nur `admin` ist von der Matrix-Bearbeitung geschützt. Öffentliche Sichtbarkeit
+> einzelner Pferde hängt am neuen Flag `horses.is_published` (entkoppelt vom
+> Lebenszyklus-`status`); öffentliche Ableitungen (Pedigree/Inzucht) nutzen den
+> `publishedOnly`-Modus.
 
 **Status:** Phase 1 (siehe Abschnitt 6, nach der Konkretisierung in
 Abschnitt 8) umgesetzt.

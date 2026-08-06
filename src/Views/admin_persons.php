@@ -5,7 +5,13 @@
  * @var bool $canCreate
  * @var bool $canEdit
  * @var bool $canDelete
+ * @var bool $canPublish
+ * @var int|null $publishedFilter Aktiver Filter: 1, 0 oder null (alle)
  */
+$canPublish = $canPublish ?? false;
+$publishedFilter = $publishedFilter ?? null;
+$publishBase = '/admin/persons';
+$publishFormId = 'personPublishForm';
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
@@ -24,24 +30,30 @@
         </div>
     <?php endif; ?>
 
+    <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
+    <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
+
     <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
         <thead>
             <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
                 <th style="padding: 0.5rem;">ID</th>
                 <th style="padding: 0.5rem;">Name</th>
                 <th style="padding: 0.5rem;">Kontakt & Ort</th>
                 <th style="padding: 0.5rem;">Zugeordnete Pferde</th>
+                <th style="padding: 0.5rem;">Sichtbarkeit</th>
                 <th style="padding: 0.5rem;">Aktionen</th>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($persons)): ?>
                 <tr>
-                    <td colspan="5" style="padding: 1rem; text-align: center;">Keine Personen gefunden.</td>
+                    <td colspan="<?= $canPublish ? 7 : 6 ?>" style="padding: 1rem; text-align: center;">Keine Personen gefunden.</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($persons as $p): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
+                        <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$p['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$p['id']) ?></td>
                         <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$p['name']) ?></strong></td>
                         <td style="padding: 0.5rem; font-size: 0.9rem; color: #555;">
@@ -50,6 +62,11 @@
                         <td style="padding: 0.5rem;">
                             <span style="background: #e2e3e5; padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
                                 <?= (int)$p['horse_count'] ?> Zuordnungen
+                            </span>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($p['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($p['is_published']) ? '#155724' : '#721c24' ?>;">
+                                <?= !empty($p['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
                             </span>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">

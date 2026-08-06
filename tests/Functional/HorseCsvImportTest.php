@@ -73,6 +73,10 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertStringContainsString('Name fehlt', $previewResponse->body);
         $this->assertStringContainsString('ungültig', $previewResponse->body);
 
+        // Ohne gesetzte Veröffentlichen-Checkbox: importierte Pferde bleiben - wie jedes
+        // neu angelegte Pferd - standardmäßig unveröffentlicht (is_published = 0). Die
+        // optionale Opt-in-Checkbox (nur mit horses.publish) wird hier bewusst NICHT
+        // mitgesendet; die DB-Verifikation erfolgt deshalb über die Backend-Liste.
         $commitResponse = $admin->post('/admin/import/horses/commit', [
             'csrf_token' => $previewResponse->formField('csrf_token') ?? '',
         ]);
@@ -82,15 +86,19 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertStringContainsString('1 Pferd(e) erfolgreich importiert', $commitText, "Body: {$commitResponse->body}");
         $this->assertStringContainsString('2 Zeile(n) wegen Fehlern übersprungen', $commitText);
 
-        // Tatsächlich in der DB gelandet: genau die eine gültige Zeile, per
-        // API-Suche über das gemeinsame $unique-Suffix aller drei Testzeilen
-        // verifiziert (ein einziger Request statt je einem für "gefunden"
-        // und "nicht gefunden").
-        $lookup = $admin->get('/api/horses?search=' . urlencode($unique));
-        $lookupBody = json_decode($lookup->body, true);
-        $this->assertSame(1, $lookupBody['meta']['total'], "Nur die eine gültige Zeile sollte importiert worden sein, Body: {$lookup->body}");
-        $this->assertSame($validName, $lookupBody['data'][0]['name']);
-        $this->assertSame($validUeln, $lookupBody['data'][0]['ueln']);
+        // Tatsächlich in der DB gelandet: genau die eine gültige Zeile. Verifiziert
+        // über die Backend-Liste statt über die öffentliche API, da importierte Pferde
+        // (wie jedes neu angelegte Pferd) standardmäßig UNVERÖFFENTLICHT sind
+        // (is_published = 0) und daher bewusst nicht über die publish-gated
+        // öffentliche API/Katalog erscheinen - die Backend-Liste zeigt dagegen alle
+        // Pferde unabhängig vom Veröffentlichungsstatus.
+        $adminList = $admin->get('/admin/horses');
+        $this->assertSame(200, $adminList->statusCode);
+        $this->assertStringContainsString(htmlspecialchars($validName), $adminList->body, "Die eine gültige Zeile sollte importiert worden und in der Backend-Liste sichtbar sein, Body: {$adminList->body}");
+        $this->assertStringContainsString(htmlspecialchars($validUeln), $adminList->body);
+        // Die beiden fehlerhaften Zeilen (Name fehlt / ungültiges Jahr) dürfen NICHT
+        // importiert worden sein - über ihr gemeinsames $unique-Suffix geprüft.
+        $this->assertStringNotContainsString('Ungueltiges Jahr ' . $unique, $adminList->body);
     }
 
     private function stripHtml(string $html): string {

@@ -180,6 +180,40 @@ class Database {
         $addColumn('horses', 'breeding_station', 'VARCHAR(255) NULL AFTER `breeding_station_id`');
         $addColumn('horses', 'image_url', 'VARCHAR(255) NULL AFTER `status`');
 
+        // Öffentliche Sichtbarkeit (is_published) unabhängig vom Lebenszyklus-`status`.
+        // Beim ERSTMALIGEN Hinzufügen die bisher öffentlich sichtbaren Pferde
+        // (status='active') als veröffentlicht übernehmen, damit sich die
+        // öffentliche Sichtbarkeit durch das Upgrade nicht ändert. Der Backfill
+        // läuft bewusst nur einmal (an die SHOW COLUMNS-Prüfung gekoppelt) - sonst
+        // würde eine spätere, bewusste Depublikation bei jedem Request rückgängig
+        // gemacht (analog zum Editor-Rechte-Seed weiter unten).
+        try {
+            $stmt = $pdo->query("SHOW COLUMNS FROM `horses` LIKE 'is_published'");
+            if ($stmt && $stmt->rowCount() === 0) {
+                $pdo->exec("ALTER TABLE `horses` ADD COLUMN `is_published` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`");
+                $pdo->exec("UPDATE `horses` SET `is_published` = 1 WHERE `status` = 'active'");
+            }
+        } catch (\Throwable $e) {}
+
+        // Öffentliche Sichtbarkeit auch für Personen und Deckstationen (Massen-
+        // Veröffentlichung, siehe Admin-Listen). Diese Datensätze waren vor dem
+        // Upgrade uneingeschränkt öffentlich (Stations-Detailseite, Katalog-Filter),
+        // daher der EINMALIGE Backfill auf is_published=1 für den Bestand - sonst
+        // würden bestehende Stationen/Personen durch das Upgrade unsichtbar. Neu
+        // angelegte Datensätze starten dagegen unveröffentlicht (DEFAULT 0) und
+        // müssen bewusst veröffentlicht werden. Der Backfill ist an die
+        // SHOW COLUMNS-Prüfung gekoppelt und läuft nur beim erstmaligen Hinzufügen
+        // (analog zum Pferde-Block oben).
+        foreach (['persons', 'breeding_stations'] as $table) {
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE 'is_published'");
+                if ($stmt && $stmt->rowCount() === 0) {
+                    $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `is_published` TINYINT(1) NOT NULL DEFAULT 0");
+                    $pdo->exec("UPDATE `{$table}` SET `is_published` = 1");
+                }
+            } catch (\Throwable $e) {}
+        }
+
         // 5. Zuordnungen zwischen Pferden & Personen/Besitzern anlegen
         try {
             $pdo->exec("
@@ -315,7 +349,7 @@ class Database {
             $pdo->exec("INSERT IGNORE INTO `groups` (`slug`, `name`, `description`, `is_builtin`) VALUES
                 ('admin', 'Administrator', 'Hat systemseitig immer uneingeschränkt alle Berechtigungen.', 1),
                 ('editor', 'Editor', 'Vorlage für Bearbeiter mit Verwaltungszugriff - muss Benutzern wie jede andere Gruppe bewusst zugewiesen werden, kein automatischer Standard.', 1),
-                ('public', 'Öffentlich / Gäste', 'Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend (/admin/...) und keine Berechtigungen, unabhängig von dieser Tabelle (siehe BaseController::checkAuth()).', 1)");
+                ('public', 'Gast (Öffentlich)', 'Gilt automatisch für nicht angemeldete Besucher. Über ihre Lese-Rechte steuert ein Admin, welche Bereiche im öffentlichen Teil der Website sichtbar sind. Backend-Zugriff (/admin/...) bleibt stets ausgeschlossen (siehe BaseController::checkAuth()).', 1)");
         } catch (\Throwable $e) {}
 
         try {
@@ -348,20 +382,50 @@ class Database {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
         } catch (\Throwable $e) {}
 
-        if (!$groupPermissionsExisted) {
+        // Standardrechte für Editor (voller Verwaltungszugriff inkl. der Standard-Aktionen
+        // 'view'/'publish') und Gast (`public`: nur Lese-Rechte für die öffentlich sichtbare
+        // Fläche) seeden. Ausgelöst wird das genau einmal:
+        //  (a) group_permissions wurde gerade NEU angelegt, ODER
+        //  (b) die Tabelle existierte bereits, kennt aber noch keine 'view'-Zeile
+        //      (Upgrade von einer früheren #66-Version ohne Leseberechtigung) - damit
+        //      Editoren den Zugriff auf die Backend-Listen und Gäste den öffentlichen
+        //      Katalog nicht verlieren.
+        // Die einmalige Ausführung verhindert, dass eine spätere, bewusste Rechte-
+        // Entziehung durch einen Admin bei jedem Request rückgängig gemacht wird
+        // (siehe docs/user-groups-plan.md, 3.4/8). INSERT IGNORE macht das Seeden
+        // zusätzlich idempotent gegenüber bereits vorhandenen Editor-Zeilen.
+        $needsPermissionSeed = !$groupPermissionsExisted;
+        if (!$needsPermissionSeed) {
             try {
+                $needsPermissionSeed = (int)$pdo->query("SELECT COUNT(*) FROM `group_permissions` WHERE `action` = 'view'")->fetchColumn() === 0;
+            } catch (\Throwable $e) {
+                $needsPermissionSeed = false;
+            }
+        }
+
+        if ($needsPermissionSeed) {
+            try {
+                $insertPermStmt = $pdo->prepare("INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`) VALUES (?, ?, ?)");
+
                 $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
                 if ($editorGroupId) {
-                    // Editor behält beim Upgrade exakt die Rechte, die er schon vorher hatte
-                    // (uneingeschränkter CRUD-Zugriff) - siehe docs/user-groups-plan.md, 8.
                     $defaultEditorPermissions = [
-                        ['horses', 'create'], ['horses', 'edit'], ['horses', 'delete'], ['horses', 'publish'],
-                        ['persons', 'create'], ['persons', 'edit'], ['persons', 'delete'],
-                        ['breeding_stations', 'create'], ['breeding_stations', 'edit'], ['breeding_stations', 'delete'],
+                        ['horses', 'view'], ['horses', 'create'], ['horses', 'edit'], ['horses', 'delete'], ['horses', 'publish'],
+                        ['persons', 'view'], ['persons', 'create'], ['persons', 'edit'], ['persons', 'delete'], ['persons', 'publish'],
+                        ['breeding_stations', 'view'], ['breeding_stations', 'create'], ['breeding_stations', 'edit'], ['breeding_stations', 'delete'], ['breeding_stations', 'publish'],
                     ];
-                    $insertPermStmt = $pdo->prepare("INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`) VALUES (?, ?, ?)");
                     foreach ($defaultEditorPermissions as [$module, $action]) {
                         $insertPermStmt->execute([$editorGroupId, $module, $action]);
+                    }
+                }
+
+                // Gast-Gruppe: ausschließlich die Lese-Rechte der heute öffentlich
+                // sichtbaren Fläche. Bewusst nichts weiter - neue/Plugin-Bereiche
+                // bleiben für Gäste fail-closed unsichtbar, bis ein Admin sie freischaltet.
+                $publicGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'public'")->fetchColumn();
+                if ($publicGroupId) {
+                    foreach ([['horses', 'view'], ['breeding_stations', 'view']] as [$module, $action]) {
+                        $insertPermStmt->execute([$publicGroupId, $module, $action]);
                     }
                 }
             } catch (\Throwable $e) {}

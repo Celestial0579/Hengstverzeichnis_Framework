@@ -25,11 +25,47 @@ final class GroupMembership {
     private function __construct() {}
 
     /**
+     * Request-Cache für die ID der eingebauten Gast-Gruppe `public` (siehe
+     * guestGroupId()). `false` = noch nicht geladen, `null` = nicht vorhanden.
+     *
+     * @var int|null|false
+     */
+    private static $guestGroupIdCache = false;
+
+    /**
+     * ID der eingebauten Gast-Gruppe (`public`) - der Gruppe, der nicht
+     * angemeldete Besucher automatisch angehören (siehe groupIds()). Über ihre
+     * group_permissions steuert ein Admin, was Gäste öffentlich sehen dürfen
+     * ("wie bei anderen Gruppen auch"). Innerhalb eines Requests gecacht.
+     */
+    public static function guestGroupId(): ?int {
+        if (self::$guestGroupIdCache !== false) {
+            return self::$guestGroupIdCache;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $id = $db->query("SELECT id FROM `groups` WHERE slug = 'public' LIMIT 1")->fetchColumn();
+            self::$guestGroupIdCache = $id !== false ? (int)$id : null;
+        } catch (\Throwable $e) {
+            self::$guestGroupIdCache = null;
+        }
+
+        return self::$guestGroupIdCache;
+    }
+
+    /**
      * @return array<int, int> IDs aller Gruppen, denen der Benutzer angehört
      */
     public static function groupIds(?int $userId): array {
         if (!$userId) {
-            return [];
+            // Nicht angemeldete Besucher gehören automatisch der Gast-Gruppe
+            // `public` an: ihre Sichtbarkeit im öffentlichen Bereich (siehe
+            // PublicController/ApiController) wird über deren group_permissions
+            // gesteuert. Fehlt die Gruppe (z. B. sehr alte DB), bleibt es
+            // fail-closed bei "keine Gruppen".
+            $guestId = self::guestGroupId();
+            return $guestId !== null ? [$guestId] : [];
         }
 
         try {

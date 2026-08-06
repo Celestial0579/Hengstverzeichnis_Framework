@@ -31,7 +31,7 @@ foreach ($groups as $g) {
     $groupsById[(int)$g['id']] = $g;
 }
 $selected = $groupsById[$selectedGroupId] ?? null;
-$isProtected = $selected && in_array($selected['slug'], ['admin', 'public'], true);
+$isProtected = $selected && in_array($selected['slug'], ['admin'], true);
 $selectedPermissions = $selected ? ($permissions[(int)$selected['id']] ?? []) : [];
 
 /**
@@ -73,10 +73,11 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             Rechten wie vor Einführung dieses Systems, unten granular einschränkbar -
             sie gilt aber für keinen Benutzer automatisch, sondern muss wie jede eigene
             Gruppe im Benutzer-Formular bewusst zugewiesen werden.
-            <strong>Öffentlich / Gäste</strong> steht für nicht angemeldete Besucher und
-            erhält niemals Zugriff auf das Backend oder irgendeine Berechtigung -
-            unabhängig vom Gruppensystem bereits durch den bestehenden Login-Zwang
-            abgesichert.
+            <strong>Gast (Öffentlich)</strong> gilt automatisch für nicht angemeldete
+            Besucher: über ihre Lese-Rechte steuern Sie, welche Bereiche im öffentlichen
+            Teil der Website sichtbar sind. Backend-Zugriff bleibt für Gäste stets
+            ausgeschlossen (durch den Login-Zwang), Bearbeiten/Löschen/Veröffentlichen
+            wirken für sie nicht - nur Lese-Rechte haben eine Wirkung.
         </p>
 
         <form action="/admin/groups" method="GET" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
@@ -217,7 +218,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             <?php if ($selected['slug'] === 'admin'): ?>
                 <p style="color: #666; font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
             <?php elseif ($selected['slug'] === 'public'): ?>
-                <p style="color: #666; font-size: 0.85rem;">🚫 Nicht angemeldete Besucher - erhält niemals Zugriff auf das Backend und keine Berechtigungen.</p>
+                <p style="color: #666; font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Nur Lese-Rechte steuern die öffentliche Sichtbarkeit; Backend-Zugriff bleibt ausgeschlossen.</p>
             <?php endif; ?>
 
             <?php if (!$isProtected && count($groups) > 1): ?>

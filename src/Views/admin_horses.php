@@ -57,8 +57,11 @@
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['ueln']) ?></td>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
                         <td style="padding: 0.5rem;">
-                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #e2e3e5; color: #383d41;">
                                 <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : ($horse['status'] === 'inactive' ? 'Inaktiv' : 'Verstorben') ?>
+                            </span>
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($horse['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($horse['is_published']) ? '#155724' : '#721c24' ?>;">
+                                <?= !empty($horse['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
                             </span>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">

@@ -13,6 +13,8 @@ class BreedingStationController extends BaseController {
     }
 
     public function index(): void {
+        $this->requirePermission('breeding_stations', 'view');
+
         $db = Database::getInstance();
         $stmt = $db->query("
             SELECT bs.*, COUNT(h.id) as horse_count 

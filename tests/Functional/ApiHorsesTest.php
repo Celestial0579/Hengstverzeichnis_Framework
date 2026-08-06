@@ -37,6 +37,9 @@ class ApiHorsesTest extends FunctionalTestCase {
             'breeding_station' => 'API-Testgestüt',
             'birth_year' => '2018',
             'status' => 'active',
+            // Öffentliche Sichtbarkeit (API/Katalog) hängt am Veröffentlicht-Flag,
+            // nicht mehr am Status - ohne dieses Flag würde das Pferd nicht ausgeliefert.
+            'is_published' => '1',
         ]);
         $this->assertSame('/admin/horses?success=created', $storeResponse->location());
 

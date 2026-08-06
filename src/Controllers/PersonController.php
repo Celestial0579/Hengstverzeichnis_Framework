@@ -13,6 +13,8 @@ class PersonController extends BaseController {
     }
 
     public function index(): void {
+        $this->requirePermission('persons', 'view');
+
         $db = Database::getInstance();
         $stmt = $db->query("
             SELECT p.*, COUNT(hp.id) as horse_count 

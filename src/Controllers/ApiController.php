@@ -11,12 +11,13 @@ use App\Helper\Paginator;
  *
  * Schlanke, öffentliche Read-only-JSON-API für Katalogdaten (#47). Liefert
  * ausschließlich Felder, die bereits über den öffentlichen HTML-Katalog
- * (`PublicController::catalog()`/`horseDetail()`) einsehbar sind - kein
- * eigenes Berechtigungsmodell nötig, da hier keine zusätzlichen Daten
- * offengelegt werden, nur ein maschinenlesbares Format derselben, ohnehin
- * öffentlichen Informationen. Bewusst ohne API-Key/Authentifizierung (siehe
- * docs/api.md) - falls künftig nicht-öffentliche Felder hinzukommen sollen,
- * braucht das eine eigene Betrachtung.
+ * (`PublicController::catalog()`/`horseDetail()`) einsehbar sind - dieselbe
+ * Sichtbarkeit wird auch hier erzwungen: nur veröffentlichte Pferde
+ * (is_published) und nur, wenn die Gast-Gruppe das Leserecht `horses.view`
+ * besitzt (siehe fetchHorses()). Entzieht ein Admin der Gast-Gruppe dieses
+ * Recht, liefert die API - wie der HTML-Katalog - keine Pferde mehr. Bewusst
+ * ohne API-Key/Authentifizierung (siehe docs/api.md) - falls künftig
+ * nicht-öffentliche Felder hinzukommen sollen, braucht das eine eigene Betrachtung.
  */
 class ApiController extends BaseController {
 
@@ -83,9 +84,16 @@ class ApiController extends BaseController {
      * @return array<int, array<string, mixed>>
      */
     private function fetchHorses(array $params): array {
+        // Dieselbe Sichtbarkeit wie der öffentliche HTML-Katalog: Gäste ohne
+        // horses.view sehen nichts, und es werden ausschließlich veröffentlichte
+        // Pferde (is_published) ausgeliefert - unabhängig vom Lebenszyklus-Status.
+        if (!$this->hasPermission('horses', 'view')) {
+            return [];
+        }
+
         $db = Database::getInstance();
 
-        $where = ["h.deleted_at IS NULL"];
+        $where = ["h.deleted_at IS NULL", "h.is_published = 1"];
         $bindings = [];
 
         $search = trim((string)($params['search'] ?? ''));
@@ -151,8 +159,8 @@ class ApiController extends BaseController {
                 p_breeder.name AS breeder_name, p_owner.name AS owner_name
             FROM horses h
             LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL
-            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL
-            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL
+            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
+            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
             LEFT JOIN horse_persons hp_breeder ON hp_breeder.horse_id = h.id AND hp_breeder.role = 'breeder'
             LEFT JOIN persons p_breeder ON hp_breeder.person_id = p_breeder.id AND p_breeder.deleted_at IS NULL
             LEFT JOIN horse_persons hp_owner ON hp_owner.horse_id = h.id AND hp_owner.role = 'owner'

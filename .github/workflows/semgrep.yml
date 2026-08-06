@@ -23,6 +23,11 @@ on:
     branches: ["main"]
   schedule:
     - cron: "30 6 * * 1"
+  # Manueller Auslöser: nötig, um nach GitHub-Actions-Störungen (bei denen
+  # push-/pull_request-Läufe teils gar nicht erst angelegt werden) den als
+  # Pflicht-Check konfigurierten Lauf für einen Branch nachholen zu können
+  # (analog tests.yml).
+  workflow_dispatch:
 
 permissions:
   contents: read

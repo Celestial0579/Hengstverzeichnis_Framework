@@ -2,7 +2,11 @@
 // src/Views/public_catalog_cards.php
 /**
  * @var array $horses
+ * @var array<int|string, array<int, string>> $cardSections Plugin-Hook-Ergebnisse je
+ *   Pferde-ID (#97, siehe PublicController::catalog() für die Berechnung via
+ *   catalog.card_sections)
  */
+$cardSections = $cardSections ?? [];
 ?>
 <?php if (empty($horses)): ?>
     <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: #777; background: #fafafa; border-radius: 6px; border: 1px dashed #ccc;">
@@ -46,6 +50,10 @@
                             <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('catalog.owner_inline')) ?></strong> <?= htmlspecialchars($horse['owner_name']) ?></p>
                         <?php endif; ?>
                     </div>
+
+                    <?php foreach ($cardSections[$horse['id']] ?? [] as $extraSection): ?>
+                        <?= $extraSection ?>
+                    <?php endforeach; ?>
                 </div>
                 <a href="/hengst?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="display: block; text-align: center; margin-top: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.view_profile')) ?></a>
             </div>

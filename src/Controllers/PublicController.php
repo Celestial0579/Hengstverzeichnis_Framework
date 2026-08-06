@@ -154,6 +154,17 @@ class PublicController extends BaseController {
         $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
         $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
+        // Plugin-Hook (#56, #97): Erweiterungspunkt für zusätzlichen Inhalt je Katalog-Karte
+        // (z. B. ein "Merken"-Button), analog zu horse.detail_sections auf der Detailseite.
+        // Pro Pferd im Controller vorberechnet (statt in der View aufgerufen), damit Views
+        // wie im gesamten Kern üblich keine eigene Hook-Logik enthalten (siehe
+        // horse.detail_sections). Indiziert nach Pferde-ID, da beide Rendering-Pfade
+        // (normal + AJAX) dieselbe public_catalog_cards.php-Schleife durchlaufen.
+        $cardSections = [];
+        foreach ($horses as $horse) {
+            $cardSections[$horse['id']] = $this->hooks()->applyFilters('catalog.card_sections', [], $horse);
+        }
+
         $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['ajax']);
 
         if ($isAjax) {
@@ -177,7 +188,8 @@ class PublicController extends BaseController {
             'filters' => $_GET,
             'colors' => $colors,
             'stations' => $stations,
-            'persons' => $persons
+            'persons' => $persons,
+            'cardSections' => $cardSections
         ]);
     }
 

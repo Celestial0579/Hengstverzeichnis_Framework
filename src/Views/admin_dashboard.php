@@ -3,6 +3,11 @@
 $isAdmin = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
 $trashCount = \App\Controllers\TrashController::getTrashCount();
 
+// Erster i18n-Schritt im Admin-Bereich (#48): Das Dashboard nutzt den
+// Translator wie die öffentlichen Seiten; die übrigen Admin-Views folgen
+// schrittweise.
+$t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $params);
+
 // Anzeige der eigenen Gruppenmitgliedschaft (#66) statt der früheren
 // pauschalen "Editor"-Rollenanzeige - es gibt keine Rolle mehr, "Editor" wäre
 // ein konkreter, möglicherweise falscher Gruppenname.
@@ -17,48 +22,50 @@ if (!empty($_SESSION['user_id'])) {
     $stmt->execute([$_SESSION['user_id']]);
     $ownGroupNames = $stmt->fetchAll(\PDO::FETCH_COLUMN);
 }
-$ownGroupLabel = $isAdmin ? 'Administrator' : ($ownGroupNames ? implode(', ', $ownGroupNames) : 'ohne Gruppe');
+$ownGroupLabel = $isAdmin ? 'Administrator' : ($ownGroupNames ? implode(', ', $ownGroupNames) : $t('admin.dashboard.no_group'));
+
+$tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;';
 ?>
 <div style="display: flex; flex-direction: column; gap: 1.5rem; max-width: 900px; margin: 0 auto;">
-    
+
     <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
-            <h2 style="margin: 0; color: var(--primary-color);">Admin Dashboard</h2>
+            <h2 style="margin: 0; color: var(--primary-color);"><?= htmlspecialchars($t('admin.dashboard.title')) ?></h2>
             <p style="margin: 0.3rem 0 0 0; color: #666; font-size: 0.95rem;">
-                Angemeldet als: <strong><?= htmlspecialchars($_SESSION['username'] ?? 'Benutzer') ?></strong> 
+                <?= htmlspecialchars($t('admin.dashboard.logged_in_as')) ?> <strong><?= htmlspecialchars($_SESSION['username'] ?? 'Benutzer') ?></strong>
                 (<span style="color: var(--secondary-color); font-weight: bold;"><?= htmlspecialchars($ownGroupLabel) ?></span>)
             </p>
         </div>
         <form action="/logout" method="POST" style="margin: 0;">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-            <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: #dc3545; padding: 0.5rem 1rem;">🚪 Abmelden</button>
+            <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: #dc3545; padding: 0.5rem 1rem;">🚪 <?= htmlspecialchars($t('admin.dashboard.logout')) ?></button>
         </form>
     </div>
 
     <!-- Section 1: Verwaltung -->
     <div class="card">
         <h3 style="margin-top: 0; color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-            📁 Verwaltung & Daten
+            📁 <?= htmlspecialchars($t('admin.dashboard.management_heading')) ?>
         </h3>
         <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.2rem;">
-            Verwaltung des Hengstkatalogs, Züchter-, Besitzer- und Stammbaumdaten.
+            <?= htmlspecialchars($t('admin.dashboard.management_text')) ?>
         </p>
-        
+
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
-            <a href="/admin/horses" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                🐴 Pferde verwalten
+            <a href="/admin/horses" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                🐴 <?= htmlspecialchars($t('admin.dashboard.tile_horses')) ?>
             </a>
-            <a href="/admin/persons" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                👤 Personen verwalten
+            <a href="/admin/persons" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                👤 <?= htmlspecialchars($t('admin.dashboard.tile_persons')) ?>
             </a>
-            <a href="/admin/breeding-stations" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                🏠 Deckstationen verwalten
+            <a href="/admin/breeding-stations" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                🏠 <?= htmlspecialchars($t('admin.dashboard.tile_breeding_stations')) ?>
             </a>
-            <a href="/admin/matches" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                🔗 Blutlinien zusammenführen
+            <a href="/admin/matches" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                🔗 <?= htmlspecialchars($t('admin.dashboard.tile_matches')) ?>
             </a>
-            <a href="/admin/trash" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem; position: relative;">
-                🗑️ Papierkorb
+            <a href="/admin/trash" class="btn btn-secondary" style="<?= $tileStyle ?> position: relative;">
+                🗑️ <?= htmlspecialchars($t('admin.dashboard.tile_trash')) ?>
                 <?php if ($trashCount > 0): ?>
                     <span style="background: #dc3545; color: white; border-radius: 10px; padding: 0.15rem 0.5rem; font-size: 0.8rem; font-weight: bold;">
                         <?= $trashCount ?>
@@ -72,49 +79,49 @@ $ownGroupLabel = $isAdmin ? 'Administrator' : ($ownGroupNames ? implode(', ', $o
     <?php if ($isAdmin): ?>
         <div class="card">
             <h3 style="margin-top: 0; color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                ⚙️ Systemeinstellungen & Konfiguration
+                ⚙️ <?= htmlspecialchars($t('admin.dashboard.system_heading')) ?>
             </h3>
             <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.2rem;">
-                Globale Konfigurationen, Branding, E-Mail-Server und Benutzerverwaltung.
+                <?= htmlspecialchars($t('admin.dashboard.system_text')) ?>
             </p>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
-                <a href="/admin/system-settings" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    ⚙️ Systemeinstellungen
+                <a href="/admin/system-settings" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    ⚙️ <?= htmlspecialchars($t('admin.dashboard.tile_system_settings')) ?>
                 </a>
-                <a href="/admin/settings" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    🎨 Branding & Erscheinungsbild
+                <a href="/admin/settings" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    🎨 <?= htmlspecialchars($t('admin.dashboard.tile_branding')) ?>
                 </a>
-                <a href="/admin/mail-settings" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    ✉️ E-Mail & SMTP Einstellungen
+                <a href="/admin/mail-settings" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    ✉️ <?= htmlspecialchars($t('admin.dashboard.tile_mail')) ?>
                 </a>
-                <a href="/admin/users" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    👥 Benutzer verwalten
+                <a href="/admin/users" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    👥 <?= htmlspecialchars($t('admin.dashboard.tile_users')) ?>
                 </a>
-                <a href="/admin/groups" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    🛂 Gruppen & Berechtigungen
+                <a href="/admin/groups" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    🛂 <?= htmlspecialchars($t('admin.dashboard.tile_groups')) ?>
                 </a>
-                <a href="/admin/gdpr" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    🛡️ DSGVO Anfragen
+                <a href="/admin/gdpr" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    🛡️ <?= htmlspecialchars($t('admin.dashboard.tile_gdpr')) ?>
                 </a>
-                <a href="/admin/logs" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    📜 Audit-Log (Protokoll)
+                <a href="/admin/logs" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    📜 <?= htmlspecialchars($t('admin.dashboard.tile_logs')) ?>
                 </a>
-                <a href="/admin/plugins" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    🧩 Plugins verwalten
+                <a href="/admin/plugins" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    🧩 <?= htmlspecialchars($t('admin.dashboard.tile_plugins')) ?>
                 </a>
-                <a href="/admin/cron" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    ⏱️ Automatisierung (Cron)
+                <a href="/admin/cron" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    ⏱️ <?= htmlspecialchars($t('admin.dashboard.tile_cron')) ?>
                 </a>
-                <a href="/admin/backups" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    💾 Backups
+                <a href="/admin/backups" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    💾 <?= htmlspecialchars($t('admin.dashboard.tile_backups')) ?>
                 </a>
-                <a href="/admin/digest" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
-                    📋 E-Mail-Digest
+                <a href="/admin/digest" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                    📋 <?= htmlspecialchars($t('admin.dashboard.tile_digest')) ?>
                 </a>
                 <?php foreach ($pluginTiles ?? [] as $tile): ?>
                     <?php if (empty($tile['url']) || empty($tile['label'])) continue; ?>
-                    <a href="<?= htmlspecialchars($tile['url']) ?>" class="btn btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.9rem; font-size: 1rem;">
+                    <a href="<?= htmlspecialchars($tile['url']) ?>" class="btn btn-secondary" style="<?= $tileStyle ?>">
                         <?= htmlspecialchars(($tile['icon'] ?? '🧩') . ' ' . $tile['label']) ?>
                     </a>
                 <?php endforeach; ?>

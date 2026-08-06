@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS `users` (
     `username` VARCHAR(50) NOT NULL UNIQUE,
     `email` VARCHAR(100) NOT NULL UNIQUE,
     `password_hash` VARCHAR(255) NOT NULL,
-    `role` ENUM('admin', 'editor') DEFAULT 'editor',
     `totp_secret` VARCHAR(255) NULL,
     `totp_enabled` TINYINT(1) DEFAULT 0,
     `backup_codes` TEXT NULL,
@@ -140,14 +139,16 @@ CREATE TABLE IF NOT EXISTS `plugins` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
--- BaseController::hasPermission()). Security-by-Design: Mitgliedschaft ist für
--- JEDE Gruppe (auch `editor`) ausschließlich explizit über `user_groups` -
--- `editor` ist eine von Anfang an vorhandene, aber nicht automatisch
--- zugewiesene Komfort-Gruppe, kein impliziter Standard (siehe
--- BaseController::userGroupIds()). `admin` bleibt komplett separat über
--- users.role hart codiert und braucht daher nie eine user_groups-Zeile.
--- `public` repräsentiert nicht angemeldete Besucher und erhält nie
--- Berechtigungs-Zeilen.
+-- BaseController::hasPermission()) - EINZIGES Rechtesystem der App (das
+-- frühere users.role wurde vollständig entfernt, siehe
+-- Database::ensureSchemaUpToDate()). Security-by-Design: Mitgliedschaft ist
+-- für JEDE Gruppe (auch `admin`/`editor`) ausschließlich explizit über
+-- `user_groups` - kein impliziter Standard (siehe
+-- BaseController::userGroupIds()). `admin` hat zusätzlich systemseitig immer
+-- implizit ALLE Rechte, unabhängig vom Inhalt von `group_permissions` (siehe
+-- hasPermission()) - ihre eigene Berechtigungs-Matrix bleibt deshalb bewusst
+-- leer und nicht editierbar. `public` repräsentiert nicht angemeldete
+-- Besucher und erhält nie Berechtigungs-Zeilen.
 CREATE TABLE IF NOT EXISTS `groups` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `slug` VARCHAR(50) NOT NULL UNIQUE,
@@ -198,14 +199,6 @@ CROSS JOIN (
     SELECT 'breeding_stations', 'delete'
 ) AS `defaults`
 WHERE `groups`.`slug` = 'editor';
-
--- Marker für die Einmal-Migration in Database::ensureSchemaUpToDate(), die
--- bei Bestandsinstallationen die vorher implizite Editor-Gruppenmitgliedschaft
--- in echte user_groups-Zeilen überführt (siehe dortiger Kommentar) - bei einer
--- frischen Installation gibt es dafür nichts zu tun (der Setup-Wizard legt nur
--- einen admin-Benutzer an), daher hier direkt als erledigt markiert.
-INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES
-('migration_editor_explicit_group', '1');
 
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS `audit_logs` (

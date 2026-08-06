@@ -5,7 +5,7 @@
  * @var array|null $errors
  * @var array|null $old
  * @var string $title
- * @var array $assignableGroups Alle zuweisbaren Gruppen (jede außer admin/public), siehe #66
+ * @var array $assignableGroups Alle zuweisbaren Gruppen (jede außer public), siehe #66
  * @var array $userGroupIds IDs der aktuell zugewiesenen Gruppen
  */
 $isEdit = !empty($user);
@@ -44,17 +44,6 @@ $userGroupIds = $userGroupIds ?? [];
         </div>
 
         <div class="form-group">
-            <label for="role">Rolle *</label>
-            <select id="role" name="role" class="form-control" required>
-                <option value="editor" <?= ($old['role'] ?? $user['role'] ?? '') === 'editor' ? 'selected' : '' ?>>Editor (kein Admin)</option>
-                <option value="admin" <?= ($old['role'] ?? $user['role'] ?? '') === 'admin' ? 'selected' : '' ?>>Administrator (Vollzugriff, Branding & Benutzer)</option>
-            </select>
-            <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0 0;">
-                "Editor" allein gewährt keinerlei Rechte mehr - erst die unten zugewiesenen Gruppen bestimmen, was dieser Benutzer darf (siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>). Ohne jede Gruppe entspricht der Zugriff dem eines nicht angemeldeten Besuchers.
-            </p>
-        </div>
-
-        <div class="form-group">
             <label for="password">
                 Passwort <?= $isEdit ? '(Leer lassen, um unverändert zu lassen)' : '*' ?>
             </label>
@@ -63,19 +52,24 @@ $userGroupIds = $userGroupIds ?? [];
 
         <div class="form-group">
             <label>Gruppen (bestimmen die Rechte)</label>
+            <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0.5rem 0;">
+                Ausschließlich die hier zugewiesenen Gruppen bestimmen, was dieser Benutzer darf (siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>). Ohne jede Gruppe entspricht der Zugriff dem eines nicht angemeldeten Besuchers. Die Gruppe "Administrator" gewährt vollen Zugriff auf alle Funktionen.
+            </p>
             <?php if (empty($assignableGroups)): ?>
                 <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0 0;">
                     Noch keine Gruppen vorhanden - siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
                 </p>
             <?php else: ?>
-                <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.3rem;">
+                <select name="groups[]" id="groups" class="form-control" multiple size="<?= min(8, max(3, count($assignableGroups))) ?>" style="margin-top: 0.3rem;">
                     <?php foreach ($assignableGroups as $group): ?>
-                        <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; cursor: pointer;">
-                            <input type="checkbox" name="groups[]" value="<?= (int)$group['id'] ?>" style="width: auto;" <?= in_array((int)$group['id'], $userGroupIds, true) ? 'checked' : '' ?>>
+                        <option value="<?= (int)$group['id'] ?>" <?= in_array((int)$group['id'], $userGroupIds, true) ? 'selected' : '' ?>>
                             <?= htmlspecialchars($group['name']) ?><?= $group['is_builtin'] ? ' (eingebaut)' : '' ?>
-                        </label>
+                        </option>
                     <?php endforeach; ?>
-                </div>
+                </select>
+                <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                    Mehrfachauswahl: Strg/Cmd gedrückt halten und klicken (bzw. per Ziehen markieren).
+                </p>
             <?php endif; ?>
         </div>
 

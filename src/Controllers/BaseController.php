@@ -4,17 +4,16 @@
 namespace App\Controllers;
 
 use App\Database;
-use PDO;
 
 /**
  * Class BaseController
- * 
+ *
  * Abstrakter Basis-Controller für alle Controller-Klassen der Anwendung.
  * Stellt globale Funktionalitäten bereit:
  * - Automatische Laden von Verbands- & Systemeinstellungen
  * - Sicheres Rendern von View-Templates inkl. Layout
  * - Anti-Infostealer & Session-Fingerprint Authentifizierungsprüfung (`checkAuth()`)
- * - Rollen-basierte Rechteprüfung (`requireAdmin()`)
+ * - Gruppen-basierte Rechteprüfung (`requireAdmin()`, `hasPermission()`)
  * - Individuelle Fehlerseiten (403 Forbidden, 404 Not Found, 500 Server Error)
  * - Validierung reservierter System-Benutzernamen
  */
@@ -31,6 +30,13 @@ abstract class BaseController {
      * @var array<int, int>|null
      */
     private ?array $groupIdsCache = null;
+
+    /**
+     * Request-lokaler Cache, ob der aktuelle Benutzer Mitglied der Gruppe
+     * `admin` ist (siehe isAdmin()).
+     * @var bool|null
+     */
+    private ?bool $isAdminCache = null;
 
     /**
      * Basis-Konstruktor. Lädt automatisch alle Einstellungen aus der Datenbank.
@@ -133,15 +139,18 @@ abstract class BaseController {
             exit;
         }
 
-        // 0. Live-Abgleich mit der Datenbank: Ohne diesen Check bleibt einem Benutzer,
-        // dessen Account gelöscht/deaktiviert oder dessen Rolle geändert wurde, der
-        // volle Zugriff über seine bestehende Session erhalten - potenziell zeitlich
-        // unbegrenzt, da last_activity bei jedem Request erneuert wird (siehe unten,
-        // Punkt 2) und die Rolle sonst nur beim nächsten Login neu geladen würde.
-        // Fail-open bei DB-Fehlern (Ausfallsicherheit, wie auch bei RateLimiter).
+        // 0. Live-Abgleich mit der Datenbank: Ohne diesen Check bliebe einem Benutzer,
+        // dessen Account gelöscht/deaktiviert wurde, der volle Zugriff über seine
+        // bestehende Session erhalten - potenziell zeitlich unbegrenzt, da
+        // last_activity bei jedem Request erneuert wird (siehe unten, Punkt 2).
+        // Berechtigungen selbst (inkl. Admin-Status) werden NICHT in der Session
+        // gehalten, sondern bei jedem Aufruf live über GroupMembership/
+        // hasPermission() geprüft (#66) - Rechteänderungen wirken so sofort, ohne
+        // erneuten Login. Fail-open bei DB-Fehlern (Ausfallsicherheit, wie auch bei
+        // RateLimiter).
         try {
             $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT role, deleted_at FROM users WHERE id = ?");
+            $stmt = $db->prepare("SELECT deleted_at FROM users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
             $currentUser = $stmt->fetch();
 
@@ -160,10 +169,6 @@ abstract class BaseController {
                 session_destroy();
                 header("Location: /login?error=account_disabled");
                 exit;
-            }
-
-            if (($_SESSION['role'] ?? null) !== $currentUser['role']) {
-                $_SESSION['role'] = $currentUser['role'];
             }
         } catch (\Throwable $e) {
             // DB-Fehler dürfen bereits eingeloggte Nutzer nicht aussperren
@@ -225,54 +230,50 @@ abstract class BaseController {
     }
 
     /**
-     * Stellt sicher, dass der angemeldete Benutzer Administrator-Rechte besitzt.
-     * Bricht andernfalls mit einer protokollierten 403-Forbidden Seite ab.
+     * Stellt sicher, dass der angemeldete Benutzer Administrator-Rechte besitzt
+     * (Mitgliedschaft in der Gruppe `admin`, siehe isAdmin()). Bricht andernfalls
+     * mit einer protokollierten 403-Forbidden Seite ab.
      */
     protected function requireAdmin(): void {
-        if (($_SESSION['role'] ?? '') !== 'admin') {
+        if (!$this->isAdmin()) {
             $this->renderForbidden("Zugriff verweigert: Diese Funktion steht ausschließlich Administratoren zur Verfügung.");
         }
     }
 
     /**
+     * Prüft, ob der aktuelle Benutzer Mitglied der eingebauten Gruppe `admin`
+     * ist (#66) - die einzige Stelle mit besonderer Bedeutung im Gruppensystem:
+     * Mitglieder haben systemseitig immer alle Rechte (siehe hasPermission())
+     * und dürfen den kompletten Backend-Admin-Bereich nutzen (requireAdmin()).
+     * Delegiert an App\Permission\GroupMembership, damit es dafür nur EINE
+     * Implementierung im gesamten Code gibt (auch für Stellen ohne
+     * Controller-Instanz, z. B. TrashController::getTrashCount()). Innerhalb
+     * eines Requests gecacht, da mehrere requireAdmin()/hasPermission()-Aufrufe
+     * pro Seite üblich sind.
+     */
+    protected function isAdmin(): bool {
+        if ($this->isAdminCache === null) {
+            $this->isAdminCache = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
+        }
+        return $this->isAdminCache;
+    }
+
+    /**
      * Gruppen-Zugehörigkeit des aktuellen Session-Benutzers (#66, siehe
      * docs/user-groups-plan.md). Security-by-Design: Mitgliedschaft ist
-     * ausschließlich explizit über `user_groups` - es gibt KEINE implizite
-     * Ableitung aus users.role mehr. Insbesondere ist `editor` eine ganz normale
-     * Gruppe wie jede eigene: ein Benutzer mit role='editor' aber ohne
-     * `user_groups`-Zeilen hat exakt dieselben (keine) Rechte wie `public` und
-     * muss der Editor-Gruppe (oder einer eigenen Gruppe) bewusst zugeordnet
-     * werden. Neue Gruppen/Benutzer erben so standardmäßig nichts, statt
-     * versehentlich Editor-Rechte zu erhalten. `admin` bleibt davon unberührt
-     * komplett separat über den hart codierten Bypass in hasPermission()
-     * geregelt und taucht hier nie auf. Innerhalb eines Requests gecacht, da
-     * mehrere hasPermission()-Aufrufe pro Seite üblich sind.
+     * ausschließlich explizit über `user_groups`. Jede Gruppe (auch `editor`)
+     * ist eine ganz normale Gruppe: ein Benutzer ohne `user_groups`-Zeilen hat
+     * keinerlei Rechte, genau wie `public`. Neue Gruppen/Benutzer erben so
+     * standardmäßig nichts. Delegiert an App\Permission\GroupMembership (siehe
+     * dort), innerhalb eines Requests gecacht, da mehrere
+     * hasPermission()-Aufrufe pro Seite üblich sind.
      *
      * @return array<int, int> IDs aller Gruppen, denen der aktuelle Benutzer angehört
      */
     protected function userGroupIds(): array {
-        if ($this->groupIdsCache !== null) {
-            return $this->groupIdsCache;
+        if ($this->groupIdsCache === null) {
+            $this->groupIdsCache = \App\Permission\GroupMembership::groupIds($_SESSION['user_id'] ?? null);
         }
-
-        $this->groupIdsCache = [];
-        if (empty($_SESSION['user_id'])) {
-            // Nicht angemeldet: keine expliziten Gruppen-Zeilen (siehe 'public' in groups,
-            // die nie eine user_groups-Zuordnung braucht/erhält).
-            return $this->groupIdsCache;
-        }
-
-        try {
-            $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
-            $stmt->execute([$_SESSION['user_id']]);
-            $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
-
-            $this->groupIdsCache = array_values(array_unique($ids));
-        } catch (\Throwable $e) {
-            $this->groupIdsCache = [];
-        }
-
         return $this->groupIdsCache;
     }
 
@@ -283,13 +284,14 @@ abstract class BaseController {
      * Abbruch siehe requirePermission().
      *
      * Sicherheits-Leitplanken:
-     * - `admin` hat IMMER alle Rechte, hart codiert - unabhängig vom DB-Inhalt und
-     *   nicht über die Admin-UI entziehbar (siehe docs/user-groups-plan.md, Abschnitt 8).
+     * - `admin` hat IMMER alle Rechte, unabhängig vom Inhalt von group_permissions
+     *   und nicht über die Admin-UI entziehbar (siehe docs/user-groups-plan.md,
+     *   Abschnitt 8) - ihre eigene Berechtigungs-Matrix bleibt deshalb leer.
      * - Fail-closed: fehlt eine passende group_permissions-Zeile oder schlägt die
      *   DB-Abfrage fehl, wird der Zugriff verweigert, nie gewährt.
      */
     protected function hasPermission(string $module, string $action): bool {
-        if (($_SESSION['role'] ?? '') === 'admin') {
+        if ($this->isAdmin()) {
             return true;
         }
 

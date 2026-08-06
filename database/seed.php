@@ -18,20 +18,28 @@ try {
     $username = 'admin';
     $password = 'admin123';
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-    $role = 'admin';
 
     $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
     if ($user) {
-        $stmt = $db->prepare("UPDATE users SET password_hash = ?, role = ? WHERE email = ?");
-        $stmt->execute([$passwordHash, $role, $email]);
+        $userId = (int)$user['id'];
+        $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE email = ?");
+        $stmt->execute([$passwordHash, $email]);
         echo "Admin-Benutzer erfolgreich aktualisiert!\n";
     } else {
-        $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$username, $email, $passwordHash, $role]);
+        $stmt = $db->prepare("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)");
+        $stmt->execute([$username, $email, $passwordHash]);
+        $userId = (int)$db->lastInsertId();
         echo "Admin-Benutzer erfolgreich erstellt!\n";
+    }
+
+    // Mitgliedschaft in der Gruppe `admin` sicherstellen (#66, einziges Rechtesystem).
+    $adminGroupId = $db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
+    if ($adminGroupId) {
+        $stmt = $db->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)");
+        $stmt->execute([$userId, $adminGroupId]);
     }
 
     echo "-----------------------------------\n";

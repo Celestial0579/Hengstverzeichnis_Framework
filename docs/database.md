@@ -61,9 +61,12 @@ Deckstationen/Gestüte als eigenständige Entität (Name, Kontakt, Adresse).
 `deleted_at` für Soft-Delete.
 
 ### `users`
-Admin-Bereich-Accounts. `role` ∈ {`admin`, `editor`}. 2FA ist **verpflichtend**
-für alle Accounts (`totp_secret`, `totp_enabled`, `backup_codes` – JSON/Text,
-Codes werden gehasht/als Klartext-Liste abgelegt, siehe `Totp`-Klasse).
+Admin-Bereich-Accounts. Rechte ergeben sich ausschließlich aus der
+Gruppenmitgliedschaft (`groups`/`user_groups`/`group_permissions`, siehe
+[security.md](security.md#autorisierung)) – es gibt keine Rollen-Spalte mehr.
+2FA ist **verpflichtend** für alle Accounts (`totp_secret`, `totp_enabled`,
+`backup_codes` – JSON/Text, Codes werden gehasht/als Klartext-Liste abgelegt,
+siehe `Totp`-Klasse).
 `must_change_password` erzwingt eine Passwortänderung beim nächsten Login
 (z. B. nach Admin-initiiertem Reset). `deleted_at` für Soft-Delete.
 

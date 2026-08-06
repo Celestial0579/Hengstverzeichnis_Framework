@@ -1,7 +1,23 @@
 <?php
 // src/Views/admin_dashboard.php
-$isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+$isAdmin = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
 $trashCount = \App\Controllers\TrashController::getTrashCount();
+
+// Anzeige der eigenen Gruppenmitgliedschaft (#66) statt der früheren
+// pauschalen "Editor"-Rollenanzeige - es gibt keine Rolle mehr, "Editor" wäre
+// ein konkreter, möglicherweise falscher Gruppenname.
+$ownGroupNames = [];
+if (!empty($_SESSION['user_id'])) {
+    $stmt = \App\Database::getInstance()->prepare("
+        SELECT g.name FROM user_groups ug
+        JOIN `groups` g ON g.id = ug.group_id
+        WHERE ug.user_id = ?
+        ORDER BY g.is_builtin DESC, g.name ASC
+    ");
+    $stmt->execute([$_SESSION['user_id']]);
+    $ownGroupNames = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+}
+$ownGroupLabel = $isAdmin ? 'Administrator' : ($ownGroupNames ? implode(', ', $ownGroupNames) : 'ohne Gruppe');
 ?>
 <div style="display: flex; flex-direction: column; gap: 1.5rem; max-width: 900px; margin: 0 auto;">
     
@@ -10,7 +26,7 @@ $trashCount = \App\Controllers\TrashController::getTrashCount();
             <h2 style="margin: 0; color: var(--primary-color);">Admin Dashboard</h2>
             <p style="margin: 0.3rem 0 0 0; color: #666; font-size: 0.95rem;">
                 Angemeldet als: <strong><?= htmlspecialchars($_SESSION['username'] ?? 'Benutzer') ?></strong> 
-                (<span style="color: var(--secondary-color); font-weight: bold;"><?= $isAdmin ? 'Administrator' : 'Editor' ?></span>)
+                (<span style="color: var(--secondary-color); font-weight: bold;"><?= htmlspecialchars($ownGroupLabel) ?></span>)
             </p>
         </div>
         <form action="/logout" method="POST" style="margin: 0;">

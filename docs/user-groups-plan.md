@@ -1,5 +1,14 @@
 # Benutzergruppen-/Berechtigungskonzept — Umsetzungsplanung
 
+> **Nachtrag:** Die in diesem Dokument (insb. Abschnitt 8/10) beschriebene
+> bewusste Koexistenz von `users.role` und dem Gruppensystem war eine
+> Zwischenlösung. `users.role` wurde inzwischen vollständig entfernt (Spalte,
+> Session-Feld, UI) — das Gruppensystem ist jetzt das EINZIGE Rechtesystem.
+> "Administrator sein" ergibt sich ausschließlich aus Mitgliedschaft in der
+> eingebauten Gruppe `admin` (siehe `App\Permission\GroupMembership`,
+> `BaseController::isAdmin()`). Der restliche Inhalt bleibt als historischer
+> Entscheidungskontext erhalten.
+
 **Status:** Phase 1 (siehe Abschnitt 6, nach der Konkretisierung in
 Abschnitt 8) umgesetzt.
 **Bezug:** [#66](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/66) (Kern-Anforderung, Vorgänger-Issue), [#56](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/56) (Plugin-System, wartet laut Issue-Kommentaren auf dieses Konzept), [#57](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/57) (Rolle „Mitglied“, erster konkreter Anwendungsfall)

@@ -72,7 +72,10 @@ class DigestServiceTest extends TestCase {
         self::$db->exec("DELETE FROM horses");
         self::$db->exec("DELETE FROM persons");
         self::$db->exec("DELETE FROM breeding_stations");
-        self::$db->exec("DELETE FROM users WHERE role IN ('admin', 'editor')");
+        // Räumt genau die Testbenutzer weg, die insertAdminUser() anlegt (erkennbar
+        // am Username-Präfix) - seit der Entfernung von users.role gibt es keine
+        // role-Spalte mehr, über die sich diese Benutzer sonst identifizieren ließen.
+        self::$db->exec("DELETE FROM users WHERE username LIKE 'digest-admin-%'");
     }
 
     private function insertHorse(array $overrides = []): int {
@@ -93,9 +96,19 @@ class DigestServiceTest extends TestCase {
         return (int)self::$db->lastInsertId();
     }
 
+    /**
+     * Legt einen Benutzer als Mitglied der eingebauten Gruppe `admin` an (#66,
+     * einziges Rechtesystem) - DigestService::loadRecipients() liest Empfänger
+     * über diese Gruppenmitgliedschaft, nicht mehr über users.role.
+     */
     private function insertAdminUser(string $email): void {
-        $stmt = self::$db->prepare("INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, 'x', 'admin')");
+        $stmt = self::$db->prepare("INSERT INTO users (username, email, password_hash) VALUES (?, ?, 'x')");
         $stmt->execute(['digest-admin-' . uniqid(), $email]);
+        $userId = (int)self::$db->lastInsertId();
+
+        $adminGroupId = self::$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
+        $stmt = self::$db->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)");
+        $stmt->execute([$userId, $adminGroupId]);
     }
 
     public function testRunWithNothingToReportRecordsOkStatusWithoutSending(): void {

@@ -43,13 +43,26 @@ use PDO;
 class GroupController extends BaseController {
 
     /**
-     * Gruppen, deren Berechtigungen serverseitig nie verändert werden dürfen
-     * UND die serverseitig nie über `user_groups` einem echten Benutzer
-     * zugewiesen werden dürfen (siehe UserController::syncUserGroups()) -
-     * `admin` braucht das nie (hart codierter Bypass), `public` ist
-     * ausschließlich für nicht angemeldete Besucher gedacht.
+     * Gruppen, deren Berechtigungs-MATRIX serverseitig nie verändert werden darf
+     * (siehe updatePermissions()/copyPermissions()) - `admin` hat systemseitig
+     * immer implizit alle Rechte und braucht daher nie eigene
+     * group_permissions-Zeilen, `public` darf nie irgendeine Berechtigung
+     * erhalten. Betrifft NICHT die Zuweisbarkeit einer Gruppe zu Benutzern
+     * (siehe NON_ASSIGNABLE_SLUGS) - `admin` MUSS Benutzern zuweisbar sein,
+     * sonst könnte nie ein Administrator angelegt werden.
      */
     public const PROTECTED_PERMISSION_SLUGS = ['admin', 'public'];
+
+    /**
+     * Gruppen, die serverseitig nie über `user_groups` einem echten Benutzer
+     * zugewiesen werden dürfen (siehe UserController::assignableGroups()/
+     * syncUserGroups()) - `public` ist ausschließlich für nicht angemeldete
+     * Besucher gedacht (siehe BaseController::checkAuth()). Kleinere Menge als
+     * PROTECTED_PERMISSION_SLUGS: `admin` ist zwar von der Matrix-Bearbeitung
+     * geschützt, muss aber regulär zuweisbar sein, sonst gäbe es nie einen Weg,
+     * einen Administrator anzulegen.
+     */
+    public const NON_ASSIGNABLE_SLUGS = ['public'];
 
     public function __construct() {
         parent::__construct();

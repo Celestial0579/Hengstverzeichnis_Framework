@@ -160,7 +160,7 @@ final class HorseCsvImporter {
             }
 
             foreach (self::MAX_LENGTHS as $field => $maxLength) {
-                if (!empty($data[$field]) && mb_strlen((string)$data[$field]) > $maxLength) {
+                if (!empty($data[$field]) && self::strlen((string)$data[$field]) > $maxLength) {
                     $errors[] = ucfirst(str_replace('_', ' ', $field)) . " ist zu lang (max. {$maxLength} Zeichen).";
                 }
             }
@@ -195,9 +195,18 @@ final class HorseCsvImporter {
     /**
      * Best-effort UTF-8-Normalisierung für aus älterem Excel exportierte
      * CSV-Dateien (häufig Windows-1252/ISO-8859-1 statt UTF-8). Lässt bereits
-     * gültigen UTF-8-Inhalt unangetastet.
+     * gültigen UTF-8-Inhalt unangetastet. Die `mbstring`-Extension ist auf
+     * einfachem Shared-Hosting nicht immer aktiviert (siehe
+     * docs/architecture.md, "keine externen Abhängigkeiten") - ohne sie wird
+     * der Inhalt unverändert durchgereicht statt einen Fatal Error
+     * auszulösen, analog zum bestehenden Fallback in
+     * App\Service\AuditLogger::truncate().
      */
     private static function normalizeEncoding(string $content): string {
+        if (!function_exists('mb_check_encoding') || !function_exists('mb_detect_encoding') || !function_exists('mb_convert_encoding')) {
+            return $content;
+        }
+
         if (mb_check_encoding($content, 'UTF-8')) {
             return $content;
         }
@@ -211,5 +220,14 @@ final class HorseCsvImporter {
         }
 
         return $content;
+    }
+
+    /**
+     * Zeichenlängen-Zählung mit Fallback ohne `mbstring` (siehe
+     * normalizeEncoding()) - identisches Muster zu
+     * App\Service\AuditLogger::truncate().
+     */
+    private static function strlen(string $value): int {
+        return function_exists('mb_strlen') ? mb_strlen($value) : strlen($value);
     }
 }

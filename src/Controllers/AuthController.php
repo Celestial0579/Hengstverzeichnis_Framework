@@ -123,7 +123,10 @@ class AuthController extends BaseController {
         $code = trim($_POST['totp_code'] ?? '');
         $backupCodesRaw = json_decode($_POST['backup_codes'] ?? '[]', true);
 
-        if (!Totp::verifyCode($secret, $code)) {
+        // Replay-Schutz (#111): Auch der Bestätigungscode der Einrichtung
+        // verbraucht seinen Zeitschlitz (frisches Secret, daher ohne Vorwert).
+        $matchedSlice = Totp::verifyCodeReturnSlice($secret, $code, null);
+        if ($matchedSlice === null) {
             $siteName = $this->settings['site_name'] ?? 'Hengstverzeichnis';
             $db = Database::getInstance();
             $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
@@ -149,8 +152,8 @@ class AuthController extends BaseController {
         $encryptedSecret = \App\Security\Crypto::encrypt($secret);
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ? WHERE id = ?");
-        $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $userId]);
+        $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ?, last_totp_timeslice = ? WHERE id = ?");
+        $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $matchedSlice, $userId]);
 
         $this->completeLogin($userId, '/admin?2fa=enabled');
     }
@@ -186,7 +189,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT totp_secret FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -197,7 +200,15 @@ class AuthController extends BaseController {
                 $decryptedSecret = $user['totp_secret'];
             }
 
-            if (Totp::verifyCode($decryptedSecret, $code)) {
+            // Replay-Schutz (#111): Codes sind single-use - der getroffene
+            // Zeitschlitz wird persistiert, bereits verbrauchte Schlitze lehnt
+            // verifyCodeReturnSlice() auch bei korrektem Code ab.
+            $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
+            $matchedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, $code, $lastSlice);
+            if ($matchedSlice !== null) {
+                $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
+                $update->execute([$matchedSlice, $userId]);
+
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
                 $this->completeLogin($userId, '/admin');
             }

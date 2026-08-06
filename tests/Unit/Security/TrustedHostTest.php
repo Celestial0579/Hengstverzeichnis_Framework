@@ -1,7 +1,7 @@
 <?php
-// tests/Unit/TrustedHostTest.php
+// tests/Unit/Security/TrustedHostTest.php
 
-namespace Tests\Unit;
+namespace Tests\Unit\Security;
 
 use App\Security\TrustedHost;
 use PHPUnit\Framework\TestCase;

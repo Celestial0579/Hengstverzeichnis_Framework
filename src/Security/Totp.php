@@ -49,16 +49,36 @@ class Totp {
      * Verifies code allowing clock drift of +/- 1 window (30 seconds)
      */
     public static function verifyCode(string $secret, string $code, int $discrepancy = 1): bool {
-        $currentTimeSlice = floor(time() / 30);
+        return self::verifyCodeReturnSlice($secret, $code, null, $discrepancy) !== null;
+    }
+
+    /**
+     * Wie verifyCode(), liefert aber den getroffenen Zeitschlitz zurück und
+     * setzt Replay-Schutz durch (Issue #111): Zeitschlitze, die kleiner oder
+     * gleich dem zuletzt verbrauchten Schlitz ($lastUsedSlice, siehe
+     * users.last_totp_timeslice) sind, werden abgelehnt - ein abgefangener/
+     * geschulterter Code ist damit nur ein einziges Mal verwendbar, nicht
+     * während des gesamten Toleranzfensters (~90 s). Der Aufrufer muss den
+     * zurückgegebenen Schlitz nach erfolgreicher Prüfung persistieren.
+     *
+     * @return int|null Getroffener Zeitschlitz bei Erfolg, sonst null
+     */
+    public static function verifyCodeReturnSlice(string $secret, string $code, ?int $lastUsedSlice, int $discrepancy = 1): ?int {
+        $currentTimeSlice = (int)floor(time() / 30);
 
         for ($i = -$discrepancy; $i <= $discrepancy; $i++) {
-            $calculatedCode = self::getCode($secret, $currentTimeSlice + $i);
-            if (hash_equals($calculatedCode, trim($code))) {
-                return true;
+            $slice = $currentTimeSlice + $i;
+            if ($lastUsedSlice !== null && $slice <= $lastUsedSlice) {
+                // Bereits verbrauchter oder noch älterer Schlitz: auch bei
+                // korrektem Code ablehnen (Replay).
+                continue;
+            }
+            if (hash_equals(self::getCode($secret, $slice), trim($code))) {
+                return $slice;
             }
         }
 
-        return false;
+        return null;
     }
 
     /**

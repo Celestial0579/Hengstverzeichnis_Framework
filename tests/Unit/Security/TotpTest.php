@@ -78,6 +78,45 @@ class TotpTest extends TestCase {
         $this->assertTrue(Totp::verifyCode($secret, " {$code}\n"));
     }
 
+    public function testVerifyCodeReturnSliceReturnsMatchedSlice(): void {
+        $secret = Totp::generateSecret();
+        $currentSlice = (int) floor(time() / 30);
+        $code = Totp::getCode($secret, $currentSlice);
+
+        $this->assertSame($currentSlice, Totp::verifyCodeReturnSlice($secret, $code, null));
+    }
+
+    public function testVerifyCodeReturnSliceRejectsReplayOfConsumedSlice(): void {
+        $secret = Totp::generateSecret();
+        $currentSlice = (int) floor(time() / 30);
+        $code = Totp::getCode($secret, $currentSlice);
+
+        $matched = Totp::verifyCodeReturnSlice($secret, $code, null);
+        $this->assertSame($currentSlice, $matched);
+
+        // Zweite Verwendung desselben Codes mit persistiertem Schlitz: Replay.
+        $this->assertNull(Totp::verifyCodeReturnSlice($secret, $code, $matched));
+    }
+
+    public function testVerifyCodeReturnSliceRejectsOlderSliceThanLastUsed(): void {
+        $secret = Totp::generateSecret();
+        $currentSlice = (int) floor(time() / 30);
+        $previousWindowCode = Totp::getCode($secret, $currentSlice - 1);
+
+        // Der vorherige Schlitz liegt innerhalb der Toleranz, wurde aber durch
+        // die Verwendung des aktuellen Schlitzes bereits "übersprungen".
+        $this->assertNull(Totp::verifyCodeReturnSlice($secret, $previousWindowCode, $currentSlice));
+    }
+
+    public function testVerifyCodeReturnSliceAcceptsNextSliceAfterConsumption(): void {
+        $secret = Totp::generateSecret();
+        $currentSlice = (int) floor(time() / 30);
+        $nextWindowCode = Totp::getCode($secret, $currentSlice + 1);
+
+        // Innerhalb der Toleranz (+1) und noch nicht verbraucht -> gültig.
+        $this->assertSame($currentSlice + 1, Totp::verifyCodeReturnSlice($secret, $nextWindowCode, $currentSlice));
+    }
+
     public function testGenerateBackupCodesReturnsExpectedCountAndFormat(): void {
         $codes = Totp::generateBackupCodes();
 

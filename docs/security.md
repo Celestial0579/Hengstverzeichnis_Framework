@@ -11,6 +11,12 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
   `src/Security/Totp.php`, RFC-6238-kompatibel, 30s-Zeitfenster, ±1 Fenster
   Toleranz). Setup erzeugt einen `otpauth://`-Link (QR-Code via
   `public/js/qrcode.js`) sowie 10 Einmal-Backup-Codes.
+- **TOTP-Replay-Schutz (#111):** Jeder erfolgreich verwendete Code verbraucht
+  seinen 30s-Zeitschlitz (`users.last_totp_timeslice`);
+  `Totp::verifyCodeReturnSlice()` lehnt bereits verbrauchte und ältere
+  Schlitze auch bei korrektem Code ab. Ein abgefangener/geschulterter Code
+  ist damit single-use statt ~90 s lang wiederverwendbar. Beim Admin-2FA-Reset
+  wird der Merker mit zurückgesetzt.
 - **Session-Hardening** (`config/config.php` + `BaseController::checkAuth()`):
   - `session.use_strict_mode`, `use_only_cookies`, `cookie_httponly`,
     `cookie_samesite=Lax`, In-Memory-Cookie (`cookie_lifetime=0`).

@@ -440,6 +440,11 @@ class Database {
         // ihn mit dem beim Login in der Session abgelegten Wert und beendet
         // Sessions mit veraltetem Stand (siehe docs/security.md).
         $addColumn('users', 'session_version', 'INT NOT NULL DEFAULT 1');
+
+        // 16. TOTP-Replay-Schutz (#111): zuletzt verbrauchter TOTP-Zeitschlitz -
+        // Totp::verifyCodeReturnSlice() lehnt Schlitze <= diesem Wert ab, ein
+        // Code ist damit single-use (siehe AuthController::process2faVerify()).
+        $addColumn('users', 'last_totp_timeslice', 'BIGINT NULL DEFAULT NULL');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

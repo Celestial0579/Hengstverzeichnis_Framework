@@ -44,11 +44,28 @@ abstract class FunctionalTestCase extends TestCase {
     }
 
     /**
+     * Setzt den TOTP-Replay-Schutz (#111, users.last_totp_timeslice) für einen
+     * Benutzer zurück. Nötig, weil die Functional-Suite denselben Admin-Account
+     * bewusst viele Male pro 30-Sekunden-Fenster einloggt und dabei denselben
+     * TOTP-Code wiederverwendet - in Produktion ist genau das verboten
+     * (single-use pro Zeitschlitz, siehe Totp::verifyCodeReturnSlice()); der
+     * Replay-Schutz selbst wird separat in TotpReplayTest über den echten
+     * HTTP-Flow abgesichert. Direkter DB-Zugriff aus dem PHPUnit-Prozess,
+     * analog zu tests/Integration (DB_*-Konstanten, siehe tests/bootstrap.php).
+     */
+    protected static function resetTotpReplayGuard(string $email): void {
+        $db = \App\Database::getInstance();
+        $stmt = $db->prepare("UPDATE users SET last_totp_timeslice = NULL WHERE email = ?");
+        $stmt->execute([$email]);
+    }
+
+    /**
      * Liefert einen frischen, aber bereits vollständig eingeloggten Client
      * (Passwort-Login + 2FA-Verifikation über den echten HTTP-Flow).
      */
     protected function authenticatedClient(): HttpClient {
         self::ensureProvisioned();
+        self::resetTotpReplayGuard(self::$adminEmail);
         $client = $this->newClient();
 
         $loginPage = $client->get('/login');

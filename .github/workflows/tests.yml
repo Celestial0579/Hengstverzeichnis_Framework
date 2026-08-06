@@ -21,6 +21,10 @@ on:
   # Wiederverwendbar für release.yml, das denselben Testlauf als Gate vor
   # jedem Release braucht, ohne die Steps zu duplizieren.
   workflow_call:
+  # Manueller Auslöser: nötig, um nach GitHub-Actions-Störungen (bei denen
+  # push-/pull_request-Läufe teils gar nicht erst angelegt werden) den
+  # Testlauf für einen Branch nachholen zu können, ohne Leer-Commits zu pushen.
+  workflow_dispatch:
 
 permissions:
   contents: read

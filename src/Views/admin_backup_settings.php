@@ -128,7 +128,7 @@ $lastError = $settings['backup_last_error'] ?? '';
         </div>
     </form>
 
-    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3>🧪 Backup jetzt manuell ausführen</h3>
     <p style="color: #666; font-size: 0.9rem;">Führt sofort einen Backup-Lauf mit den oben gespeicherten Einstellungen aus, unabhängig vom konfigurierten Intervall.</p>

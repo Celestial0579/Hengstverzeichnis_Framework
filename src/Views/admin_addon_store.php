@@ -72,7 +72,7 @@ $successMessages = [
             $catalog = $catalogs[$repoId] ?? ['ok' => false, 'plugins' => [], 'error' => 'Keine Daten.'];
             $repoLabel = htmlspecialchars($repoRow['owner'] . '/' . $repoRow['repo'] . ($repoRow['ref'] ? '@' . $repoRow['ref'] : ''));
         ?>
-        <div id="repo-<?= $repoId ?>" style="border: 1px solid #eee; border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
+        <div id="repo-<?= $repoId ?>" style="border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
                 <div>
                     <strong>
@@ -101,7 +101,7 @@ $successMessages = [
             <?php else: ?>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                             <th style="padding: 0.4rem;">Plugin</th>
                             <th style="padding: 0.4rem;">Version</th>
                             <th style="padding: 0.4rem;">Status</th>
@@ -117,7 +117,7 @@ $successMessages = [
                                 $isInstalled = $installedInfo !== null;
                                 $hasUpdate = $isInstalled && $installedVersion !== null && version_compare((string)$entry['version'], (string)$installedVersion, '>');
                             ?>
-                            <tr style="border-bottom: 1px solid #eee; vertical-align: top;">
+                            <tr style="border-bottom: 1px solid var(--border-color); vertical-align: top;">
                                 <td style="padding: 0.4rem;">
                                     <strong><?= htmlspecialchars($entry['name']) ?></strong><br>
                                     <span style="color: #888; font-size: 0.8rem;"><?= htmlspecialchars($slug) ?></span>

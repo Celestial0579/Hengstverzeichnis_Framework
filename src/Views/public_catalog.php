@@ -34,7 +34,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
         </div>
 
         <!-- Toggle for Advanced Attribute Filters -->
-        <details <?= $hasActiveFilters ? 'open' : '' ?> style="margin-top: 1rem; border-top: 1px solid #eee; padding-top: 1rem;">
+        <details <?= $hasActiveFilters ? 'open' : '' ?> style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
             <summary style="font-weight: bold; color: var(--primary-color); cursor: pointer; user-select: none;">
                 <?= htmlspecialchars(App\I18n\Translator::t('catalog.advanced_filters')) ?>
             </summary>

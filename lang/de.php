@@ -9,6 +9,7 @@ return [
     'nav.catalog' => 'Hengstkatalog',
     'nav.admin_login' => 'Admin Login',
     'nav.admin_portal' => 'Admin Portal',
+    'nav.toggle_theme' => 'Farbschema umschalten (hell/dunkel)',
 
     'footer.tagline' => 'Das Hengstverzeichnis - Ein Open-Source Framework.',
     'footer.impressum' => 'Impressum',

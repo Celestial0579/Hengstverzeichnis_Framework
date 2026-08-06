@@ -14,7 +14,7 @@ $cardSections = $cardSections ?? [];
     </div>
 <?php else: ?>
     <?php foreach ($horses as $horse): ?>
-        <div class="card" style="border: 1px solid #eee; margin-bottom: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s;">
+        <div class="card" style="border: 1px solid var(--border-color); margin-bottom: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s;">
             <?php if (!empty($horse['image_url'])): ?>
                 <div style="width: 100%; height: 180px; overflow: hidden; background: #f0f0f0;">
                     <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" style="width: 100%; height: 100%; object-fit: cover;">

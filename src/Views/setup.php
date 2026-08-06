@@ -43,7 +43,7 @@ $hideSite = $hideSite ?? false;
 
         <?php if (!$hideDb): ?>
         <!-- 1. Datenbank-Einstellungen -->
-        <h3 style="margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
+        <h3 style="margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             1. Datenbank-Verbindung (MySQL/MariaDB)
         </h3>
 
@@ -120,7 +120,7 @@ $hideSite = $hideSite ?? false;
 
         <?php if (!$hideSite): ?>
         <!-- 2. Verbandseinstellungen -->
-        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
+        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             2. Verbandseinstellungen
         </h3>
         <div class="form-group">
@@ -130,7 +130,7 @@ $hideSite = $hideSite ?? false;
         <?php endif; ?>
 
         <!-- 3. Administrator-Konto -->
-        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
+        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             3. Erstes Administrator-Konto
         </h3>
         <div class="form-group">

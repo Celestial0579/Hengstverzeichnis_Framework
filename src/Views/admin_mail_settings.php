@@ -94,7 +94,7 @@
         </div>
     </form>
 
-    <hr style="margin: 2rem 0; border: none; border-top: 1px solid #eee;">
+    <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3>🧪 Test E-Mail Senden</h3>
     <form action="/admin/mail-settings/test" method="POST" style="display: flex; gap: 1rem; align-items: flex-end;">

@@ -31,7 +31,7 @@
             <label for="logo_file" style="font-weight: bold; color: var(--primary-color);">🖼️ Verbands-Logo hochladen</label>
             
             <?php if (!empty($settings['site_logo'])): ?>
-                <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0; background: #fff; padding: 0.8rem; border-radius: 6px; border: 1px solid #ddd;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0; background: var(--card-bg); padding: 0.8rem; border-radius: 6px; border: 1px solid #ddd;">
                     <img src="<?= htmlspecialchars($settings['site_logo']) ?>" alt="Logo Vorschau" style="max-height: 60px; max-width: 200px; object-fit: contain;">
                     <div>
                         <label style="color: #dc3545; font-size: 0.9rem; cursor: pointer;">
@@ -56,7 +56,7 @@
         </div>
 
         <!-- Startseiten-Inhalt -->
-        <h3 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
+        <h3 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             🏠 Startseiten-Inhalte (Homepage)
         </h3>
 
@@ -73,7 +73,7 @@
         </div>
 
         <!-- Rechtliche Texte (Impressum & Datenschutz) -->
-        <h3 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
+        <h3 style="margin-top: 2rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             📜 Rechtliche Seiten (Impressum & Datenschutz)
         </h3>
 

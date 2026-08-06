@@ -26,7 +26,7 @@
 
     <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
         <thead>
-            <tr style="border-bottom: 2px solid #eee; text-align: left;">
+            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                 <th style="padding: 0.5rem;">ID</th>
                 <th style="padding: 0.5rem;">Foto</th>
                 <th style="padding: 0.5rem;">Name</th>
@@ -43,7 +43,7 @@
                 </tr>
             <?php else: ?>
                 <?php foreach ($horses as $horse): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['id']) ?></td>
                         <td style="padding: 0.5rem;">
                             <?php if (!empty($horse['image_url'])): ?>

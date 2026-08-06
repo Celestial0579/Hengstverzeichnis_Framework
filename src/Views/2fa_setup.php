@@ -60,7 +60,7 @@
         <div style="background: #f8f9fa; border: 2px dashed #dc3545; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-family: monospace; font-size: 1.1rem; text-align: center;">
                 <?php foreach ($backupCodes as $code): ?>
-                    <div style="background: #fff; padding: 0.4rem; border: 1px solid #eee; border-radius: 4px; font-weight: bold;">
+                    <div style="background: #fff; padding: 0.4rem; border: 1px solid var(--border-color); border-radius: 4px; font-weight: bold;">
                         <?= htmlspecialchars($code) ?>
                     </div>
                 <?php endforeach; ?>

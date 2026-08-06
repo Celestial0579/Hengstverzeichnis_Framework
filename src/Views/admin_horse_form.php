@@ -156,7 +156,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             <div id="persons_container" style="display: flex; flex-direction: column; gap: 0.8rem;">
                 <?php if (empty($horsePersons)): ?>
                     <!-- Initial empty row if none -->
-                    <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;">
+                    <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                         <div style="flex: 2; min-width: 180px;">
                             <select name="persons[0][person_id]" class="form-control">
                                 <option value="">-- Person (Züchter/Besitzer) --</option>
@@ -192,7 +192,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     </div>
                 <?php else: ?>
                     <?php foreach ($horsePersons as $idx => $hp): ?>
-                        <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;">
+                        <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                             <div style="flex: 2; min-width: 180px;">
                                 <select name="persons[<?= $idx ?>][person_id]" class="form-control">
                                     <option value="">-- Person (Züchter/Besitzer) --</option>
@@ -270,7 +270,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             const container = document.getElementById('persons_container');
             const div = document.createElement('div');
             div.className = 'person-row';
-            div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #eee;';
+            div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);';
             div.innerHTML = `
                 <div style="flex: 2; min-width: 180px;">
                     <select name="persons[${personRowIndex}][person_id]" class="form-control"></select>

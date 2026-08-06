@@ -43,7 +43,7 @@ $manager = \App\Plugin\PluginManager::getInstance();
     <?php else: ?>
         <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
             <thead>
-                <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                     <th style="padding: 0.5rem;">Plugin</th>
                     <th style="padding: 0.5rem;">Version</th>
                     <th style="padding: 0.5rem;">Hooks</th>
@@ -59,7 +59,7 @@ $manager = \App\Plugin\PluginManager::getInstance();
                         $needsReapproval = $manager->needsReapproval($slug);
                         $isUsable = $plugin['error'] === null && $plugin['compatible'];
                     ?>
-                    <tr style="border-bottom: 1px solid #eee; vertical-align: top;">
+                    <tr style="border-bottom: 1px solid var(--border-color); vertical-align: top;">
                         <td style="padding: 0.5rem;">
                             <strong><?= htmlspecialchars($manifest['name'] ?? $slug) ?></strong><br>
                             <span style="color: #888; font-size: 0.85rem;"><?= htmlspecialchars($slug) ?></span>

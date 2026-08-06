@@ -77,7 +77,7 @@
                             $isSystem = ($log['username'] === 'SYSTEM');
                             $userBadgeBg = $isSystem ? '#6c757d' : '#2a52be';
                         ?>
-                        <tr style="border-bottom: 1px solid #eee;">
+                        <tr style="border-bottom: 1px solid var(--border-color);">
                             <td style="padding: 0.7rem; white-space: nowrap; color: #555;">
                                 <?= date('d.m.Y H:i:s', strtotime($log['created_at'])) ?>
                             </td>

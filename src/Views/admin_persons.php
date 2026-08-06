@@ -26,7 +26,7 @@
 
     <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
         <thead>
-            <tr style="border-bottom: 2px solid #eee; text-align: left;">
+            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                 <th style="padding: 0.5rem;">ID</th>
                 <th style="padding: 0.5rem;">Name</th>
                 <th style="padding: 0.5rem;">Kontakt & Ort</th>
@@ -41,7 +41,7 @@
                 </tr>
             <?php else: ?>
                 <?php foreach ($persons as $p): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$p['id']) ?></td>
                         <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$p['name']) ?></strong></td>
                         <td style="padding: 0.5rem; font-size: 0.9rem; color: #555;">

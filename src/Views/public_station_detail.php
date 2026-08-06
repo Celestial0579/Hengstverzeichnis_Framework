@@ -22,25 +22,25 @@ $statusLabels = [
 
     <table style="width: 100%; border-collapse: collapse; max-width: 500px;">
         <?php if (!empty($station['contact_person'])): ?>
-            <tr style="border-bottom: 1px solid #eee;">
+            <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: #666;">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?></th>
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars($station['contact_person']) ?></td>
             </tr>
         <?php endif; ?>
         <?php if (!empty($station['address'])): ?>
-            <tr style="border-bottom: 1px solid #eee;">
+            <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: #666; vertical-align: top;">📍 <?= htmlspecialchars(App\I18n\Translator::t('field.address')) ?></th>
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($station['address'])) ?></td>
             </tr>
         <?php endif; ?>
         <?php if (!empty($station['phone'])): ?>
-            <tr style="border-bottom: 1px solid #eee;">
+            <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: #666;">📞 <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars($station['phone']) ?></td>
             </tr>
         <?php endif; ?>
         <?php if (!empty($station['email'])): ?>
-            <tr style="border-bottom: 1px solid #eee;">
+            <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: #666;">✉️ <?= htmlspecialchars(App\I18n\Translator::t('field.email')) ?></th>
                 <td style="padding: 0.6rem 0; font-weight: 500;"><a href="mailto:<?= htmlspecialchars($station['email']) ?>"><?= htmlspecialchars($station['email']) ?></a></td>
             </tr>

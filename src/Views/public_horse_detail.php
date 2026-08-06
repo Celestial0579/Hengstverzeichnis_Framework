@@ -99,26 +99,26 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
         <div>
             <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;"><?= htmlspecialchars(App\I18n\Translator::t('horse.master_data')) ?></h3>
             <table style="width: 100%; border-collapse: collapse;">
-                <tr style="border-bottom: 1px solid #eee;">
+                <tr style="border-bottom: 1px solid var(--border-color);">
                     <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['ueln'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <?php if (!empty($horse['foreign_ueln'])): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></th>
                         <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></td>
                     </tr>
                 <?php endif; ?>
-                <tr style="border-bottom: 1px solid #eee;">
+                <tr style="border-bottom: 1px solid var(--border-color);">
                     <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
-                <tr style="border-bottom: 1px solid #eee;">
+                <tr style="border-bottom: 1px solid var(--border-color);">
                     <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
-                    <tr style="border-bottom: 1px solid #eee;">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <th style="text-align: left; padding: 0.6rem 0; color: #666; vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>
                         <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);">
                             <strong>
@@ -153,7 +153,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
             <!-- Züchter, Besitzer & Deckstationenverlauf -->
             <div style="margin-top: 1.5rem;">
-                <h4 style="font-size: 1.1rem; color: var(--primary-color); margin-bottom: 0.8rem; border-bottom: 1px solid #eee; padding-bottom: 0.3rem;">
+                <h4 style="font-size: 1.1rem; color: var(--primary-color); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
                     <?= htmlspecialchars(App\I18n\Translator::t('horse.history_heading')) ?>
                 </h4>
 
@@ -224,7 +224,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
         <div>
             <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;"><?= htmlspecialchars(App\I18n\Translator::t('horse.description_heading')) ?></h3>
-            <div style="background: #f9f9f9; padding: 1rem; border-radius: var(--border-radius); border: 1px solid #eee; min-height: 120px;">
+            <div style="background: #f9f9f9; padding: 1rem; border-radius: var(--border-radius); border: 1px solid var(--border-color); min-height: 120px;">
                 <?php if (!empty($horse['description'])): ?>
                     <?= App\Helper\Markdown::parse($horse['description']) ?>
                 <?php else: ?>
@@ -237,7 +237,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
 <!-- Interaktiver Stammbaum (Pedigree Tree) -->
 <div class="card">
-    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid #eee; padding-bottom: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color); padding-bottom: 1rem;">
         <div>
             <h2 style="margin: 0; color: var(--primary-color);"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_heading')) ?></h2>
             <p style="margin: 0; color: #666; font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_subheading')) ?></p>
@@ -381,7 +381,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     display: block;
     text-decoration: none;
     color: inherit;
-    background: #ffffff;
+    background: var(--card-bg);
     border: 1px solid #e0e0e0;
     border-radius: 6px;
     padding: 0.6rem 0.8rem;

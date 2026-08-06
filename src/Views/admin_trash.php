@@ -64,7 +64,7 @@
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                             <th style="padding: 0.6rem;">Name</th>
                             <th style="padding: 0.6rem;">UELN</th>
                             <th style="padding: 0.6rem;">Gelöscht am</th>
@@ -74,7 +74,7 @@
                     <tbody>
                         <?php foreach ($deletedHorses as $h): ?>
                             <?php $isOlder = (strtotime($h['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid #eee;">
+                            <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($h['name']) ?></strong></td>
                                 <td style="padding: 0.6rem;"><?= htmlspecialchars($h['ueln'] ?: '-') ?></td>
                                 <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
@@ -116,7 +116,7 @@
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                             <th style="padding: 0.6rem;">Name</th>
                             <th style="padding: 0.6rem;">Kontakt-Info</th>
                             <th style="padding: 0.6rem;">Gelöscht am</th>
@@ -126,7 +126,7 @@
                     <tbody>
                         <?php foreach ($deletedPersons as $p): ?>
                             <?php $isOlder = (strtotime($p['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid #eee;">
+                            <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($p['name']) ?></strong></td>
                                 <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($p['contact_info'] ?: '-') ?></td>
                                 <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
@@ -168,7 +168,7 @@
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                             <th style="padding: 0.6rem;">Name der Station</th>
                             <th style="padding: 0.6rem;">Ansprechpartner</th>
                             <th style="padding: 0.6rem;">Gelöscht am</th>
@@ -178,7 +178,7 @@
                     <tbody>
                         <?php foreach ($deletedStations as $st): ?>
                             <?php $isOlder = (strtotime($st['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid #eee;">
+                            <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($st['name']) ?></strong></td>
                                 <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($st['contact_person'] ?: '-') ?></td>
                                 <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
@@ -220,7 +220,7 @@
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
-                        <tr style="border-bottom: 2px solid #eee; text-align: left;">
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
                             <th style="padding: 0.6rem;">Benutzername</th>
                             <th style="padding: 0.6rem;">E-Mail</th>
                             <th style="padding: 0.6rem;">Gelöscht am</th>
@@ -230,7 +230,7 @@
                     <tbody>
                         <?php foreach ($deletedUsers as $u): ?>
                             <?php $isOlder = (strtotime($u['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid #eee;">
+                            <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($u['username']) ?></strong></td>
                                 <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($u['email']) ?></td>
                                 <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">

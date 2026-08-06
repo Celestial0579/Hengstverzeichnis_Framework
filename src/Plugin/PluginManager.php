@@ -374,7 +374,18 @@ final class PluginManager {
      * @param array{slug:string, dir:string, manifest:array, error:?string, compatible:bool} $info
      */
     private function loadPlugin(string $slug, array $info): void {
-        $entryFile = rtrim($info['dir'], '/') . '/' . ($info['manifest']['entry'] ?? 'Plugin.php');
+        // Der optionale Manifest-Eintrag `entry` wird gleich per require_once
+        // geladen - daher strikt auf einen einfachen Dateinamen im Plugin-Ordner
+        // begrenzen (keine Pfadtrenner, kein "..") . Ein aktiviertes Plugin ist
+        // zwar ohnehin vertrauenswürdiger PHP-Code, aber so kann ein manipuliertes
+        // Manifest nie eine Datei außerhalb seines eigenen Verzeichnisses einbinden.
+        $entry = (string)($info['manifest']['entry'] ?? 'Plugin.php');
+        if (!preg_match('/^[A-Za-z0-9._-]+\.php$/', $entry)) {
+            AuditLogger::log("Plugin-Einstiegspunkt ungültig: {$slug}", "plugin", "Unzulässiger entry-Wert im Manifest: {$entry}");
+            return;
+        }
+
+        $entryFile = rtrim($info['dir'], '/') . '/' . $entry;
         if (!file_exists($entryFile)) {
             AuditLogger::log("Plugin-Einstiegspunkt fehlt: {$slug}", "plugin", "Erwartet: {$entryFile}");
             return;

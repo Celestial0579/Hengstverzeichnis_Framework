@@ -150,7 +150,7 @@ abstract class BaseController {
         // RateLimiter).
         try {
             $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT deleted_at FROM users WHERE id = ?");
+            $stmt = $db->prepare("SELECT deleted_at, session_version FROM users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
             $currentUser = $stmt->fetch();
 
@@ -168,6 +168,32 @@ abstract class BaseController {
                 }
                 session_destroy();
                 header("Location: /login?error=account_disabled");
+                exit;
+            }
+
+            // Session-Invalidierung bei Passwortänderung (#113): session_version
+            // wird bei jeder Passwortänderung erhöht (Reset per Mail-Token,
+            // erzwungener Wechsel, Admin-Änderung). Sessions, deren beim Login
+            // gemerkter Stand nicht mehr passt, werden beendet - eine von einem
+            // Angreifer gehaltene Alt-Session überlebt den Passwort-Reset des
+            // Opfers so nicht mehr. Sessions ohne gemerkten Stand (Login vor
+            // diesem Feature) gelten ebenfalls als veraltet.
+            $dbVersion = (int)($currentUser['session_version'] ?? 1);
+            $sessionVersion = $_SESSION['session_version'] ?? null;
+            if ($sessionVersion === null || (int)$sessionVersion !== $dbVersion) {
+                \App\Service\AuditLogger::log(
+                    "Session beendet: Passwort wurde geändert",
+                    "auth",
+                    "User ID " . $_SESSION['user_id']
+                );
+
+                $_SESSION = [];
+                if (ini_get("session.use_cookies")) {
+                    $params = session_get_cookie_params();
+                    setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
+                }
+                session_destroy();
+                header("Location: /login?error=session_expired");
                 exit;
             }
         } catch (\Throwable $e) {

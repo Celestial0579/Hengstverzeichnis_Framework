@@ -13,6 +13,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (isset($_GET['success']) && $_GET['success'] === 'email_verified'): ?>
+        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <?= htmlspecialchars(App\I18n\Translator::t('auth.email_verified_success')) ?>
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($error)): ?>
         <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($error) ?>
@@ -37,4 +43,18 @@
 
         <button type="submit" class="btn" style="width: 100%"><?= htmlspecialchars(App\I18n\Translator::t('auth.login_button')) ?></button>
     </form>
+
+    <?php if (\App\Controllers\EntraSsoController::isConfigured()): ?>
+        <div style="text-align: center; margin-top: 1rem;">
+            <a href="/auth/entra" class="btn btn-secondary" style="width: 100%; display: block; box-sizing: border-box;">
+                <?= htmlspecialchars(App\I18n\Translator::t('auth.entra_login_button')) ?>
+            </a>
+        </div>
+    <?php endif; ?>
+
+    <?php if (($settings['registration_enabled'] ?? '0') === '1'): ?>
+        <p class="text-center" style="margin-top: 1.5rem; font-size: 0.9rem;">
+            <a href="/register" style="color: var(--primary-color);"><?= htmlspecialchars(App\I18n\Translator::t('auth.register_link')) ?></a>
+        </p>
+    <?php endif; ?>
 </div>

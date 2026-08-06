@@ -183,8 +183,19 @@ class UserController extends BaseController {
                 return;
             }
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ? WHERE id = ?");
+            // session_version erhöhen: Bestehende Sessions des Benutzers werden
+            // durch die Admin-Passwortänderung beendet (#113, siehe
+            // BaseController::checkAuth()).
+            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ?, session_version = session_version + 1 WHERE id = ?");
             $stmt->execute([$username, $email, $passwordHash, $id]);
+
+            // Ändert der Admin das eigene Passwort, übernimmt seine gerade
+            // aktive Session den neuen Stand und bleibt angemeldet.
+            if ($id == $_SESSION['user_id']) {
+                $stmt = $db->prepare("SELECT session_version FROM users WHERE id = ?");
+                $stmt->execute([$id]);
+                $_SESSION['session_version'] = (int)$stmt->fetchColumn();
+            }
         } else {
             $stmt = $db->prepare("UPDATE users SET username = ?, email = ? WHERE id = ?");
             $stmt->execute([$username, $email, $id]);
@@ -239,7 +250,7 @@ class UserController extends BaseController {
             $stmt->execute([$id]);
             $targetUsername = $stmt->fetchColumn() ?: "ID {$id}";
 
-            $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL, last_totp_timeslice = NULL WHERE id = ?");
             $stmt->execute([$id]);
 
             \App\Service\AuditLogger::log("2FA zurückgesetzt", "users", "2FA für Benutzer {$targetUsername} (ID: {$id}) durch Admin zurückgesetzt");

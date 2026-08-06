@@ -39,9 +39,11 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 - **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: reine Logik ohne DB, `Database::ensureSchemaUpToDate()` gegen eine echte Testdatenbank, sowie HTTP-Funktionstests (Login/2FA, CSRF-Schutz, Stamm-URL-SSRF-Härtung, Blutlinien-Matching) gegen eine automatisch gestartete Instanz. Noch nicht abgedeckt: DSGVO-Verwaltung, Papierkorb, Benutzerverwaltung. Ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
-Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B. EntraID SSO,
+Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B.
 Klick-Tracking für Weblinks) werden als Feature-Requests in den
-[Issues](../../issues) verwaltet.
+[Issues](../../issues) verwaltet. EntraID SSO ist inzwischen als optionale
+Login-Methode verfügbar (siehe
+[docs/security.md](docs/security.md#entraid-sso-42-srccontrollersentrassocontrollerphp)).
 
 Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 

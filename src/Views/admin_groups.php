@@ -217,8 +217,32 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
             <?php if ($selected['slug'] === 'admin'): ?>
                 <p style="color: #666; font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
+                <p style="color: #666; font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar (#84).</p>
             <?php elseif ($selected['slug'] === 'public'): ?>
                 <p style="color: #666; font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Nur Lese-Rechte steuern die öffentliche Sichtbarkeit; Backend-Zugriff bleibt ausgeschlossen.</p>
+            <?php else: ?>
+                <!-- 2FA-Pflicht pro Gruppe (#84): greift beim nächsten Login der
+                     Mitglieder (kein Bestandsschutz); ein Benutzer braucht 2FA,
+                     sobald EINE seiner Gruppen sie verlangt. -->
+                <form action="/admin/groups/require-2fa" method="POST" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
+                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                    <input type="hidden" name="group_id" value="<?= (int)$selected['id'] ?>">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin: 0; font-size: 0.9rem;">
+                        <input type="checkbox" name="require_2fa" value="1" <?= !empty($selected['require_2fa']) ? 'checked' : '' ?> style="width: 16px; height: 16px;">
+                        🔐 TOTP-2FA für Mitglieder dieser Gruppe verpflichtend
+                    </label>
+                    <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">Speichern</button>
+                    <small style="color: #666; flex-basis: 100%;">
+                        Greift beim nächsten Login (kein Bestandsschutz). Ein Benutzer muss 2FA einrichten,
+                        sobald mindestens eine seiner Gruppen sie verlangt; bereits aktivierte 2FA bleibt
+                        unabhängig davon immer aktiv.
+                    </small>
+                </form>
+            <?php endif; ?>
+            <?php if (isset($_GET['success']) && $_GET['success'] === 'require_2fa_updated'): ?>
+                <div style="background-color: #d4edda; color: #155724; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
+                    2FA-Pflicht der Gruppe aktualisiert.
+                </div>
             <?php endif; ?>
 
             <?php if (!$isProtected && count($groups) > 1): ?>

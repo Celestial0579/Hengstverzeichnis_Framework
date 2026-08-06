@@ -39,11 +39,29 @@ $trackingDomainsList = array_values(array_filter(array_map('trim', explode(',', 
 }));
 define('TRACKING_DOMAINS', implode(',', $trackingDomainsList));
 
+// Vertrauenswürdige Host-Header (Issue #116, siehe App\Security\TrustedHost):
+// Kommagetrennte Hostnamen (führender Punkt = beliebige Subdomain). Wird nur für
+// den dynamischen APP_URL-/Mailer-Fallback ausgewertet, wenn weder base_url noch
+// die Umgebungsvariable APP_URL gesetzt sind. Auflösung analog TRUSTED_PROXIES:
+// Env-Variable hat Vorrang, sonst db_config.php.
+define('TRUSTED_HOSTS', getenv('TRUSTED_HOSTS') !== false ? getenv('TRUSTED_HOSTS') : ($dbConfig['trusted_hosts'] ?? ''));
+
+// Microsoft Entra ID SSO (#42, siehe App\Controllers\EntraSsoController):
+// optionale zusätzliche Login-Methode per OIDC. Auflösung analog zu
+// TRUSTED_PROXIES: Umgebungsvariable hat Vorrang, sonst db_config.php. Ohne
+// vollständige Konfiguration (alle drei Werte) bleibt SSO deaktiviert.
+define('ENTRA_TENANT_ID', getenv('ENTRA_TENANT_ID') !== false ? getenv('ENTRA_TENANT_ID') : ($dbConfig['entra_tenant_id'] ?? ''));
+define('ENTRA_CLIENT_ID', getenv('ENTRA_CLIENT_ID') !== false ? getenv('ENTRA_CLIENT_ID') : ($dbConfig['entra_client_id'] ?? ''));
+define('ENTRA_CLIENT_SECRET', getenv('ENTRA_CLIENT_SECRET') !== false ? getenv('ENTRA_CLIENT_SECRET') : ($dbConfig['entra_client_secret'] ?? ''));
+
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 // isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
-// als vertrauenswürdig gelisteten Reverse Proxy.
+// als vertrauenswürdig gelisteten Reverse Proxy. Der Host-Fallback nutzt den
+// Host-Header nur nach Validierung durch TrustedHost::resolve() (Issue #116) -
+// ein gefälschter/ungelisteter Host-Header fließt so nicht in absolute URLs
+// (z. B. Passwort-Reset-Links) ein.
 $dynamicScheme = \App\Security\ClientIp::isHttps() ? 'https://' : 'http://';
-$dynamicHost = $_SERVER['HTTP_HOST'] ?? 'hengstverzeichnis.de';
+$dynamicHost = \App\Security\TrustedHost::resolve() ?: 'hengstverzeichnis.de';
 define('APP_URL', getenv('APP_URL') ?: ($dynamicScheme . $dynamicHost));
 
 // Application Secret Key for AES-256-GCM Encryption

@@ -30,8 +30,10 @@ class Mailer {
         if (defined('APP_URL') && !empty(APP_URL)) {
             return rtrim(APP_URL, '/') . '/';
         }
+        // Fallback ohne base_url/APP_URL: Host-Header nur validiert übernehmen
+        // (Issue #116, Reset-Link-Poisoning) - siehe App\Security\TrustedHost.
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
-        $host = $_SERVER['HTTP_HOST'] ?? 'hengstverzeichnis.de';
+        $host = \App\Security\TrustedHost::resolve() ?: 'hengstverzeichnis.de';
         return $scheme . $host . '/';
     }
 
@@ -40,7 +42,7 @@ class Mailer {
      */
     public function send(string $toEmail, string $subject, string $htmlBody, string $textBody = ''): bool {
         $driver = $this->config['mail_driver'] ?? 'smtp';
-        $fromEmail = $this->config['mail_from_email'] ?? ($this->config['smtp_user'] ?? 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
+        $fromEmail = $this->config['mail_from_email'] ?? ($this->config['smtp_user'] ?? 'noreply@' . (\App\Security\TrustedHost::resolve() ?: 'localhost'));
         $fromName = $this->config['mail_from_name'] ?? ($this->config['site_name'] ?? 'Hengstverzeichnis');
 
         // Defense in depth gegen SMTP-Command-/Header-Injection: Empfänger- und
@@ -325,6 +327,30 @@ class Mailer {
                 <p style='margin: 25px 0;'><a href='{$resetUrl}' style='background: #2a52be; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;'>Passwort zurücksetzen</a></p>
                 <p style='font-size: 0.85rem; color: #666;'>Falls der Button nicht funktioniert, kopieren Sie diesen Link in Ihren Browser:<br><a href='{$resetUrl}'>{$resetUrl}</a></p>
                 <p style='color: #888; font-size: 0.85rem; margin-top: 20px;'>Hinweis: Aus Sicherheitsgründen bleibt Ihre 2-Faktor-Authentifizierung (2FA) weiterhin aktiv.</p>
+            </div>
+        ";
+
+        return $this->send($userEmail, $subject, $html);
+    }
+
+    /**
+     * Verifizierungs-Mail der Selfservice-Registrierung (#83): Der Link
+     * bestätigt die E-Mail-Adresse und schaltet damit die Erstanmeldung frei
+     * (siehe RegistrationController::verify()).
+     */
+    public function sendEmailVerification(string $userEmail, string $verificationToken): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $verifyUrl = $this->getBaseUrl() . "verify-email?token={$verificationToken}";
+
+        $subject = "E-Mail-Adresse bestätigen - {$siteName}";
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                <h2 style='color: #2a52be;'>E-Mail-Adresse bestätigen</h2>
+                <p>Sie haben sich bei <strong>{$siteName}</strong> registriert.</p>
+                <p>Klicken Sie auf den folgenden Link, um Ihre E-Mail-Adresse zu bestätigen und Ihr Konto zu aktivieren. Der Link ist <strong>48 Stunden</strong> lang gültig:</p>
+                <p style='margin: 25px 0;'><a href='{$verifyUrl}' style='background: #2a52be; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;'>E-Mail-Adresse bestätigen</a></p>
+                <p style='font-size: 0.85rem; color: #666;'>Falls der Button nicht funktioniert, kopieren Sie diesen Link in Ihren Browser:<br><a href='{$verifyUrl}'>{$verifyUrl}</a></p>
+                <p style='color: #888; font-size: 0.85rem; margin-top: 20px;'>Falls Sie sich nicht registriert haben, können Sie diese E-Mail ignorieren - das Konto bleibt ohne Bestätigung dauerhaft inaktiv.</p>
             </div>
         ";
 

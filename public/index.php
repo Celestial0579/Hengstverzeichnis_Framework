@@ -76,6 +76,15 @@ $router->post('/dsgvo', [App\Controllers\PublicController::class, 'dsgvoSubmit']
 $router->get('/login', [App\Controllers\AuthController::class, 'loginForm']);
 $router->post('/login', [App\Controllers\AuthController::class, 'loginSubmit']);
 $router->post('/logout', [App\Controllers\AuthController::class, 'logout']);
+// EntraID-SSO (#42, nur aktiv wenn ENTRA_* konfiguriert ist)
+$router->get('/auth/entra', [App\Controllers\EntraSsoController::class, 'redirect']);
+$router->get('/auth/entra/callback', [App\Controllers\EntraSsoController::class, 'callback']);
+
+// Selfservice-Registrierung (#83, nur aktiv wenn Systemeinstellung gesetzt)
+$router->get('/register', [App\Controllers\RegistrationController::class, 'showForm']);
+$router->post('/register', [App\Controllers\RegistrationController::class, 'submit']);
+$router->get('/verify-email', [App\Controllers\RegistrationController::class, 'verify']);
+
 $router->get('/forgot-password', [App\Controllers\AuthController::class, 'forgotPassword']);
 $router->post('/forgot-password', [App\Controllers\AuthController::class, 'sendResetLink']);
 $router->get('/reset-password', [App\Controllers\AuthController::class, 'resetPassword']);
@@ -86,6 +95,7 @@ $router->post('/force-password-change', [App\Controllers\AuthController::class, 
 // 2FA Routes
 $router->get('/2fa/setup', [App\Controllers\AuthController::class, 'show2faSetup']);
 $router->post('/2fa/enable', [App\Controllers\AuthController::class, 'enable2fa']);
+$router->post('/2fa/reauth', [App\Controllers\AuthController::class, 'process2faReauth']);
 $router->get('/2fa/verify', [App\Controllers\AuthController::class, 'show2faVerify']);
 $router->post('/2fa/verify', [App\Controllers\AuthController::class, 'process2faVerify']);
 $router->get('/login/2fa', [App\Controllers\AuthController::class, 'show2faVerify']);
@@ -177,6 +187,7 @@ $router->get('/admin/groups', [App\Controllers\GroupController::class, 'index'])
 $router->post('/admin/groups/create', [App\Controllers\GroupController::class, 'createGroup']);
 $router->post('/admin/groups/delete', [App\Controllers\GroupController::class, 'deleteGroup']);
 $router->post('/admin/groups/permissions', [App\Controllers\GroupController::class, 'updatePermissions']);
+$router->post('/admin/groups/require-2fa', [App\Controllers\GroupController::class, 'updateRequire2fa']);
 $router->post('/admin/groups/copy-permissions', [App\Controllers\GroupController::class, 'copyPermissions']);
 
 // Admin Cron-/Scheduler-Verwaltung (#67)
@@ -191,6 +202,11 @@ $router->get('/cron/run', [App\Controllers\CronController::class, 'run']);
 $router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
 
 // Admin Backup-Verwaltung (#59)
+// Automatisches Update (#85, nur manuell und mit Pflicht-Backup)
+$router->get('/admin/updates', [App\Controllers\UpdateController::class, 'index']);
+$router->post('/admin/updates/run', [App\Controllers\UpdateController::class, 'run']);
+$router->post('/admin/updates/channel', [App\Controllers\UpdateController::class, 'saveChannel']);
+
 $router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);
 $router->post('/admin/backups', [App\Controllers\AdminController::class, 'updateBackupSettings']);
 $router->post('/admin/backups/test', [App\Controllers\AdminController::class, 'testBackup']);

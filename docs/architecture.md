@@ -294,9 +294,11 @@ synchron innerhalb dieses einen Requests ausführt.
 - Zwei Auslösewege, beide letztlich `Scheduler::runDue()`:
   - **Extern:** `App\Controllers\CronController::run()` unter `/cron/run` -
     öffentlich erreichbar, aber durch ein admin-generiertes Secret
-    geschützt (`X-Cron-Secret`-Header oder `?token=`-Query-Parameter,
-    `hash_equals()`-Vergleich). Bewusst ohne Admin-Login, da ein System-Cron
-    keine Session mitbringen kann.
+    geschützt (ausschließlich per `X-Cron-Secret`-Header,
+    `hash_equals()`-Vergleich; ein Query-Parameter-Weg wurde entfernt, da
+    Secrets im Query-String in Access-/Proxy-Logs landen, siehe #114).
+    Bewusst ohne Admin-Login, da ein System-Cron keine Session mitbringen
+    kann.
   - **Manuell:** `/admin/cron` (`AdminController::cronSettings()`/
     `runCronNow()`) zeigt registrierte Aufgaben samt letztem Lauf und
     erlaubt einen sofortigen manuellen Lauf - Alternative für Betreiber ohne

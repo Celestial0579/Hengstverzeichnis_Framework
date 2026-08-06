@@ -77,9 +77,11 @@ class CronTest extends FunctionalTestCase {
         $this->assertIsArray($payload);
         $this->assertSame([], $payload['ran']);
 
-        // Alternativer Query-Parameter-Weg (siehe CronController::run()) funktioniert ebenfalls.
+        // Der frühere Query-Parameter-Weg (?token=) wird aus Sicherheitsgründen
+        // nicht mehr akzeptiert - Secrets im Query-String landen in Access-Logs
+        // (Issue #114).
         $queryParamResponse = $client->get('/cron/run?token=' . urlencode($secret));
-        $this->assertSame(200, $queryParamResponse->statusCode);
+        $this->assertSame(403, $queryParamResponse->statusCode);
     }
 
     public function testRunCronNowRequiresCsrfToken(): void {

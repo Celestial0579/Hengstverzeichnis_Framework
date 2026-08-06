@@ -498,6 +498,30 @@ class Database {
         // für die Anzeige unter /admin/plugins - rein informativ, NULL bei manuell
         // (per cp -r) installierten Plugins ohne Store-Herkunft.
         $addColumn('plugins', 'source', "VARCHAR(150) NULL DEFAULT NULL AFTER `content_hash`");
+
+        // 15. Session-Invalidierung bei Passwortänderung (#113): Zähler wird bei
+        // jeder Passwortänderung erhöht; BaseController::checkAuth() vergleicht
+        // ihn mit dem beim Login in der Session abgelegten Wert und beendet
+        // Sessions mit veraltetem Stand (siehe docs/security.md).
+        $addColumn('users', 'session_version', 'INT NOT NULL DEFAULT 1');
+
+        // 16. TOTP-Replay-Schutz (#111): zuletzt verbrauchter TOTP-Zeitschlitz -
+        // Totp::verifyCodeReturnSlice() lehnt Schlitze <= diesem Wert ab, ein
+        // Code ist damit single-use (siehe AuthController::process2faVerify()).
+        $addColumn('users', 'last_totp_timeslice', 'BIGINT NULL DEFAULT NULL');
+
+        // 17. 2FA-Pflicht pro Gruppe (#84): Default 1 = verpflichtend (Status
+        // quo für Bestandsgruppen). Für die Gruppe `admin` fest verdrahtet
+        // immer verpflichtend, unabhängig von dieser Spalte (siehe
+        // AuthController::userRequires2fa() und GroupController).
+        $addColumn('groups', 'require_2fa', 'TINYINT(1) NOT NULL DEFAULT 1');
+
+        // 18. Selfservice-Registrierung (#83): E-Mail-Verifizierung vor der
+        // Erstanmeldung. Ein gesetzter Token bedeutet "noch nicht verifiziert" -
+        // der Login ist bis zur Bestätigung gesperrt (AuthController). Admin-
+        // angelegte Konten erhalten nie einen Token und sind nicht betroffen.
+        $addColumn('users', 'email_verification_token', 'VARCHAR(64) NULL DEFAULT NULL');
+        $addColumn('users', 'email_verification_expires_at', 'DATETIME NULL DEFAULT NULL');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

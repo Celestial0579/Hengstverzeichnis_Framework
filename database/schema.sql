@@ -27,6 +27,12 @@ CREATE TABLE IF NOT EXISTS `users` (
     `totp_enabled` TINYINT(1) DEFAULT 0,
     `backup_codes` TEXT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
+    `session_version` INT NOT NULL DEFAULT 1,
+    `last_totp_timeslice` BIGINT NULL DEFAULT NULL,
+    -- Selfservice-Registrierung (#83): gesetzter Token = E-Mail noch nicht
+    -- verifiziert, Login gesperrt. Admin-angelegte Konten: immer NULL.
+    `email_verification_token` VARCHAR(64) NULL DEFAULT NULL,
+    `email_verification_expires_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -168,6 +174,10 @@ CREATE TABLE IF NOT EXISTS `groups` (
     `name` VARCHAR(100) NOT NULL,
     `description` VARCHAR(255) NULL,
     `is_builtin` TINYINT(1) NOT NULL DEFAULT 0,
+    -- 2FA-Pflicht pro Gruppe (#84): 1 = Mitglieder müssen TOTP-2FA einrichten.
+    -- Für `admin` fest verdrahtet immer verpflichtend, unabhängig von dieser
+    -- Spalte (siehe AuthController::userRequires2fa()).
+    `require_2fa` TINYINT(1) NOT NULL DEFAULT 1,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -1,5 +1,23 @@
 # Releases
 
+> **Automatisches Update (#85):** Installationen können neue Releases direkt
+> im Admin-Bereich unter `/admin/updates` prüfen und einspielen
+> (`App\Service\UpdateService`). Voraussetzung ist ein konfiguriertes
+> automatisches Backup (#59) - vor jedem Update läuft zwingend ein
+> Backup-Lauf; schlägt er fehl, wird das Update abgebrochen. Angewendet wird
+> das unten beschriebene bereinigte Shared-Hosting-Zip; `config/db_config.php`,
+> `public/uploads/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
+> laufen wie gewohnt beim nächsten Request (`Database::ensureSchemaUpToDate()`).
+>
+> **Update-Kanäle:** Standard ist „Stabil" (nur reguläre Releases). Per
+> Beta-Opt-in auf der Update-Seite (Setting `update_channel`) werden
+> zusätzlich als **Prerelease** markierte GitHub-Releases angeboten — beim
+> Veröffentlichen einer Vorabversion also das Prerelease-Häkchen setzen.
+> In beiden Kanälen sind ausschließlich strikt neuere Versionen Kandidaten
+> (`UpdateService::selectBestRelease()`): ein Downgrade ist ausgeschlossen,
+> auch beim Wechsel von Beta zurück auf Stabil (die Installation bleibt dann
+> auf der Beta-Version, bis ein neueres stabiles Release erscheint).
+
 Release-**Notes** bleiben bewusst manuell kuratiert (siehe
 [CHANGELOG.md](../CHANGELOG.md) und bestehende
 [Releases](../../../releases)) – nur die **Artefakte** werden automatisch

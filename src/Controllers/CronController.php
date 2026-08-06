@@ -32,7 +32,10 @@ class CronController extends BaseController {
             return;
         }
 
-        $providedSecret = $_SERVER['HTTP_X_CRON_SECRET'] ?? ($_GET['token'] ?? '');
+        // Nur der Header wird akzeptiert - ein Secret im Query-String (?token=)
+        // würde in Webserver-/Proxy-Access-Logs und ggf. Referer-Headern landen
+        // (Issue #114).
+        $providedSecret = $_SERVER['HTTP_X_CRON_SECRET'] ?? '';
         if (!is_string($providedSecret) || $providedSecret === '' || !hash_equals($configuredSecret, $providedSecret)) {
             http_response_code(403);
             echo json_encode(['error' => 'Ungültiges oder fehlendes Cron-Secret.']);

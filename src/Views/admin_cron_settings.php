@@ -32,10 +32,9 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
         <p style="color: #666;">Auf dem Server, der diese Installation betreibt, z. B. per <code>crontab -e</code> minütlich einrichten:</p>
         <pre style="background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem;">* * * * * curl -fsS -H "X-Cron-Secret: <?= htmlspecialchars($cronSecret) ?>" <?= htmlspecialchars($cronUrl) ?> &gt;/dev/null</pre>
         <p style="color: #666; font-size: 0.9rem;">
-            Alternativ kann das Secret auch als Query-Parameter übergeben werden
-            (<code><?= htmlspecialchars($cronUrl) ?>?token=...</code>), z. B. wenn kein
-            benutzerdefinierter Header gesetzt werden kann - dabei landet das Secret ggf. in
-            Server-/Proxy-Logs, der Header-Weg ist daher vorzuziehen.
+            Das Secret wird ausschließlich über den Header <code>X-Cron-Secret</code>
+            akzeptiert. Eine Übergabe als Query-Parameter wird nicht unterstützt, da das
+            Secret dabei in Server-/Proxy-Logs landen würde.
         </p>
     <?php endif; ?>
 

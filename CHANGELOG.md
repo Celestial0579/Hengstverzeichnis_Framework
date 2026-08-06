@@ -10,6 +10,22 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- CSV-Bulk-Import für Pferde (#49, `/admin/import/horses`): Vorschau mit
+  Validierung je Zeile (Pflichtfeld, Feldlängen, UELN-Eindeutigkeit
+  innerhalb der Datei und gegen bestehende Pferde, gültiger Status,
+  plausibles Geburtsjahr) vor dem tatsächlichen Import, fehlerhafte Zeilen
+  werden übersprungen statt die gesamte Datei abzulehnen. Erkennt
+  Komma/Semikolon als Trennzeichen automatisch und normalisiert
+  nicht-UTF-8-Exporte älterer Excel-Versionen. Bewusst nur echtes CSV
+  (kein natives .xlsx-Parsing) - konsistent mit der
+  "keine externen Abhängigkeiten"-Philosophie des Kerns, jede
+  Tabellenkalkulation kann als CSV exportieren. `App\Service\HorseCsvImporter`
+  kapselt Parsing/Validierung, damit `preview()` und `commit()` exakt
+  dieselbe Logik auf demselben, serverseitig zwischengespeicherten
+  Rohinhalt anwenden. Importierte Pferde mit unaufgelöster Vater-/
+  Mutter-Angabe lassen sich anschließend wie bei der manuellen Einzelanlage
+  über das bestehende Blutlinien-Zusammenführen-Werkzeug verknüpfen.
+
 - Darkmode (#91): Umschaltbares dunkles Farbschema für den öffentlichen
   Katalog und den Admin-Bereich, zentral über CSS-Variablen in
   `public/css/style.css` (`--bg-color`, `--text-color`, `--card-bg`, `--border-color`,

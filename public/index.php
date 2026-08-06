@@ -151,6 +151,11 @@ $router->post('/admin/horses/delete', [App\Controllers\HorseController::class, '
 $router->get('/admin/matches', [App\Controllers\HorseController::class, 'matches']);
 $router->post('/admin/matches/link', [App\Controllers\HorseController::class, 'linkMatch']);
 
+// Pferde-Bulk-Import (CSV, #49)
+$router->get('/admin/import/horses', [App\Controllers\ImportController::class, 'showForm']);
+$router->post('/admin/import/horses/preview', [App\Controllers\ImportController::class, 'preview']);
+$router->post('/admin/import/horses/commit', [App\Controllers\ImportController::class, 'commit']);
+
 // Audit Log Route
 $router->get('/admin/logs', [App\Controllers\AdminController::class, 'logs']);
 

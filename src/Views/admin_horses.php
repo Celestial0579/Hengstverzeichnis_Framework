@@ -13,6 +13,7 @@
         <div style="display: flex; gap: 0.5rem;">
             <a href="/admin/matches" class="btn btn-secondary">🔗 Blutlinien Zusammenführen</a>
             <?php if ($canCreate): ?>
+                <a href="/admin/import/horses" class="btn btn-secondary">📄 CSV-Import</a>
                 <a href="/admin/horses/create" class="btn">Neues Pferd anlegen</a>
             <?php endif; ?>
         </div>

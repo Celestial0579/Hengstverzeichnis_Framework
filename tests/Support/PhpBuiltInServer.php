@@ -18,6 +18,7 @@ class PhpBuiltInServer {
     /** @var resource|null */
     private static $process = null;
     private static bool $shutdownRegistered = false;
+    private static string $logFile = '';
 
     public static function baseUrl(): string {
         return 'http://' . self::HOST . ':' . self::PORT;
@@ -34,10 +35,17 @@ class PhpBuiltInServer {
         }
 
         $publicDir = __DIR__ . '/../../public';
+        // stdout/stderr in eine Log-Datei statt in Pipes: php -S schreibt jede
+        // Zugriffszeile nach stderr. Eine Pipe, die niemand ausliest, läuft
+        // nach genügend Requests voll (OS-Puffer ~64 KB) und blockiert dann den
+        // Server-Prozess dauerhaft beim Log-Schreiben - die Suite hängt ab da
+        // mit Timeouts (Issue #102). Die Datei bleibt nach dem Lauf zur
+        // Fehlersuche liegen und wird beim nächsten Start überschrieben.
+        self::$logFile = sys_get_temp_dir() . '/hengst_test_server.log';
         $descriptorSpec = [
             0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            1 => ['file', self::$logFile, 'w'],
+            2 => ['file', self::$logFile, 'w'],
         ];
 
         self::$process = proc_open(
@@ -50,11 +58,6 @@ class PhpBuiltInServer {
         if (!is_resource(self::$process)) {
             throw new \RuntimeException('Konnte php -S Testserver nicht starten.');
         }
-
-        // Nicht-blockierend lesen, damit die Pipes nicht volllaufen und den
-        // Server-Prozess blockieren (php -S schreibt Zugriffs-Logs nach stderr).
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
 
         if (!self::$shutdownRegistered) {
             register_shutdown_function([self::class, 'stop']);

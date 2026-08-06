@@ -10,6 +10,13 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Neuer Plugin-Filter-Hook `catalog.card_sections` (#97): Erweiterungspunkt
+  für zusätzlichen Inhalt je Karte im öffentlichen Katalog (z. B. ein
+  "Merken"-Button), analog zu `horse.detail_sections` auf der Detailseite.
+  Läuft für beide Rendering-Pfade des Katalogs (normal + AJAX-Filterung), da
+  beide dieselbe `public_catalog_cards.php` nutzen. Siehe
+  [docs/plugin-development.md](docs/plugin-development.md).
+
 - Addon-Store (`/admin/plugins/store`, siehe
   [docs/plugin-system-plan.md](docs/plugin-system-plan.md), Abschnitt 2.7):
   listet Plugins aus dem offiziellen

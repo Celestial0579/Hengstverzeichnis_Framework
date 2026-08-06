@@ -167,7 +167,15 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `horse.before_save` | Action | Direkt vor `INSERT`/`UPDATE` in `HorseController::store()`/`update()` | `function(?int $horseId, array $postData): void` — `$horseId` ist `null` beim Anlegen |
 | `horse.after_save` | Action | Direkt nach dem erfolgreichen Speichern (inkl. Personen-/Match-Verknüpfung) | `function(int $horseId, array $postData, bool $isNew): void` |
 | `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde |
+| `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
+
+**Performance-Hinweis zu `catalog.card_sections`:** Der Filter läuft einmal
+pro Treffer der aktuellen Katalog-Suche/-Filterung, nicht nur pro sichtbarer
+Karte (der Katalog paginiert nicht serverseitig). Bei sehr großen Katalogen
+und teuren Callbacks (z. B. eigene DB-Abfragen je Pferd) entsprechend auf
+effiziente Umsetzung achten (z. B. Daten für alle betroffenen Pferde vorab in
+einer einzigen Abfrage laden statt im Callback selbst zu queryen).
 
 **Wichtig zu `horse.before_save`:** Da ein fehlgeschlagener Hook-Aufruf den
 Kern-Workflow nicht blockieren darf (siehe Sicherheitsmodell unten), kann

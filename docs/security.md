@@ -25,6 +25,13 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
     reduziert das Fenster für Session-Fixation-Angriffe.
   - **Erzwungene Passwortänderung:** `must_change_password`-Flag blockiert
     alle Routen außer `/force-password-change` und `/logout`.
+  - **Session-Invalidierung bei Passwortänderung (#113):** `users.session_version`
+    wird bei jeder Passwortänderung (Reset per Mail-Token, erzwungener Wechsel,
+    Admin-Änderung) erhöht; `checkAuth()` vergleicht den beim Login in der
+    Session abgelegten Stand bei jedem Request und beendet Sessions mit
+    veraltetem Wert. Eine von einem Angreifer gehaltene Alt-Session überlebt
+    den Passwort-Reset des Opfers damit nicht. Die Session, die die Änderung
+    selbst ausgelöst hat, übernimmt den neuen Stand und bleibt angemeldet.
 
 ## CSRF-Schutz
 

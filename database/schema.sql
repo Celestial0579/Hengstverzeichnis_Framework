@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `totp_enabled` TINYINT(1) DEFAULT 0,
     `backup_codes` TEXT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
+    `session_version` INT NOT NULL DEFAULT 1,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

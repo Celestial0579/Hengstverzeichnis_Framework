@@ -434,6 +434,12 @@ class Database {
         // für die Anzeige unter /admin/plugins - rein informativ, NULL bei manuell
         // (per cp -r) installierten Plugins ohne Store-Herkunft.
         $addColumn('plugins', 'source', "VARCHAR(150) NULL DEFAULT NULL AFTER `content_hash`");
+
+        // 15. Session-Invalidierung bei Passwortänderung (#113): Zähler wird bei
+        // jeder Passwortänderung erhöht; BaseController::checkAuth() vergleicht
+        // ihn mit dem beim Login in der Session abgelegten Wert und beendet
+        // Sessions mit veraltetem Stand (siehe docs/security.md).
+        $addColumn('users', 'session_version', 'INT NOT NULL DEFAULT 1');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

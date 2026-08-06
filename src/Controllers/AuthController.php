@@ -402,8 +402,11 @@ class AuthController extends BaseController {
 
         $newPasswordHash = password_hash($password, PASSWORD_DEFAULT);
 
-        // Update user's password hash
-        $stmt = $db->prepare("UPDATE users SET password_hash = ? WHERE email = ?");
+        // Update user's password hash. session_version wird erhöht, damit alle
+        // bestehenden Sessions dieses Benutzers sofort ungültig werden (#113) -
+        // gerade der Passwort-Reset ist die typische Reaktion auf einen
+        // Kompromittierungsverdacht.
+        $stmt = $db->prepare("UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE email = ?");
         $stmt->execute([$newPasswordHash, $reset['email']]);
 
         // Consume reset token
@@ -419,7 +422,7 @@ class AuthController extends BaseController {
 
     private function completeLogin(int $userId, string $redirectSuccess = '/admin'): void {
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT username, must_change_password FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT username, must_change_password, session_version FROM users WHERE id = ?");
         $stmt->execute([$userId]);
         $userRow = $stmt->fetch();
 
@@ -431,6 +434,9 @@ class AuthController extends BaseController {
         $_SESSION['user_agent_hash'] = hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? '');
         $_SESSION['last_activity'] = time();
         $_SESSION['created_time'] = time();
+        // Für die Session-Invalidierung bei Passwortänderung (#113, siehe
+        // BaseController::checkAuth()).
+        $_SESSION['session_version'] = (int)($userRow['session_version'] ?? 1);
 
         unset($_SESSION['pending_2fa_user_id']);
         session_regenerate_id(true);
@@ -483,8 +489,15 @@ class AuthController extends BaseController {
 
         $db = Database::getInstance();
         $hash = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?");
+        // session_version erhöhen, damit andere bestehende Sessions dieses
+        // Benutzers ungültig werden (#113) - die eigene, gerade aktive Session
+        // übernimmt den neuen Stand direkt und bleibt angemeldet.
+        $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1 WHERE id = ?");
         $stmt->execute([$hash, $userId]);
+
+        $stmt = $db->prepare("SELECT session_version FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $_SESSION['session_version'] = (int)$stmt->fetchColumn();
 
         unset($_SESSION['must_change_password']);
 

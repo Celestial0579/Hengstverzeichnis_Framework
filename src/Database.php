@@ -391,6 +391,40 @@ class Database {
                 $pdo->exec("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES ('migration_editor_explicit_group', '1')");
             }
         } catch (\Throwable $e) {}
+
+        // 14. Addon-Store (Registry-Client, siehe docs/plugin-system-plan.md Phase 3
+        // und App\Service\GithubAddonRepository): registrierte GitHub-Repos, aus denen
+        // Admins Plugins direkt im Browser installieren können, statt sie manuell per
+        // `cp -r` nach plugins/ zu kopieren. `is_official` markiert das mitgelieferte
+        // Hengstverzeichnis_Addons-Repo - es ist immer vorhanden und kann nicht über die
+        // UI entfernt werden (siehe AddonStoreController::removeRepo()), jedes weitere
+        // Repo ist eine bewusste, von einem Admin per Link hinzugefügte Quelle. Der
+        // Katalog eines Repos (gescannte plugins/*/plugin.json) wird kurzzeitig
+        // gecacht (cached_catalog_json/cached_at), um nicht bei jedem Aufruf von
+        // /admin/plugins/store erneut das komplette Tarball herunterzuladen.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `addon_repos` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `owner` VARCHAR(100) NOT NULL,
+                `repo` VARCHAR(100) NOT NULL,
+                `ref` VARCHAR(100) NULL DEFAULT NULL,
+                `is_official` TINYINT(1) NOT NULL DEFAULT 0,
+                `added_by` INT NULL DEFAULT NULL,
+                `cached_catalog_json` MEDIUMTEXT NULL DEFAULT NULL,
+                `cached_at` DATETIME NULL DEFAULT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `owner_repo` (`owner`, `repo`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
+        try {
+            $pdo->exec("INSERT IGNORE INTO addon_repos (owner, repo, ref, is_official) VALUES ('Celestial0579', 'Hengstverzeichnis_Addons', NULL, 1)");
+        } catch (\Throwable $e) {}
+
+        // Herkunft eines installierten Plugins (z. B. 'Celestial0579/Hengstverzeichnis_Addons@main')
+        // für die Anzeige unter /admin/plugins - rein informativ, NULL bei manuell
+        // (per cp -r) installierten Plugins ohne Store-Herkunft.
+        $addColumn('plugins', 'source', "VARCHAR(150) NULL DEFAULT NULL AFTER `content_hash`");
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

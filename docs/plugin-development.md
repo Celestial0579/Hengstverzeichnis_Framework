@@ -10,6 +10,17 @@ Plugins leben **nicht** im Kern-Repository (`plugins/` ist absichtlich in
 `.gitignore` eingetragen, nur `plugins/.gitkeep` wird versioniert) — sie
 werden separat gepflegt und lokal in `plugins/<slug>/` abgelegt.
 
+**Installation über den Addon-Store:** Statt der unten beschriebenen
+manuellen `cp -r`-Installation kann ein Admin Plugins auch direkt über
+**Admin → Plugins verwalten → 🛒 Addon-Store durchsuchen**
+(`/admin/plugins/store`) aus dem offiziellen
+[Hengstverzeichnis_Addons](https://github.com/Celestial0579/Hengstverzeichnis_Addons)-Repo
+oder einem beliebigen selbst hinzugefügten GitHub-Repo installieren - siehe
+[plugin-system-plan.md](plugin-system-plan.md), Abschnitt 2.7. Auch dabei
+gilt unverändert: Installieren legt den Code nur unter `plugins/<slug>/` ab,
+aktiviert ihn aber nicht - die Aktivierung bleibt der bewusste, separate
+Schritt unten auf dieser Seite.
+
 ## Schnellstart: Referenz-Plugin ausprobieren
 
 ```bash

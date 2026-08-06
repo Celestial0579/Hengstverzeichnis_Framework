@@ -13,7 +13,10 @@ $manager = \App\Plugin\PluginManager::getInstance();
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
         <h2 style="margin: 0;">🧩 Plugins verwalten</h2>
-        <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>
+        <div style="display: flex; gap: 0.5rem;">
+            <a href="/admin/plugins/store" class="btn">🛒 Addon-Store durchsuchen</a>
+            <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>
+        </div>
     </div>
 
     <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.2rem;">

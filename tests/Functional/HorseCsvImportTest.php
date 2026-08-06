@@ -73,6 +73,10 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertStringContainsString('Name fehlt', $previewResponse->body);
         $this->assertStringContainsString('ungültig', $previewResponse->body);
 
+        // Ohne gesetzte Veröffentlichen-Checkbox: importierte Pferde bleiben - wie jedes
+        // neu angelegte Pferd - standardmäßig unveröffentlicht (is_published = 0). Die
+        // optionale Opt-in-Checkbox (nur mit horses.publish) wird hier bewusst NICHT
+        // mitgesendet; die DB-Verifikation erfolgt deshalb über die Backend-Liste.
         $commitResponse = $admin->post('/admin/import/horses/commit', [
             'csrf_token' => $previewResponse->formField('csrf_token') ?? '',
         ]);

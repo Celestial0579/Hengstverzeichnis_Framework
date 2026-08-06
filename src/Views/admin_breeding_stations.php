@@ -5,7 +5,13 @@
  * @var bool $canCreate
  * @var bool $canEdit
  * @var bool $canDelete
+ * @var bool $canPublish
+ * @var int|null $publishedFilter Aktiver Filter: 1, 0 oder null (alle)
  */
+$canPublish = $canPublish ?? false;
+$publishedFilter = $publishedFilter ?? null;
+$publishBase = '/admin/breeding-stations';
+$publishFormId = 'stationPublishForm';
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
@@ -24,25 +30,31 @@
         </div>
     <?php endif; ?>
 
+    <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
+    <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
+
     <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
         <thead>
             <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                <?php if ($canPublish): ?><th style="padding: 0.6rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
                 <th style="padding: 0.6rem;">ID</th>
                 <th style="padding: 0.6rem;">Name der Station / Gestüt</th>
                 <th style="padding: 0.6rem;">Ansprechpartner</th>
                 <th style="padding: 0.6rem;">Kontakt / E-Mail / Telefon</th>
                 <th style="padding: 0.6rem;">Pferde</th>
+                <th style="padding: 0.6rem;">Sichtbarkeit</th>
                 <th style="padding: 0.6rem;">Aktionen</th>
             </tr>
         </thead>
         <tbody>
             <?php if (empty($stations)): ?>
                 <tr>
-                    <td colspan="6" style="padding: 1.5rem; text-align: center; color: #777;">Noch keine Deckstationen angelegt.</td>
+                    <td colspan="<?= $canPublish ? 8 : 7 ?>" style="padding: 1.5rem; text-align: center; color: #777;">Noch keine Deckstationen angelegt.</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($stations as $st): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
+                        <?php if ($canPublish): ?><td style="padding: 0.6rem;"><input type="checkbox" name="ids[]" value="<?= (int)$st['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
                         <td style="padding: 0.6rem;"><?= htmlspecialchars((string)$st['id']) ?></td>
                         <td style="padding: 0.6rem;">
                             <strong><?= htmlspecialchars((string)$st['name']) ?></strong>
@@ -59,6 +71,11 @@
                         <td style="padding: 0.6rem;">
                             <span style="background: #e2e3e5; color: #383d41; padding: 0.2rem 0.5rem; border-radius: 12px; font-size: 0.85rem; font-weight: bold;">
                                 <?= (int)$st['horse_count'] ?> Pferde
+                            </span>
+                        </td>
+                        <td style="padding: 0.6rem;">
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($st['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($st['is_published']) ? '#155724' : '#721c24' ?>;">
+                                <?= !empty($st['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
                             </span>
                         </td>
                         <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">

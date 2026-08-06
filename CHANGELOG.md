@@ -58,7 +58,12 @@ Breaking Changes sind jederzeit möglich).
   dieselbe Logik auf demselben, serverseitig zwischengespeicherten
   Rohinhalt anwenden. Importierte Pferde mit unaufgelöster Vater-/
   Mutter-Angabe lassen sich anschließend wie bei der manuellen Einzelanlage
-  über das bestehende Blutlinien-Zusammenführen-Werkzeug verknüpfen.
+  über das bestehende Blutlinien-Zusammenführen-Werkzeug verknüpfen. Die
+  Veröffentlichung ist - konsistent mit der Entkopplung von Status/Sichtbarkeit
+  (siehe unten) - eine bewusste Import-Entscheidung über eine eigene
+  Checkbox (nur mit `horses.publish`): ohne Häkchen werden die Pferde
+  unveröffentlicht angelegt und können später über die Massen-Veröffentlichung
+  freigegeben werden.
 
 - Darkmode (#91): Umschaltbares dunkles Farbschema für den öffentlichen
   Katalog und den Admin-Bereich, zentral über CSS-Variablen in
@@ -92,6 +97,20 @@ Breaking Changes sind jederzeit möglich).
   Pferde erscheinen im öffentlichen Katalog/API, der Status ist rein informativ
   und beeinflusst die Sichtbarkeit nicht mehr. Bestehende `status='active'`-
   Pferde werden beim Upgrade automatisch auf veröffentlicht migriert.
+- Veröffentlichung jetzt auch für **Personen** und **Deckstationen** (neues
+  `is_published`-Flag je Tabelle, analog zu Pferden): unveröffentlichte
+  Stationen sind öffentlich nicht mehr erreichbar (`/station?id=` → 404) und
+  unveröffentlichte Personen/Stationen erscheinen nicht in den Katalog-Filter-
+  listen. Bestehende Datensätze werden beim Upgrade auf veröffentlicht migriert,
+  neu angelegte starten unveröffentlicht. Personen-/Stations-Formular erhalten
+  dafür - wie das Pferde-Formular - eine „Öffentlich sichtbar“-Checkbox (nur mit
+  `publish`-Recht).
+- Massen-Veröffentlichung in den Admin-Listen für Pferde, Personen und
+  Deckstationen: Filter „Alle / Veröffentlicht / Nicht veröffentlicht“,
+  Zeilen-Auswahl per Checkbox (inkl. „alle auswählen“) sowie die Aktionen
+  „Veröffentlichen“ und „Veröffentlichung zurücknehmen“ für die Auswahl (nur
+  mit `publish`-Recht, CSRF-geschützt). Neue Endpunkte
+  `POST /admin/horses|persons|breeding-stations/publish`.
 
 - Öffentliche Read-only-JSON-API für Katalogdaten (#47): `GET /api/horses`
   (Liste, filterbar/paginierbar) und `GET /api/horses/show?ueln=...`

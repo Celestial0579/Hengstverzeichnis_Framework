@@ -15,24 +15,71 @@ class BreedingStationController extends BaseController {
     public function index(): void {
         $this->requirePermission('breeding_stations', 'view');
 
+        // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
+        // BaseController::normalizePublishedFilter().
+        $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
+        $publishedSql = $publishedFilter === null ? '' : ' AND bs.is_published = ?';
+
         $db = Database::getInstance();
-        $stmt = $db->query("
-            SELECT bs.*, COUNT(h.id) as horse_count 
-            FROM breeding_stations bs 
-            LEFT JOIN horses h ON h.breeding_station_id = bs.id AND h.deleted_at IS NULL 
-            WHERE bs.deleted_at IS NULL 
-            GROUP BY bs.id 
+        $sql = "
+            SELECT bs.*, COUNT(h.id) as horse_count
+            FROM breeding_stations bs
+            LEFT JOIN horses h ON h.breeding_station_id = bs.id AND h.deleted_at IS NULL
+            WHERE bs.deleted_at IS NULL{$publishedSql}
+            GROUP BY bs.id
             ORDER BY bs.name ASC
-        ");
+        ";
+        if ($publishedFilter === null) {
+            $stmt = $db->query($sql);
+        } else {
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$publishedFilter]);
+        }
         $stations = $stmt->fetchAll();
 
         $this->render('admin_breeding_stations', [
             'title' => 'Deckstationen verwalten',
             'stations' => $stations,
+            'publishedFilter' => $publishedFilter,
             'canCreate' => $this->hasPermission('breeding_stations', 'create'),
             'canEdit' => $this->hasPermission('breeding_stations', 'edit'),
-            'canDelete' => $this->hasPermission('breeding_stations', 'delete')
+            'canDelete' => $this->hasPermission('breeding_stations', 'delete'),
+            'canPublish' => $this->hasPermission('breeding_stations', 'publish')
         ]);
+    }
+
+    /**
+     * Massen-Veröffentlichung / -Depublikation der ausgewählten Deckstationen. Nur
+     * mit 'breeding_stations.publish' erlaubt.
+     */
+    public function bulkPublish(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+        $this->requirePermission('breeding_stations', 'publish');
+
+        $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])), fn($id) => $id > 0));
+        $publish = !empty($_POST['publish']) ? 1 : 0;
+
+        if ($ids) {
+            $db = Database::getInstance();
+            // Einzelne, vollständig parametrisierte UPDATEs statt einer dynamisch
+            // zusammengesetzten IN (...)-Liste - inhaltlich identisch, vermeidet aber
+            // jede String-Interpolation im SQL (auch die des ?-Platzhalter-Strings).
+            $stmt = $db->prepare("UPDATE breeding_stations SET is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            foreach ($ids as $id) {
+                $stmt->execute([$publish, $id]);
+            }
+
+            \App\Service\AuditLogger::log(
+                $publish ? "Deckstationen veröffentlicht" : "Veröffentlichung von Deckstationen zurückgenommen",
+                "breeding_stations",
+                count($ids) . " Datensätze (IDs: " . implode(', ', $ids) . ")"
+            );
+        }
+
+        header("Location: /admin/breeding-stations?success=published" . self::publishedFilterQuery($_POST['published'] ?? null));
+        exit;
     }
 
     public function create(): void {
@@ -40,7 +87,8 @@ class BreedingStationController extends BaseController {
 
         $this->render('admin_breeding_station_form', [
             'title' => 'Neue Deckstation anlegen',
-            'station' => null
+            'station' => null,
+            'canPublish' => $this->hasPermission('breeding_stations', 'publish')
         ]);
     }
 
@@ -70,17 +118,22 @@ class BreedingStationController extends BaseController {
                 'title' => 'Neue Deckstation anlegen',
                 'station' => null,
                 'errors' => $errors,
-                'old' => $_POST
+                'old' => $_POST,
+                'canPublish' => $this->hasPermission('breeding_stations', 'publish')
             ]);
             return;
         }
 
+        // Veröffentlichung nur mit 'breeding_stations.publish' und nur bei angehakter
+        // Checkbox (analog HorseController::store()).
+        $isPublished = (!empty($_POST['is_published']) && $this->hasPermission('breeding_stations', 'publish')) ? 1 : 0;
+
         $db = Database::getInstance();
         $stmt = $db->prepare("
-            INSERT INTO breeding_stations (name, contact_person, address, phone, email, website) 
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO breeding_stations (name, contact_person, address, phone, email, website, is_published)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website]);
+        $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $isPublished]);
         $newStationId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Deckstation angelegt", "breeding_stations", "Deckstation ID {$newStationId}: {$name}");
@@ -105,7 +158,8 @@ class BreedingStationController extends BaseController {
 
         $this->render('admin_breeding_station_form', [
             'title' => 'Deckstation bearbeiten',
-            'station' => $station
+            'station' => $station,
+            'canPublish' => $this->hasPermission('breeding_stations', 'publish')
         ]);
     }
 
@@ -134,19 +188,32 @@ class BreedingStationController extends BaseController {
         if (!empty($errors)) {
             $this->render('admin_breeding_station_form', [
                 'title' => 'Deckstation bearbeiten',
-                'station' => ['id' => $id, 'name' => $name, 'contact_person' => $contactPerson, 'address' => $address, 'phone' => $phone, 'email' => $email, 'website' => $website],
-                'errors' => $errors
+                'station' => ['id' => $id, 'name' => $name, 'contact_person' => $contactPerson, 'address' => $address, 'phone' => $phone, 'email' => $email, 'website' => $website, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                'errors' => $errors,
+                'canPublish' => $this->hasPermission('breeding_stations', 'publish')
             ]);
             return;
         }
 
+        // Veröffentlichung nur mit 'breeding_stations.publish' änderbar; ohne das Recht
+        // bleibt der bisherige Zustand erhalten (analog HorseController::update()).
         $db = Database::getInstance();
-        $stmt = $db->prepare("
-            UPDATE breeding_stations 
-            SET name = ?, contact_person = ?, address = ?, phone = ?, email = ?, website = ? 
-            WHERE id = ?
-        ");
-        $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $id]);
+        if ($this->hasPermission('breeding_stations', 'publish')) {
+            $isPublished = !empty($_POST['is_published']) ? 1 : 0;
+            $stmt = $db->prepare("
+                UPDATE breeding_stations
+                SET name = ?, contact_person = ?, address = ?, phone = ?, email = ?, website = ?, is_published = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $isPublished, $id]);
+        } else {
+            $stmt = $db->prepare("
+                UPDATE breeding_stations
+                SET name = ?, contact_person = ?, address = ?, phone = ?, email = ?, website = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $id]);
+        }
 
         \App\Service\AuditLogger::log("Deckstation aktualisiert", "breeding_stations", "Deckstation ID {$id}: {$name}");
 

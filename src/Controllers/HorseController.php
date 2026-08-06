@@ -15,17 +15,65 @@ class HorseController extends BaseController {
     public function index(): void {
         $this->requirePermission('horses', 'view');
 
+        // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
+        // BaseController::normalizePublishedFilter(). Der normalisierte Wert (0/1)
+        // wird als gebundener Parameter übergeben statt in die Abfrage interpoliert.
+        $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
+        $publishedSql = $publishedFilter === null ? '' : ' AND is_published = ?';
+
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, name, ueln, birth_year, status, is_published, image_url FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
+        $sql = "SELECT id, name, ueln, birth_year, status, is_published, image_url FROM horses WHERE deleted_at IS NULL{$publishedSql} ORDER BY name ASC";
+        if ($publishedFilter === null) {
+            $stmt = $db->query($sql);
+        } else {
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$publishedFilter]);
+        }
         $horses = $stmt->fetchAll();
 
         $this->render('admin_horses', [
             'title' => 'Pferde verwalten',
             'horses' => $horses,
+            'publishedFilter' => $publishedFilter,
             'canCreate' => $this->hasPermission('horses', 'create'),
             'canEdit' => $this->hasPermission('horses', 'edit'),
-            'canDelete' => $this->hasPermission('horses', 'delete')
+            'canDelete' => $this->hasPermission('horses', 'delete'),
+            'canPublish' => $this->hasPermission('horses', 'publish')
         ]);
+    }
+
+    /**
+     * Massen-Veröffentlichung / -Depublikation der ausgewählten Pferde. Nur mit
+     * 'horses.publish' erlaubt; setzt is_published unabhängig vom Lebenszyklus-Status.
+     */
+    public function bulkPublish(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+        $this->requirePermission('horses', 'publish');
+
+        $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])), fn($id) => $id > 0));
+        $publish = !empty($_POST['publish']) ? 1 : 0;
+
+        if ($ids) {
+            $db = Database::getInstance();
+            // Einzelne, vollständig parametrisierte UPDATEs statt einer dynamisch
+            // zusammengesetzten IN (...)-Liste - inhaltlich identisch, vermeidet aber
+            // jede String-Interpolation im SQL (auch die des ?-Platzhalter-Strings).
+            $stmt = $db->prepare("UPDATE horses SET is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            foreach ($ids as $id) {
+                $stmt->execute([$publish, $id]);
+            }
+
+            \App\Service\AuditLogger::log(
+                $publish ? "Pferde veröffentlicht" : "Veröffentlichung von Pferden zurückgenommen",
+                "horses",
+                count($ids) . " Datensätze (IDs: " . implode(', ', $ids) . ")"
+            );
+        }
+
+        header("Location: /admin/horses?success=published" . self::publishedFilterQuery($_POST['published'] ?? null));
+        exit;
     }
 
     public function create(): void {

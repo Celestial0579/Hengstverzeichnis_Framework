@@ -17,10 +17,10 @@ $formId = $publishFormId ?? 'publishForm';
       style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem;">
     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
     <?php if (($publishedFilter ?? null) !== null): ?><input type="hidden" name="published" value="<?= (int)$publishedFilter ?>"><?php endif; ?>
-    <span style="font-size: 0.85rem; color: #666;">Auswahl:</span>
+    <span style="font-size: 0.85rem; color: var(--text-muted);">Auswahl:</span>
     <button type="submit" name="publish" value="1" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">🌐 Veröffentlichen</button>
     <button type="submit" name="publish" value="0" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">Veröffentlichung zurücknehmen</button>
-    <span style="font-size: 0.8rem; color: #999;">(betrifft nur die angehakten Zeilen)</span>
+    <span style="font-size: 0.8rem; color: var(--text-subtle);">(betrifft nur die angehakten Zeilen)</span>
 </form>
 <script>
 if (!window.__publishSelectionInit) {

@@ -13,7 +13,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
         <div>
             <h2>🗑️ Papierkorb</h2>
-            <p style="color: #666; font-size: 0.95rem; margin-top: 0.2rem;">
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin-top: 0.2rem;">
                 Gelöschte Elemente werden aufbewahrt. 
                 <strong>Editoren</strong> können Pferde, Personen und Deckstationen wiederherstellen (endgültige Löschung nach 30 Tagen). 
                 <strong>Administratoren</strong> haben jederzeit Vollzugriff.
@@ -49,9 +49,9 @@
     <?php endif; ?>
 
     <?php if ($totalCount === 0): ?>
-        <div style="padding: 3rem; text-align: center; color: #777; background: #fafafa; border-radius: 6px; border: 1px dashed #ccc; margin-top: 1rem;">
+        <div style="padding: 3rem; text-align: center; color: var(--text-subtle); background: var(--surface-muted); border-radius: 6px; border: 1px dashed var(--border-color); margin-top: 1rem;">
             <span style="font-size: 2.5rem;">✨</span>
-            <h3 style="margin: 0.5rem 0 0 0; color: #555;">Der Papierkorb ist leer</h3>
+            <h3 style="margin: 0.5rem 0 0 0; color: var(--text-muted);">Der Papierkorb ist leer</h3>
             <p style="margin-top: 0.3rem; font-size: 0.9rem;">Es befinden sich keine gelöschten Einträge im Papierkorb.</p>
         </div>
     <?php else: ?>
@@ -59,7 +59,7 @@
         <!-- Deleted Horses -->
         <?php if (!empty($deletedHorses)): ?>
             <div style="margin-bottom: 2rem;">
-                <h3 style="color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
                     🐴 Gelöschte Pferde (<?= count($deletedHorses) ?>)
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
@@ -77,7 +77,7 @@
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($h['name']) ?></strong></td>
                                 <td style="padding: 0.6rem;"><?= htmlspecialchars($h['ueln'] ?: '-') ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
+                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
                                     <?= date('d.m.Y H:i', strtotime($h['deleted_at'])) ?> Uhr
                                     <?php if ($isOlder): ?>
                                         <span style="background: #f8d7da; color: #721c24; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
@@ -111,7 +111,7 @@
         <!-- Deleted Persons -->
         <?php if (!empty($deletedPersons)): ?>
             <div style="margin-bottom: 2rem;">
-                <h3 style="color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
                     👤 Gelöschte Personen (<?= count($deletedPersons) ?>)
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
@@ -129,7 +129,7 @@
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($p['name']) ?></strong></td>
                                 <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($p['contact_info'] ?: '-') ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
+                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
                                     <?= date('d.m.Y H:i', strtotime($p['deleted_at'])) ?> Uhr
                                     <?php if ($isOlder): ?>
                                         <span style="background: #f8d7da; color: #721c24; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
@@ -163,7 +163,7 @@
         <!-- Deleted Stations -->
         <?php if (!empty($deletedStations)): ?>
             <div style="margin-bottom: 2rem;">
-                <h3 style="color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                <h3 style="color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
                     🏠 Gelöschte Deckstationen (<?= count($deletedStations) ?>)
                 </h3>
                 <table style="width: 100%; border-collapse: collapse;">
@@ -181,7 +181,7 @@
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($st['name']) ?></strong></td>
                                 <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($st['contact_person'] ?: '-') ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
+                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
                                     <?= date('d.m.Y H:i', strtotime($st['deleted_at'])) ?> Uhr
                                     <?php if ($isOlder): ?>
                                         <span style="background: #f8d7da; color: #721c24; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
@@ -233,7 +233,7 @@
                             <tr style="border-bottom: 1px solid var(--border-color);">
                                 <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($u['username']) ?></strong></td>
                                 <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($u['email']) ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: #666;">
+                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
                                     <?= date('d.m.Y H:i', strtotime($u['deleted_at'])) ?> Uhr
                                 </td>
                                 <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">

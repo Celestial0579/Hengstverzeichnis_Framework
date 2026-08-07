@@ -26,7 +26,7 @@ $successMessages = [
         <a href="/admin/plugins" class="btn btn-secondary">Zurück zu Plugins verwalten</a>
     </div>
 
-    <p style="color: #666; font-size: 0.9rem;">
+    <p style="color: var(--text-muted); font-size: 0.9rem;">
         Installiert Plugins direkt aus einem GitHub-Repository nach <code>plugins/</code> - das entspricht
         genau dem manuellen <code>cp -r</code>-Workflow aus der
         <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/blob/main/docs/plugin-development.md" target="_blank" rel="noopener">Entwickler-Dokumentation</a>,
@@ -52,7 +52,7 @@ $successMessages = [
         </div>
     <?php endif; ?>
 
-    <form action="/admin/plugins/store/add-repo" method="POST" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; padding: 1rem; background: #f8f9fa; border-radius: 6px;">
+    <form action="/admin/plugins/store/add-repo" method="POST" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; padding: 1rem; background: var(--surface-muted); border-radius: 6px;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         <div class="form-group" style="margin: 0; flex: 2; min-width: 220px;">
             <label for="repo_url" style="font-size: 0.85rem;">GitHub-Repository hinzufügen</label>
@@ -88,16 +88,16 @@ $successMessages = [
                         <form action="/admin/plugins/store/remove-repo" method="POST" onsubmit="return confirm('Repository \'<?= htmlspecialchars(addslashes($repoLabel)) ?>\' wirklich entfernen?');">
                             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                             <input type="hidden" name="id" value="<?= $repoId ?>">
-                            <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: #dc3545; color: #dc3545;">Entfernen</button>
+                            <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: #dc3545; color: var(--danger-fg);">Entfernen</button>
                         </form>
                     <?php endif; ?>
                 </div>
             </div>
 
             <?php if (!$catalog['ok']): ?>
-                <p style="color: #888; font-style: italic; font-size: 0.9rem;">Katalog konnte nicht geladen werden<?= $catalog['error'] ? ': ' . htmlspecialchars($catalog['error']) : '' ?>.</p>
+                <p style="color: var(--text-subtle); font-style: italic; font-size: 0.9rem;">Katalog konnte nicht geladen werden<?= $catalog['error'] ? ': ' . htmlspecialchars($catalog['error']) : '' ?>.</p>
             <?php elseif (empty($catalog['plugins'])): ?>
-                <p style="color: #888; font-style: italic; font-size: 0.9rem;">Keine Plugins in diesem Repository gefunden (erwartet: <code>plugins/&lt;slug&gt;/plugin.json</code> oder ein <code>plugin.json</code> im Repo-Root).</p>
+                <p style="color: var(--text-subtle); font-style: italic; font-size: 0.9rem;">Keine Plugins in diesem Repository gefunden (erwartet: <code>plugins/&lt;slug&gt;/plugin.json</code> oder ein <code>plugin.json</code> im Repo-Root).</p>
             <?php else: ?>
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
@@ -120,9 +120,9 @@ $successMessages = [
                             <tr style="border-bottom: 1px solid var(--border-color); vertical-align: top;">
                                 <td style="padding: 0.4rem;">
                                     <strong><?= htmlspecialchars($entry['name']) ?></strong><br>
-                                    <span style="color: #888; font-size: 0.8rem;"><?= htmlspecialchars($slug) ?></span>
+                                    <span style="color: var(--text-subtle); font-size: 0.8rem;"><?= htmlspecialchars($slug) ?></span>
                                     <?php if (!empty($entry['description'])): ?>
-                                        <p style="margin: 0.2rem 0 0 0; color: #555; font-size: 0.82rem;"><?= htmlspecialchars($entry['description']) ?></p>
+                                        <p style="margin: 0.2rem 0 0 0; color: var(--text-muted); font-size: 0.82rem;"><?= htmlspecialchars($entry['description']) ?></p>
                                     <?php endif; ?>
                                 </td>
                                 <td style="padding: 0.4rem;"><?= htmlspecialchars($entry['version']) ?></td>
@@ -147,7 +147,7 @@ $successMessages = [
                                             <button type="submit" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.85rem;"><?= $isInstalled ? 'Aktualisieren' : 'Installieren' ?></button>
                                         </form>
                                     <?php else: ?>
-                                        <span style="color: #aaa; font-size: 0.85rem;">-</span>
+                                        <span style="color: var(--text-subtle); font-size: 0.85rem;">-</span>
                                     <?php endif; ?>
                                 </td>
                             </tr>

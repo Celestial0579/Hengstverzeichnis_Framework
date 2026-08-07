@@ -28,7 +28,7 @@
         <div class="form-group">
             <label for="email"><?= htmlspecialchars(App\I18n\Translator::t('dsgvo.email_label')) ?></label>
             <input type="email" id="email" name="email" class="form-control" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('dsgvo.email_placeholder')) ?>" required>
-            <small style="color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('dsgvo.email_hint')) ?></small>
+            <small style="color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('dsgvo.email_hint')) ?></small>
         </div>
 
         <div class="form-group">

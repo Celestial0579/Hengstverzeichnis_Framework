@@ -52,11 +52,11 @@ $userGroupIds = $userGroupIds ?? [];
 
         <div class="form-group">
             <label>Gruppen (bestimmen die Rechte)</label>
-            <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0.5rem 0;">
+            <p style="color: var(--text-subtle); font-size: 0.85rem; margin: 0.3rem 0 0.5rem 0;">
                 Ausschließlich die hier zugewiesenen Gruppen bestimmen, was dieser Benutzer darf (siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>). Ohne jede Gruppe entspricht der Zugriff dem eines nicht angemeldeten Besuchers. Die Gruppe "Administrator" gewährt vollen Zugriff auf alle Funktionen.
             </p>
             <?php if (empty($assignableGroups)): ?>
-                <p style="color: #888; font-size: 0.85rem; margin: 0.3rem 0 0 0;">
+                <p style="color: var(--text-subtle); font-size: 0.85rem; margin: 0.3rem 0 0 0;">
                     Noch keine Gruppen vorhanden - siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
                 </p>
             <?php else: ?>
@@ -67,14 +67,14 @@ $userGroupIds = $userGroupIds ?? [];
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
                     Mehrfachauswahl: Strg/Cmd gedrückt halten und klicken (bzw. per Ziehen markieren).
                 </p>
             <?php endif; ?>
         </div>
 
         <?php if (!$isEdit): ?>
-            <div class="form-group" style="background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0;">
+            <div class="form-group" style="background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0;">
                 <label style="display: flex; gap: 0.6rem; align-items: center; font-weight: bold; margin: 0; cursor: pointer;">
                     <input type="checkbox" name="send_welcome_email" value="1" checked style="width: auto; height: 1.2rem; cursor: pointer;">
                     ✉️ Willkommens-E-Mail mit Zugangsdaten automatisch senden

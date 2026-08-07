@@ -67,7 +67,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
     <!-- Kompakte Übersicht aller Gruppen -->
     <div class="card">
-        <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
             <strong>Admin</strong> hat immer alle Rechte (fest, nicht einschränkbar).
             <strong>Editor</strong> ist eine vorhandene Komfort-Gruppe mit denselben
             Rechten wie vor Einführung dieses Systems, unten granular einschränkbar -
@@ -101,7 +101,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             <?php endif; ?>
         </form>
 
-        <p style="font-size: 0.85rem; color: #666; margin: 0 0 0.5rem 0;">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.5rem 0;">
             <?php if ($search !== ''): ?>
                 <?= $totalGroups ?> von <?= $totalGroupsUnfiltered ?> Gruppen gefunden für "<?= htmlspecialchars($search) ?>"
             <?php else: ?>
@@ -124,7 +124,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                 <tbody>
                     <?php if (empty($pagedGroups)): ?>
                         <tr>
-                            <td colspan="4" style="padding: 1rem; text-align: center; color: #888;">
+                            <td colspan="4" style="padding: 1rem; text-align: center; color: var(--text-subtle);">
                                 <?= $search !== '' ? 'Keine Gruppen für diese Suche gefunden.' : 'Keine Gruppen auf dieser Seite.' ?>
                             </td>
                         </tr>
@@ -134,10 +134,10 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                             <td style="padding: 0.4rem;">
                                 <strong><?= htmlspecialchars($group['name']) ?></strong>
                                 <?php if (!empty($group['description'])): ?>
-                                    <span title="<?= htmlspecialchars($group['description']) ?>" style="cursor: help; color: #888; margin-left: 0.3rem;">ℹ️</span>
+                                    <span title="<?= htmlspecialchars($group['description']) ?>" style="cursor: help; color: var(--text-subtle); margin-left: 0.3rem;">ℹ️</span>
                                 <?php endif; ?>
                             </td>
-                            <td style="padding: 0.4rem; font-size: 0.85rem; color: #666;">
+                            <td style="padding: 0.4rem; font-size: 0.85rem; color: var(--text-muted);">
                                 <?= $group['is_builtin'] ? 'Eingebaut' : 'Eigene Gruppe' ?>
                             </td>
                             <td style="padding: 0.4rem; font-size: 0.85rem;">
@@ -203,7 +203,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
         </form>
 
         <?php if (!$selected): ?>
-            <p style="color: #888;">Keine Gruppe ausgewählt.</p>
+            <p style="color: var(--text-subtle);">Keine Gruppe ausgewählt.</p>
         <?php else: ?>
             <h3 style="margin-top: 0;">
                 <?= htmlspecialchars($selected['name']) ?>
@@ -211,20 +211,20 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                     <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background-color: #e2e3e5; color: #383d41; font-weight: 600; vertical-align: middle;">Eingebaut</span>
                 <?php endif; ?>
                 <?php if (!empty($selected['description'])): ?>
-                    <span title="<?= htmlspecialchars($selected['description']) ?>" style="cursor: help; color: #888; font-size: 0.85rem; font-weight: normal; margin-left: 0.3rem;">ℹ️</span>
+                    <span title="<?= htmlspecialchars($selected['description']) ?>" style="cursor: help; color: var(--text-subtle); font-size: 0.85rem; font-weight: normal; margin-left: 0.3rem;">ℹ️</span>
                 <?php endif; ?>
             </h3>
 
             <?php if ($selected['slug'] === 'admin'): ?>
-                <p style="color: #666; font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
-                <p style="color: #666; font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar (#84).</p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar (#84).</p>
             <?php elseif ($selected['slug'] === 'public'): ?>
-                <p style="color: #666; font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Nur Lese-Rechte steuern die öffentliche Sichtbarkeit; Backend-Zugriff bleibt ausgeschlossen.</p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Nur Lese-Rechte steuern die öffentliche Sichtbarkeit; Backend-Zugriff bleibt ausgeschlossen.</p>
             <?php else: ?>
                 <!-- 2FA-Pflicht pro Gruppe (#84): greift beim nächsten Login der
                      Mitglieder (kein Bestandsschutz); ein Benutzer braucht 2FA,
                      sobald EINE seiner Gruppen sie verlangt. -->
-                <form action="/admin/groups/require-2fa" method="POST" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
+                <form action="/admin/groups/require-2fa" method="POST" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                     <input type="hidden" name="group_id" value="<?= (int)$selected['id'] ?>">
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin: 0; font-size: 0.9rem;">
@@ -232,7 +232,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                         🔐 TOTP-2FA für Mitglieder dieser Gruppe verpflichtend
                     </label>
                     <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">Speichern</button>
-                    <small style="color: #666; flex-basis: 100%;">
+                    <small style="color: var(--text-muted); flex-basis: 100%;">
                         Greift beim nächsten Login (kein Bestandsschutz). Ein Benutzer muss 2FA einrichten,
                         sobald mindestens eine seiner Gruppen sie verlangt; bereits aktivierte 2FA bleibt
                         unabhängig davon immer aktiv.
@@ -247,7 +247,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
             <?php if (!$isProtected && count($groups) > 1): ?>
                 <!-- Berechtigungen von einer anderen Gruppe kopieren -->
-                <form action="/admin/groups/copy-permissions" method="POST" onsubmit="return confirm('Berechtigungen der ausgewählten Quell-Gruppe übernehmen? Die aktuellen Berechtigungen von \'<?= htmlspecialchars(addslashes($selected['name'])) ?>\' werden dabei vollständig überschrieben.');" style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
+                <form action="/admin/groups/copy-permissions" method="POST" onsubmit="return confirm('Berechtigungen der ausgewählten Quell-Gruppe übernehmen? Die aktuellen Berechtigungen von \'<?= htmlspecialchars(addslashes($selected['name'])) ?>\' werden dabei vollständig überschrieben.');" style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                     <input type="hidden" name="target_group_id" value="<?= (int)$selected['id'] ?>">
                     <div class="form-group" style="margin: 0;">

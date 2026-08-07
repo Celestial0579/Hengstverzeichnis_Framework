@@ -10,10 +10,10 @@ $hideDb = $hideDb ?? false;
 $hideSite = $hideSite ?? false;
 ?>
 <div class="card" style="max-width: 650px; margin: 3rem auto;">
-    <h1 style="border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; margin-bottom: 1rem;">
+    <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1rem;">
         Willkommen beim Hengstverzeichnis Framework
     </h1>
-    <p style="color: #666; margin-bottom: 1.5rem;">
+    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
         <?php if ($hideDb && $hideSite): ?>
             Willkommen beim Erst-Einrichtungsassistenten. Bitte erstellen Sie Ihr erstes Administrator-Konto.
         <?php else: ?>
@@ -43,7 +43,7 @@ $hideSite = $hideSite ?? false;
 
         <?php if (!$hideDb): ?>
         <!-- 1. Datenbank-Einstellungen -->
-        <h3 style="margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
+        <h3 style="margin-bottom: 1rem; color: var(--primary-fg); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             1. Datenbank-Verbindung (MySQL/MariaDB)
         </h3>
 
@@ -75,11 +75,11 @@ $hideSite = $hideSite ?? false;
         </div>
 
         <!-- Verschlüsselte SQL Verbindung (SSL/TLS) -->
-        <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-top: 1rem; margin-bottom: 1.5rem;">
-            <label style="font-weight: bold; color: var(--primary-color); display: flex; align-items: center; gap: 0.5rem;">
+        <div style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-top: 1rem; margin-bottom: 1.5rem;">
+            <label style="font-weight: bold; color: var(--primary-fg); display: flex; align-items: center; gap: 0.5rem;">
                 🔒 Verschlüsselte Datenbank-Verbindung (SSL/TLS)
             </label>
-            <p style="font-size: 0.85rem; color: #666; margin: 0.3rem 0 0.8rem 0;">
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0.3rem 0 0.8rem 0;">
                 Aktivieren Sie SSL/TLS für eine Ende-zu-Ende verschlüsselte Verbindung zwischen dem Webserver und dem Datenbankserver (z. B. bei Managed Cloud Databases).
             </p>
 
@@ -90,7 +90,7 @@ $hideSite = $hideSite ?? false;
                 </label>
             </div>
 
-            <div id="ssl_options" style="display: <?= !empty($old['db_ssl']) ? 'block' : 'none' ?>; margin-top: 0.8rem; padding-left: 1.2rem; border-left: 3px solid var(--primary-color);">
+            <div id="ssl_options" style="display: <?= !empty($old['db_ssl']) ? 'block' : 'none' ?>; margin-top: 0.8rem; padding-left: 1.2rem; border-left: 3px solid var(--primary-fg);">
                 <div class="form-group" style="margin-bottom: 0.5rem;">
                     <label style="cursor: pointer;">
                         <input type="checkbox" name="db_ssl_verify" value="1" <?= !empty($old['db_ssl_verify']) ? 'checked' : '' ?>>
@@ -106,11 +106,11 @@ $hideSite = $hideSite ?? false;
 
         <!-- Danger Zone for Overwriting Database -->
         <div style="border: 2px solid #dc3545; background-color: #fff8f8; padding: 1rem; border-radius: 6px; margin-top: 1rem; margin-bottom: 1.5rem;">
-            <label style="display: flex; align-items: flex-start; gap: 0.6rem; color: #dc3545; font-weight: bold; cursor: pointer;">
+            <label style="display: flex; align-items: flex-start; gap: 0.6rem; color: var(--danger-fg); font-weight: bold; cursor: pointer;">
                 <input type="checkbox" name="overwrite_db" value="1" style="margin-top: 3px; width: 18px; height: 18px;">
                 <span>
                     ⚠️ Danger Zone: Bestehende Datenbank neu erstellen / überschreiben<br>
-                    <span style="font-weight: normal; font-size: 0.85rem; color: #666;">
+                    <span style="font-weight: normal; font-size: 0.85rem; color: var(--text-muted);">
                         Aktivieren Sie dies nur, wenn Sie eine bereits existierende Datenbank <strong>vollständig löschen (DROP DATABASE)</strong> und neu initialisieren möchten.
                     </span>
                 </span>
@@ -120,7 +120,7 @@ $hideSite = $hideSite ?? false;
 
         <?php if (!$hideSite): ?>
         <!-- 2. Verbandseinstellungen -->
-        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
+        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-fg); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             2. Verbandseinstellungen
         </h3>
         <div class="form-group">
@@ -130,7 +130,7 @@ $hideSite = $hideSite ?? false;
         <?php endif; ?>
 
         <!-- 3. Administrator-Konto -->
-        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
+        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-fg); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
             3. Erstes Administrator-Konto
         </h3>
         <div class="form-group">

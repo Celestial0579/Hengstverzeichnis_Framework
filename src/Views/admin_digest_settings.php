@@ -11,7 +11,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
 ?>
 <div class="card" style="max-width: 800px;">
     <h2>📋 E-Mail-Digest</h2>
-    <p style="color: #666;">
+    <p style="color: var(--text-muted);">
         Optionaler periodischer E-Mail-Digest an alle Admin- und Editor-Konten (#52) mit
         offenen Blutlinien-Match-/Merge-Vorschlägen (siehe
         <a href="/admin/matches">Blutlinien Zusammenführen</a>) sowie Papierkorb-Einträgen,
@@ -41,7 +41,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
         </div>
     <?php endif; ?>
 
-    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+    <div style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
         <strong>Letzter Lauf:</strong>
         <?php if ($lastRunAt === null): ?>
             noch nie
@@ -51,7 +51,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
                 <?= $lastStatus === 'ok' ? '✓ Erfolgreich' : '✗ Fehlgeschlagen' ?>
             </span>
             <?php if ($lastStatus === 'ok' && $lastSentCount !== null): ?>
-                <span style="color: #666;">(<?= $lastSentCount ?> Empfänger benachrichtigt<?= $lastSentCount === 0 ? ', nichts zu berichten' : '' ?>)</span>
+                <span style="color: var(--text-muted);">(<?= $lastSentCount ?> Empfänger benachrichtigt<?= $lastSentCount === 0 ? ', nichts zu berichten' : '' ?>)</span>
             <?php endif; ?>
             <?php if ($lastError !== ''): ?>
                 <div style="color: <?= $lastStatus === 'ok' ? '#856404' : '#721c24' ?>; font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
@@ -60,7 +60,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
         <br>
         <strong>Nächster automatischer Lauf:</strong>
         <?php if ($schedulerTask === null): ?>
-            <span style="color: #666;">nicht aktiv (Digest deaktiviert)</span>
+            <span style="color: var(--text-muted);">nicht aktiv (Digest deaktiviert)</span>
         <?php else: ?>
             spätestens <?= (int)round($schedulerTask['intervalSeconds'] / 3600) ?>h nach dem letzten Lauf,
             ausgelöst über <a href="/admin/cron">Automatisierung (Cron)</a>
@@ -91,7 +91,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
     <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3>🧪 Digest jetzt manuell auslösen</h3>
-    <p style="color: #666; font-size: 0.9rem;">Prüft sofort auf offene Punkte und versendet bei Bedarf an alle Admin-/Editor-Konten, unabhängig vom konfigurierten Intervall.</p>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">Prüft sofort auf offene Punkte und versendet bei Bedarf an alle Admin-/Editor-Konten, unabhängig vom konfigurierten Intervall.</p>
     <form action="/admin/digest/test" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         <button type="submit" class="btn btn-secondary">📋 Jetzt prüfen &amp; ggf. senden</button>

@@ -43,7 +43,7 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
                 <input type="checkbox" name="is_published" value="1" <?= !empty($old['is_published'] ?? $person['is_published'] ?? 0) ? 'checked' : '' ?>>
                 <span>🌐 Öffentlich sichtbar (in Katalog-Filterlisten anzeigen)</span>
             </label>
-            <small style="color: #666;">Ohne Häkchen bleibt die Person unveröffentlicht und erscheint nicht in den öffentlichen Filtern.</small>
+            <small style="color: var(--text-muted);">Ohne Häkchen bleibt die Person unveröffentlicht und erscheint nicht in den öffentlichen Filtern.</small>
         </div>
         <?php endif; ?>
 

@@ -14,7 +14,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
         <h2>🐴 <?= htmlspecialchars(App\I18n\Translator::t('catalog.heading')) ?></h2>
         <div style="display: flex; align-items: center; gap: 0.8rem;">
-            <span id="loading-spinner" style="display: none; font-size: 0.9rem; color: var(--primary-color);">🔄 <?= htmlspecialchars(App\I18n\Translator::t('catalog.loading')) ?></span>
+            <span id="loading-spinner" style="display: none; font-size: 0.9rem; color: var(--primary-fg);">🔄 <?= htmlspecialchars(App\I18n\Translator::t('catalog.loading')) ?></span>
             <span id="hit-count-badge" aria-live="polite" style="background: var(--primary-color); color: white; padding: 0.3rem 0.8rem; border-radius: 12px; font-weight: bold; font-size: 0.9rem;">
                 <?php $hitCount = $totalHorses ?? count($horses); ?>
                 <?= htmlspecialchars(App\I18n\Translator::t($hitCount === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => $hitCount])) ?>
@@ -23,7 +23,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
     </div>
 
     <!-- Search & Filter Form (Asynchronous AJAX-Enabled) -->
-    <form id="catalog-filter-form" action="/katalog" method="GET" style="background: #fafafa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+    <form id="catalog-filter-form" action="/katalog" method="GET" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
         
         <!-- Main Quick Search Bar -->
         <div style="display: flex; gap: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap;">
@@ -37,7 +37,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 
         <!-- Toggle for Advanced Attribute Filters -->
         <details <?= $hasActiveFilters ? 'open' : '' ?> style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
-            <summary style="font-weight: bold; color: var(--primary-color); cursor: pointer; user-select: none;">
+            <summary style="font-weight: bold; color: var(--primary-fg); cursor: pointer; user-select: none;">
                 <?= htmlspecialchars(App\I18n\Translator::t('catalog.advanced_filters')) ?>
             </summary>
 

@@ -10,7 +10,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
         <div>
             <h2>📜 System Audit-Log (Standardansicht: letzte 30 Tage)</h2>
-            <p style="color: #666; font-size: 0.95rem; margin: 0;">
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin: 0;">
                 Revisionssicheres, unlöschbares Protokoll aller Systemaktivitäten und automatischen Aktionen. Es gibt keine automatische Löschfrist - die 30 Tage betreffen nur diese Standardansicht, die Daten selbst bleiben dauerhaft erhalten.
             </p>
         </div>
@@ -20,7 +20,7 @@
     </div>
 
     <!-- Filter Bar -->
-    <form method="GET" action="/admin/logs" style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+    <form method="GET" action="/admin/logs" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
             
             <div class="form-group" style="margin: 0;">
@@ -55,8 +55,8 @@
 
     <!-- Logs Table -->
     <?php if (empty($logs)): ?>
-        <div style="text-align: center; padding: 3rem 1rem; background: #fafafa; border-radius: 8px; border: 1px dashed #ccc;">
-            <p style="color: #777; margin: 0;">Keine Log-Einträge für die gewählten Kriterien in den letzten 30 Tagen gefunden.</p>
+        <div style="text-align: center; padding: 3rem 1rem; background: var(--surface-muted); border-radius: 8px; border: 1px dashed var(--border-color);">
+            <p style="color: var(--text-subtle); margin: 0;">Keine Log-Einträge für die gewählten Kriterien in den letzten 30 Tagen gefunden.</p>
         </div>
     <?php else: ?>
         <div style="overflow-x: auto;">
@@ -78,7 +78,7 @@
                             $userBadgeBg = $isSystem ? '#6c757d' : '#2a52be';
                         ?>
                         <tr style="border-bottom: 1px solid var(--border-color);">
-                            <td style="padding: 0.7rem; white-space: nowrap; color: #555;">
+                            <td style="padding: 0.7rem; white-space: nowrap; color: var(--text-muted);">
                                 <?= date('d.m.Y H:i:s', strtotime($log['created_at'])) ?>
                             </td>
                             <td style="padding: 0.7rem; white-space: nowrap;">
@@ -87,17 +87,17 @@
                                 </span>
                             </td>
                             <td style="padding: 0.7rem; white-space: nowrap;">
-                                <span style="background: #eef2f5; color: #495057; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid #ced4da;">
+                                <span style="background: var(--surface-muted); color: #495057; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid #ced4da;">
                                     <?= htmlspecialchars($log['category']) ?>
                                 </span>
                             </td>
                             <td style="padding: 0.7rem; font-weight: 500;">
                                 <?= htmlspecialchars($log['action']) ?>
                             </td>
-                            <td style="padding: 0.7rem; color: #444; max-width: 400px; word-break: break-word;">
+                            <td style="padding: 0.7rem; color: var(--text-muted); max-width: 400px; word-break: break-word;">
                                 <?= htmlspecialchars($log['details'] ?? '-') ?>
                             </td>
-                            <td style="padding: 0.7rem; color: #777; font-family: monospace; font-size: 0.85rem;">
+                            <td style="padding: 0.7rem; color: var(--text-subtle); font-family: monospace; font-size: 0.85rem;">
                                 <?= htmlspecialchars($log['ip_address'] ?? '-') ?>
                             </td>
                         </tr>

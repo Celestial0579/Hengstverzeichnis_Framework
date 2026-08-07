@@ -19,7 +19,7 @@ $manager = \App\Plugin\PluginManager::getInstance();
         </div>
     </div>
 
-    <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.2rem;">
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
         Plugins erweitern das Framework über definierte Hooks, ohne Kern-Dateien zu verändern
         (siehe <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/blob/main/docs/plugin-development.md" target="_blank" rel="noopener">Entwickler-Dokumentation</a>).
         Plugins werden lokal im Verzeichnis <code>plugins/</code> abgelegt und müssen hier bewusst aktiviert werden - eine gefundene
@@ -39,7 +39,7 @@ $manager = \App\Plugin\PluginManager::getInstance();
     <?php endif; ?>
 
     <?php if (empty($plugins)): ?>
-        <p style="color: #888; font-style: italic;">Keine Plugins im Verzeichnis <code>plugins/</code> gefunden.</p>
+        <p style="color: var(--text-subtle); font-style: italic;">Keine Plugins im Verzeichnis <code>plugins/</code> gefunden.</p>
     <?php else: ?>
         <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
             <thead>
@@ -62,23 +62,23 @@ $manager = \App\Plugin\PluginManager::getInstance();
                     <tr style="border-bottom: 1px solid var(--border-color); vertical-align: top;">
                         <td style="padding: 0.5rem;">
                             <strong><?= htmlspecialchars($manifest['name'] ?? $slug) ?></strong><br>
-                            <span style="color: #888; font-size: 0.85rem;"><?= htmlspecialchars($slug) ?></span>
+                            <span style="color: var(--text-subtle); font-size: 0.85rem;"><?= htmlspecialchars($slug) ?></span>
                             <?php if (!empty($manifest['description'])): ?>
-                                <p style="margin: 0.3rem 0 0 0; color: #555; font-size: 0.85rem;"><?= htmlspecialchars($manifest['description']) ?></p>
+                                <p style="margin: 0.3rem 0 0 0; color: var(--text-muted); font-size: 0.85rem;"><?= htmlspecialchars($manifest['description']) ?></p>
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem;">
                             <?= htmlspecialchars($manifest['version'] ?? '?') ?><br>
-                            <span style="color: #888; font-size: 0.8rem;">Kompatibilität: <?= htmlspecialchars($manifest['core_compatibility'] ?? '?') ?></span>
+                            <span style="color: var(--text-subtle); font-size: 0.8rem;">Kompatibilität: <?= htmlspecialchars($manifest['core_compatibility'] ?? '?') ?></span>
                         </td>
                         <td style="padding: 0.5rem; font-size: 0.85rem;">
                             <?php if (!empty($manifest['hooks']) && is_array($manifest['hooks'])): ?>
                                 <?= htmlspecialchars(implode(', ', $manifest['hooks'])) ?>
                             <?php else: ?>
-                                <span style="color: #aaa;">-</span>
+                                <span style="color: var(--text-subtle);">-</span>
                             <?php endif; ?>
                             <?php if (!empty($manifest['permissions']) && is_array($manifest['permissions'])): ?>
-                                <br><span style="color: #888;">Berechtigungen: <?= htmlspecialchars(implode(', ', $manifest['permissions'])) ?></span>
+                                <br><span style="color: var(--text-subtle);">Berechtigungen: <?= htmlspecialchars(implode(', ', $manifest['permissions'])) ?></span>
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem;">
@@ -106,19 +106,19 @@ $manager = \App\Plugin\PluginManager::getInstance();
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">
                                     <input type="hidden" name="enable" value="0">
-                                    <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: #dc3545; color: #dc3545;">Deaktivieren</button>
+                                    <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: #dc3545; color: var(--danger-fg);">Deaktivieren</button>
                                 </form>
                             <?php elseif ($isUsable): ?>
                                 <form action="/admin/plugins/toggle" method="POST" style="display:inline;" <?= $isEnabled ? '' : 'onsubmit="return confirm(\'Plugin \\\'' . htmlspecialchars(addslashes($manifest['name'] ?? $slug)) . '\\\' aktivieren? Der Plugin-Code läuft danach im selben Prozess wie der Kern - nur Plugins aus vertrauenswürdiger Quelle aktivieren.\');"' ?>>
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">
                                     <input type="hidden" name="enable" value="<?= $isEnabled ? '0' : '1' ?>">
-                                    <button type="submit" class="btn <?= $isEnabled ? 'btn-secondary' : '' ?>" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; <?= $isEnabled ? 'border-color: #dc3545; color: #dc3545;' : '' ?>">
+                                    <button type="submit" class="btn <?= $isEnabled ? 'btn-secondary' : '' ?>" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; <?= $isEnabled ? 'border-color: #dc3545; color: var(--danger-fg);' : '' ?>">
                                         <?= $isEnabled ? 'Deaktivieren' : 'Aktivieren' ?>
                                     </button>
                                 </form>
                             <?php else: ?>
-                                <span style="color: #aaa; font-size: 0.85rem;">-</span>
+                                <span style="color: var(--text-subtle); font-size: 0.85rem;">-</span>
                             <?php endif; ?>
                         </td>
                     </tr>

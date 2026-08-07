@@ -13,30 +13,30 @@ $cardSections = $cardSections ?? [];
 $catalogPagination = $catalogPagination ?? null;
 ?>
 <?php if (empty($horses)): ?>
-    <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: #777; background: #fafafa; border-radius: 6px; border: 1px dashed #ccc;">
+    <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: var(--text-subtle); background: var(--surface-muted); border-radius: 6px; border: 1px dashed var(--border-color);">
         <?= htmlspecialchars(App\I18n\Translator::t('catalog.no_results')) ?>
     </div>
 <?php else: ?>
     <?php foreach ($horses as $horse): ?>
         <div class="card" style="border: 1px solid var(--border-color); margin-bottom: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s;">
             <?php if (!empty($horse['image_url'])): ?>
-                <div style="width: 100%; height: 180px; overflow: hidden; background: #f0f0f0;">
+                <div style="width: 100%; height: 180px; overflow: hidden; background: var(--surface-muted);">
                     <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" style="width: 100%; height: 100%; object-fit: cover;">
                 </div>
             <?php else: ?>
-                <div style="width: 100%; height: 120px; background: #eef2f5; display: flex; align-items: center; justify-content: center; font-size: 3rem; opacity: 0.4;">
+                <div style="width: 100%; height: 120px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; font-size: 3rem; opacity: 0.4;">
                     🐴
                 </div>
             <?php endif; ?>
 
             <div style="padding: 1.2rem; flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h3 style="margin-bottom: 0.5rem; color: var(--primary-color);"><?= htmlspecialchars((string)$horse['name']) ?></h3>
-                    <div style="font-size: 0.85rem; color: #555; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                    <h3 style="margin-bottom: 0.5rem; color: var(--primary-fg);"><?= htmlspecialchars((string)$horse['name']) ?></h3>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.3rem;">
                         <p style="margin:0;">
                             <strong>UELN:</strong> <?= htmlspecialchars((string)($horse['ueln'] ?: '-')) ?>
                             <?php if (!empty($horse['foreign_ueln'])): ?>
-                                <span style="font-size: 0.8rem; color: #666;">(<?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_inline')) ?>: <?= htmlspecialchars($horse['foreign_ueln']) ?>)</span>
+                                <span style="font-size: 0.8rem; color: var(--text-muted);">(<?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_inline')) ?>: <?= htmlspecialchars($horse['foreign_ueln']) ?>)</span>
                             <?php endif; ?>
                         </p>
                         <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?>:</strong> <?= htmlspecialchars((string)($horse['birth_year'] ?: '-')) ?></p>
@@ -70,7 +70,7 @@ $catalogPagination = $catalogPagination ?? null;
             <?php if ($catalogPagination['page'] > 1): ?>
                 <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] - 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&laquo;</a>
             <?php endif; ?>
-            <span style="font-size: 0.9rem; color: #555;"><?= (int)$catalogPagination['page'] ?> / <?= (int)$catalogPagination['totalPages'] ?></span>
+            <span style="font-size: 0.9rem; color: var(--text-muted);"><?= (int)$catalogPagination['page'] ?> / <?= (int)$catalogPagination['totalPages'] ?></span>
             <?php if ($catalogPagination['page'] < $catalogPagination['totalPages']): ?>
                 <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] + 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&raquo;</a>
             <?php endif; ?>

@@ -17,7 +17,7 @@ $publishFormId = 'personPublishForm';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
         <div>
             <h2>👤 Personen verwalten</h2>
-            <p style="color: #666; font-size: 0.95rem;">Verwaltung von Züchtern, Besitzern und früheren Eigentümern.</p>
+            <p style="color: var(--text-muted); font-size: 0.95rem;">Verwaltung von Züchtern, Besitzern und früheren Eigentümern.</p>
         </div>
         <?php if ($canCreate): ?>
             <a href="/admin/persons/create" class="btn">Neue Person anlegen</a>
@@ -56,7 +56,7 @@ $publishFormId = 'personPublishForm';
                         <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$p['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$p['id']) ?></td>
                         <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$p['name']) ?></strong></td>
-                        <td style="padding: 0.5rem; font-size: 0.9rem; color: #555;">
+                        <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
                             <?= !empty($p['contact_info']) ? nl2br(htmlspecialchars((string)$p['contact_info'])) : '<em>Keine Angaben</em>' ?>
                         </td>
                         <td style="padding: 0.5rem;">

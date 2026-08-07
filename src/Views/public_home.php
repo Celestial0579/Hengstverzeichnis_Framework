@@ -9,7 +9,7 @@
     <h1 style="font-size: 3rem; margin-bottom: 1rem;">
         <?= htmlspecialchars(!empty($settings['home_title']) ? $settings['home_title'] : App\I18n\Translator::t('home.welcome_title', ['site' => $settings['site_name'] ?? 'Hengstverzeichnis'])) ?>
     </h1>
-    <div style="font-size: 1.2rem; color: #666; max-width: 700px; margin: 0 auto 2rem auto; text-align: center;">
+    <div style="font-size: 1.2rem; color: var(--text-muted); max-width: 700px; margin: 0 auto 2rem auto; text-align: center;">
         <?php if (!empty($settings['home_text'])): ?>
             <?= App\Helper\Markdown::parse($settings['home_text']) ?>
         <?php else: ?>

@@ -17,7 +17,7 @@ $publishFormId = 'stationPublishForm';
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
         <div>
             <h2>🏠 Deckstationen & Gestüte verwalten</h2>
-            <p style="color: #666; font-size: 0.95rem; margin-top: 0.2rem;">Zentrale Pflege von Deckstationen, Ansprechpartnern und Kontaktdaten für Hengststandorte.</p>
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin-top: 0.2rem;">Zentrale Pflege von Deckstationen, Ansprechpartnern und Kontaktdaten für Hengststandorte.</p>
         </div>
         <?php if ($canCreate): ?>
             <a href="/admin/breeding-stations/create" class="btn">+ Neue Deckstation anlegen</a>
@@ -49,7 +49,7 @@ $publishFormId = 'stationPublishForm';
         <tbody>
             <?php if (empty($stations)): ?>
                 <tr>
-                    <td colspan="<?= $canPublish ? 8 : 7 ?>" style="padding: 1.5rem; text-align: center; color: #777;">Noch keine Deckstationen angelegt.</td>
+                    <td colspan="<?= $canPublish ? 8 : 7 ?>" style="padding: 1.5rem; text-align: center; color: var(--text-subtle);">Noch keine Deckstationen angelegt.</td>
                 </tr>
             <?php else: ?>
                 <?php foreach ($stations as $st): ?>
@@ -59,7 +59,7 @@ $publishFormId = 'stationPublishForm';
                         <td style="padding: 0.6rem;">
                             <strong><?= htmlspecialchars((string)$st['name']) ?></strong>
                             <?php if (!empty($st['website'])): ?>
-                                <br><a href="<?= htmlspecialchars((string)$st['website']) ?>" target="_blank" style="font-size: 0.8rem; color: var(--primary-color);">🌐 Website</a>
+                                <br><a href="<?= htmlspecialchars((string)$st['website']) ?>" target="_blank" style="font-size: 0.8rem; color: var(--primary-fg);">🌐 Website</a>
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.6rem;"><?= htmlspecialchars((string)($st['contact_person'] ?: '-')) ?></td>

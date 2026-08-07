@@ -7,8 +7,8 @@
 ?>
 <div class="card text-center" style="max-width: 600px; margin: 4rem auto; padding: 2.5rem 2rem;">
     <div style="font-size: 4rem; line-height: 1; margin-bottom: 1rem;">⚠️</div>
-    <h1 style="color: #dc3545; font-size: 2rem; margin-bottom: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('errors.500_title')) ?></h1>
-    <p style="font-size: 1.1rem; color: #555; margin-bottom: 2rem;">
+    <h1 style="color: var(--danger-fg); font-size: 2rem; margin-bottom: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('errors.500_title')) ?></h1>
+    <p style="font-size: 1.1rem; color: var(--text-muted); margin-bottom: 2rem;">
         <?= htmlspecialchars($message ?? App\I18n\Translator::t('errors.500_default_message')) ?>
     </p>
 

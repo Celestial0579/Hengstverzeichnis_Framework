@@ -34,14 +34,14 @@ foreach (($allBreedingStations ?? []) as $bs) {
         <?php endif; ?>
 
         <!-- Foto-Upload -->
-        <div class="form-group" style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
-            <label for="horse_image" style="font-weight: bold; color: var(--primary-color);">📷 Foto des Pferdes hochladen</label>
+        <div class="form-group" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <label for="horse_image" style="font-weight: bold; color: var(--primary-fg);">📷 Foto des Pferdes hochladen</label>
             
             <?php if (!empty($horse['image_url'])): ?>
                 <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0;">
-                    <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Pferdefoto" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid #ccc;">
+                    <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Pferdefoto" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color);">
                     <div>
-                        <label style="color: #dc3545; font-size: 0.9rem; cursor: pointer;">
+                        <label style="color: var(--danger-fg); font-size: 0.9rem; cursor: pointer;">
                             <input type="checkbox" name="remove_image" value="1"> 🗑️ Vorhandenes Foto entfernen
                         </label>
                     </div>
@@ -49,7 +49,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             <?php endif; ?>
 
             <input type="file" id="horse_image" name="horse_image" accept="image/jpeg,image/png,image/webp" class="form-control">
-            <small style="color: #666; display: block; margin-top: 0.3rem;">Erlaubte Formate: JPG, PNG, WEBP (Max. 5 MB).</small>
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">Erlaubte Formate: JPG, PNG, WEBP (Max. 5 MB).</small>
         </div>
         
         <div class="form-group">
@@ -70,8 +70,8 @@ foreach (($allBreedingStations ?? []) as $bs) {
         </div>
 
         <!-- Abstammung: Vater (Sire) -->
-        <fieldset style="border: 1px solid #ddd; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: #fafafa;">
-            <legend style="padding: 0 0.5rem; font-weight: bold; color: var(--primary-color);">♂ Vater (Sire)</legend>
+        <fieldset style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: var(--surface-muted);">
+            <legend style="padding: 0 0.5rem; font-weight: bold; color: var(--primary-fg);">♂ Vater (Sire)</legend>
             
             <div class="form-group">
                 <label for="sire_id">Existierendes Pferd aus der Datenbank wählen:</label>
@@ -86,7 +86,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 </select>
             </div>
 
-            <div style="font-size: 0.85rem; color: #777; text-align: center; margin: 0.5rem 0;">— ODER falls nicht in der Datenbank vorhanden —</div>
+            <div style="font-size: 0.85rem; color: var(--text-subtle); text-align: center; margin: 0.5rem 0;">— ODER falls nicht in der Datenbank vorhanden —</div>
 
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 2;">
@@ -101,8 +101,8 @@ foreach (($allBreedingStations ?? []) as $bs) {
         </fieldset>
 
         <!-- Abstammung: Mutter (Dam) -->
-        <fieldset style="border: 1px solid #ddd; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: #fafafa;">
-            <legend style="padding: 0 0.5rem; font-weight: bold; color: var(--primary-color);">♀ Mutter (Dam)</legend>
+        <fieldset style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: var(--surface-muted);">
+            <legend style="padding: 0 0.5rem; font-weight: bold; color: var(--primary-fg);">♀ Mutter (Dam)</legend>
             
             <div class="form-group">
                 <label for="dam_id">Existierendes Pferd aus der Datenbank wählen:</label>
@@ -117,7 +117,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 </select>
             </div>
 
-            <div style="font-size: 0.85rem; color: #777; text-align: center; margin: 0.5rem 0;">— ODER falls nicht in der Datenbank vorhanden —</div>
+            <div style="font-size: 0.85rem; color: var(--text-subtle); text-align: center; margin: 0.5rem 0;">— ODER falls nicht in der Datenbank vorhanden —</div>
 
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 2;">
@@ -144,19 +144,19 @@ foreach (($allBreedingStations ?? []) as $bs) {
         </div>
 
         <!-- Personen, Besitzer & Deckstationenverlauf -->
-        <div class="form-group" style="background: #fdfdfd; padding: 1.2rem; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 1.5rem;">
+        <div class="form-group" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
-                <label style="font-weight: bold; color: var(--primary-color); margin-bottom: 0;">👤 Züchter-, Besitzer- & Deckstationenverlauf</label>
+                <label style="font-weight: bold; color: var(--primary-fg); margin-bottom: 0;">👤 Züchter-, Besitzer- & Deckstationenverlauf</label>
                 <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
-                    <a href="/admin/persons/create" target="_blank" style="color: var(--primary-color);">+ Neue Person anlegen</a>
-                    <a href="/admin/breeding-stations/create" target="_blank" style="color: var(--primary-color);">+ Neue Deckstation anlegen</a>
+                    <a href="/admin/persons/create" target="_blank" style="color: var(--primary-fg);">+ Neue Person anlegen</a>
+                    <a href="/admin/breeding-stations/create" target="_blank" style="color: var(--primary-fg);">+ Neue Deckstation anlegen</a>
                 </div>
             </div>
             
             <div id="persons_container" style="display: flex; flex-direction: column; gap: 0.8rem;">
                 <?php if (empty($horsePersons)): ?>
                     <!-- Initial empty row if none -->
-                    <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
+                    <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                         <div style="flex: 2; min-width: 180px;">
                             <select name="persons[0][person_id]" class="form-control">
                                 <option value="">-- Person (Züchter/Besitzer) --</option>
@@ -192,7 +192,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     </div>
                 <?php else: ?>
                     <?php foreach ($horsePersons as $idx => $hp): ?>
-                        <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
+                        <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                             <div style="flex: 2; min-width: 180px;">
                                 <select name="persons[<?= $idx ?>][person_id]" class="form-control">
                                     <option value="">-- Person (Züchter/Besitzer) --</option>
@@ -270,7 +270,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             const container = document.getElementById('persons_container');
             const div = document.createElement('div');
             div.className = 'person-row';
-            div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);';
+            div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);';
             div.innerHTML = `
                 <div style="flex: 2; min-width: 180px;">
                     <select name="persons[${personRowIndex}][person_id]" class="form-control"></select>
@@ -305,7 +305,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 <option value="inactive" <?= ($horse['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inaktiv</option>
                 <option value="deceased" <?= ($horse['status'] ?? '') === 'deceased' ? 'selected' : '' ?>>Verstorben</option>
             </select>
-            <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+            <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
                 Der Status ist rein informativ und beeinflusst die öffentliche Sichtbarkeit nicht.
             </p>
         </div>
@@ -323,7 +323,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 Im öffentlichen Katalog veröffentlichen
             </label>
             <?php if (!$canPublish): ?>
-                <p style="color: #888; font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
                     Ihnen fehlt die Berechtigung "Veröffentlichen" - die öffentliche Sichtbarkeit kann daher nicht geändert werden.
                 </p>
             <?php endif; ?>

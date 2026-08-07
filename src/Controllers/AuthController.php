@@ -442,7 +442,12 @@ class AuthController extends BaseController {
             exit;
         }
 
+        // json_decode liefert bei leerem String oder kaputtem JSON null -
+        // sauber als "keine Codes vorhanden" behandeln statt foreach über null (#128).
         $backupCodes = json_decode($user['backup_codes'] ?? '[]', true);
+        if (!is_array($backupCodes)) {
+            $backupCodes = [];
+        }
         $matchedKey = null;
 
         foreach ($backupCodes as $key => $hashedCode) {

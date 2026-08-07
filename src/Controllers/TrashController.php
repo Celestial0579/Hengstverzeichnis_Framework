@@ -36,15 +36,27 @@ class TrashController extends BaseController {
             // Nur das zählen, was der aktuelle Benutzer auch tatsächlich verwalten
             // darf - andernfalls würde die Badge-Zahl im Menü Elemente offenlegen,
             // auf die der Benutzer über den Papierkorb gar nicht zugreifen darf.
-            $horses = self::userCanManage($userId, $isAdmin, 'horses')
-                ? (int)$db->query("SELECT COUNT(*) FROM horses WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
-            $persons = self::userCanManage($userId, $isAdmin, 'persons')
-                ? (int)$db->query("SELECT COUNT(*) FROM persons WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
-            $stations = self::userCanManage($userId, $isAdmin, 'breeding_stations')
-                ? (int)$db->query("SELECT COUNT(*) FROM breeding_stations WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
-            $users = $isAdmin ? (int)$db->query("SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL")->fetchColumn() : 0;
+            // Alle erlaubten Counts in EINER Query statt vier Roundtrips, da die
+            // Badge bei jedem Backend-Seitenaufruf gerendert wird (#134).
+            $subselects = [];
+            if (self::userCanManage($userId, $isAdmin, 'horses')) {
+                $subselects[] = "(SELECT COUNT(*) FROM horses WHERE deleted_at IS NOT NULL)";
+            }
+            if (self::userCanManage($userId, $isAdmin, 'persons')) {
+                $subselects[] = "(SELECT COUNT(*) FROM persons WHERE deleted_at IS NOT NULL)";
+            }
+            if (self::userCanManage($userId, $isAdmin, 'breeding_stations')) {
+                $subselects[] = "(SELECT COUNT(*) FROM breeding_stations WHERE deleted_at IS NOT NULL)";
+            }
+            if ($isAdmin) {
+                $subselects[] = "(SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL)";
+            }
 
-            return $horses + $persons + $stations + $users;
+            if (empty($subselects)) {
+                return 0;
+            }
+
+            return (int)$db->query("SELECT " . implode(' + ', $subselects))->fetchColumn();
         } catch (\Exception $e) {
             return 0;
         }

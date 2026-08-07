@@ -16,7 +16,8 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
         <div style="display: flex; align-items: center; gap: 0.8rem;">
             <span id="loading-spinner" style="display: none; font-size: 0.9rem; color: var(--primary-color);">🔄 <?= htmlspecialchars(App\I18n\Translator::t('catalog.loading')) ?></span>
             <span id="hit-count-badge" aria-live="polite" style="background: var(--primary-color); color: white; padding: 0.3rem 0.8rem; border-radius: 12px; font-weight: bold; font-size: 0.9rem;">
-                <?= htmlspecialchars(App\I18n\Translator::t(count($horses) === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => count($horses)])) ?>
+                <?php $hitCount = $totalHorses ?? count($horses); ?>
+                <?= htmlspecialchars(App\I18n\Translator::t($hitCount === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => $hitCount])) ?>
             </span>
         </div>
     </div>

@@ -42,8 +42,11 @@ class Mailer {
      */
     public function send(string $toEmail, string $subject, string $htmlBody, string $textBody = ''): bool {
         $driver = $this->config['mail_driver'] ?? 'smtp';
-        $fromEmail = $this->config['mail_from_email'] ?? ($this->config['smtp_user'] ?? 'noreply@' . (\App\Security\TrustedHost::resolve() ?: 'localhost'));
-        $fromName = $this->config['mail_from_name'] ?? ($this->config['site_name'] ?? 'Hengstverzeichnis');
+        // ?: statt ??, weil updateMailSettings() die Schlüssel auch mit Leerstring
+        // schreibt - ein leeres "Absender E-Mail"-Feld muss trotzdem auf smtp_user
+        // zurückfallen, sonst geht jede Mail mit leerem MAIL FROM raus (#132).
+        $fromEmail = ($this->config['mail_from_email'] ?? '') ?: (($this->config['smtp_user'] ?? '') ?: 'noreply@' . (\App\Security\TrustedHost::resolve() ?: 'localhost'));
+        $fromName = ($this->config['mail_from_name'] ?? '') ?: (($this->config['site_name'] ?? '') ?: 'Hengstverzeichnis');
 
         // Defense in depth gegen SMTP-Command-/Header-Injection: Empfänger- und
         // Absenderadresse fließen roh in MAIL FROM/RCPT TO bzw. die To:/From:-Header

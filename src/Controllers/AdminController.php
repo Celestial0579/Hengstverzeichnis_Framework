@@ -41,12 +41,20 @@ class AdminController extends BaseController {
 
         $db = Database::getInstance();
 
+        // Farbwerte landen in layout.php in einem <style>-Block - htmlspecialchars()
+        // ist dort der falsche Sanitizer für den CSS-Kontext, daher hier strikt auf
+        // Hex-Farbcodes einschränken (ungültige Werte fallen auf den Default zurück).
+        $sanitizeColor = static function (string $value, string $default): string {
+            $value = trim($value);
+            return preg_match('/^#[0-9a-fA-F]{3,8}$/', $value) ? $value : $default;
+        };
+
         // 1. Text settings
         $settingsToUpdate = [
             'site_name' => trim($_POST['site_name'] ?? ''),
             'copyright_holder' => trim($_POST['copyright_holder'] ?? ''),
-            'primary_color' => trim($_POST['primary_color'] ?? '#2a52be'),
-            'secondary_color' => trim($_POST['secondary_color'] ?? '#4b6bba'),
+            'primary_color' => $sanitizeColor($_POST['primary_color'] ?? '', '#2a52be'),
+            'secondary_color' => $sanitizeColor($_POST['secondary_color'] ?? '', '#4b6bba'),
             'home_title' => trim($_POST['home_title'] ?? ''),
             'home_text' => trim($_POST['home_text'] ?? ''),
             'impressum_text' => trim($_POST['impressum_text'] ?? ''),
@@ -435,7 +443,11 @@ class AdminController extends BaseController {
         // Reset-Vorgang protokollieren, bevor die Daten gelöscht werden (Audit-Log bleibt über Resets hinweg erhalten)
         \App\Service\AuditLogger::log("System zurückgesetzt (Reset)", "settings", "Alle Daten außer dem Audit-Log wurden auf Werkseinstellungen zurückgesetzt.");
 
-        // Disable foreign key checks to allow truncating/wiping tables cleanly
+        // Disable foreign key checks to allow truncating/wiping tables cleanly.
+        // user_groups MUSS mitgeleert werden: TRUNCATE feuert keine ON DELETE
+        // CASCADE, und SetupController::needsSetup() entscheidet über die
+        // Existenz von admin-Gruppen-Mitgliedschaften - verwaiste Zeilen würden
+        // die Installation nach dem Reset dauerhaft unbrauchbar machen (#118).
         $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
         $db->exec("TRUNCATE TABLE horse_persons;");
         $db->exec("TRUNCATE TABLE breeding_stations;");
@@ -443,6 +455,7 @@ class AdminController extends BaseController {
         $db->exec("TRUNCATE TABLE gdpr_requests;");
         $db->exec("TRUNCATE TABLE horses;");
         $db->exec("TRUNCATE TABLE persons;");
+        $db->exec("TRUNCATE TABLE user_groups;");
         $db->exec("TRUNCATE TABLE users;");
         $db->exec("TRUNCATE TABLE settings;");
         $db->exec("SET FOREIGN_KEY_CHECKS = 1;");

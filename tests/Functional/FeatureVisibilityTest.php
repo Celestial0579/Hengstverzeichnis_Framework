@@ -106,6 +106,67 @@ class FeatureVisibilityTest extends FunctionalTestCase {
         }
     }
 
+    /**
+     * Supply-Chain-Schranke (#129, siehe PluginManager::loadEnabledPlugins()):
+     * Werden die Dateien eines aktivierten Plugins verändert, OHNE die Version
+     * in plugin.json zu erhöhen, darf das Plugin fail-closed nicht mehr geladen
+     * werden (Route -> 404), bis ein Admin es erneut freigibt. Ein erneutes
+     * Aktivieren (Re-Toggle) speichert die neue Baseline (content_hash) und
+     * macht das Plugin wieder nutzbar.
+     */
+    public function testModifiedPluginRequiresReapprovalAndReToggleRestoresIt(): void {
+        $admin = $this->authenticatedClient();
+        self::installPluginFixture();
+
+        $toggleResponse = $admin->post('/admin/plugins/toggle', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => 'demo-plugin',
+            'enable' => '1',
+        ]);
+        $this->assertSame('/admin/plugins?success=1', $toggleResponse->location());
+
+        try {
+            // Baseline: Plugin ist aktiv, Route erreichbar (Admin-Bypass der
+            // Feature-Sichtbarkeit).
+            $this->assertSame(200, $admin->get(self::PREMIUM_URL)->statusCode);
+
+            // Plugin-Code verändern, Version in plugin.json UNVERÄNDERT lassen.
+            file_put_contents(self::PLUGIN_DEST . '/Plugin.php', "\n// nachträglich veränderter Code\n", FILE_APPEND);
+
+            // Fail-closed: das Plugin wird nicht mehr geladen -> Route liefert 404.
+            $this->assertSame(
+                404,
+                $admin->get(self::PREMIUM_URL)->statusCode,
+                'Verändertes Plugin ohne Versionserhöhung darf nicht mehr geladen werden'
+            );
+
+            // Die Plugin-Verwaltung zeigt den Wiederfreigabe-Hinweis, die
+            // Aktivierung selbst ist NICHT verloren gegangen.
+            $pluginsPage = $admin->get('/admin/plugins');
+            $this->assertStringContainsString('erneute Freigabe nötig', $pluginsPage->body);
+
+            // Erneute Freigabe per Re-Toggle: speichert die neue Baseline.
+            $reapproveResponse = $admin->post('/admin/plugins/toggle', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'slug' => 'demo-plugin',
+                'enable' => '1',
+            ]);
+            $this->assertSame('/admin/plugins?success=1', $reapproveResponse->location());
+
+            $this->assertSame(
+                200,
+                $admin->get(self::PREMIUM_URL)->statusCode,
+                'Nach erneuter Freigabe muss das Plugin wieder geladen werden'
+            );
+        } finally {
+            $admin->post('/admin/plugins/toggle', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'slug' => 'demo-plugin',
+                'enable' => '0',
+            ]);
+        }
+    }
+
     private function saveVisibility(\Tests\Support\HttpClient $admin, string $visibility): void {
         $page = $admin->get('/admin/system-settings');
         $response = $admin->post('/admin/system-settings', [

@@ -77,18 +77,26 @@ class UserController extends BaseController {
         if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = "Gültige E-Mail-Adresse erforderlich.";
         if (strlen($password) < 8) $errors[] = "Passwort muss mindestens 8 Zeichen lang sein.";
 
+        // Auch Fehler-Renders brauchen die Gruppenliste + die getroffene Auswahl -
+        // sonst verschwindet die Gruppen-Selectbox aus dem Formular und der
+        // nächste Submit löscht alle Gruppenzugehörigkeiten (#123).
+        $db = Database::getInstance();
+        $assignableGroups = $this->assignableGroups($db);
+        $selectedGroupIds = array_map('intval', (array)($_POST['groups'] ?? []));
+
         if (!empty($errors)) {
             $this->render('admin_user_form', [
                 'title' => 'Neuen Benutzer anlegen',
                 'user' => null,
                 'errors' => $errors,
-                'old' => $_POST
+                'old' => $_POST,
+                'assignableGroups' => $assignableGroups,
+                'userGroupIds' => $selectedGroupIds
             ]);
             return;
         }
 
         try {
-            $db = Database::getInstance();
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, must_change_password) VALUES (?, ?, ?, 1)");
             $stmt->execute([$username, $email, $passwordHash]);
@@ -111,7 +119,9 @@ class UserController extends BaseController {
                 'title' => 'Neuen Benutzer anlegen',
                 'user' => null,
                 'errors' => ['E-Mail oder Benutzername bereits vergeben.'],
-                'old' => $_POST
+                'old' => $_POST,
+                'assignableGroups' => $assignableGroups,
+                'userGroupIds' => $selectedGroupIds
             ]);
         }
     }
@@ -162,23 +172,32 @@ class UserController extends BaseController {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 
+        // Auch Fehler-Renders brauchen die Gruppenliste + die getroffene Auswahl -
+        // sonst verschwindet die Gruppen-Selectbox aus dem Formular und der
+        // nächste Submit löscht alle Gruppenzugehörigkeiten (#123).
+        $db = Database::getInstance();
+        $assignableGroups = $this->assignableGroups($db);
+        $selectedGroupIds = array_map('intval', (array)($_POST['groups'] ?? []));
+
         if ($this->isReservedUsername($username)) {
             $this->render('admin_user_form', [
                 'title' => 'Benutzer bearbeiten',
                 'user' => ['id' => $id, 'username' => $username, 'email' => $email],
-                'errors' => ["Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht gewählt werden."]
+                'errors' => ["Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht gewählt werden."],
+                'assignableGroups' => $assignableGroups,
+                'userGroupIds' => $selectedGroupIds
             ]);
             return;
         }
-
-        $db = Database::getInstance();
 
         if (!empty($password)) {
             if (strlen($password) < 8) {
                 $this->render('admin_user_form', [
                     'title' => 'Benutzer bearbeiten',
                     'user' => ['id' => $id, 'username' => $username, 'email' => $email],
-                    'errors' => ['Das Passwort muss mindestens 8 Zeichen lang sein.']
+                    'errors' => ['Das Passwort muss mindestens 8 Zeichen lang sein.'],
+                    'assignableGroups' => $assignableGroups,
+                    'userGroupIds' => $selectedGroupIds
                 ]);
                 return;
             }
@@ -201,7 +220,18 @@ class UserController extends BaseController {
             $stmt->execute([$username, $email, $id]);
         }
 
-        $this->syncUserGroups($db, (int)$id, $_POST['groups'] ?? []);
+        // Selbstschutz: Der eingeloggte Admin darf sich nicht selbst die
+        // `admin`-Gruppe entziehen - sonst könnte sich der letzte Administrator
+        // versehentlich aussperren (#123).
+        $groupIds = $selectedGroupIds;
+        if ((int)$id === (int)($_SESSION['user_id'] ?? 0) && $this->isAdmin()) {
+            $adminGroupId = (int)$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
+            if ($adminGroupId > 0 && !in_array($adminGroupId, $groupIds, true)) {
+                $groupIds[] = $adminGroupId;
+            }
+        }
+
+        $this->syncUserGroups($db, (int)$id, $groupIds);
 
         \App\Service\AuditLogger::log("Benutzer aktualisiert", "users", "Benutzer ID {$id}: {$username} ({$email})");
 

@@ -245,10 +245,14 @@ abstract class BaseController {
             $_SESSION['last_token_rotation'] = $now;
         }
 
-        // 4. Zwang zur Passwortänderung prüfen (z. B. nach Admin-Passwort-Reset)
+        // 4. Zwang zur Passwortänderung prüfen (z. B. nach Admin-Passwort-Reset).
+        // Exakter Pfad-Vergleich statt strpos() über die rohe REQUEST_URI - sonst
+        // hebelt ein beliebiger Query-Parameter wie ?x=/force-password-change die
+        // Weiterleitung aus (#130).
         if (!empty($_SESSION['must_change_password'])) {
-            $uri = $_SERVER['REQUEST_URI'] ?? '';
-            if (strpos($uri, '/force-password-change') === false && strpos($uri, '/logout') === false) {
+            $path = (string)strtok($_SERVER['REQUEST_URI'] ?? '', '?');
+            $path = ($path !== '/') ? rtrim($path, '/') : $path;
+            if (!in_array($path, ['/force-password-change', '/logout'], true)) {
                 header("Location: /force-password-change");
                 exit;
             }

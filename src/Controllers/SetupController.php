@@ -44,9 +44,13 @@ class SetupController extends BaseController {
 
         try {
             $db = Database::getInstance();
+            // Zusätzlich gegen tatsächlich existierende, nicht gelöschte Benutzer
+            // prüfen: verwaiste user_groups-Zeilen (z. B. nach einem Werksreset)
+            // dürfen die Ersteinrichtung nicht blockieren (#118).
             $stmt = $db->query("
                 SELECT COUNT(*) FROM user_groups ug
                 JOIN `groups` g ON g.id = ug.group_id
+                JOIN users u ON u.id = ug.user_id AND u.deleted_at IS NULL
                 WHERE g.slug = 'admin'
             ");
             $count = (int)$stmt->fetchColumn();

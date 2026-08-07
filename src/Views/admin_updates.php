@@ -89,7 +89,7 @@
                 <?php endif; ?>
             </div>
 
-            <form action="/admin/updates/run" method="POST" onsubmit="return confirm('Jetzt auf Version <?= htmlspecialchars($checkResult['latest']) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen.');" style="margin-bottom: 1rem;">
+            <form action="/admin/updates/run" method="POST" onsubmit="return confirm('Jetzt auf Version <?= htmlspecialchars(addslashes($checkResult['latest'])) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen.');" style="margin-bottom: 1rem;">
                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                 <button type="submit" class="btn" <?= $backupConfigured ? '' : 'disabled title="Backups zuerst konfigurieren"' ?>>
                     ⬆️ Jetzt aktualisieren (mit Pflicht-Backup)

@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS `users` (
     `email_verification_token` VARCHAR(64) NULL DEFAULT NULL,
     `email_verification_expires_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    `deleted_at` DATETIME NULL DEFAULT NULL
+    `deleted_at` DATETIME NULL DEFAULT NULL,
+    INDEX `idx_users_deleted` (`deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Password Resets
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS `persons` (
     -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
     `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    `deleted_at` DATETIME NULL DEFAULT NULL
+    `deleted_at` DATETIME NULL DEFAULT NULL,
+    INDEX `idx_persons_deleted_name` (`deleted_at`, `name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Breeding Stations (Deckstationen / Gestüte)
@@ -74,7 +76,8 @@ CREATE TABLE IF NOT EXISTS `breeding_stations` (
     `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    `deleted_at` DATETIME NULL DEFAULT NULL
+    `deleted_at` DATETIME NULL DEFAULT NULL,
+    INDEX `idx_bs_deleted_name` (`deleted_at`, `name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Horses
@@ -106,7 +109,14 @@ CREATE TABLE IF NOT EXISTS `horses` (
     `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`sire_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`dam_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
-    FOREIGN KEY (`breeding_station_id`) REFERENCES `breeding_stations`(`id`) ON DELETE SET NULL
+    FOREIGN KEY (`breeding_station_id`) REFERENCES `breeding_stations`(`id`) ON DELETE SET NULL,
+    -- Indizes für die Standardfilter/-sortierung der öffentlichen Abfragen
+    -- (is_published + deleted_at + ORDER BY name) sowie Namens-/UELN-Lookups
+    -- des PedigreeBuilder (#120)
+    INDEX `idx_horses_published_name` (`is_published`, `deleted_at`, `name`),
+    INDEX `idx_horses_deleted_name` (`deleted_at`, `name`),
+    INDEX `idx_horses_name` (`name`),
+    INDEX `idx_horses_foreign_ueln` (`foreign_ueln`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Horse Persons Relation (Ownership History & Roles)
@@ -119,7 +129,8 @@ CREATE TABLE IF NOT EXISTS `horse_persons` (
     `until_year` SMALLINT UNSIGNED NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON DELETE CASCADE
+    FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON DELETE CASCADE,
+    INDEX `idx_horse_persons_horse_role` (`horse_id`, `role`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- GDPR Requests

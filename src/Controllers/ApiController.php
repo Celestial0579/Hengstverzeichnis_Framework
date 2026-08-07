@@ -33,18 +33,29 @@ class ApiController extends BaseController {
      * - page, per_page (10/25/50/100/all, Standard 50)
      */
     public function index(): void {
-        $horses = $this->fetchHorses($_GET);
-
+        // SQL-seitige Pagination (LIMIT/OFFSET + separate COUNT-Query) statt
+        // "alles laden und in PHP zuschneiden" (#125): ?per_page=10 führt so
+        // tatsächlich nur noch eine kleine Abfrage aus.
         $perPage = Paginator::readPerPage($_GET, 50);
-        $result = Paginator::paginate($horses, $perPage, (int)($_GET['page'] ?? 1));
+        $total = $this->countHorses($_GET);
+
+        if ($perPage === 'all') {
+            $page = 1;
+            $totalPages = 1;
+            $horses = $this->fetchHorses($_GET);
+        } else {
+            $totalPages = max(1, (int)ceil($total / $perPage));
+            $page = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
+            $horses = $this->fetchHorses($_GET, $perPage, ($page - 1) * $perPage);
+        }
 
         $this->respondJson([
-            'data' => array_map([$this, 'transform'], $result['items']),
+            'data' => array_map([$this, 'transform'], $horses),
             'meta' => [
-                'page' => $result['page'],
+                'page' => $page,
                 'per_page' => $perPage,
-                'total_pages' => $result['totalPages'],
-                'total' => $result['total'],
+                'total_pages' => $totalPages,
+                'total' => $total,
             ],
         ]);
     }
@@ -83,7 +94,7 @@ class ApiController extends BaseController {
      * @param array<string, mixed> $params
      * @return array<int, array<string, mixed>>
      */
-    private function fetchHorses(array $params): array {
+    private function fetchHorses(array $params, ?int $limit = null, int $offset = 0): array {
         // Dieselbe Sichtbarkeit wie der öffentliche HTML-Katalog: Gäste ohne
         // horses.view sehen nichts, und es werden ausschließlich veröffentlichte
         // Pferde (is_published) ausgeliefert - unabhängig vom Lebenszyklus-Status.
@@ -93,6 +104,67 @@ class ApiController extends BaseController {
 
         $db = Database::getInstance();
 
+        [$whereSql, $bindings] = $this->buildFilters($params);
+
+        // Pagination direkt in SQL (#125); Züchter/Besitzer aggregiert statt
+        // über multiplizierende JOINs - ein Pferd mit mehreren Besitzern erzeugt
+        // so genau EINEN API-Datensatz - und nur veröffentlichte Personen (#121).
+        $limitSql = $limit !== null ? "LIMIT " . (int)$limit . " OFFSET " . (int)$offset : "";
+
+        $stmt = $db->prepare("
+            SELECT
+                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url,
+                h.breeding_station, bs.name AS station_name,
+                sire.name AS linked_sire_name, sire.ueln AS linked_sire_ueln,
+                h.sire_name AS unlinked_sire_name, h.sire_ueln AS unlinked_sire_ueln,
+                dam.name AS linked_dam_name, dam.ueln AS linked_dam_ueln,
+                h.dam_name AS unlinked_dam_name, h.dam_ueln AS unlinked_dam_ueln,
+                hpx.breeder_name, hpx.owner_name
+            FROM horses h
+            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
+            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
+            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
+            LEFT JOIN (
+                SELECT hp.horse_id,
+                       GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
+                       GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
+                FROM horse_persons hp
+                JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL AND p.is_published = 1
+                GROUP BY hp.horse_id
+            ) hpx ON hpx.horse_id = h.id
+            WHERE {$whereSql}
+            ORDER BY h.name ASC
+            {$limitSql}
+        ");
+        $stmt->execute($bindings);
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Gesamtanzahl der Treffer für die Pagination-Metadaten - dieselben Filter
+     * wie fetchHorses(), aber ohne die Personen-Aggregation (#125).
+     */
+    private function countHorses(array $params): int {
+        if (!$this->hasPermission('horses', 'view')) {
+            return 0;
+        }
+
+        $db = Database::getInstance();
+        [$whereSql, $bindings] = $this->buildFilters($params);
+
+        $stmt = $db->prepare("SELECT COUNT(*) FROM horses h WHERE {$whereSql}");
+        $stmt->execute($bindings);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Baut WHERE-Klausel + Parameter aus den unterstützten Query-Parametern -
+     * gemeinsame Grundlage für fetchHorses() und countHorses().
+     *
+     * @param array<string, mixed> $params
+     * @return array{0: string, 1: array<int, mixed>}
+     */
+    private function buildFilters(array $params): array {
         $where = ["h.deleted_at IS NULL", "h.is_published = 1"];
         $bindings = [];
 
@@ -146,30 +218,7 @@ class ApiController extends BaseController {
             $bindings[] = (int)$params['birth_year_to'];
         }
 
-        $whereSql = implode(' AND ', $where);
-
-        $stmt = $db->prepare("
-            SELECT
-                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url,
-                h.breeding_station, bs.name AS station_name,
-                sire.name AS linked_sire_name, sire.ueln AS linked_sire_ueln,
-                h.sire_name AS unlinked_sire_name, h.sire_ueln AS unlinked_sire_ueln,
-                dam.name AS linked_dam_name, dam.ueln AS linked_dam_ueln,
-                h.dam_name AS unlinked_dam_name, h.dam_ueln AS unlinked_dam_ueln,
-                p_breeder.name AS breeder_name, p_owner.name AS owner_name
-            FROM horses h
-            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL
-            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
-            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
-            LEFT JOIN horse_persons hp_breeder ON hp_breeder.horse_id = h.id AND hp_breeder.role = 'breeder'
-            LEFT JOIN persons p_breeder ON hp_breeder.person_id = p_breeder.id AND p_breeder.deleted_at IS NULL
-            LEFT JOIN horse_persons hp_owner ON hp_owner.horse_id = h.id AND hp_owner.role = 'owner'
-            LEFT JOIN persons p_owner ON hp_owner.person_id = p_owner.id AND p_owner.deleted_at IS NULL
-            WHERE {$whereSql}
-            ORDER BY h.name ASC
-        ");
-        $stmt->execute($bindings);
-        return $stmt->fetchAll();
+        return [implode(' AND ', $where), $bindings];
     }
 
     /**

@@ -350,18 +350,22 @@ class HorseController extends BaseController {
 
         $uelnsToMatch = array_unique(array_filter([trim($ueln ?? ''), trim($foreignUeln ?? '')]));
 
+        // Alle UPDATEs schließen die eben gespeicherte Zeile selbst aus (AND id != ?):
+        // ohne diesen Guard kann sich ein Pferd selbst als Elternteil zugewiesen
+        // bekommen (z. B. eigene UELN im Vater-UELN-Feld oder gleichlautender
+        // Freitext-Vatername) - ein Stammbaum-Zyklus (#131).
         foreach ($uelnsToMatch as $u) {
             // Auto-link Sires matching UELN or Foreign UELN (UELN ist eindeutig, keine Mehrdeutigkeit möglich)
-            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ?");
-            $stmt->execute([$horseId, $u]);
+            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ? AND id != ?");
+            $stmt->execute([$horseId, $u, $horseId]);
             $countSires = $stmt->rowCount();
             if ($countSires > 0) {
                 \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countSires} Nachkommen automatisch mit Vater ID {$horseId} (UELN: {$u}) verknüpft");
             }
 
             // Auto-link Dams matching UELN or Foreign UELN
-            $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND dam_ueln = ?");
-            $stmt->execute([$horseId, $u]);
+            $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND dam_ueln = ? AND id != ?");
+            $stmt->execute([$horseId, $u, $horseId]);
             $countDams = $stmt->rowCount();
             if ($countDams > 0) {
                 \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countDams} Nachkommen automatisch mit Mutter ID {$horseId} (UELN: {$u}) verknüpft");
@@ -390,16 +394,16 @@ class HorseController extends BaseController {
                 }
 
                 // Auto-link Sires matching exact Name (where sire_ueln is empty)
-                $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?){$ageCondition}");
-                $stmt->execute([$horseId, $name, ...$ageParams]);
+                $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?) AND id != ?{$ageCondition}");
+                $stmt->execute([$horseId, $name, $horseId, ...$ageParams]);
                 $countNameSires = $stmt->rowCount();
                 if ($countNameSires > 0) {
                     \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameSires} Nachkommen anhand Name '{$name}' mit Vater ID {$horseId} verknüpft");
                 }
 
                 // Auto-link Dams matching exact Name (where dam_ueln is empty)
-                $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?){$ageCondition}");
-                $stmt->execute([$horseId, $name, ...$ageParams]);
+                $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?) AND id != ?{$ageCondition}");
+                $stmt->execute([$horseId, $name, $horseId, ...$ageParams]);
                 $countNameDams = $stmt->rowCount();
                 if ($countNameDams > 0) {
                     \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameDams} Nachkommen anhand Name '{$name}' mit Mutter ID {$horseId} verknüpft");
@@ -440,6 +444,13 @@ class HorseController extends BaseController {
         $childId = (int)($_POST['child_id'] ?? 0);
         $parentType = $_POST['parent_type'] ?? ''; // 'sire' or 'dam'
         $parentHorseId = (int)($_POST['parent_horse_id'] ?? 0);
+
+        // Serverseitig ablehnen, dass ein Pferd sein eigener Elternteil wird -
+        // die Absicherung existierte bisher nur clientseitig (#131).
+        if ($childId > 0 && $childId === $parentHorseId) {
+            header("Location: /admin/matches?error=self_link");
+            exit;
+        }
 
         if ($childId && $parentHorseId && in_array($parentType, ['sire', 'dam'])) {
             $db = Database::getInstance();

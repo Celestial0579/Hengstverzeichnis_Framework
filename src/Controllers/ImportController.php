@@ -126,8 +126,6 @@ class ImportController extends BaseController {
         $db = Database::getInstance();
         $validated = $parsed['error'] === null ? HorseCsvImporter::validateRows($parsed, $db) : [];
 
-        unset($_SESSION[self::SESSION_KEY]);
-
         $canPublish = $this->hasPermission('horses', 'publish');
         // Veröffentlichung ist seit der Entkopplung von Status/Sichtbarkeit unabhängig
         // vom Lebenszyklus-`status` und wird für den gesamten Import über eine explizite
@@ -144,22 +142,52 @@ class ImportController extends BaseController {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
-        foreach ($validated as $entry) {
-            if (!empty($entry['errors'])) {
-                $skippedCount++;
-                continue;
+        // Alle Inserts in EINER Transaktion: schlägt eine Zeile fehl, bleibt die
+        // Datenbank unverändert statt einen Teil-Import ohne Protokoll zu
+        // hinterlassen. Die Session-Kopie wird erst NACH erfolgreichem Commit
+        // geleert, damit der Admin den Import nach einem Fehler ohne erneuten
+        // Upload wiederholen kann (#133).
+        try {
+            $db->beginTransaction();
+
+            foreach ($validated as $entry) {
+                if (!empty($entry['errors'])) {
+                    $skippedCount++;
+                    continue;
+                }
+
+                $data = $entry['data'];
+
+                $insertStmt->execute([
+                    $data['name'], $data['ueln'], $data['foreign_ueln'],
+                    $data['sire_name'], $data['sire_ueln'], $data['dam_name'], $data['dam_ueln'],
+                    $data['birth_year'], $data['color'], $data['breeding_station'], $data['description'],
+                    $data['status'], $isPublished,
+                ]);
+                $importedCount++;
             }
 
-            $data = $entry['data'];
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
 
-            $insertStmt->execute([
-                $data['name'], $data['ueln'], $data['foreign_ueln'],
-                $data['sire_name'], $data['sire_ueln'], $data['dam_name'], $data['dam_ueln'],
-                $data['birth_year'], $data['color'], $data['breeding_station'], $data['description'],
-                $data['status'], $isPublished,
+            \App\Service\AuditLogger::log(
+                "Bulk-Import Pferde (CSV) fehlgeschlagen",
+                "horses",
+                "Import abgebrochen und zurückgerollt: " . $e->getMessage()
+            );
+
+            $this->render('admin_import_horses', [
+                'title' => 'Pferde-Bulk-Import (CSV)',
+                'preview' => null,
+                'errors' => ['Der Import ist fehlgeschlagen und wurde vollständig zurückgerollt - es wurden keine Pferde angelegt. Technische Ursache: ' . $e->getMessage()],
             ]);
-            $importedCount++;
+            return;
         }
+
+        unset($_SESSION[self::SESSION_KEY]);
 
         \App\Service\AuditLogger::log(
             "Bulk-Import Pferde (CSV)",

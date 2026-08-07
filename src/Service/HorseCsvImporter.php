@@ -58,6 +58,9 @@ final class HorseCsvImporter {
         'dam_ueln' => 15,
         'color' => 50,
         'breeding_station' => 255,
+        // TEXT-Spalte: 65.535 Byte - ohne diese Grenze würde eine überlange
+        // Beschreibung erst beim INSERT einen DB-Fehler auslösen (#133).
+        'description' => 65535,
     ];
 
     /**
@@ -77,15 +80,23 @@ final class HorseCsvImporter {
         $firstLine = strtok($content, "\r\n") ?: '';
         $delimiter = substr_count($firstLine, ';') > substr_count($firstLine, ',') ? ';' : ',';
 
-        $lines = preg_split('/\r\n|\r|\n/', (string)$content);
+        // fgetcsv() über einen Stream statt zeilenweisem str_getcsv(): nur so
+        // werden RFC-4180-konforme, in Anführungszeichen eingebettete
+        // Zeilenumbrüche (Standard-Export von Excel/LibreOffice bei mehrzeiligen
+        // Zellen) als EIN Datensatz gelesen statt als mehrere (#124).
+        $fh = fopen('php://temp', 'r+');
+        fwrite($fh, (string)$content);
+        rewind($fh);
+
         $rows = [];
-        foreach ($lines as $line) {
-            if (trim($line) === '') {
+        while (($parsed = fgetcsv($fh, 0, $delimiter, '"', '\\')) !== false) {
+            // Leere Zeilen überspringen (fgetcsv liefert dafür [null] bzw. [''])
+            if ($parsed === [null] || (count($parsed) === 1 && trim((string)$parsed[0]) === '')) {
                 continue;
             }
-            $parsed = str_getcsv($line, $delimiter, '"', '\\');
             $rows[] = array_map(fn($v) => trim((string)$v), $parsed);
         }
+        fclose($fh);
 
         if (empty($rows)) {
             return ['columnMap' => [], 'rows' => [], 'error' => 'Die Datei enthält keine Zeilen.'];
@@ -160,7 +171,12 @@ final class HorseCsvImporter {
             }
 
             foreach (self::MAX_LENGTHS as $field => $maxLength) {
-                if (!empty($data[$field]) && self::strlen((string)$data[$field]) > $maxLength) {
+                // description ist eine TEXT-Spalte, deren Limit in BYTES gilt -
+                // dort zählt strlen() (Bytes), sonst Zeichenlänge wie bisher.
+                $length = $field === 'description'
+                    ? strlen((string)$data[$field])
+                    : self::strlen((string)$data[$field]);
+                if (!empty($data[$field]) && $length > $maxLength) {
                     $errors[] = ucfirst(str_replace('_', ' ', $field)) . " ist zu lang (max. {$maxLength} Zeichen).";
                 }
             }

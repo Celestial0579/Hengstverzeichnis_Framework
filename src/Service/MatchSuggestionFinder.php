@@ -41,8 +41,9 @@ final class MatchSuggestionFinder {
         $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station, dam_name, dam_ueln FROM horses WHERE deleted_at IS NULL AND dam_id IS NULL AND (dam_name IS NOT NULL OR dam_ueln IS NOT NULL)");
         $damPlaceholders = $stmt->fetchAll();
 
-        // Fetch all existing active horses for matching
-        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
+        // Fetch all existing active horses for matching (inkl. sire_id/dam_id,
+        // um direkte Nachkommen des Kindes als Eltern-Kandidaten auszuschließen, #131)
+        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station, sire_id, dam_id FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
         $allHorses = $stmt->fetchAll();
 
         $unlinkedMatches = [];
@@ -92,6 +93,13 @@ final class MatchSuggestionFinder {
 
         foreach ($allHorses as $candidate) {
             if ($candidate['id'] == $childHorse['id']) continue;
+
+            // Direkte Nachkommen des Kindes nicht als dessen Eltern vorschlagen -
+            // das wäre ein garantierter 2er-Stammbaum-Zyklus (#131).
+            if ((int)($candidate['sire_id'] ?? 0) === (int)$childHorse['id']
+                || (int)($candidate['dam_id'] ?? 0) === (int)$childHorse['id']) {
+                continue;
+            }
 
             $candNameClean = strtolower(trim($candidate['name'] ?? ''));
             $candUelnClean = strtolower(trim($candidate['ueln'] ?? ''));

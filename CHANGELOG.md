@@ -8,7 +8,88 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Behoben
+
+- Sicherheit:
+  - `persons.is_published` wird jetzt auf allen öffentlichen Routen erzwungen
+    (#121): Katalog, Pferde-Detailseite und JSON-API zeigen nur noch
+    veröffentlichte, nicht gelöschte Personen (inkl. der Filter
+    `q_breeder`/`q_owner`, die zuvor als Existenz-Orakel für unveröffentlichte
+    Namen dienten).
+  - Kontaktdaten unveröffentlichter oder gelöschter Deckstationen erscheinen
+    nicht mehr auf der öffentlichen Pferde-Detailseite; der Stationsblock wird
+    zudem nur noch mit `breeding_stations.view`-Leseberechtigung gerendert -
+    analog zur Stationsroute (#122).
+  - Der erzwungene Passwortwechsel (`must_change_password`) ließ sich durch
+    einen beliebigen Query-Parameter wie `?x=/force-password-change` umgehen -
+    der Pfad wird jetzt exakt verglichen statt per `strpos()` über die rohe
+    REQUEST_URI (#130).
+  - `primary_color`/`secondary_color` werden strikt als Hex-Farbcodes
+    validiert, statt CSS-Injection in den globalen `<style>`-Block zuzulassen
+    (#136); fehlendes `addslashes()` im `confirm()`-Handler von
+    `/admin/updates` ergänzt (#137).
+- Datenintegrität:
+  - Werksreset (`RESET`) leert jetzt auch `user_groups`, und
+    `SetupController::needsSetup()` prüft gegen tatsächlich existierende
+    Benutzer - zuvor machten verwaiste Gruppenzuordnungen die Installation
+    nach einem Reset dauerhaft unbrauchbar (Setup gesperrt, Login unmöglich)
+    (#118).
+  - CSV-Import: RFC-4180-konforme, in Anführungszeichen eingebettete
+    Zeilenumbrüche (Standard-Export von Excel/LibreOffice) werden korrekt als
+    EIN Datensatz gelesen statt Geister-Pferde und stillen Datenverlust zu
+    erzeugen (`fgetcsv()` über einen Stream statt zeilenweisem
+    `str_getcsv()`) (#124). Der eigentliche Import läuft jetzt in einer
+    Transaktion (vollständiges Rollback bei Fehlern, Session-Kopie bleibt für
+    einen erneuten Versuch erhalten) und `description` hat eine validierte
+    Obergrenze (#133).
+  - Auto-Verknüpfung der Abstammung kann ein Pferd nicht mehr zu seinem
+    eigenen Vater/seiner eigenen Mutter machen (`AND id != ?` in allen
+    UPDATE-Statements); `linkMatch()` lehnt Selbst-Verknüpfung jetzt auch
+    serverseitig ab, das Match-Tool schlägt direkte Nachkommen nicht mehr als
+    Eltern vor, und der `PedigreeBuilder` bricht Zyklen in Altdaten sauber ab
+    (#131).
+  - Validierungsfehler beim Anlegen/Bearbeiten eines Benutzers löschen nicht
+    mehr alle Gruppenzugehörigkeiten (Gruppen-Selectbox blieb im
+    Fehler-Rerender leer); zusätzlich kann sich der eingeloggte Admin nicht
+    mehr selbst die `admin`-Gruppe entziehen (#123).
+  - Leere Absenderadresse in den Mail-Einstellungen bricht den Mailversand
+    nicht mehr still (`?:` statt `??`, Fallback auf `smtp_user` greift jetzt)
+    (#132).
+  - Backup-Code-Login: leerer/kaputter `backup_codes`-Wert wird sauber als
+    "keine Codes" behandelt statt `foreach` über `null` (#128).
+  - DSGVO-Löschung und -Anonymisierung schreiben jetzt Audit-Log-Einträge
+    (#135).
+
+### Geändert
+
+- Performance:
+  - Indizes für `horses`, `persons`, `breeding_stations`, `horse_persons` und
+    `users` ergänzt (`is_published`/`deleted_at`/`name`/`foreign_ueln`) - in
+    `database/schema.sql` und als automatische Migration für
+    Bestandsinstallationen (#120).
+  - `PedigreeBuilder`: Memoisierung je Baum (gemeinsame Ahnen bei Linienzucht
+    werden nur einmal abgefragt), kein verschwendeter Eltern-Lookup mehr auf
+    der letzten Generation (Platzhalter jenseits `maxDepth` entfallen damit),
+    `LOWER()`-Vergleich entfernt (Spalte ist ohnehin case-insensitiv,
+    verhinderte aber jede Index-Nutzung) (#119).
+  - Öffentlicher Katalog und JSON-API: Züchter/Besitzer werden aggregiert
+    geladen statt über multiplizierende JOINs (ein Pferd mit mehreren
+    Besitzern erzeugte mehrere identische Katalogkarten), plus echte
+    SQL-Pagination (`LIMIT`/`OFFSET` + separate COUNT-Query) statt alles zu
+    laden (#125).
+  - `GdprController::index()`: Batch-Personensuche in einer Query statt 1+N
+    Full Scans, Anfragenliste paginiert (#126).
+  - Papierkorb-Badge: die vier `COUNT(*)`-Queries pro Seitenaufruf zu einer
+    zusammengefasst (#134).
+
 ### Hinzugefügt
+
+- Tests für zuvor ungetestete sicherheitskritische Pfade: Papierkorb-
+  Berechtigungen inkl. 30-Tage-Frist und `type=user`-Sperre (#127),
+  Backup-Code-Einmalverbrauch samt Rate-Limit (#128), Plugin-Wiederfreigabe
+  nach Code-Änderung ohne Versionserhöhung (#129), DSGVO-Löschung/
+  Anonymisierung inkl. 403 für Nicht-Admins (#135) sowie Stammbaum-Zyklen
+  (#131).
 
 - Weitere Backup-Ziele: FTPS und WebDAV (#93):
   - Neben Amazon S3 (bzw. S3-kompatiblen Diensten) können automatische

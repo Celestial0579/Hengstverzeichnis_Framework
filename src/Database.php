@@ -522,6 +522,32 @@ class Database {
         // angelegte Konten erhalten nie einen Token und sind nicht betroffen.
         $addColumn('users', 'email_verification_token', 'VARCHAR(64) NULL DEFAULT NULL');
         $addColumn('users', 'email_verification_expires_at', 'DATETIME NULL DEFAULT NULL');
+
+        // 19. Fehlende Indizes für Bestandsinstallationen nachrüsten (#120):
+        // horses/persons/breeding_stations hatten außer PK/UNIQUE/FK-Indizes
+        // keinerlei Indizes - jede öffentliche Abfrage (deleted_at IS NULL AND
+        // is_published = 1, ORDER BY name) und der Papierkorb-Badge-Count liefen
+        // als Full Table Scan. Spiegelbildlich zu database/schema.sql.
+        $addIndex = function ($table, $indexName, $columns) use ($pdo) {
+            try {
+                $stmt = $pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
+                $stmt->execute([$indexName]);
+                if ($stmt->rowCount() === 0) {
+                    $pdo->exec("CREATE INDEX `$indexName` ON `$table` ($columns)");
+                }
+            } catch (\Throwable $e) {
+                // Tabelle existiert noch nicht oder Index-Prüfung fehlgeschlagen
+            }
+        };
+
+        $addIndex('horses', 'idx_horses_published_name', '`is_published`, `deleted_at`, `name`');
+        $addIndex('horses', 'idx_horses_deleted_name', '`deleted_at`, `name`');
+        $addIndex('horses', 'idx_horses_name', '`name`');
+        $addIndex('horses', 'idx_horses_foreign_ueln', '`foreign_ueln`');
+        $addIndex('horse_persons', 'idx_horse_persons_horse_role', '`horse_id`, `role`');
+        $addIndex('persons', 'idx_persons_deleted_name', '`deleted_at`, `name`');
+        $addIndex('breeding_stations', 'idx_bs_deleted_name', '`deleted_at`, `name`');
+        $addIndex('users', 'idx_users_deleted', '`deleted_at`');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

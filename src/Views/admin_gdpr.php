@@ -139,5 +139,17 @@
                 </div>
             <?php endforeach; ?>
         </div>
+
+        <?php if (($totalPages ?? 1) > 1): ?>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.5rem;">
+                <?php if (($page ?? 1) > 1): ?>
+                    <a href="/admin/gdpr?page=<?= (int)$page - 1 ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.9rem;">&laquo; Zurück</a>
+                <?php endif; ?>
+                <span style="font-size: 0.9rem; color: #555;">Seite <?= (int)($page ?? 1) ?> von <?= (int)$totalPages ?> (<?= (int)($total ?? 0) ?> Anfragen)</span>
+                <?php if (($page ?? 1) < $totalPages): ?>
+                    <a href="/admin/gdpr?page=<?= (int)$page + 1 ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.9rem;">Weiter &raquo;</a>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
     <?php endif; ?>
 </div>

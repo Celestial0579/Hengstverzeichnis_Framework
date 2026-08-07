@@ -14,8 +14,9 @@ use PHPUnit\Framework\TestCase;
  * (analog zu DatabaseTest.php) - deckt die drei Vorfahren-Auflösungspfade ab:
  * FK-verknüpft (sire_id/dam_id), Namens-/UELN-Fallback (findParentByUelnOrName)
  * und ein tatsächlich unauffindbarer Vorfahre (synthetischer Platzhalter-
- * Blattknoten inkl. der depth+1-Eigenheit, siehe PedigreeBuilder-Docblock -
- * bewusst als Regressionstest verankert, nicht "reparieren").
+ * Blattknoten). Seit #119 endet der Baum strikt bei maxDepth (keine
+ * Platzhalter mehr jenseits der letzten Generation), und seit #131 bricht
+ * ein Zyklus in Altdaten (Pferd als eigener Vorfahre) den Ast sauber ab.
  */
 class PedigreeBuilderTest extends TestCase {
 
@@ -99,23 +100,62 @@ class PedigreeBuilderTest extends TestCase {
         $this->assertArrayNotHasKey('is_placeholder', $tree['sire']);
     }
 
-    public function testUnmatchedAncestorProducesPlaceholderWithDepthPlusOne(): void {
+    public function testUnmatchedAncestorProducesPlaceholderWithinMaxDepth(): void {
         $foalId = $this->insertHorse([
             'name' => 'Waisen-Fohlen',
             'sire_name' => 'Unbekannter Hengst',
             'sire_ueln' => 'DE000NOTFOUND9',
         ]);
 
-        // maxDepth = 1: der Platzhalter für den Vater wird auf Ebene
-        // currentDepth+1 = 2 erzeugt, obwohl maxDepth nur 1 ist - genau die
-        // dokumentierte Ausnahme von der sonstigen $currentDepth > $maxDepth-
-        // Abbruchbedingung. Als Regressionstest fixiert.
-        $tree = PedigreeBuilder::build($foalId, 1);
+        // maxDepth = 2: der unauffindbare Vater erscheint als synthetischer
+        // Platzhalter auf Ebene 2 (innerhalb der angefragten Tiefe).
+        $tree = PedigreeBuilder::build($foalId, 2);
 
         $this->assertNull($tree['sire']['id']);
         $this->assertTrue($tree['sire']['is_placeholder']);
-        $this->assertSame(2, $tree['sire']['depth']); // maxDepth(1) + 1
+        $this->assertSame(2, $tree['sire']['depth']);
         $this->assertSame('Unbekannter Hengst', $tree['sire']['name']);
+    }
+
+    public function testNoPlaceholderBeyondMaxDepth(): void {
+        $foalId = $this->insertHorse([
+            'name' => 'MaxDepth-Fohlen',
+            'sire_name' => 'Unbekannter Hengst',
+            'sire_ueln' => 'DE000NOTFOUND8',
+        ]);
+
+        // maxDepth = 1: Seit #119 endet der Baum strikt bei maxDepth - der
+        // frühere Platzhalter auf Ebene maxDepth+1 (samt immer verworfenem
+        // DB-Lookup pro Freitext-Elternteil) entfällt.
+        $tree = PedigreeBuilder::build($foalId, 1);
+
+        $this->assertNull($tree['sire']);
+        $this->assertNull($tree['dam']);
+    }
+
+    public function testCycleInLegacyDataDoesNotShowHorseAsOwnAncestor(): void {
+        // Zyklus in Altdaten simulieren: Pferd ist sein eigener Vater (#131).
+        $horseId = $this->insertHorse(['name' => 'Zyklus-Pferd']);
+        self::$db->exec("UPDATE horses SET sire_id = {$horseId} WHERE id = {$horseId}");
+
+        $tree = PedigreeBuilder::build($horseId, 5);
+
+        $this->assertSame('Zyklus-Pferd', $tree['name']);
+        $this->assertNull($tree['sire'], 'Ein Pferd darf nie als sein eigener Vorfahre erscheinen');
+    }
+
+    public function testTwoNodeCycleTerminates(): void {
+        // A ist Vater von B, B ist (fehlerhaft) Vater von A - der Baum muss
+        // terminieren und darf A nicht erneut unter sich selbst zeigen (#131).
+        $a = $this->insertHorse(['name' => 'Zyklus-A']);
+        $b = $this->insertHorse(['name' => 'Zyklus-B', 'sire_id' => $a]);
+        self::$db->exec("UPDATE horses SET sire_id = {$b} WHERE id = {$a}");
+
+        $tree = PedigreeBuilder::build($a, 6);
+
+        $this->assertSame('Zyklus-A', $tree['name']);
+        $this->assertSame('Zyklus-B', $tree['sire']['name']);
+        $this->assertNull($tree['sire']['sire'], 'Der Zyklus zurück zu A muss abgebrochen werden');
     }
 
     public function testPublishedOnlyHidesUnpublishedLinkedAncestor(): void {

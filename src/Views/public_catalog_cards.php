@@ -5,8 +5,12 @@
  * @var array<int|string, array<int, string>> $cardSections Plugin-Hook-Ergebnisse je
  *   Pferde-ID (#97, siehe PublicController::catalog() für die Berechnung via
  *   catalog.card_sections)
+ * @var array{page:int, totalPages:int, query:string}|null $catalogPagination
+ *   Seiten-Navigation der SQL-Pagination (#125) - wird mit ins Karten-Grid
+ *   gerendert, damit auch der AJAX-Pfad sie automatisch aktualisiert.
  */
 $cardSections = $cardSections ?? [];
+$catalogPagination = $catalogPagination ?? null;
 ?>
 <?php if (empty($horses)): ?>
     <div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: #777; background: #fafafa; border-radius: 6px; border: 1px dashed #ccc;">
@@ -59,4 +63,17 @@ $cardSections = $cardSections ?? [];
             </div>
         </div>
     <?php endforeach; ?>
+
+    <?php if ($catalogPagination !== null && $catalogPagination['totalPages'] > 1): ?>
+        <?php $pgQuery = $catalogPagination['query'] !== '' ? $catalogPagination['query'] . '&' : ''; ?>
+        <div style="grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 1rem 0;">
+            <?php if ($catalogPagination['page'] > 1): ?>
+                <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] - 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&laquo;</a>
+            <?php endif; ?>
+            <span style="font-size: 0.9rem; color: #555;"><?= (int)$catalogPagination['page'] ?> / <?= (int)$catalogPagination['totalPages'] ?></span>
+            <?php if ($catalogPagination['page'] < $catalogPagination['totalPages']): ?>
+                <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] + 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&raquo;</a>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
 <?php endif; ?>

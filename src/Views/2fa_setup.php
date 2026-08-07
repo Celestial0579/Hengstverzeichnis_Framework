@@ -41,7 +41,10 @@
             <!-- QR Code wird lokal im Browser gerendert (public/js/qrcode.js) - das TOTP-Secret
                  verlässt dafür nie den Server/Client, anders als bei einem Drittanbieter-API-Aufruf -->
             <div id="qrcode-canvas" role="img" aria-label="2FA QR Code" style="display: inline-block;"></div>
-            <p style="margin-top: 1rem; font-family: monospace; font-size: 1.1rem; background: var(--surface-muted); padding: 0.5rem; display: inline-block; border-radius: 4px;">
+            <!-- Liegt im bewusst fest weißen QR-Kasten und setzt deshalb ebenfalls
+                 ein festes Farbpaar: Eine mitschaltende Fläche wäre hier eine dunkle
+                 Pille auf weißem Grund. -->
+            <p style="margin-top: 1rem; font-family: monospace; font-size: 1.1rem; background: #f0f0f0; color: #222222; padding: 0.5rem; display: inline-block; border-radius: 4px;">
                 Geheimer Schlüssel: <strong><?= htmlspecialchars($secret) ?></strong>
             </p>
         </div>

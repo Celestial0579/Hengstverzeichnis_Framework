@@ -26,8 +26,11 @@ class GdprController extends BaseController {
         $page = max(1, min($totalPages, (int)($_GET['page'] ?? 1)));
 
         $offset = ($page - 1) * self::PER_PAGE;
-        // LIMIT/OFFSET direkt interpoliert - beide Werte sind garantiert Integer.
-        $requests = $db->query("SELECT * FROM gdpr_requests ORDER BY id DESC LIMIT " . self::PER_PAGE . " OFFSET {$offset}")->fetchAll();
+        $stmt = $db->prepare("SELECT * FROM gdpr_requests ORDER BY id DESC LIMIT ? OFFSET ?");
+        $stmt->bindValue(1, self::PER_PAGE, \PDO::PARAM_INT);
+        $stmt->bindValue(2, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+        $requests = $stmt->fetchAll();
 
         // Personensuche als EINE Batch-Query statt einer Query pro Anfrage
         // (vorher 1+N mit Full Scan je Zeile, #126). Kandidaten werden für alle

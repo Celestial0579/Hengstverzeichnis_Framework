@@ -109,7 +109,7 @@ class ApiController extends BaseController {
         // Pagination direkt in SQL (#125); Züchter/Besitzer aggregiert statt
         // über multiplizierende JOINs - ein Pferd mit mehreren Besitzern erzeugt
         // so genau EINEN API-Datensatz - und nur veröffentlichte Personen (#121).
-        $limitSql = $limit !== null ? "LIMIT " . (int)$limit . " OFFSET " . (int)$offset : "";
+        $limitSql = $limit !== null ? "LIMIT ? OFFSET ?" : "";
 
         $stmt = $db->prepare("
             SELECT
@@ -136,7 +136,15 @@ class ApiController extends BaseController {
             ORDER BY h.name ASC
             {$limitSql}
         ");
-        $stmt->execute($bindings);
+        $paramIndex = 1;
+        foreach ($bindings as $value) {
+            $stmt->bindValue($paramIndex++, $value);
+        }
+        if ($limit !== null) {
+            $stmt->bindValue($paramIndex++, $limit, \PDO::PARAM_INT);
+            $stmt->bindValue($paramIndex, $offset, \PDO::PARAM_INT);
+        }
+        $stmt->execute();
         return $stmt->fetchAll();
     }
 

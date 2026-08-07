@@ -207,11 +207,17 @@ class PublicController extends BaseController {
                 {$personAggregateJoin}
                 WHERE {$whereSql}
                 ORDER BY h.name ASC
-                LIMIT " . self::CATALOG_PER_PAGE . " OFFSET {$offset}
+                LIMIT ? OFFSET ?
             ";
 
             $stmt = $db->prepare($sql);
-            $stmt->execute($params);
+            $paramIndex = 1;
+            foreach ($params as $value) {
+                $stmt->bindValue($paramIndex++, $value);
+            }
+            $stmt->bindValue($paramIndex++, self::CATALOG_PER_PAGE, \PDO::PARAM_INT);
+            $stmt->bindValue($paramIndex, $offset, \PDO::PARAM_INT);
+            $stmt->execute();
             $horses = $stmt->fetchAll();
         }
 

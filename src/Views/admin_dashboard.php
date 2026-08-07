@@ -30,24 +30,24 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
 
     <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
-            <h2 style="margin: 0; color: var(--primary-color);"><?= htmlspecialchars($t('admin.dashboard.title')) ?></h2>
-            <p style="margin: 0.3rem 0 0 0; color: #666; font-size: 0.95rem;">
+            <h2 style="margin: 0; color: var(--primary-fg);"><?= htmlspecialchars($t('admin.dashboard.title')) ?></h2>
+            <p style="margin: 0.3rem 0 0 0; color: var(--text-muted); font-size: 0.95rem;">
                 <?= htmlspecialchars($t('admin.dashboard.logged_in_as')) ?> <strong><?= htmlspecialchars($_SESSION['username'] ?? 'Benutzer') ?></strong>
                 (<span style="color: var(--secondary-color); font-weight: bold;"><?= htmlspecialchars($ownGroupLabel) ?></span>)
             </p>
         </div>
         <form action="/logout" method="POST" style="margin: 0;">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-            <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: #dc3545; padding: 0.5rem 1rem;">🚪 <?= htmlspecialchars($t('admin.dashboard.logout')) ?></button>
+            <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: var(--danger-fg); padding: 0.5rem 1rem;">🚪 <?= htmlspecialchars($t('admin.dashboard.logout')) ?></button>
         </form>
     </div>
 
     <!-- Section 1: Verwaltung -->
     <div class="card">
-        <h3 style="margin-top: 0; color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+        <h3 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
             📁 <?= htmlspecialchars($t('admin.dashboard.management_heading')) ?>
         </h3>
-        <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.2rem;">
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
             <?= htmlspecialchars($t('admin.dashboard.management_text')) ?>
         </p>
 
@@ -86,10 +86,10 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
     <!-- Section 2: Systemeinstellungen (Admin-Only) -->
     <?php if ($isAdmin): ?>
         <div class="card">
-            <h3 style="margin-top: 0; color: var(--primary-color); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
                 ⚙️ <?= htmlspecialchars($t('admin.dashboard.system_heading')) ?>
             </h3>
-            <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.2rem;">
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
                 <?= htmlspecialchars($t('admin.dashboard.system_text')) ?>
             </p>
 

@@ -9,6 +9,27 @@
     --card-bg: #ffffff;
     --border-color: #e0e0e0;
     --header-bg: #ffffff;
+    /* Abgestufter Fließtext (#139): --text-muted für Sekundärtext, --text-subtle
+       für noch zurückhaltendere Hinweise. Beide Stufen erfüllen WCAG 2.1 AA
+       (>= 4.5:1) auf --bg-color, --card-bg und --surface-muted - die bisher
+       fest kodierten Grautöne #777 bis #aaa taten das nicht einmal im hellen
+       Theme. --surface-muted ist die neutrale, leicht abgesetzte Fläche für
+       Info-Kästen und Leerzustände. */
+    --text-muted: #5b6166;
+    --text-subtle: #6c7276;
+    --surface-muted: #fafafa;
+    /* Warnrot als reine Textfarbe. Die Statusboxen setzen Rot als Fläche mit
+       eigenem Textton und bleiben davon unberührt - hier geht es nur um roten
+       Text auf normalem Seitengrund, der mit #dc3545 selbst im hellen Theme
+       nur 4,3:1 erreichte. */
+    --danger-fg: #c62a38;
+    /* --primary-color dient doppelt: als Hintergrund (Buttons, Badges - dort
+       liegt weißer Text darauf) und als Textfarbe (Überschriften, Brand).
+       Als Textfarbe muss sie zum Seitenhintergrund passen, als Hintergrund
+       zum weißen Text - im Darkmode sind das gegenläufige Anforderungen.
+       Deshalb die eigene Variable: --primary-color bleibt der Flächenton,
+       --primary-fg ist die davon abgeleitete Textvariante. */
+    --primary-fg: var(--primary-color);
     --font-family: 'Inter', system-ui, sans-serif;
     --border-radius: 8px;
     --transition-speed: 0.3s;
@@ -33,6 +54,9 @@
  * grep-Befund in den Views) und bleiben deshalb unabhängig vom Seitenthema
  * lesbar - sie werden hier nicht angefasst.
  */
+/* ACHTUNG: Die folgenden zwei Blöcke sind bewusst wortgleich - CSS kann eine
+ * Variablengruppe nicht an zwei Bedingungen gleichzeitig hängen. Wird hier ein
+ * Wert geändert, muss er im jeweils anderen Block mitgeändert werden. */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
         --bg-color: #16181c;
@@ -40,18 +64,37 @@
         --card-bg: #22252a;
         --border-color: #383b40;
         --header-bg: #1c1e22;
+        --text-muted: #b3bac2;
+        --text-subtle: #9ba2aa;
+        --surface-muted: #1c1e22;
+        --danger-fg: #f08a94;
+        /* Erst der statische Rückfallwert, dann die berechnete Variante: Die
+         * Primärfarbe ist im Admin frei wählbar, ein fester Ersatzton würde
+         * also nur zufällig passen. color-mix hellt jeden gewählten Farbton so
+         * weit auf, dass er auf dunklem Grund lesbar bleibt (geprüft für
+         * Blau/Grün/Rot: durchgängig über 7:1). Kennt ein Browser color-mix
+         * nicht, greift die Zeile davor. */
+        --primary-fg: #b5bbc2;
+        --primary-fg: color-mix(in srgb, var(--primary-color) 35%, #ffffff);
         --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
         --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
         --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
     }
 }
 
+/* Zwillingsblock zu oben - siehe dortigen Hinweis, Werte synchron halten. */
 :root[data-theme="dark"] {
     --bg-color: #16181c;
     --text-color: #e4e6eb;
     --card-bg: #22252a;
     --border-color: #383b40;
     --header-bg: #1c1e22;
+    --text-muted: #b3bac2;
+    --text-subtle: #9ba2aa;
+    --surface-muted: #1c1e22;
+    --danger-fg: #f08a94;
+    --primary-fg: #b5bbc2;
+    --primary-fg: color-mix(in srgb, var(--primary-color) 35%, #ffffff);
     --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
     --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
     --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
@@ -93,7 +136,7 @@ body {
 }
 
 .theme-toggle:hover {
-    border-color: var(--primary-color);
+    border-color: var(--primary-fg);
     transform: scale(1.05);
 }
 
@@ -115,7 +158,7 @@ header {
     align-items: center;
     gap: 1rem;
     text-decoration: none;
-    color: var(--primary-color);
+    color: var(--primary-fg);
     font-weight: 700;
     font-size: 1.5rem;
     transition: opacity var(--transition-speed);
@@ -177,7 +220,7 @@ main {
 
 /* Typography */
 h1, h2, h3 {
-    color: var(--primary-color);
+    color: var(--primary-fg);
     margin-bottom: 1rem;
 }
 
@@ -204,9 +247,11 @@ h1, h2, h3 {
 }
 
 .btn-secondary {
+    /* Umrandung mit der Schrift mitziehen: Der Button steht auf dem
+       Seitenhintergrund, nicht auf einer Primärfarbfläche. */
     background-color: transparent;
-    color: var(--primary-color);
-    border: 2px solid var(--primary-color);
+    color: var(--primary-fg);
+    border: 2px solid var(--primary-fg);
 }
 
 .btn-secondary:hover {
@@ -238,7 +283,7 @@ h1, h2, h3 {
 
 .form-control:focus {
     outline: none;
-    border-color: var(--primary-color);
+    border-color: var(--primary-fg);
     box-shadow: 0 0 0 3px rgba(44, 62, 80, 0.1);
 }
 

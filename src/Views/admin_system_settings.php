@@ -55,7 +55,7 @@
         <div class="form-group">
             <label for="base_url">🌐 Stamm-URL der Webseite (z. B. https://hengstverzeichnis.de/)</label>
             <input type="url" id="base_url" name="base_url" class="form-control" placeholder="https://hengstverzeichnis.de/" value="<?= htmlspecialchars($settings['base_url'] ?? '') ?>">
-            <small style="color: #666; display: block; margin-top: 0.3rem;">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Basis-Adresse der Instanz inklusive Protokoll (`https://`) und abschließendem Slash (`/`). Wird u. a. für E-Mail-Links, Canonical URLs und Systembenachrichtigungen genutzt.
             </small>
         </div>
@@ -67,7 +67,7 @@
                     <option value="<?= htmlspecialchars($code) ?>" <?= ($settings['language'] ?? 'de') === $code ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
                 <?php endforeach; ?>
             </select>
-            <small style="color: #666; display: block; margin-top: 0.3rem;">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Standardsprache der öffentlichen Seiten (#48). Besucher können sie über den Sprachumschalter im Footer für ihre eigene Sitzung übersteuern.
                 Weitere Sprachen sowie Übersetzungen im Admin-Bereich folgen schrittweise.
             </small>
@@ -79,7 +79,7 @@
                 <input type="checkbox" name="registration_enabled" value="1" <?= ($settings['registration_enabled'] ?? '0') === '1' ? 'checked' : '' ?> style="width: 16px; height: 16px;">
                 Öffentliche Registrierung unter <code>/register</code> erlauben
             </label>
-            <small style="color: #666; display: block; margin-top: 0.3rem;">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Standard: deaktiviert. Neue Konten müssen ihre E-Mail-Adresse per Link bestätigen,
                 bevor die Anmeldung möglich ist (#83). Registrierungen sind pro IP begrenzt.
             </small>
@@ -93,7 +93,7 @@
                         </option>
                     <?php endforeach; ?>
                 </select>
-                <small style="color: #666; display: block; margin-top: 0.3rem;">
+                <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                     Administrator und Öffentlich/Gäste sind nicht wählbar. Ohne Standard-Gruppe erhalten
                     neue Konten keinerlei Rechte (und wegen der Fail-safe-Regel aus #84 eine 2FA-Pflicht) -
                     ob die gewählte Gruppe 2FA verlangt, steuern Sie unter
@@ -105,7 +105,7 @@
         <?php if (!empty($registeredFeatures)): ?>
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label>✨ Sichtbarkeit von Zusatzfunktionen</label>
-                <small style="color: #666; display: block; margin-bottom: 0.5rem;">
+                <small style="color: var(--text-muted); display: block; margin-bottom: 0.5rem;">
                     Von Plugins bereitgestellte Zusatzfunktionen (#57): „Öffentlich" sehen alle Besucher,
                     „Nur für Gruppen mit Leseberechtigung" sehen ausschließlich angemeldete Benutzer,
                     deren Gruppe die jeweilige Leseberechtigung besitzt (zuweisbar unter
@@ -114,7 +114,7 @@
                 <?php foreach ($registeredFeatures as $featureKey => $featureDef): ?>
                     <?php $currentVisibility = $settings['feature_visibility__' . $featureKey] ?? $featureDef['default']; ?>
                     <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
-                        <span style="flex: 1;"><?= htmlspecialchars($featureDef['label']) ?> <code style="font-size: 0.8rem; color: #888;"><?= htmlspecialchars($featureKey) ?></code></span>
+                        <span style="flex: 1;"><?= htmlspecialchars($featureDef['label']) ?> <code style="font-size: 0.8rem; color: var(--text-subtle);"><?= htmlspecialchars($featureKey) ?></code></span>
                         <select name="feature_visibility[<?= htmlspecialchars($featureKey) ?>]" class="form-control" style="max-width: 320px;">
                             <option value="public" <?= $currentVisibility === 'public' ? 'selected' : '' ?>>Öffentlich</option>
                             <option value="members" <?= $currentVisibility === 'members' ? 'selected' : '' ?>>Nur für Gruppen mit Leseberechtigung</option>
@@ -135,7 +135,7 @@
                 value="<?= htmlspecialchars($trustedProxies ?? '') ?>"
                 <?= !empty($trustedProxiesFromEnv) ? 'disabled' : '' ?>
             >
-            <small style="color: #666; display: block; margin-top: 0.3rem;">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 <?php if (!empty($trustedProxiesFromEnv)): ?>
                     Wird aktuell über die Umgebungsvariable <code>TRUSTED_PROXIES</code> gesetzt — diese hat Vorrang und kann hier nicht überschrieben werden.
                 <?php else: ?>
@@ -159,7 +159,7 @@
                 value="<?= htmlspecialchars($trackingDomains ?? '') ?>"
                 <?= !empty($trackingDomainsFromEnv) ? 'disabled' : '' ?>
             >
-            <small style="color: #666; display: block; margin-top: 0.3rem;">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 <?php if (!empty($trackingDomainsFromEnv)): ?>
                     Wird aktuell über die Umgebungsvariable <code>TRACKING_DOMAINS</code> gesetzt — diese hat Vorrang und kann hier nicht überschrieben werden.
                 <?php else: ?>
@@ -173,7 +173,7 @@
         <div class="form-group" style="margin-top: 1.5rem;">
             <label for="tracking_code">📈 Tracking-Code (Matomo-/Google-Analytics-Snippet)</label>
             <textarea id="tracking_code" name="tracking_code" class="form-control" rows="5" placeholder="&lt;script&gt;...&lt;/script&gt;" style="font-family: monospace; font-size: 0.85rem;"><?= htmlspecialchars($settings['tracking_code'] ?? '') ?></textarea>
-            <small style="color: #666; display: block; margin-top: 0.3rem;">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Wird unverändert vor <code>&lt;/head&gt;</code> auf jeder Seite eingefügt. Nur für vertrauenswürdigen Code von Matomo, Google Analytics
                 o. Ä. verwenden — der Inhalt wird bewusst nicht escaped, damit <code>&lt;script&gt;</code>-Tags funktionieren. Denken Sie an Ihre
                 DSGVO-Pflichten (z. B. Cookie-Consent), bevor Sie Tracking aktivieren.
@@ -189,10 +189,10 @@
 
 <!-- Danger Zone: System Zurücksetzen -->
 <div class="card" style="border: 2px solid #dc3545; background-color: #fff8f8; margin-top: 3rem;">
-    <h3 style="color: #dc3545; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+    <h3 style="color: var(--danger-fg); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
         ⚠️ Danger Zone: System zurücksetzen
     </h3>
-    <p style="color: #666; font-size: 0.95rem; margin-bottom: 1.5rem;">
+    <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
         Hier können Sie das gesamte System zurücksetzen. Alle Benutzer, Pferde, Einstellungen und Nachrichten werden unwiderruflich aus der Datenbank gelöscht. Danach wird der **Setup-Wizard** neu gestartet.
     </p>
 
@@ -206,7 +206,7 @@
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
         <div class="form-group">
-            <label for="confirm_text" style="color: #dc3545; font-weight: bold;">
+            <label for="confirm_text" style="color: var(--danger-fg); font-weight: bold;">
                 Geben Sie "RESET" ein, um das Zurücksetzen zu bestätigen:
             </label>
             <input type="text" id="confirm_text" name="confirm_text" class="form-control" placeholder="RESET" required style="border-color: #dc3545;">

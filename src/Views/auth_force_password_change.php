@@ -6,7 +6,7 @@
 ?>
 <div class="card" style="max-width: 480px; margin: 3rem auto;">
     <h2>⚠️ Erstmalige Passwortänderung erforderlich</h2>
-    <p style="color: #666; font-size: 0.95rem;">
+    <p style="color: var(--text-muted); font-size: 0.95rem;">
         Aus Sicherheitsgründen müssen Sie bei Ihrer ersten Anmeldung ein neues, persönliches Passwort festlegen.
     </p>
 

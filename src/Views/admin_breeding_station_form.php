@@ -68,7 +68,7 @@ $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stat
                 <input type="checkbox" name="is_published" value="1" <?= !empty($old['is_published'] ?? $station['is_published'] ?? 0) ? 'checked' : '' ?>>
                 <span>🌐 Öffentlich sichtbar (Detailseite & Katalog-Filter)</span>
             </label>
-            <small style="color: #666;">Ohne Häkchen bleibt die Deckstation unveröffentlicht und ist öffentlich nicht erreichbar.</small>
+            <small style="color: var(--text-muted);">Ohne Häkchen bleibt die Deckstation unveröffentlicht und ist öffentlich nicht erreichbar.</small>
         </div>
         <?php endif; ?>
 

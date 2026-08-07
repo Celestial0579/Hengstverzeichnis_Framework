@@ -26,7 +26,7 @@ $t = fn(string $key) => htmlspecialchars(App\I18n\Translator::t($key));
     <?php endif; ?>
 
     <?php if (empty($hideForm) && !isset($_GET['sent'])): ?>
-        <p style="color: #666; font-size: 0.9rem; margin-bottom: 1.5rem;"><?= $t('register.intro') ?></p>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;"><?= $t('register.intro') ?></p>
 
         <form action="/register" method="POST">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
@@ -56,6 +56,6 @@ $t = fn(string $key) => htmlspecialchars(App\I18n\Translator::t($key));
     <?php endif; ?>
 
     <p class="text-center" style="margin-top: 1.5rem; font-size: 0.9rem;">
-        <a href="/login" style="color: var(--primary-color);"><?= $t('register.back_to_login') ?></a>
+        <a href="/login" style="color: var(--primary-fg);"><?= $t('register.back_to_login') ?></a>
     </p>
 </div>

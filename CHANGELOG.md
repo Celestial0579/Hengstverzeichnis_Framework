@@ -59,6 +59,35 @@ Breaking Changes sind jederzeit möglich).
     "keine Codes" behandelt statt `foreach` über `null` (#128).
   - DSGVO-Löschung und -Anonymisierung schreiben jetzt Audit-Log-Einträge
     (#135).
+- Darstellung & Barrierefreiheit:
+  - Darkmode: Text war über weite Teile der Oberfläche zu dunkel und damit
+    kaum lesbar (#139). Ursache waren Farben, die nicht am Themenwechsel
+    teilnahmen — Überschriften und der Seitentitel nutzten `--primary-color`
+    direkt (1,4:1 auf dunklem Grund), Fließ- und Hinweistext in den Views
+    waren als `#666`/`#888` fest verdrahtet (2,7:1), und neutrale
+    Info-Kästen behielten ihre helle Fläche, während der geerbte Text hell
+    wurde. Neu sind die Variablen `--primary-fg`, `--text-muted`,
+    `--text-subtle`, `--surface-muted` und `--danger-fg`; alle Textrollen
+    erreichen jetzt in beiden Themen mindestens WCAG 2.1 AA (4,5:1), die
+    meisten AAA.
+  - Getragen wurde der Fehler überwiegend von **Inline-Styles in den Views**,
+    nicht vom Stylesheet: Rund 60 Überschriften setzten `color:
+    var(--primary-color)` direkt im `style`-Attribut und übersteuerten damit
+    die zentrale `h1, h2, h3`-Regel. Eine Korrektur allein in
+    `style.css` hätte den sichtbaren Fehler nicht behoben.
+  - `--primary-fg` wird im Darkmode per `color-mix()` aus der im Admin frei
+    wählbaren Primärfarbe abgeleitet, statt einen festen Ersatzton zu setzen -
+    geprüft für Blau, Grün und Rot (durchgängig über 7:1). Browser ohne
+    `color-mix()` fallen auf einen statischen Wert zurück.
+  - Die 2FA-Wiederherstellungscodes standen im Darkmode als heller Text auf
+    fest weißem Grund (1,2:1) und waren praktisch unsichtbar — ausgerechnet
+    die Codes, die man beim Einrichten abschreiben muss (#139).
+  - Die zurückhaltenden Grautöne `#777` bis `#aaa` verfehlten das
+    AA-Kriterium schon im hellen Theme (2,2:1 bis 4,5:1); ebenso das Warnrot
+    `#dc3545` als reine Textfarbe (4,3:1). Die neuen abgestuften Variablen
+    beheben das mit. Farbige Statusboxen, die Hintergrund und Text bewusst
+    als Paar setzen, bleiben unverändert - ebenso der weiße Grund hinter dem
+    2FA-QR-Code, den Authentikator-Apps zum Erkennen brauchen.
 
 ### Geändert
 

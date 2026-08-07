@@ -12,7 +12,7 @@
 ?>
 <div class="card" style="max-width: 700px; margin: 0 auto;">
     <h2>🔄 Updates</h2>
-    <p style="color: #666;">
+    <p style="color: var(--text-muted);">
         Installierte Version: <strong><?= htmlspecialchars($currentVersion) ?></strong>
         <span style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: <?= $updateChannel === 'beta' ? '#fff3cd' : '#e2e3e5' ?>; color: <?= $updateChannel === 'beta' ? '#856404' : '#383d41' ?>;">
             Kanal: <?= $updateChannel === 'beta' ? 'Beta' : 'Stabil' ?>
@@ -28,7 +28,7 @@
     <!-- Update-Kanal / Beta-Opt-in: Kandidaten sind IMMER nur strikt neuere
          Versionen (UpdateService::selectBestRelease()) - auch ein Wechsel von
          Beta zurück auf Stabil kann daher nie ein Downgrade auslösen. -->
-    <form action="/admin/updates/channel" method="POST" style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: #f8f9fa; padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
+    <form action="/admin/updates/channel" method="POST" style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         <div class="form-group" style="margin: 0;">
             <label for="update_channel" style="font-size: 0.9rem;">Update-Kanal</label>
@@ -38,7 +38,7 @@
             </select>
         </div>
         <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">Speichern &amp; prüfen</button>
-        <small style="color: #666; flex-basis: 100%;">
+        <small style="color: var(--text-muted); flex-basis: 100%;">
             „Beta" bezieht als Vorabversion (Prerelease) markierte Releases ein.
             Angeboten werden in beiden Kanälen ausschließlich Versionen, die <strong>neuer</strong>
             als die installierte sind - ein Downgrade findet niemals statt, auch nicht
@@ -105,7 +105,7 @@
     <a href="/admin/updates?check=1" class="btn btn-secondary">🔍 Auf Updates prüfen</a>
 
     <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border-color);">
-    <p style="color: #666; font-size: 0.85rem;">
+    <p style="color: var(--text-muted); font-size: 0.85rem;">
         Ablauf: Release-Prüfung → <strong>Pflicht-Backup</strong> (Abbruch bei Fehler) →
         Herunterladen des offiziellen Release-Archivs → Anwenden (Konfiguration,
         Uploads und Plugins bleiben unangetastet). Datenbank-Migrationen laufen wie

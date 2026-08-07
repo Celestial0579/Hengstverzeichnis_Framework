@@ -6,7 +6,7 @@
 ?>
 <div class="card" style="max-width: 420px; margin: 4rem auto;">
     <h2 class="text-center" style="margin-bottom: 0.5rem;">🔑 Backup-Code verwenden</h2>
-    <p class="text-center" style="color: #666; font-size: 0.95rem; margin-bottom: 1.5rem;">
+    <p class="text-center" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
         Geben Sie einen Ihrer 10 Einmal-Wiederherstellungscodes ein.
     </p>
     
@@ -28,7 +28,7 @@
     </form>
 
     <div style="text-align: center; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
-        <a href="/login/2fa" style="font-size: 0.9rem; color: #666; text-decoration: none;">
+        <a href="/login/2fa" style="font-size: 0.9rem; color: var(--text-muted); text-decoration: none;">
             &larr; Zurück zur normalen 2FA-Eingabe
         </a>
     </div>

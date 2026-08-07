@@ -36,7 +36,7 @@
         <div class="form-group">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <label for="password"><?= htmlspecialchars(App\I18n\Translator::t('auth.password_label')) ?></label>
-                <a href="/forgot-password" style="font-size: 0.85rem; color: var(--primary-color);"><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_password_link')) ?></a>
+                <a href="/forgot-password" style="font-size: 0.85rem; color: var(--primary-fg);"><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_password_link')) ?></a>
             </div>
             <input type="password" id="password" name="password" class="form-control" required>
         </div>
@@ -54,7 +54,7 @@
 
     <?php if (($settings['registration_enabled'] ?? '0') === '1'): ?>
         <p class="text-center" style="margin-top: 1.5rem; font-size: 0.9rem;">
-            <a href="/register" style="color: var(--primary-color);"><?= htmlspecialchars(App\I18n\Translator::t('auth.register_link')) ?></a>
+            <a href="/register" style="color: var(--primary-fg);"><?= htmlspecialchars(App\I18n\Translator::t('auth.register_link')) ?></a>
         </p>
     <?php endif; ?>
 </div>

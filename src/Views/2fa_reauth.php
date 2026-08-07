@@ -10,11 +10,11 @@
  */
 ?>
 <div class="card" style="max-width: 500px; margin: 2rem auto;">
-    <h1 style="border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; margin-bottom: 1rem;">
+    <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1rem;">
         🔐 2FA-Änderung bestätigen
     </h1>
 
-    <p style="color: #555; margin-bottom: 1.5rem;">
+    <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
         Für Ihr Konto ist bereits eine 2-Faktor-Authentifizierung aktiv. Um sie neu
         einzurichten (neuer geheimer Schlüssel und neue Backup-Codes), bestätigen Sie
         bitte zunächst Ihr aktuelles Passwort und einen aktuellen 6-stelligen Code

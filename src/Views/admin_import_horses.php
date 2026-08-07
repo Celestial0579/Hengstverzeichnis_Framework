@@ -36,7 +36,7 @@ $canPublish = $canPublish ?? false;
                 <br><strong><?= (int)$result['skipped'] ?></strong> Zeile(n) wegen Fehlern übersprungen (siehe vorherige Vorschau).
             <?php endif; ?>
         </div>
-        <p style="color: #666; font-size: 0.9rem;">
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
             Importierte Pferde mit unaufgelöster Vater-/Mutter-Angabe (Spalten <code>sire_name</code>/<code>dam_name</code>)
             erscheinen ggf. als Vorschlag unter <a href="/admin/matches">🔗 Blutlinien Zusammenführen</a>, sobald ein
             passendes bestehendes Pferd gefunden wird - der Import selbst verknüpft bewusst nicht automatisch.
@@ -102,7 +102,7 @@ $canPublish = $canPublish ?? false;
                     <input type="checkbox" name="is_published" value="1">
                     <span>🌐 Importierte Pferde direkt öffentlich sichtbar machen (veröffentlichen)</span>
                 </label>
-                <p style="color: #666; font-size: 0.85rem; margin-bottom: 1rem;">
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
                     Ohne Häkchen werden die Pferde unveröffentlicht angelegt und können später über die Massen-Veröffentlichung in der Pferdeverwaltung freigegeben werden.
                 </p>
             <?php endif; ?>
@@ -116,7 +116,7 @@ $canPublish = $canPublish ?? false;
 
     <?php else: ?>
         <!-- Upload-Formular -->
-        <p style="color: #666; margin-bottom: 1rem;">
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">
             CSV-Datei mit Pferdedaten hochladen (z. B. aus Excel/LibreOffice/Google Sheets exportiert). Die erste
             Zeile muss Spaltennamen enthalten, nur die Spalte <code>name</code> ist Pflicht - Reihenfolge und
             zusätzliche/fehlende Spalten sind egal. Komma oder Semikolon als Trennzeichen werden automatisch erkannt.
@@ -126,7 +126,7 @@ $canPublish = $canPublish ?? false;
             <strong>Unterstützte Spalten:</strong>
             <code>name*, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, breeding_station, description, status</code>
             <br>
-            <span style="color: #666;">
+            <span style="color: var(--text-muted);">
                 <code>status</code>: active/inactive/deceased (Standard: active). <code>sire_name</code>/<code>dam_name</code>
                 werden wie bei der manuellen Einzelanlage als unverknüpfter Freitext gespeichert - siehe
                 <a href="/admin/matches">Blutlinien Zusammenführen</a> für die anschließende Verknüpfung.

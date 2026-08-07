@@ -43,7 +43,7 @@
         <?php endif; ?>
     </form>
 
-    <p style="font-size: 0.85rem; color: #666; margin: 0 0 0.5rem 0;">
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 0.5rem 0;">
         <?php if ($search !== ''): ?>
             <?= $totalUsers ?> von <?= $totalUsersUnfiltered ?> Benutzern gefunden für "<?= htmlspecialchars($search) ?>"
         <?php else: ?>
@@ -68,7 +68,7 @@
             <tbody>
                 <?php if (empty($users)): ?>
                     <tr>
-                        <td colspan="6" style="padding: 1rem; text-align: center; color: #888;">
+                        <td colspan="6" style="padding: 1rem; text-align: center; color: var(--text-subtle);">
                             <?= $search !== '' ? 'Keine Benutzer für diese Suche gefunden.' : 'Keine Benutzer gefunden.' ?>
                         </td>
                     </tr>
@@ -84,7 +84,7 @@
                                     <?= htmlspecialchars($user['group_names']) ?>
                                 </span>
                             <?php else: ?>
-                                <span style="color: #888; font-size: 0.85rem;">– keine –</span>
+                                <span style="color: var(--text-subtle); font-size: 0.85rem;">– keine –</span>
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem;">

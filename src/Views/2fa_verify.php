@@ -6,7 +6,7 @@
 ?>
 <div class="card" style="max-width: 400px; margin: 4rem auto;">
     <h2 class="text-center" style="margin-bottom: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.2fa_heading')) ?></h2>
-    <p class="text-center" style="color: #666; font-size: 0.95rem; margin-bottom: 1.5rem;">
+    <p class="text-center" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
         <?= htmlspecialchars(App\I18n\Translator::t('auth.2fa_instructions')) ?>
     </p>
 
@@ -28,7 +28,7 @@
     </form>
 
     <div style="text-align: center; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
-        <a href="/2fa/backup" style="font-size: 0.9rem; color: #666; text-decoration: none;">
+        <a href="/2fa/backup" style="font-size: 0.9rem; color: var(--text-muted); text-decoration: none;">
             <?= htmlspecialchars(App\I18n\Translator::t('auth.2fa_lost_phone')) ?>
         </a>
     </div>

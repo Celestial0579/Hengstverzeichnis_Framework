@@ -19,13 +19,13 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
     if (!empty($node['id'])) {
         $viewProfileTitle = htmlspecialchars(App\I18n\Translator::t('horse.view_profile_title', ['name' => $node['name']]));
         echo '<a href="/hengst?id=' . $node['id'] . '" class="pedigree-box pedigree-link-box gen-level-' . $node['depth'] . '" title="' . $viewProfileTitle . '">';
-        echo '<strong style="color: var(--primary-color); font-size: 0.95rem;">' . $name . '</strong>';
+        echo '<strong style="color: var(--primary-fg); font-size: 0.95rem;">' . $name . '</strong>';
         if ($year) echo '<div class="pedigree-year">' . $year . '</div>';
         if ($ueln) echo '<div class="pedigree-year" style="font-size: 0.75rem;">' . $ueln . '</div>';
         echo '</a>';
     } else {
         echo '<div class="pedigree-box gen-level-' . $node['depth'] . ($isPlaceholder ? ' placeholder' : '') . '">';
-        echo '<strong style="color: #666; font-size: 0.95rem;">' . $name . '</strong>';
+        echo '<strong style="color: var(--text-muted); font-size: 0.95rem;">' . $name . '</strong>';
         if ($year) echo '<div class="pedigree-year">' . $year . '</div>';
         if ($ueln) echo '<div class="pedigree-year" style="font-size: 0.75rem;">' . $ueln . '</div>';
         echo '</div>';
@@ -77,12 +77,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 }
 ?>
 <div style="margin-bottom: 1rem;">
-    <a href="/katalog" style="color: var(--primary-color); text-decoration: none; font-weight: 500;"><?= htmlspecialchars(App\I18n\Translator::t('common.back_to_catalog')) ?></a>
+    <a href="/katalog" style="color: var(--primary-fg); text-decoration: none; font-weight: 500;"><?= htmlspecialchars(App\I18n\Translator::t('common.back_to_catalog')) ?></a>
 </div>
 
 <!-- Main Details -->
 <div class="card" style="margin-bottom: 2rem;">
-    <h1 style="border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+    <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
         <span><?= htmlspecialchars((string)$horse['name']) ?></span>
         <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
             <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : ($horse['status'] === 'inactive' ? 'status.inactive' : 'status.deceased'))) ?>
@@ -92,56 +92,56 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem;">
         <?php if (!empty($horse['image_url'])): ?>
             <div style="text-align: center;">
-                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" style="width: 100%; max-height: 350px; object-fit: cover; border-radius: var(--border-radius); border: 1px solid #ddd; box-shadow: var(--shadow-md);">
+                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" style="width: 100%; max-height: 350px; object-fit: cover; border-radius: var(--border-radius); border: 1px solid var(--border-color); box-shadow: var(--shadow-md);">
             </div>
         <?php endif; ?>
 
         <div>
-            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;"><?= htmlspecialchars(App\I18n\Translator::t('horse.master_data')) ?></h3>
+            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('horse.master_data')) ?></h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></th>
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['ueln'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <?php if (!empty($horse['foreign_ueln'])): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></td>
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-fg);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></td>
                     </tr>
                 <?php endif; ?>
                 <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: #666;"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
                 <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: #666; vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-color);">
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-fg);">
                             <strong>
                                 <?php if (!empty($horse['station_name']) && !empty($horse['breeding_station_id'])): ?>
-                                    <a href="/station?id=<?= $horse['breeding_station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
+                                    <a href="/station?id=<?= $horse['breeding_station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
                                 <?php else: ?>
                                     <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?>
                                 <?php endif; ?>
                             </strong>
                             <?php if (!empty($horse['breeding_station']) && !empty($horse['station_name']) && $horse['breeding_station'] !== $horse['station_name']): ?>
-                                <br><small style="color: #666; font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
+                                <br><small style="color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_contact'])): ?>
-                                <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?>: <?= htmlspecialchars($horse['station_contact']) ?></span>
+                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?>: <?= htmlspecialchars($horse['station_contact']) ?></span>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_address'])): ?>
-                                <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">📍 <?= nl2br(htmlspecialchars($horse['station_address'])) ?></span>
+                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">📍 <?= nl2br(htmlspecialchars($horse['station_address'])) ?></span>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_phone'])): ?>
-                                <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">📞 <?= htmlspecialchars($horse['station_phone']) ?></span>
+                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">📞 <?= htmlspecialchars($horse['station_phone']) ?></span>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_email'])): ?>
-                                <br><span style="font-size: 0.85rem; color: #555; font-weight: normal;">✉️ <a href="mailto:<?= htmlspecialchars($horse['station_email']) ?>"><?= htmlspecialchars($horse['station_email']) ?></a></span>
+                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">✉️ <a href="mailto:<?= htmlspecialchars($horse['station_email']) ?>"><?= htmlspecialchars($horse['station_email']) ?></a></span>
                             <?php endif; ?>
                             <?php if (!empty($horse['station_website'])): ?>
                                 <br><span style="font-size: 0.85rem; font-weight: normal;">🌐 <a href="<?= htmlspecialchars($horse['station_website']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></span>
@@ -153,12 +153,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
             <!-- Züchter, Besitzer & Deckstationenverlauf -->
             <div style="margin-top: 1.5rem;">
-                <h4 style="font-size: 1.1rem; color: var(--primary-color); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
+                <h4 style="font-size: 1.1rem; color: var(--primary-fg); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
                     <?= htmlspecialchars(App\I18n\Translator::t('horse.history_heading')) ?>
                 </h4>
 
                 <?php if (empty($horsePersons)): ?>
-                    <p style="color: #777; font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_persons')) ?></p>
+                    <p style="color: var(--text-subtle); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_persons')) ?></p>
                 <?php else: ?>
                     <div style="display: flex; flex-direction: column; gap: 0.6rem;">
                         <?php
@@ -175,7 +175,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                             }
                             $stationDisplayName = $hp['station_name'] ?? $hp['breeding_station_text'] ?? '';
                         ?>
-                            <div style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem;">
+                            <div style="background: var(--surface-muted); border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.3rem;">
                                     <div>
                                         <?php if (!empty($hp['person_name'])): ?>
@@ -183,7 +183,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                         <?php else: ?>
                                             <strong>
                                                 <?php if (!empty($hp['station_id'])): ?>
-                                                    <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
+                                                    <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
                                                         🏠 <?= htmlspecialchars($stationDisplayName) ?>
                                                     </a>
                                                 <?php else: ?>
@@ -198,10 +198,10 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                 </div>
 
                                 <?php if (!empty($hp['person_name']) && !empty($stationDisplayName)): ?>
-                                    <div style="font-size: 0.85rem; color: var(--primary-color); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
+                                    <div style="font-size: 0.85rem; color: var(--primary-fg); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
                                         <span><?= htmlspecialchars(App\I18n\Translator::t('horse.breeding_station_colon')) ?></span>
                                         <?php if (!empty($hp['station_id'])): ?>
-                                            <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-color); text-decoration: underline;">
+                                            <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
                                                 <?= htmlspecialchars($stationDisplayName) ?>
                                             </a>
                                         <?php else: ?>
@@ -211,7 +211,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                 <?php endif; ?>
 
                                 <?php if (!empty($hp['contact_info'])): ?>
-                                    <div style="font-size: 0.85rem; color: #555; margin-top: 0.3rem;">
+                                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
                                         <?= nl2br(htmlspecialchars($hp['contact_info'])) ?>
                                     </div>
                                 <?php endif; ?>
@@ -223,12 +223,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
         </div>
 
         <div>
-            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: #555;"><?= htmlspecialchars(App\I18n\Translator::t('horse.description_heading')) ?></h3>
+            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('horse.description_heading')) ?></h3>
             <div style="background: #f9f9f9; padding: 1rem; border-radius: var(--border-radius); border: 1px solid var(--border-color); min-height: 120px;">
                 <?php if (!empty($horse['description'])): ?>
                     <?= App\Helper\Markdown::parse($horse['description']) ?>
                 <?php else: ?>
-                    <p style="color: #777;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_description')) ?></p>
+                    <p style="color: var(--text-subtle);"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_description')) ?></p>
                 <?php endif; ?>
             </div>
         </div>
@@ -239,12 +239,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color); padding-bottom: 1rem;">
         <div>
-            <h2 style="margin: 0; color: var(--primary-color);"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_heading')) ?></h2>
-            <p style="margin: 0; color: #666; font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_subheading')) ?></p>
+            <h2 style="margin: 0; color: var(--primary-fg);"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_heading')) ?></h2>
+            <p style="margin: 0; color: var(--text-muted); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_subheading')) ?></p>
         </div>
 
         <!-- Zoom & Level Controls -->
-        <div style="display: flex; gap: 0.5rem; align-items: center; background: #f4f4f4; padding: 0.5rem; border-radius: 8px;">
+        <div style="display: flex; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.5rem; border-radius: 8px;">
             <label for="genSelect" style="font-size: 0.9rem; font-weight: bold; margin-right: 0.3rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.generations_label')) ?></label>
             <select id="genSelect" class="form-control" style="width: auto; padding: 0.3rem 0.5rem;" onchange="setGenerations(this.value)">
                 <option value="2"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_2')) ?></option>
@@ -254,12 +254,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                 <option value="6"><?= htmlspecialchars(App\I18n\Translator::t('horse.gen_6')) ?></option>
             </select>
 
-            <div style="width: 1px; height: 24px; background: #ccc; margin: 0 0.5rem;"></div>
+            <div style="width: 1px; height: 24px; background: var(--border-color); margin: 0 0.5rem;"></div>
 
             <button type="button" class="btn btn-secondary" onclick="zoomPedigree(0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_in_title')) ?>" aria-label="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_in_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 +</button>
             <button type="button" class="btn btn-secondary" onclick="zoomPedigree(-0.1)" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_out_title')) ?>" aria-label="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_out_title')) ?>" style="padding: 0.3rem 0.7rem;">🔍 -</button>
             <button type="button" class="btn btn-secondary" onclick="resetZoom()" title="<?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_reset_title')) ?>" style="padding: 0.3rem 0.7rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.zoom_reset_label')) ?></button>
-            <span id="zoomLevelText" aria-live="polite" style="font-size: 0.85rem; color: #555; min-width: 45px; text-align: center;">100%</span>
+            <span id="zoomLevelText" aria-live="polite" style="font-size: 0.85rem; color: var(--text-muted); min-width: 45px; text-align: center;">100%</span>
         </div>
     </div>
 
@@ -363,8 +363,8 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     justify-content: center;
     gap: 0.5rem;
     padding: 0.5rem;
-    border-left: 2px solid var(--primary-color);
-    background: #fafafa;
+    border-left: 2px solid var(--primary-fg);
+    background: var(--surface-muted);
     border-radius: 4px;
     margin: 0.25rem 0;
 }
@@ -375,7 +375,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     /* Barrierefreiheit (#51): #888 auf Weiß erreicht nur ~3.5:1 Kontrast,
        WCAG AA verlangt für diese Textgröße (12px, auch fett unter der
        "große Schrift"-Schwelle) mindestens 4.5:1 - #666 erreicht ~5.7:1. */
-    color: #666;
+    color: var(--text-muted);
     font-weight: bold;
     margin-bottom: 0.2rem;
 }
@@ -399,7 +399,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
 .pedigree-box.pedigree-link-box:hover,
 .pedigree-box.pedigree-link-box:active {
-    border-color: var(--primary-color);
+    border-color: var(--primary-fg);
     background-color: #f8fbfd;
     box-shadow: 0 4px 10px rgba(0,0,0,0.12);
     transform: translateY(-2px);
@@ -408,19 +408,19 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 .pedigree-box.main-horse {
     background: var(--primary-color);
     color: #ffffff;
-    border-color: var(--primary-color);
+    border-color: var(--primary-fg);
 }
 
 .pedigree-box.empty {
-    background: #f0f0f0;
-    color: #aaa;
+    background: var(--surface-muted);
+    color: var(--text-subtle);
     border-style: dashed;
     font-style: italic;
     font-size: 0.85rem;
 }
 
 .pedigree-link {
-    color: var(--primary-color);
+    color: var(--primary-fg);
     text-decoration: none;
 }
 
@@ -430,7 +430,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
 .pedigree-year {
     font-size: 0.8rem;
-    color: #777;
+    color: var(--text-subtle);
 }
 
 .pedigree-box.main-horse .pedigree-year {

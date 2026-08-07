@@ -11,7 +11,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
 ?>
 <div class="card" style="max-width: 800px;">
     <h2>💾 Backups</h2>
-    <p style="color: #666;">
+    <p style="color: var(--text-muted);">
         Automatisierte, periodische Sicherung der Datenbank an ein von drei
         wählbaren externen Zielen (#59, #93) - als Kernfunktion, aufbauend auf der
         Cron-/Scheduler-Infrastruktur (#67, siehe
@@ -31,7 +31,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
         </div>
     <?php endif; ?>
 
-    <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+    <div style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
         <strong>Letzter Lauf:</strong>
         <?php if ($lastRunAt === null): ?>
             noch nie
@@ -47,7 +47,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
         <br>
         <strong>Nächster automatischer Lauf:</strong>
         <?php if ($schedulerTask === null): ?>
-            <span style="color: #666;">nicht aktiv (Backup deaktiviert oder unvollständig konfiguriert)</span>
+            <span style="color: var(--text-muted);">nicht aktiv (Backup deaktiviert oder unvollständig konfiguriert)</span>
         <?php else: ?>
             spätestens <?= (int)round($schedulerTask['intervalSeconds'] / 3600) ?>h nach dem letzten Lauf,
             ausgelöst über <a href="/admin/cron">Automatisierung (Cron)</a>
@@ -73,8 +73,8 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             </select>
         </div>
 
-        <div id="backup-target-s3" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
-            <h4 style="margin-top: 0; color: var(--primary-color);">🪣 S3-kompatibler Speicher</h4>
+        <div id="backup-target-s3" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-fg);">🪣 S3-kompatibler Speicher</h4>
 
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 2;">
@@ -100,7 +100,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
                 <div class="form-group" style="flex: 1;">
                     <label for="backup_s3_secret_key">Secret Key *</label>
                     <input type="password" id="backup_s3_secret_key" name="backup_s3_secret_key" class="form-control" placeholder="<?= !empty($settings['backup_s3_secret_key']) ? '•••••••• (unverändert)' : 'Secret Key eingeben' ?>">
-                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
+                    <small style="color: var(--text-muted);">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
                 </div>
             </div>
 
@@ -118,9 +118,9 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             </div>
         </div>
 
-        <div id="backup-target-ftps" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
-            <h4 style="margin-top: 0; color: var(--primary-color);">📁 FTPS</h4>
-            <p style="color: #666; font-size: 0.85rem; margin-top: 0;">
+        <div id="backup-target-ftps" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-fg);">📁 FTPS</h4>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0;">
                 Ausschließlich TLS-verschlüsseltes FTP (FTPS) - unverschlüsseltes FTP wird
                 aus Sicherheitsgründen nicht angeboten.
             </p>
@@ -144,7 +144,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
                 <div class="form-group" style="flex: 1;">
                     <label for="backup_ftps_pass">Passwort *</label>
                     <input type="password" id="backup_ftps_pass" name="backup_ftps_pass" class="form-control" placeholder="<?= !empty($settings['backup_ftps_pass']) ? '•••••••• (unverändert)' : 'Passwort eingeben' ?>">
-                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
+                    <small style="color: var(--text-muted);">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
                 </div>
             </div>
 
@@ -154,13 +154,13 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             </div>
         </div>
 
-        <div id="backup-target-webdav" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
-            <h4 style="margin-top: 0; color: var(--primary-color);">☁️ WebDAV</h4>
+        <div id="backup-target-webdav" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-fg);">☁️ WebDAV</h4>
 
             <div class="form-group">
                 <label for="backup_webdav_url">WebDAV-URL (bis einschließlich Zielordner) *</label>
                 <input type="text" id="backup_webdav_url" name="backup_webdav_url" class="form-control" value="<?= htmlspecialchars($settings['backup_webdav_url'] ?? '') ?>" placeholder="https://cloud.beispiel-verband.de/remote.php/dav/files/verband/backups">
-                <small style="color: #666;">Bei Nextcloud/ownCloud über "Einstellungen &rarr; Sicherheit &rarr; WebDAV" zu finden. Der Zielordner wird bei Bedarf automatisch angelegt.</small>
+                <small style="color: var(--text-muted);">Bei Nextcloud/ownCloud über "Einstellungen &rarr; Sicherheit &rarr; WebDAV" zu finden. Der Zielordner wird bei Bedarf automatisch angelegt.</small>
             </div>
 
             <div style="display: flex; gap: 1rem;">
@@ -171,7 +171,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
                 <div class="form-group" style="flex: 1;">
                     <label for="backup_webdav_pass">Passwort / App-Passwort *</label>
                     <input type="password" id="backup_webdav_pass" name="backup_webdav_pass" class="form-control" placeholder="<?= !empty($settings['backup_webdav_pass']) ? '•••••••• (unverändert)' : 'Passwort eingeben' ?>">
-                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert. Bei Nextcloud/ownCloud wird ein eigenes App-Passwort empfohlen statt des Hauptpassworts.</small>
+                    <small style="color: var(--text-muted);">Wird mit AES-256-GCM verschlüsselt gespeichert. Bei Nextcloud/ownCloud wird ein eigenes App-Passwort empfohlen statt des Hauptpassworts.</small>
                 </div>
             </div>
         </div>
@@ -185,7 +185,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             updateBackupTargetVisibility(document.getElementById('backup_target').value);
         </script>
 
-        <h4 style="color: var(--primary-color);">Zeitplan & Aufbewahrung</h4>
+        <h4 style="color: var(--primary-fg);">Zeitplan & Aufbewahrung</h4>
 
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
@@ -195,7 +195,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             <div class="form-group" style="flex: 1;">
                 <label for="backup_retention_count">Aufbewahrung (Anzahl Backups)</label>
                 <input type="number" id="backup_retention_count" name="backup_retention_count" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['backup_retention_count'] ?? '14')) ?>">
-                <small style="color: #666;">Ältere Backups werden nach jedem erfolgreichen Lauf automatisch gelöscht.</small>
+                <small style="color: var(--text-muted);">Ältere Backups werden nach jedem erfolgreichen Lauf automatisch gelöscht.</small>
             </div>
         </div>
 
@@ -208,7 +208,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
     <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3>🧪 Backup jetzt manuell ausführen</h3>
-    <p style="color: #666; font-size: 0.9rem;">Führt sofort einen Backup-Lauf mit den oben gespeicherten Einstellungen aus, unabhängig vom konfigurierten Intervall.</p>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">Führt sofort einen Backup-Lauf mit den oben gespeicherten Einstellungen aus, unabhängig vom konfigurierten Intervall.</p>
     <form action="/admin/backups/test" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         <button type="submit" class="btn btn-secondary">💾 Jetzt sichern</button>

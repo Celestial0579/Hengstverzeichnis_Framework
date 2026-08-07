@@ -8,7 +8,7 @@
 ?>
 <div class="card" style="max-width: 750px;">
     <h2>✉️ E-Mail & SMTP Einstellungen</h2>
-    <p style="color: #666;">Konfigurieren Sie den E-Mail-Versand für Willkommensmails, DSGVO-Benachrichtigungen und Passwort-Resets.</p>
+    <p style="color: var(--text-muted);">Konfigurieren Sie den E-Mail-Versand für Willkommensmails, DSGVO-Benachrichtigungen und Passwort-Resets.</p>
 
     <?php if (!empty($_GET['success'])): ?>
         <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
@@ -33,8 +33,8 @@
             </select>
         </div>
 
-        <div id="smtp_fields" style="background: #f8f9fa; padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
-            <h4 style="margin-top: 0; color: var(--primary-color);">🔒 SMTP Server Konfiguration</h4>
+        <div id="smtp_fields" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+            <h4 style="margin-top: 0; color: var(--primary-fg);">🔒 SMTP Server Konfiguration</h4>
 
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 2;">
@@ -49,7 +49,7 @@
 
             <div class="form-group">
                 <label for="smtp_encryption">Verschlüsselung (Pflicht) *</label>
-                <select id="smtp_encryption" name="smtp_encryption" class="form-control" style="border: 2px solid var(--primary-color); font-weight: bold;">
+                <select id="smtp_encryption" name="smtp_encryption" class="form-control" style="border: 2px solid var(--primary-fg); font-weight: bold;">
                     <option value="tls" <?= ($settings['smtp_encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>🔒 STARTTLS / TLS (Standard Port 587)</option>
                     <option value="ssl" <?= ($settings['smtp_encryption'] ?? '') === 'ssl' ? 'selected' : '' ?>>🔒 SSL / SMTPS (Standard Port 465)</option>
                 </select>
@@ -64,12 +64,12 @@
                 <div class="form-group" style="flex: 1;">
                     <label for="smtp_pass">SMTP Passwort *</label>
                     <input type="password" id="smtp_pass" name="smtp_pass" class="form-control" placeholder="<?= !empty($settings['smtp_pass']) ? '•••••••• (unverändert)' : 'Passwort eingeben' ?>">
-                    <small style="color: #666;">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
+                    <small style="color: var(--text-muted);">Wird mit AES-256-GCM verschlüsselt gespeichert.</small>
                 </div>
             </div>
         </div>
 
-        <h4 style="color: var(--primary-color);">Absender & Benachrichtigungen</h4>
+        <h4 style="color: var(--primary-fg);">Absender & Benachrichtigungen</h4>
 
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
@@ -85,7 +85,7 @@
         <div class="form-group">
             <label for="admin_notification_email">Empfänger E-Mail für DSGVO-Benachrichtigungen</label>
             <input type="email" id="admin_notification_email" name="admin_notification_email" class="form-control" value="<?= htmlspecialchars($settings['admin_notification_email'] ?? '') ?>" placeholder="datenschutz@verband.de">
-            <small style="color: #666;">An diese Adresse werden neue Anfragen aus dem DSGVO-Formular gesendet.</small>
+            <small style="color: var(--text-muted);">An diese Adresse werden neue Anfragen aus dem DSGVO-Formular gesendet.</small>
         </div>
 
         <div style="display: flex; gap: 1rem; margin-top: 2rem;">

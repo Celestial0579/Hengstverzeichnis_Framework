@@ -59,7 +59,7 @@ $publishFormId = 'horsePublishForm';
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['id']) ?></td>
                         <td style="padding: 0.5rem;">
                             <?php if (!empty($horse['image_url'])): ?>
-                                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Foto" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd;">
+                                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Foto" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
                             <?php else: ?>
                                 <span style="font-size: 1.2rem; opacity: 0.3;">🐴</span>
                             <?php endif; ?>

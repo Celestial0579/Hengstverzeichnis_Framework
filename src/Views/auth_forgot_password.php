@@ -7,7 +7,7 @@
 ?>
 <div class="card" style="max-width: 450px; margin: 2rem auto;">
     <h2><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_heading')) ?></h2>
-    <p style="color: #666; font-size: 0.95rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_intro')) ?></p>
+    <p style="color: var(--text-muted); font-size: 0.95rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.forgot_intro')) ?></p>
 
     <?php if (isset($_GET['sent'])): ?>
         <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
@@ -33,6 +33,6 @@
     </form>
 
     <div style="margin-top: 1.5rem; text-align: center;">
-        <a href="/login" style="color: var(--primary-color); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.back_to_login')) ?></a>
+        <a href="/login" style="color: var(--primary-fg); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('auth.back_to_login')) ?></a>
     </div>
 </div>

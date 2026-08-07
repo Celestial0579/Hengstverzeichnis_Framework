@@ -129,12 +129,12 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
 
         nav a.nav-link:hover {
             background: var(--bg-color);
-            color: var(--primary-color);
+            color: var(--primary-fg);
         }
 
         nav a.nav-link.active {
             background: rgba(44, 62, 80, 0.08);
-            color: var(--primary-color);
+            color: var(--primary-fg);
             font-weight: 700;
         }
 
@@ -152,8 +152,8 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
 
         .nav-btn-admin-login {
             background: transparent;
-            color: var(--primary-color);
-            border: 2px solid var(--primary-color);
+            color: var(--primary-fg);
+            border: 2px solid var(--primary-fg);
         }
 
         .nav-btn-admin-login:hover {
@@ -165,7 +165,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         .nav-btn-admin-dashboard {
             background: var(--primary-color);
             color: #ffffff;
-            border: 2px solid var(--primary-color);
+            border: 2px solid var(--primary-fg);
         }
 
         .nav-btn-admin-dashboard:hover {

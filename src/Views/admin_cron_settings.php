@@ -8,7 +8,7 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
 ?>
 <div class="card" style="max-width: 800px;">
     <h2>⏱️ Automatisierung (Cron)</h2>
-    <p style="color: #666;">
+    <p style="color: var(--text-muted);">
         Grundlegende Scheduler-Infrastruktur (#67) für periodisch auszuführende Aufgaben
         (z. B. künftige automatisierte Backups oder E-Mail-Digests). Ein externer System-Cron
         ruft dazu regelmäßig einen geschützten Endpunkt auf - alternativ lassen sich fällige
@@ -25,13 +25,13 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
         </div>
     <?php endif; ?>
 
-    <h3 style="color: var(--primary-color);">1. System-Cron einrichten</h3>
+    <h3 style="color: var(--primary-fg);">1. System-Cron einrichten</h3>
     <?php if ($cronSecret === ''): ?>
-        <p style="color: #666;">Noch kein Secret hinterlegt - bitte zuerst eines erzeugen, bevor der externe Aufruf konfiguriert wird.</p>
+        <p style="color: var(--text-muted);">Noch kein Secret hinterlegt - bitte zuerst eines erzeugen, bevor der externe Aufruf konfiguriert wird.</p>
     <?php else: ?>
-        <p style="color: #666;">Auf dem Server, der diese Installation betreibt, z. B. per <code>crontab -e</code> minütlich einrichten:</p>
-        <pre style="background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem;">* * * * * curl -fsS -H "X-Cron-Secret: <?= htmlspecialchars($cronSecret) ?>" <?= htmlspecialchars($cronUrl) ?> &gt;/dev/null</pre>
-        <p style="color: #666; font-size: 0.9rem;">
+        <p style="color: var(--text-muted);">Auf dem Server, der diese Installation betreibt, z. B. per <code>crontab -e</code> minütlich einrichten:</p>
+        <pre style="background: var(--surface-muted); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem;">* * * * * curl -fsS -H "X-Cron-Secret: <?= htmlspecialchars($cronSecret) ?>" <?= htmlspecialchars($cronUrl) ?> &gt;/dev/null</pre>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
             Das Secret wird ausschließlich über den Header <code>X-Cron-Secret</code>
             akzeptiert. Eine Übergabe als Query-Parameter wird nicht unterstützt, da das
             Secret dabei in Server-/Proxy-Logs landen würde.
@@ -47,9 +47,9 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
 
     <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
-    <h3 style="color: var(--primary-color);">2. Registrierte Aufgaben</h3>
+    <h3 style="color: var(--primary-fg);">2. Registrierte Aufgaben</h3>
     <?php if (empty($tasks)): ?>
-        <p style="color: #666;">
+        <p style="color: var(--text-muted);">
             Aktuell sind keine Aufgaben registriert. Diese Infrastruktur ist als Voraussetzung
             für künftige Kern-Features (automatisierte externe Backups, E-Mail-Digest für
             Admins/Editoren) vorbereitet.

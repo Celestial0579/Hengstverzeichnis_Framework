@@ -6,6 +6,19 @@ FROM php:8.5-apache
 RUN docker-php-ext-install pdo_mysql ftp \
     && a2enmod rewrite headers expires
 
+# Sicherheits-Härtung: keine Software-/Versionspreisgabe nach außen.
+# - Apache: ServerTokens Prod (Banner nur "Apache", keine Version/OS),
+#   ServerSignature Off, TraceEnable Off (HTTP TRACE aus → mitigiert XST).
+#   Als zz-*.conf, damit es nach der Distributions-security.conf zuletzt greift
+#   (bei ServerTokens gewinnt das letzte Vorkommen).
+# - PHP: expose_php Off entfernt den X-Powered-By-Header (PHP-Version).
+# Von einem DAST-Scan gefunden (security/), hier abgestellt.
+RUN printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' \
+      > /etc/apache2/conf-available/zz-hardening.conf \
+    && a2enconf zz-hardening \
+    && printf 'expose_php = Off\n' \
+      > /usr/local/etc/php/conf.d/zz-hardening.ini
+
 # Docroot direkt auf public/ setzen, damit src/, config/ und database/
 # außerhalb des von Apache ausgelieferten Verzeichnisses liegen.
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public

@@ -8,6 +8,23 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Behoben
+
+- `X-XSS-Protection` wird jetzt auch PHP-seitig mit `0` gesendet
+  (`config/config.php`), identisch zur `public/.htaccess`: Der dortige
+  OWASP-konforme Wert überschrieb unter Apache den PHP-Altwert
+  `1; mode=block` — unter `php -S` (Tests, Entwicklung) ging der veraltete,
+  selbst angreifbare Browser-Filter aber tatsächlich noch raus.
+- Schema-Drift behoben: `horse_persons` (NULL-fähiges `person_id`,
+  `breeding_station_id`, `breeding_station_text`) und die Tabelle
+  `addon_repos` stehen jetzt auch im Ersteinrichtungs-Schema
+  `database/schema.sql`, nicht mehr nur in
+  `Database::ensureSchemaUpToDate()` — gemäß der eigenen
+  Doppelpflege-Regel (docs/development.md). Zugleich den veralteten
+  Kommentar im Schema korrigiert, der behauptete, die Gast-Gruppe `public`
+  erhalte nie Berechtigungs-Zeilen (der Seed 60 Zeilen weiter unten vergibt
+  ihr `horses.view`/`breeding_stations.view`).
+
 ### Geändert
 
 - Dokumentation vollständig gegen den Code abgeglichen und auf den Ist-Stand

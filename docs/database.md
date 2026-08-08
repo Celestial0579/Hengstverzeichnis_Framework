@@ -21,8 +21,7 @@ groups / user_groups / group_permissions
                   (Gruppen-/Berechtigungssystem, einziges Rechtemodell)
 api_keys          (benutzergebundene, rechtebegrenzte API-Schlüssel)
 plugins           (aktivierte Plugins inkl. Versions-/Inhalts-Fingerabdruck)
-addon_repos       (konfigurierte Addon-Store-Quellen; nur in
-                   ensureSchemaUpToDate(), siehe Hinweis unten)
+addon_repos       (konfigurierte Addon-Store-Quellen samt Katalog-Cache)
 settings          (Key/Value: Branding, SMTP, System-Einstellungen,
                    feature_visibility__<key>, Cron-/Backup-/Digest-Status)
 password_resets   (Einmal-Tokens für "Passwort vergessen")
@@ -65,15 +64,9 @@ also z. B. mehrere Besitzer über die Zeit hinweg haben. `person_id` ist
 `breeding_station_id`/`breeding_station_text` auf dieser Tabelle).
 `ON DELETE CASCADE` auf beide Richtungen.
 
-> **Hinweis auf eine bekannte Schema-Drift:** `database/schema.sql`
-> deklariert `horse_persons` noch ohne `breeding_station_id`/
-> `breeding_station_text` und mit `person_id NOT NULL`; ebenso fehlt dort
-> `addon_repos`. Beides wird derzeit nur in
-> `Database::ensureSchemaUpToDate()` nachgezogen — entgegen der in
-> [development.md](development.md) beschriebenen Doppelpflege-Regel. Bei
-> einer Neuinstallation gleicht der erste Start das über
-> `ensureSchemaUpToDate()` aus; die Beschreibung hier folgt dem
-> tatsächlichen Laufzeit-Schema.
+Wie alle Schema-Änderungen doppelt gepflegt: im Ersteinrichtungs-Schema
+`database/schema.sql` **und** idempotent in
+`Database::ensureSchemaUpToDate()` für bestehende Installationen.
 
 ### `persons`
 Züchter/Besitzer/Halter. `contact_info` als Freitext. `is_published`

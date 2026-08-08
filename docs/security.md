@@ -163,12 +163,12 @@ Entwicklungsumgebung (`development`, Fehler werden angezeigt).
 Global gesetzt (nicht optional pro Route): `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`,
 `Permissions-Policy` (Kamera/Mikro/Standort deaktiviert), sowie eine
-`Content-Security-Policy`. `X-XSS-Protection` steht im Apache-Deployment per
-`public/.htaccess` auf `0` (OWASP-Empfehlung — der veraltete Browser-Filter
-kann selbst Lücken reißen, der Schutz kommt aus der CSP); der PHP-seitige
-Header in `config/config.php` sendet derzeit noch den Altwert
-`1; mode=block`, den Apache überschreibt — eine bekannte, noch anzugleichende
-Doppelung. Die CSP erlaubt neben `'self'` gezielt
+`Content-Security-Policy`. `X-XSS-Protection` steht einheitlich auf `0`
+(OWASP-Empfehlung — der veraltete Browser-Filter kann selbst Lücken reißen,
+der Schutz kommt aus der CSP), gesetzt sowohl PHP-seitig in
+`config/config.php` als auch per `public/.htaccess` — bewusst an beiden
+Stellen identisch, damit auch Nicht-Apache-Umgebungen (`php -S` in Tests
+und Entwicklung) denselben Wert senden. Die CSP erlaubt neben `'self'` gezielt
 `https://fonts.googleapis.com` (`style-src`) und `https://fonts.gstatic.com`
 (`font-src`). `'unsafe-inline'` bei `script-src`/`style-src` ist
 aktuell nötig, da Views durchgehend `onclick=`/inline `style=` nutzen (kein

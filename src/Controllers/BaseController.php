@@ -325,20 +325,16 @@ abstract class BaseController {
             return true;
         }
 
-        $groupIds = $this->userGroupIds();
-        if (empty($groupIds)) {
-            return false;
-        }
-
-        try {
-            $db = Database::getInstance();
-            $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
-            $stmt = $db->prepare("SELECT COUNT(*) FROM group_permissions WHERE module = ? AND action = ? AND group_id IN ({$placeholders})");
-            $stmt->execute(array_merge([$module, $action], $groupIds));
-            return (int)$stmt->fetchColumn() > 0;
-        } catch (\Throwable $e) {
-            return false;
-        }
+        // Query bewusst in GroupMembership, damit die Prüfung (inkl.
+        // Fail-closed-Verhalten) nur einmal existiert und auch ohne Session
+        // nutzbar bleibt - z. B. für die API-Key-Authentifizierung, siehe
+        // GroupMembership::hasPermission()/App\Security\ApiKey::permits().
+        // Der Request-Cache für Gruppen/Admin-Status bleibt hier.
+        return \App\Permission\GroupMembership::groupsHavePermission(
+            $this->userGroupIds(),
+            $module,
+            $action
+        );
     }
 
     /**

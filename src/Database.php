@@ -494,6 +494,28 @@ class Database {
             $pdo->exec("INSERT IGNORE INTO addon_repos (owner, repo, ref, is_official) VALUES ('Celestial0579', 'Hengstverzeichnis_Addons', NULL, 1)");
         } catch (\Throwable $e) {}
 
+        // API-Schlüssel für die JSON-API (siehe App\Security\ApiKey und
+        // docs/api.md). Muss auch hier angelegt werden - nicht nur in
+        // database/schema.sql -, damit BESTEHENDE Installationen die Tabelle
+        // beim ersten Request nach dem Update automatisch erhalten. Ohne sie
+        // wäre die (seit der Schlüsselpflicht auf diese Tabelle angewiesene)
+        // API nach einem Update nicht mehr nutzbar.
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `api_keys` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `user_id` INT NOT NULL,
+                `label` VARCHAR(100) NOT NULL,
+                `token_hash` CHAR(64) NOT NULL UNIQUE,
+                `token_prefix` VARCHAR(20) NOT NULL,
+                `scope_permissions` TEXT NULL DEFAULT NULL,
+                `last_used_at` DATETIME NULL DEFAULT NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `revoked_at` DATETIME NULL DEFAULT NULL,
+                INDEX `idx_api_keys_user` (`user_id`, `revoked_at`),
+                FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (\Throwable $e) {}
+
         // Herkunft eines installierten Plugins (z. B. 'Celestial0579/Hengstverzeichnis_Addons@main')
         // für die Anzeige unter /admin/plugins - rein informativ, NULL bei manuell
         // (per cp -r) installierten Plugins ohne Store-Herkunft.

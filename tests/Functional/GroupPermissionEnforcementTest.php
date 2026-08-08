@@ -257,14 +257,50 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
 
         $publicGroupId = $this->findBuiltinGroupId($admin, 'Gast');
 
-        // Entziehen: Gast darf Pferde nicht mehr sehen -> öffentlicher Katalog leer.
-        $this->setGroupPermissions($admin, $publicGroupId, ['breeding_stations' => ['view']]);
+        // Geprüft wird am öffentlichen HTML-Katalog, nicht mehr an der JSON-API:
+        // seit der Schlüsselpflicht (siehe ApiKeyAuthTest) hängen die Rechte der
+        // API am Besitzer des verwendeten Schlüssels statt an der Gast-Gruppe.
+        // Der Katalog ist damit die verbliebene Fläche, die die Gast-Gruppe steuert.
+        $unique = uniqid();
+        $horseName = "Gastrechte Testpferd {$unique}";
+        $createForm = $admin->get('/admin/horses/create');
+        $createResponse = $admin->post('/admin/horses/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'name' => $horseName,
+            'status' => 'active',
+            'is_published' => '1',
+        ]);
+        $this->assertSame('/admin/horses?success=created', $createResponse->location());
+
+        // ID über die Admin-Liste ermitteln, um anschließend die öffentliche
+        // Detailseite zu prüfen. Bewusst NICHT die Katalog-Suche als Sonde:
+        // dort erscheint der Suchbegriff auch im Suchfeld der Seite, ein
+        // einfaches "Name im HTML enthalten?" wäre also selbst dann wahr, wenn
+        // gar keine Pferdekarte gerendert wurde.
+        $horsesPage = $admin->get('/admin/horses?search=' . urlencode($horseName));
+        preg_match('#/admin/horses/edit\?id=(\d+)#', $horsesPage->body, $idMatch);
+        $this->assertNotEmpty($idMatch, 'Konnte die ID des Testpferds nicht aus /admin/horses ermitteln.');
+        $detailPath = '/hengst?id=' . (int)$idMatch[1];
+
         $guest = $this->newClient();
-        $catalogWithout = $guest->get('/api/horses');
+
+        // Mit horses.view (Standard der Gast-Gruppe): Detailseite öffentlich erreichbar.
+        $this->setGroupPermissions($admin, $publicGroupId, [
+            'horses' => ['view'],
+            'breeding_stations' => ['view'],
+        ]);
         $this->assertSame(
-            0,
-            json_decode($catalogWithout->body, true)['meta']['total'],
-            'Ohne horses.view der Gast-Gruppe darf die öffentliche API keine Pferde liefern'
+            200,
+            $guest->get($detailPath)->statusCode,
+            'Mit horses.view der Gast-Gruppe muss die öffentliche Pferde-Detailseite erreichbar sein'
+        );
+
+        // Entziehen: Gast darf Pferde nicht mehr sehen -> Detailseite liefert 404.
+        $this->setGroupPermissions($admin, $publicGroupId, ['breeding_stations' => ['view']]);
+        $this->assertSame(
+            404,
+            $guest->get($detailPath)->statusCode,
+            'Ohne horses.view der Gast-Gruppe darf die öffentliche Pferde-Detailseite nicht erreichbar sein'
         );
 
         // Wiederherstellen der Standard-Lese-Rechte der Gast-Gruppe.

@@ -5,21 +5,39 @@ namespace App\Controllers;
 
 use App\Database;
 use App\Helper\Paginator;
+use App\Security\ApiKey;
 
 /**
  * Class ApiController
  *
- * Schlanke, öffentliche Read-only-JSON-API für Katalogdaten (#47). Liefert
- * ausschließlich Felder, die bereits über den öffentlichen HTML-Katalog
+ * Schlanke Read-only-JSON-API für Katalogdaten (#47). Liefert ausschließlich
+ * Felder, die bereits über den öffentlichen HTML-Katalog
  * (`PublicController::catalog()`/`horseDetail()`) einsehbar sind - dieselbe
  * Sichtbarkeit wird auch hier erzwungen: nur veröffentlichte Pferde
- * (is_published) und nur, wenn die Gast-Gruppe das Leserecht `horses.view`
- * besitzt (siehe fetchHorses()). Entzieht ein Admin der Gast-Gruppe dieses
- * Recht, liefert die API - wie der HTML-Katalog - keine Pferde mehr. Bewusst
- * ohne API-Key/Authentifizierung (siehe docs/api.md) - falls künftig
- * nicht-öffentliche Felder hinzukommen sollen, braucht das eine eigene Betrachtung.
+ * (is_published).
+ *
+ * Zugriff NUR mit gültigem API-Schlüssel (siehe App\Security\ApiKey und
+ * docs/api.md): kein anonymer Zugriff, Schlüssel ausschließlich über den
+ * `Authorization: Bearer ...`-Header. Bewusst kein `?api_key=`-Fallback -
+ * Query-Parameter landen in Server-Logs, Referrern und Browser-History, exakt
+ * die Begründung, aus der auch das Cron-Secret nur noch per Header akzeptiert
+ * wird (#114).
+ *
+ * Rechte: Ein Schlüssel darf höchstens das, was sein Besitzer aktuell selbst
+ * darf (live geprüfte Schnittmenge aus dessen Gruppenrechten und dem Scope des
+ * Schlüssels, siehe ApiKey::permits()). Damit ist auch abgesichert, was
+ * passiert, wenn hier künftig zusätzliche - womöglich nicht-öffentliche -
+ * Felder oder Endpunkte hinzukommen: sie sind automatisch an ein konkretes
+ * Recht des Schlüsselbesitzers gebunden, statt implizit für alle offen zu sein.
  */
 class ApiController extends BaseController {
+
+    /**
+     * Der authentifizierte Schlüssel des aktuellen Requests.
+     *
+     * @var array{id: int, user_id: int, scope: array<int, string>|null}|null
+     */
+    private ?array $apiKey = null;
 
     /**
      * GET /api/horses - Liste aller öffentlich sichtbaren Pferde, optional
@@ -33,6 +51,8 @@ class ApiController extends BaseController {
      * - page, per_page (10/25/50/100/all, Standard 50)
      */
     public function index(): void {
+        $this->requireApiKey();
+
         // SQL-seitige Pagination (LIMIT/OFFSET + separate COUNT-Query) statt
         // "alles laden und in PHP zuschneiden" (#125): ?per_page=10 führt so
         // tatsächlich nur noch eine kleine Abfrage aus.
@@ -68,6 +88,8 @@ class ApiController extends BaseController {
      * Pfad-Segment umgesetzt.
      */
     public function show(): void {
+        $this->requireApiKey();
+
         $ueln = trim($_GET['ueln'] ?? '');
         if ($ueln === '') {
             $this->respondJson(['error' => 'missing_ueln', 'message' => 'Query-Parameter "ueln" erforderlich.'], 400);
@@ -84,6 +106,69 @@ class ApiController extends BaseController {
     }
 
     /**
+     * Erzwingt einen gültigen API-Schlüssel. Bricht den Request andernfalls mit
+     * 401 ab - bewusst mit identischer Antwort für "kein Header" und
+     * "ungültiger/widerrufener Schlüssel", damit die API kein Orakel dafür
+     * wird, welche Schlüsselwerte existieren.
+     */
+    private function requireApiKey(): void {
+        $token = self::readBearerToken();
+
+        if ($token !== null) {
+            $key = ApiKey::authenticate($token);
+            if ($key !== null) {
+                $this->apiKey = $key;
+                return;
+            }
+        }
+
+        header('WWW-Authenticate: Bearer realm="api"');
+        $this->respondJson([
+            'error' => 'unauthorized',
+            'message' => 'Gültiger API-Schlüssel erforderlich: Header "Authorization: Bearer <Schlüssel>". Schlüssel werden unter /api-keys verwaltet.',
+        ], 401);
+    }
+
+    /**
+     * Liest den Schlüssel aus dem Authorization-Header. getallheaders() steht
+     * je nach SAPI nicht zur Verfügung, deshalb zusätzlich der von PHP/Apache
+     * gefüllte $_SERVER-Weg (HTTP_AUTHORIZATION bzw. das von manchen
+     * Konfigurationen genutzte REDIRECT_HTTP_AUTHORIZATION).
+     */
+    private static function readBearerToken(): ?string {
+        $header = '';
+
+        if (function_exists('getallheaders')) {
+            foreach (getallheaders() as $name => $value) {
+                if (strcasecmp($name, 'Authorization') === 0) {
+                    $header = (string)$value;
+                    break;
+                }
+            }
+        }
+
+        if ($header === '') {
+            $header = (string)($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        }
+
+        if ($header === '' || !preg_match('/^\s*Bearer\s+(\S+)\s*$/i', $header, $matches)) {
+            return null;
+        }
+
+        return $matches[1];
+    }
+
+    /**
+     * Effektive Rechteprüfung für den authentifizierten Schlüssel: Scope UND
+     * aktuelle Rechte des Besitzers müssen die Aktion erlauben. Ersetzt in
+     * diesem Controller bewusst BaseController::hasPermission() - dort hängt
+     * die Prüfung an der Session, die es bei einem API-Zugriff nicht gibt.
+     */
+    private function apiCan(string $module, string $action): bool {
+        return $this->apiKey !== null && ApiKey::permits($this->apiKey, $module, $action);
+    }
+
+    /**
      * Zentrale Abfrage für beide Endpunkte - bewusst ein eigener, schlanker
      * Filtersatz statt vollständiger Parität mit den vielen Detailfiltern von
      * PublicController::catalog() (dort insb. für die interaktive
@@ -95,10 +180,12 @@ class ApiController extends BaseController {
      * @return array<int, array<string, mixed>>
      */
     private function fetchHorses(array $params, ?int $limit = null, int $offset = 0): array {
-        // Dieselbe Sichtbarkeit wie der öffentliche HTML-Katalog: Gäste ohne
-        // horses.view sehen nichts, und es werden ausschließlich veröffentlichte
-        // Pferde (is_published) ausgeliefert - unabhängig vom Lebenszyklus-Status.
-        if (!$this->hasPermission('horses', 'view')) {
+        // Sichtbarkeit wie im öffentlichen HTML-Katalog - zusätzlich an die
+        // Rechte des Schlüssels gebunden: ohne horses.view (beim Besitzer UND
+        // im Scope) liefert die API nichts, und es werden ausschließlich
+        // veröffentlichte Pferde (is_published) ausgegeben - unabhängig vom
+        // Lebenszyklus-Status.
+        if (!$this->apiCan('horses', 'view')) {
             return [];
         }
 
@@ -153,7 +240,7 @@ class ApiController extends BaseController {
      * wie fetchHorses(), aber ohne die Personen-Aggregation (#125).
      */
     private function countHorses(array $params): int {
-        if (!$this->hasPermission('horses', 'view')) {
+        if (!$this->apiCan('horses', 'view')) {
             return 0;
         }
 
@@ -261,20 +348,27 @@ class ApiController extends BaseController {
     }
 
     /**
-     * Einheitliche JSON-Antwort inkl. Content-Type und (da rein lesend, ohne
-     * Cookies/Session-Auth) permissivem CORS-Header - dieselben Daten sind
-     * bereits über den öffentlichen HTML-Katalog crawlbar, ein zusätzlicher
-     * CORS-Schutz brächte hier keinen echten Sicherheitsgewinn, würde aber
-     * die Einbindung durch Drittsysteme (der eigentliche Zweck dieser API)
-     * unnötig erschweren.
+     * Einheitliche JSON-Antwort inkl. Content-Type.
+     *
+     * Bewusst OHNE `Access-Control-Allow-Origin: *`: Seit die API einen
+     * Schlüssel verlangt, wäre ein Wildcard-CORS-Header eine Einladung, den
+     * Schlüssel in Browser-JavaScript einzubetten - dort ist er für jeden
+     * Besucher auslesbar. Serverseitige Aufrufe (der vorgesehene Weg für
+     * Drittsysteme) unterliegen keiner Same-Origin-Policy und sind davon nicht
+     * betroffen. Wer die API wirklich aus dem Browser heraus nutzen will,
+     * sollte sie hinter einem eigenen Backend-Proxy kapseln, statt den
+     * Schlüssel auszuliefern.
+     *
+     * `Cache-Control: no-store` verhindert, dass rechtegebundene Antworten in
+     * gemeinsam genutzten Caches (Proxys) landen und dort von jemandem gelesen
+     * werden, dessen Schlüssel weniger darf.
      *
      * @param array<string, mixed> $payload
      */
     private function respondJson(array $payload, int $statusCode = 200): void {
         http_response_code($statusCode);
         header('Content-Type: application/json; charset=utf-8');
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: GET');
+        header('Cache-Control: no-store');
         echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }

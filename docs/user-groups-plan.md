@@ -15,7 +15,9 @@
 > beschrieben erhält die Gruppe `public` (jetzt "Gast") **doch** Berechtigungen
 > und ist editierbar: nicht angemeldete Besucher gehören ihr automatisch an
 > (`GroupMembership::groupIds(null)` → Gast-Gruppe), und ihre `view`-Rechte
-> steuern die öffentliche Sichtbarkeit (Katalog, `/api/horses`, Stationsdetail).
+> steuern die öffentliche Sichtbarkeit (Katalog, Stationsdetail). `/api/horses`
+> hängt seit der Schlüsselpflicht nicht mehr an der Gast-Gruppe, sondern an den
+> Rechten des Schlüsselbesitzers (siehe api.md).
 > Backend-Zugriff bleibt für Gäste dennoch durch `checkAuth()` ausgeschlossen.
 > Nur `admin` ist von der Matrix-Bearbeitung geschützt. Öffentliche Sichtbarkeit
 > einzelner Pferde hängt am neuen Flag `horses.is_published` (entkoppelt vom

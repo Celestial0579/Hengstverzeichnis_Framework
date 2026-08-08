@@ -80,6 +80,11 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
                     </span>
                 <?php endif; ?>
             </a>
+            <!-- Selfservice, bewusst ohne Rechteprüfung: ein API-Schlüssel kann
+                 nie mehr als die eigenen Rechte erhalten (siehe App\Security\ApiKey). -->
+            <a href="/api-keys" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                🔑 API-Schlüssel
+            </a>
         </div>
     </div>
 

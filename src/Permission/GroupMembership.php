@@ -103,4 +103,47 @@ final class GroupMembership {
             return false;
         }
     }
+
+    /**
+     * Rechteprüfung für einen BELIEBIGEN Benutzer, unabhängig von der aktuellen
+     * Session - nötig für Zugriffe ohne Session-Kontext, insbesondere die
+     * API-Key-Authentifizierung (siehe App\Security\ApiKey::permits()). Für den
+     * Session-Benutzer bleibt BaseController::hasPermission() der Einstieg,
+     * da es Gruppen/Admin-Status pro Request cacht.
+     *
+     * Identische Semantik wie dort: `admin` hat immer alle Rechte, sonst
+     * entscheidet group_permissions - fail-closed bei fehlender Zeile oder
+     * DB-Fehler.
+     */
+    public static function hasPermission(?int $userId, string $module, string $action): bool {
+        if (self::isAdmin($userId)) {
+            return true;
+        }
+
+        return self::groupsHavePermission(self::groupIds($userId), $module, $action);
+    }
+
+    /**
+     * Prüft, ob eine der übergebenen Gruppen die Berechtigung Modul × Aktion
+     * besitzt. Gemeinsame Abfrage für hasPermission() (beliebiger Benutzer) und
+     * BaseController::hasPermission() (Session-Benutzer mit Request-Cache),
+     * damit es die Query - und ihr Fail-closed-Verhalten - nur einmal gibt.
+     *
+     * @param array<int, int> $groupIds
+     */
+    public static function groupsHavePermission(array $groupIds, string $module, string $action): bool {
+        if (empty($groupIds)) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $placeholders = implode(',', array_fill(0, count($groupIds), '?'));
+            $stmt = $db->prepare("SELECT COUNT(*) FROM group_permissions WHERE module = ? AND action = ? AND group_id IN ({$placeholders})");
+            $stmt->execute(array_merge([$module, $action], $groupIds));
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
 }

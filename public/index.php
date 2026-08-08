@@ -62,9 +62,15 @@ $router->get('/katalog', [App\Controllers\PublicController::class, 'catalog']);
 $router->get('/hengst', [App\Controllers\PublicController::class, 'horseDetail']); // Requires ?id=
 $router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
 
-// Öffentliche Read-only-JSON-API für Katalogdaten (#47, siehe docs/api.md)
+// Read-only-JSON-API für Katalogdaten (#47, siehe docs/api.md). Zugriff nur
+// mit gültigem API-Schlüssel im Authorization-Header (App\Security\ApiKey).
 $router->get('/api/horses', [App\Controllers\ApiController::class, 'index']);
 $router->get('/api/horses/show', [App\Controllers\ApiController::class, 'show']); // Requires ?ueln=
+
+// Selfservice-Verwaltung eigener API-Schlüssel (nur für angemeldete Benutzer)
+$router->get('/api-keys', [App\Controllers\ApiKeyController::class, 'index']);
+$router->post('/api-keys/create', [App\Controllers\ApiKeyController::class, 'create']);
+$router->post('/api-keys/revoke', [App\Controllers\ApiKeyController::class, 'revoke']);
 
 // Compliance Routes
 $router->get('/impressum', [App\Controllers\PublicController::class, 'impressum']);

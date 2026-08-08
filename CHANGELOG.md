@@ -8,6 +8,8 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.2.0-beta.2] – 2026-08-08
+
 ### Hinzugefügt
 
 - Der SSO-Login funktioniert jetzt mit **jedem OIDC-Provider** (Authentik,

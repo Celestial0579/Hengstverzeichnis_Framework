@@ -29,7 +29,10 @@ cp -r docs/examples/demo-plugin plugins/demo-plugin
 
 Danach unter **Admin → Plugins verwalten** (`/admin/plugins`) aktivieren.
 Das Referenz-Plugin (`docs/examples/demo-plugin/Plugin.php`) demonstriert
-alle unten dokumentierten Hooks sowie das Registrieren einer eigenen Route.
+die Hooks `admin.dashboard_tiles`, `horse.detail_sections` und
+`horse.after_save`, das Registrieren einer eigenen Route sowie
+`permissions()` und `features()` — nicht jedoch `horse.before_save` und
+`catalog.card_sections` (deren Signaturen stehen in der Tabelle unten).
 
 ## Verzeichnisstruktur eines Plugins
 
@@ -68,6 +71,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 | `description` | – | Anzeigetext im Admin-Bereich. |
 | `author` | – | Anzeigetext im Admin-Bereich. |
 | `hooks` | – | Rein deklarativ/informativ - zeigt Admins vor der Aktivierung, was das Plugin laut Selbstauskunft tut. Wird **nicht** technisch erzwungen. |
+| `permissions` | – | Ebenfalls rein deklarativ/informativ (Selbstauskunft wie `hooks`). Tatsächlich registriert werden Berechtigungen ausschließlich über die `permissions()`-Methode der Plugin-Klasse, siehe Abschnitt „Berechtigungen". |
 | `entry` | – | PHP-Datei mit der Plugin-Klasse, relativ zum Plugin-Verzeichnis. Default: `Plugin.php`. |
 
 ### Kompatibilitätsprüfung (`core_compatibility`)
@@ -171,11 +175,21 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
 
 **Performance-Hinweis zu `catalog.card_sections`:** Der Filter läuft einmal
-pro Treffer der aktuellen Katalog-Suche/-Filterung, nicht nur pro sichtbarer
-Karte (der Katalog paginiert nicht serverseitig). Bei sehr großen Katalogen
-und teuren Callbacks (z. B. eigene DB-Abfragen je Pferd) entsprechend auf
-effiziente Umsetzung achten (z. B. Daten für alle betroffenen Pferde vorab in
-einer einzigen Abfrage laden statt im Callback selbst zu queryen).
+pro gerenderter Karte der aktuellen Katalogseite — der Katalog paginiert
+serverseitig (24 Karten je Seite, #125), pro Request sind es also höchstens
+24 Aufrufe. Teure Callbacks (z. B. eigene DB-Abfragen je Pferd) summieren
+sich trotzdem; Daten für alle Pferde einer Seite besser vorab in einer
+einzigen Abfrage laden statt im Callback selbst zu queryen.
+
+**Achtung, `$horse` ist hier schmaler als bei `horse.detail_sections`:**
+Die Katalog-Query liefert eine feste Spaltenteilmenge (`id`, `name`, `ueln`,
+`foreign_ueln`, `birth_year`, `color`, `status`, `image_url`,
+`breeding_station`, `station_name`, verknüpfte/unverknüpfte Elternnamen,
+`breeder_name`, `owner_name`). Insbesondere fehlen `description`,
+`sire_id`/`dam_id` und sämtliche Stations-Kontaktfelder
+(`station_contact`/`address`/`phone`/`email`/`website`). Der Abschnitt
+„Was in `$horse` … steht" unten beschreibt den vollen Satz der
+**Detailseite**; für Katalogkarten gilt nur diese Teilmenge.
 
 **Wichtig zu `horse.before_save`:** Da ein fehlgeschlagener Hook-Aufruf den
 Kern-Workflow nicht blockieren darf (siehe Sicherheitsmodell unten), kann
@@ -266,12 +280,19 @@ dieser Tiefe umschaltbar), oder für einen Pedigree-Export mit eigener
 Aufbereitung:
 
 ```php
-$tree = \App\Service\PedigreeBuilder::build($horseId, $maxDepth);
+$tree = \App\Service\PedigreeBuilder::build($horseId, $maxDepth, $publishedOnly);
 ```
 
 - `$horseId`: ID des Wurzel-Pferdes (`?int`, `null`/`0` liefert `null` zurück).
 - `$maxDepth`: gewünschte Generationstiefe (Standard `4`, kann von Plugins
   frei gewählt werden — unabhängig von der öffentlichen Seite).
+- `$publishedOnly` (Standard `false`): **zwingend `true` für jede öffentliche
+  Ausgabe oder darauf aufbauende Berechnung.** Nur dann erscheinen
+  unveröffentlichte Vorfahren als anonyme Platzhalter statt mit Namen — der
+  Default `false` liefert den ungefilterten Baum und ist ausschließlich für
+  berechtigungsgeschützte Backoffice-Funktionen gedacht. Ein Plugin, das den
+  Parameter auf einer öffentlichen Route weglässt, leakt unveröffentlichte
+  Pferde.
 - Rückgabe: verschachteltes Array pro Knoten mit `id`, `name`, `ueln`,
   `birth_year`, `color`, `depth`, `is_placeholder`, `sire`, `dam` (jeweils
   wieder derselbe Knoten-Typ oder `null`), oder `null` insgesamt, wenn kein
@@ -280,8 +301,10 @@ $tree = \App\Service\PedigreeBuilder::build($horseId, $maxDepth);
   eine Suche nach `sire_ueln`/`sire_name` bzw. `dam_ueln`/`dam_name` gegen
   UELN/Fremd-UELN/Name anderer Pferde-Datensätze. Bleibt der Fallback
   erfolglos, wird ein synthetischer Platzhalter-Blattknoten erzeugt
-  (`id => null`, `is_placeholder => true`) — dieser kann `depth` von
-  `$maxDepth + 1` tragen (bestehendes, absichtlich unverändertes Verhalten).
+  (`id => null`, `is_placeholder => true`). Platzhalter jenseits von
+  `$maxDepth` werden nicht mehr erzeugt — die frühere
+  `depth = $maxDepth + 1`-Besonderheit ist bewusst entfallen (siehe
+  Klassen-Docblock von `PedigreeBuilder`).
 - Führt bei jedem Aufruf eigene DB-Abfragen aus (kein Caching) — bei
   wiederholtem Zugriff auf denselben Baum im selben Request ggf. selbst
   zwischenspeichern.
@@ -456,7 +479,10 @@ Die Registrierung bewirkt zweierlei:
   Premium-Funktionen erscheinen nicht ungefragt öffentlich).
 - In der Berechtigungsmatrix unter **Admin → Gruppen** erscheint automatisch
   das Modul `feature_<key>` mit der Aktion `read` („Sehen/Nutzen"), die pro
-  Gruppe zuweisbar ist.
+  Gruppe zuweisbar ist. Hinweis: In der Matrix unter `/admin/groups`
+  erscheinen für das Modul zusätzlich die Standard-Aktionen `view` und
+  `publish`, die jedes Modul automatisch erhält — für die
+  Feature-Sichtbarkeit ausgewertet wird nur `read`.
 
 Die **Durchsetzung** ist — wie bei normalen Berechtigungen — Aufgabe des
 Plugins selbst, in der eigenen (typischerweise öffentlichen, also ohne

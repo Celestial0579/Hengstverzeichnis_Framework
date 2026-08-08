@@ -8,8 +8,14 @@ Kern-Plugin-System, Admin-UI, initiale Hooks, Referenz-Plugin, Entwickler-Doku
 
 Dieses Dokument bricht die Anforderung aus Issue #56 auf eine konkrete,
 mit der bestehenden Architektur (siehe [architecture.md](architecture.md))
-kompatible technische Umsetzung herunter. Es ist die Planungsgrundlage für
-die eigentliche Implementierung, noch kein fertiges Design.
+kompatible technische Umsetzung herunter.
+
+> **Historisches Planungsdokument.** Der Plan ist umgesetzt; einzelne
+> Details wurden in der Umsetzung anders entschieden (in Abschnitt 4
+> nachgetragen). Der **verbindliche Ist-Stand** für Plugin-Autoren steht in
+> [plugin-development.md](plugin-development.md) — bei Widersprüchen gilt
+> jenes Dokument. Noch offen aus diesem Plan ist einzig der
+> `plugin.schema`-Hook für plugin-eigene Tabellen (Abschnitt 2.5).
 
 ## 1. Ausgangslage & Ziel
 
@@ -118,19 +124,23 @@ Neue Klasse `App\Plugin\HookManager`:
 Definierte Erweiterungspunkte für die erste Ausbaustufe (bewusst klein
 gehalten, erweiterbar nach Bedarf):
 
-| Hook | Ort | Zweck |
-|---|---|---|
-| `horse.before_save` / `horse.after_save` | `HorseController` | Zusätzliche Validierung / Folgeaktionen |
-| `horse.detail_sections` (Filter) | `PublicController::horseDetail` | Zusätzlicher Abschnitt auf der Pferde-Detailseite |
-| `admin.dashboard_tiles` (Filter) | `AdminController::dashboard` | Zusätzliche Kachel im Admin-Dashboard |
-| `router.register` | `public/index.php`, nach Kern-Routen | Zusätzliche Routen registrieren |
-| `nav.public_links` / `nav.admin_links` (Filter) | `layout.php` | Zusätzliche Navigationspunkte |
+| Hook | Ort | Zweck | Stand |
+|---|---|---|---|
+| `horse.before_save` / `horse.after_save` | `HorseController` | Zusätzliche Validierung / Folgeaktionen | umgesetzt |
+| `horse.detail_sections` (Filter) | `PublicController::horseDetail` | Zusätzlicher Abschnitt auf der Pferde-Detailseite | umgesetzt |
+| `admin.dashboard_tiles` (Filter) | `AdminController::dashboard` | Zusätzliche Kachel im Admin-Dashboard | umgesetzt |
+| `router.register` | `public/index.php`, nach Kern-Routen | Zusätzliche Routen registrieren | **so nie gebaut** — ersetzt durch die `routes()`-Methode (Abschnitt 4) |
+| `nav.public_links` / `nav.admin_links` (Filter) | `layout.php` | Zusätzliche Navigationspunkte | **nicht umgesetzt** (Abschnitt 4) |
+
+Zusätzlich später umgesetzt (nicht Teil dieser Planung):
+`catalog.card_sections` (#97) je gerenderter Katalogkarte.
 
 Wichtig: Hooks sitzen **innerhalb** der bestehenden Controller-Methoden,
 **nach** `checkAuth()`/`requireAdmin()` und CSRF-Prüfung — ein Plugin-Hook
 kann diese Prüfungen nicht umgehen, weil er sie nie selbst durchführt,
 sondern nur an einem Punkt läuft, der sie bereits durchlaufen hat. Für
-`router.register` gilt: neue Plugin-Routen laufen durch denselben
+Plugin-Routen (umgesetzt als `routes()`-Methode statt des hier geplanten
+`router.register`-Hooks) gilt: sie laufen durch denselben
 `Router::dispatch()` wie Kern-Routen; ein Plugin-Controller, der z. B.
 Admin-Funktionalität anbietet, muss weiterhin selbst `checkAuth()`/
 `requireAdmin()` aufrufen (dokumentierte Konvention + Beispiel-Boilerplate
@@ -151,6 +161,10 @@ CREATE TABLE IF NOT EXISTS `plugins` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
+
+*(Ist-Schema in `database/schema.sql` hat zusätzlich `content_hash
+VARCHAR(64) NULL` — den SHA-256-Fingerabdruck über den Plugin-Ordner, der
+die Update-Erkennung trägt; er kam mit #129 nach dieser Planung hinzu.)*
 
 Admin-UI (neuer `PluginController`, admin-only, `requireAdmin()`):
 
@@ -277,8 +291,11 @@ möglich, siehe PR):
   stellt dabei zwingend `/plugin/<slug>/` voran — technisch unmöglich für
   ein Plugin, eine Kern-Route zu überschreiben (siehe
   [plugin-development.md](plugin-development.md), Abschnitt "Routen").
-- **Demo-Plugin:** Demonstriert alle vier Phase-1-Hooks plus eine eigene
-  Route (`docs/examples/demo-plugin/`, zum Ausprobieren nach `plugins/`
+- **Demo-Plugin:** Demonstriert drei der Phase-1-Hooks
+  (`admin.dashboard_tiles`, `horse.detail_sections`, `horse.after_save` —
+  nicht `horse.before_save`) plus eine eigene Route sowie inzwischen
+  `permissions()` und `features()`
+  (`docs/examples/demo-plugin/`, zum Ausprobieren nach `plugins/`
   kopieren — liegt selbst nicht in `plugins/`, da dieses Verzeichnis
   bewusst nicht versioniert wird, siehe 2.1). Bewusst **kein** absichtlich
   fehlschlagender Hook-Callback im ausgelieferten Demo-Plugin (würde bei
@@ -289,10 +306,11 @@ möglich, siehe PR):
 
 ## 5. Nächste Schritte
 
-Phase 1 (Abschnitt 3) ist umgesetzt. Mögliche nächste Schritte: Rückmeldung
-zu den in Abschnitt 4 getroffenen Entscheidungen, Priorisierung konkreter
-Phase-2-Hooks anhand der in #58 gesammelten Ideen, oder Start von Phase 3
-(externe Registry) sobald ein separates Plugin-Repository existiert.
+Phase 1 und Phase 3 (Addon-Store gegen das separate Repository
+`Hengstverzeichnis_Addons`) sind umgesetzt; aus Phase 2 kam
+`catalog.card_sections` (#97) hinzu. Offen aus dieser Planung ist nur noch
+der `plugin.schema`-Hook für plugin-eigene Tabellen (Abschnitt 2.5) —
+weitere Hooks entstehen nach Bedarf aus konkreten Addon-Anforderungen.
 
 ## 6. Nachträgliche Anforderung: Benutzergruppen-Konzept (#66)
 

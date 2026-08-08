@@ -39,8 +39,11 @@ gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml
    - Docker-Image aus dem [Dockerfile](../Dockerfile), gepusht nach
      `ghcr.io/celestial0579/hengstverzeichnis_framework` (Tags `<version>` +
      `latest`).
-   - Bereinigtes Source-Zip für klassisches Shared-Hosting (ohne
-     Dev-Tooling wie `tests/`, `composer.json`, `vendor/`, `.github/`) als
+   - Bereinigtes Source-Zip für klassisches Shared-Hosting (ausgeschlossen
+     sind `tests/`, `.github/`, `.claude/`, `composer.json`/`composer.lock`,
+     `phpunit.xml` sowie die Docker-Dateien — die vollständige Liste steht
+     im `git archive`-Aufruf in `release.yml`; `docs/` und `security/`
+     bleiben bewusst enthalten) als
      Release-Asset.
 4. Existiert für den Tag noch kein GitHub Release (z. B. weil nur der Tag
    gepusht wurde, ohne vorher über die GitHub-UI einen Release-Entwurf

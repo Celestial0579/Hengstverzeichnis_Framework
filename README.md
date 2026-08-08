@@ -28,16 +28,29 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 - Öffentlich zugänglicher Hengstkatalog mit Suche, Filtern und Blutlinien-/Pedigree-Ansicht
 - Pferde-, Personen- und Deckstationsverwaltung (CRUD) inkl. Papierkorb (Soft-Delete)
-- Automatische Blutlinien-Verknüpfung mit Match-/Merge-Vorschlagswerkzeug
-- Multiuserfähige Benutzerverwaltung mit Rollen (Admin/Editor)
-- Verpflichtende 2FA (TOTP), Session-Hardening, Rate-Limiting, revisionssicheres Audit-Log
+- Veröffentlichungs-Workflow: öffentliche Sichtbarkeit (`is_published`) ist vom
+  Lebenszyklus-Status entkoppelt, mit Einzel- und Massen-Veröffentlichung und
+  eigenem `publish`-Recht je Modul
+- Automatische Blutlinien-Verknüpfung mit Match-/Merge-Vorschlagswerkzeug,
+  CSV-Massenimport
+- Multiuserfähige Benutzerverwaltung über ein frei konfigurierbares
+  Gruppen-/Berechtigungssystem (Matrix Modul × Aktion; eingebaute Gruppen
+  `admin`, `editor` und `public` für Gäste) samt optionaler
+  Selfservice-Registrierung
+- 2FA (TOTP) mit konfigurierbarer Pflicht pro Gruppe, optional Microsoft
+  Entra ID SSO, Session-Hardening, Rate-Limiting, revisionssicheres Audit-Log
+- JSON-API mit benutzergebundenen, rechtebegrenzten API-Schlüsseln
+- Plugin-System mit Hooks, eigenem Addon-Store und Referenz-Plugin
+- Zeitgesteuerte Aufgaben (Cron/Scheduler), automatische externe Backups
+  (S3/WebDAV/FTPS), E-Mail-Digest, Auto-Update mit Pflicht-Backup
+- Mehrsprachigkeit (Deutsch/Englisch)
 - DSGVO-Kontaktformular inkl. Verwaltung (Anonymisierung/Löschung) im Admin-Bereich
 - Impressum & Datenschutzinformationen
 - Docker-Deployment sowie klassisches Shared-Hosting über Setup-Wizard
 
 ## Bekannte Einschränkungen (Beta)
 
-- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: reine Logik ohne DB, `Database::ensureSchemaUpToDate()` gegen eine echte Testdatenbank, sowie HTTP-Funktionstests (Login/2FA, CSRF-Schutz, Stamm-URL-SSRF-Härtung, Blutlinien-Matching) gegen eine automatisch gestartete Instanz. Noch nicht abgedeckt: DSGVO-Verwaltung, Papierkorb, Benutzerverwaltung. Ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
+- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 27 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks. Noch nicht abgedeckt: Benutzerverwaltung. Ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
 Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B.
 Klick-Tracking für Weblinks) werden als Feature-Requests in den
@@ -70,6 +83,8 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `APP_ENV`        | –  | `development`         | `production` deaktiviert Fehlerausgaben im Browser |
 | `TRUSTED_PROXIES`| –  | – (kein Proxy vertraut) | Kommagetrennte Liste vertrauenswürdiger Reverse-Proxy-IPs/-Netze, siehe unten |
 | `TRACKING_DOMAINS`| – | – (kein Tracking) | Kommagetrennte Liste von `https://`-Origins (Matomo/Google Analytics o. Ä.), die in der Content-Security-Policy freigeschaltet werden. Alternative ohne Env-Var: Admin → Systemeinstellungen. |
+| `TRUSTED_HOSTS`  | –  | – (Host-Header wird akzeptiert) | Kommagetrennte Liste erlaubter Hostnamen; schützt in Mail-Links vor Host-Header-Injection |
+| `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_CLIENT_SECRET` | – | – (SSO deaktiviert) | Aktivieren zusammen den optionalen Microsoft-Entra-ID-Login, siehe [docs/security.md](docs/security.md) |
 
 Neuen `APP_KEY` generieren:
 ```bash

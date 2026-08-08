@@ -64,8 +64,10 @@ konsequent übernommen werden.
 ## Autorisierung
 
 Einziges Rechtesystem: Gruppen (`groups`/`user_groups`/`group_permissions`,
-#66). Mitgliedschaft ist für JEDE Gruppe ausschließlich explizit über
-`user_groups` – es gibt keine implizite Ableitung (kein `users.role` mehr).
+#66). Für angemeldete Benutzer ist Mitgliedschaft ausschließlich explizit
+über `user_groups` (kein `users.role` mehr); die einzige implizite Zuordnung
+ist die Gast-Gruppe `public`, der jeder nicht angemeldete Besucher
+automatisch angehört (`GroupMembership::groupIds(null)`).
 `BaseController::requireAdmin()`/`isAdmin()` prüfen Mitgliedschaft in der
 eingebauten Gruppe `admin` (via `App\Permission\GroupMembership`) und schützen
 so die Admin-only-Bereiche (Benutzerverwaltung, Gruppenverwaltung,
@@ -78,10 +80,30 @@ fachlichen Bereiche (Pferde, Personen, Deckstationen) regelt
 Berechtigungsmatrix (`/admin/groups`) mit eingeschränkten Papierkorb-Rechten
 für Nicht-Admins (siehe [database.md](database.md#soft-delete--papierkorb)).
 
+**Öffentliche Sichtbarkeit** ist die zweite Funktion desselben Systems
+(#121/#122/#151): Was Gäste sehen, steuern die Leseberechtigungen der
+Gast-Gruppe (`horses.view`, `breeding_stations.view` — per Seed vergeben,
+über die Matrix entziehbar) **in Kombination** mit dem
+`is_published`-Flag der Datensätze (Default: unveröffentlicht; setzen
+erfordert das `publish`-Recht). `PublicController` und `ApiController`
+erzwingen beides durchgängig — bis hinein in verknüpfte Datensätze: Namen
+und Kontaktdaten unveröffentlichter Personen/Stationen erscheinen weder auf
+Detailseiten noch in Filterlisten, der öffentliche Pedigree-Baum zeigt
+unveröffentlichte Vorfahren nur als Platzhalter, und die an Plugins
+übergebenen Hook-Daten sind bereits gefiltert (siehe
+[plugin-development.md](plugin-development.md)).
+
+**API-Schlüssel** (`src/Security/ApiKey.php`, [api.md](api.md)) sind eine
+eigene, session-unabhängige Auth-Fläche: max. 5 je Benutzer, gespeichert
+nur als SHA-256-Hash, effektive Rechte stets die **Schnittmenge** aus den
+aktuellen Rechten des Besitzers und dem Scope des Schlüssels — ein
+Schlüssel kann nie mehr als sein Besitzer, und Rechteverlust wirkt sofort.
+
 ## Brute-Force-Schutz (`src/Security/RateLimiter.php`)
 
 Datenbankgestützter Zähler fehlgeschlagener Versuche pro `identifier` + `type`
-(`login`, `login_ip`, `2fa`, `backup`) in einem Zeitfenster (Default: 5
+(`login`, `login_ip`, `2fa`, `backup`, `password_reset`, `registration`,
+`dsgvo_request`) in einem Zeitfenster (Default: 5
 Versuche / 15 Min). Bei DB-Fehlern **fail-open** (blockiert nicht) – bewusste
 Ausfallsicherheits-Entscheidung, damit ein DB-Problem nicht versehentlich alle
 Logins sperrt.
@@ -95,8 +117,10 @@ Versuche) bremst Passwort-Spraying über viele Konten von derselben Adresse.
 ## Verschlüsselung sensibler Werte (`src/Security/Crypto.php`)
 
 AES-256-GCM (authenticated encryption) für Werte, die zwar in der DB
-gespeichert, aber wieder im Klartext benötigt werden (aktuell: SMTP-Passwort
-in `settings`). Schlüssel wird aus `APP_KEY` (32-Byte-Hex-Env-Variable) per
+gespeichert, aber wieder im Klartext benötigt werden: das SMTP-Passwort
+sowie sämtliche Backup-Ziel-Zugangsdaten (S3 Secret Key, WebDAV-/
+FTPS-Passwort) in `settings`. Schlüssel wird aus `APP_KEY`
+(32-Byte-Hex-Env-Variable) per
 SHA-256 abgeleitet. **Rotation von `APP_KEY` macht bestehende verschlüsselte
 Werte unlesbar** – siehe README, Abschnitt „Priorität & Rotation“.
 
@@ -139,7 +163,14 @@ Entwicklungsumgebung (`development`, Fehler werden angezeigt).
 Global gesetzt (nicht optional pro Route): `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`,
 `Permissions-Policy` (Kamera/Mikro/Standort deaktiviert), sowie eine
-`Content-Security-Policy`. `'unsafe-inline'` bei `script-src`/`style-src` ist
+`Content-Security-Policy`. `X-XSS-Protection` steht im Apache-Deployment per
+`public/.htaccess` auf `0` (OWASP-Empfehlung — der veraltete Browser-Filter
+kann selbst Lücken reißen, der Schutz kommt aus der CSP); der PHP-seitige
+Header in `config/config.php` sendet derzeit noch den Altwert
+`1; mode=block`, den Apache überschreibt — eine bekannte, noch anzugleichende
+Doppelung. Die CSP erlaubt neben `'self'` gezielt
+`https://fonts.googleapis.com` (`style-src`) und `https://fonts.gstatic.com`
+(`font-src`). `'unsafe-inline'` bei `script-src`/`style-src` ist
 aktuell nötig, da Views durchgehend `onclick=`/inline `style=` nutzen (kein
 Nonce-/Hash-Setup) – `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`,
 `frame-ancestors 'self'` bieten trotzdem echten Zusatzschutz.
@@ -168,7 +199,9 @@ Schreibt in `audit_logs` (siehe [database.md](database.md#audit_logs)) bei
 praktisch jeder sicherheits-/datenrelevanten Aktion: Login/Logout, 2FA-Events,
 403-Zugriffsverweigerungen, CRUD auf Pferde/Personen/Deckstationen/Benutzer,
 Einstellungsänderungen, E-Mail-Versand, Papierkorb-Aktionen, automatische
-Blutlinien-Zusammenführungen. Ausfallsicher: schlägt das DB-Insert fehl (z. B.
+Blutlinien-Zusammenführungen, Plugin-Aktivierung/-Deaktivierung (Kategorie
+`plugin`) und API-Schlüssel-Ereignisse (Kategorie `security`). Ausfallsicher:
+schlägt das DB-Insert fehl (z. B.
 Tabelle noch nicht vorhanden), wird stattdessen nach `storage/logs/audit_errors.log`
 geschrieben (mit automatischer Rotation bei > 5 MB oder > 30 Tagen).
 

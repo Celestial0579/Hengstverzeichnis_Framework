@@ -12,8 +12,9 @@ es gibt keinen anonymen Zugriff. Der Schlüssel wird als Bearer-Token im
 curl -H "Authorization: Bearer hv_..." "https://example.org/api/horses"
 ```
 
-Ohne gültigen Schlüssel antwortet die API mit `401` und
-`{"error":"unauthorized"}`.
+Ohne gültigen Schlüssel antwortet die API mit `401`, dem Header
+`WWW-Authenticate: Bearer realm="api"` und einem Body der Form
+`{"error":"unauthorized","message":"..."}`.
 
 **Bewusst kein `?api_key=`-Parameter:** Query-Parameter landen in
 Server-Logfiles, `Referer`-Headern und der Browser-History. Aus demselben
@@ -55,6 +56,17 @@ HTML-Katalog** (`/katalog`, `/hengst?id=...`) einsehbar sind:
 
 - Nur veröffentlichte Pferde (`is_published`); gelöschte (`deleted_at`)
   erscheinen nie - genau wie im HTML-Katalog.
+- Dieselbe Filterung gilt für **verknüpfte** Datensätze: `breeder`/`owner`
+  stammen nur aus veröffentlichten Personen; ein unveröffentlichter
+  verknüpfter Elternteil fällt auf den Freitext-Namen (`sire_name`/
+  `dam_name`) zurück. Das Feld `breeding_station` ist `null`, wenn die
+  verknüpfte Deckstation unveröffentlicht oder gelöscht ist - auch dann,
+  wenn im Backend ein Name gepflegt ist (die denormalisierte Namenskopie
+  wird bewusst unterdrückt, damit sie kein Leck bildet); reiner Freitext
+  ohne Stations-Verknüpfung bleibt erhalten.
+- Fehlt der Gast-Gruppe `horses.view`, liefert `GET /api/horses` eine
+  **leere Liste mit `200`** (kein `403`) und `GET /api/horses/show` ein
+  `404` - die API verrät dann nicht, ob Daten existieren.
 - **Kein Wildcard-CORS mehr.** Seit der Schlüsselpflicht wird kein
   `Access-Control-Allow-Origin: *` gesetzt: ein Schlüssel gehört nicht in
   Browser-JavaScript, wo ihn jeder Besucher auslesen könnte. Serverseitige
@@ -63,7 +75,9 @@ HTML-Katalog** (`/katalog`, `/hengst?id=...`) einsehbar sind:
   braucht, kapselt die API hinter einem eigenen Backend-Proxy.
 - Antworten tragen `Cache-Control: no-store`, damit rechtegebundene Inhalte
   nicht in gemeinsam genutzten Proxy-Caches landen.
-- Kein eigenes Rate-Limiting über das der übrigen Seiten hinaus.
+- Kein Rate-Limiting: Der `RateLimiter` des Kerns schützt gezielt
+  Missbrauchsflächen (Login, 2FA, Registrierung, Passwort-Reset,
+  DSGVO-Formular) - Katalog und API sind bewusst nicht limitiert.
 
 ## `GET /api/horses`
 
@@ -120,8 +134,10 @@ curl -H "Authorization: Bearer hv_..." \
 ## `GET /api/horses/show?ueln=...`
 
 Einzelnes Pferd über seine UELN (exakte Übereinstimmung, `ueln` oder
-`foreign_ueln`). Antwortet mit `404`, falls keine Übereinstimmung existiert,
-oder `400`, falls der Parameter fehlt.
+`foreign_ueln`). Antwortet mit `404` und
+`{"error":"not_found","message":"..."}`, falls keine Übereinstimmung
+existiert, oder `400` und `{"error":"missing_ueln","message":"..."}`, falls
+der Parameter fehlt.
 
 Aus Konsistenz mit dem restlichen Routing des Kerns (`App\Router` unterstützt
 ausschließlich exakte Pfade, keine Platzhalter-Segmente) als Query-Parameter

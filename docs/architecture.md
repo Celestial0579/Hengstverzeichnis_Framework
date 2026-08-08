@@ -27,12 +27,16 @@ src/
   Database.php         PDO-Singleton + automatisches Schema-Update
   Controllers/         Ein Controller pro fachlichem Bereich (siehe unten)
   Views/                Ein PHP-Template pro Seite + layout.php als Rahmen
-  Security/             Crypto, Totp, RateLimiter, ClientIp
-  Service/               AuditLogger, Mailer, PedigreeBuilder
+  Security/             Crypto, Totp, RateLimiter, ClientIp, ApiKey, OidcIdToken, TrustedHost
+  Service/               AuditLogger, Mailer, PedigreeBuilder, Backup-/Dump-Dienste (S3, WebDAV, FTPS), Scheduler, DigestService, UpdateService, HorseCsvImporter, GithubAddonRepository u. a.
   Plugin/                 PluginManager, HookManager (Plugin-System, siehe unten)
-  Permission/             PermissionRegistry (Gruppen-/Berechtigungssystem, siehe unten)
+  Permission/             PermissionRegistry, GroupMembership, FeatureRegistry, FeatureGate (Gruppen-/Berechtigungssystem, siehe unten)
   I18n/                   Translator (Mehrsprachigkeit, siehe unten)
-  Helper/                 Markdown (einfacher Markdown→HTML-Parser für Freitext)
+  Helper/                 Markdown (einfacher Markdown→HTML-Parser), Paginator
+tests/               PHPUnit-Suite (Unit/Integration/Functional, siehe development.md)
+security/            DAST-Scan-Harness (run-security-scan.sh, checks/, baseline/)
+storage/logs/        Audit-Log-Ablage (wird zur Laufzeit angelegt)
+.github/             CI-Workflows (Tests, CodeQL, Semgrep, Scorecard, Release)
 ```
 
 Es gibt bewusst **kein `src/Models`**-Verzeichnis mit ORM-Klassen: Die
@@ -85,6 +89,13 @@ und ggf. `requireAdmin()` auf, außer bei öffentlichen Controllern):
 | `UserController` | Admin-only Benutzerverwaltung (anlegen, bearbeiten, löschen, 2FA zurücksetzen) |
 | `GdprController` | Verwaltung eingegangener DSGVO-Anfragen (Status, Anonymisierung, Löschung) |
 | `TrashController` | Papierkorb: Wiederherstellen/endgültig Löschen von Soft-Deletes |
+| `ApiController` / `ApiKeyController` | JSON-API (`/api/horses`) und Selfservice-Verwaltung der API-Schlüssel (`/api-keys`) |
+| `GroupController` | Gruppen-/Berechtigungsmatrix, 2FA-Pflicht je Gruppe |
+| `PluginController` / `AddonStoreController` | Plugin-Verwaltung und Addon-Store unter `/admin/plugins` |
+| `ImportController` | CSV-Massenimport von Pferden |
+| `RegistrationController` / `EntraSsoController` | Selfservice-Registrierung und optionaler Entra-ID-Login |
+| `CronController` | Zeitgesteuerte Aufgaben (Header-Secret, siehe Scheduler) |
+| `UpdateController` | Auto-Update mit Pflicht-Backup und Kanalwahl |
 
 Details zu den einzelnen Features (Merge-Tool, Pedigree-Aufbau, GDPR-Workflow
 etc.) siehe Inline-PHPDoc der jeweiligen Methoden – die Kommentare im Code
@@ -126,8 +137,10 @@ sind bewusst ausführlich gehalten.
 2. Prüft `SetupController::needsSetup()` — falls keine DB-Config und kein
    Admin-Account existiert, Redirect auf `/setup`.
 3. Router-Instanz wird mit allen Routen befüllt (siehe `public/index.php`
-   für die vollständige Liste – Setup, Public, Auth, 2FA, Admin, GDPR,
-   Trash, User, Person, Breeding-Station, Horse, Audit-Log).
+   für die vollständige Liste – Setup, Public, Auth/2FA/SSO, Registrierung,
+   Admin, GDPR, Trash, User, Person, Breeding-Station, Horse, CSV-Import,
+   Gruppen, API und API-Schlüssel, Plugins/Addon-Store, Plugin-Routen,
+   Cron, Backups, Digest, Updates, Audit-Log).
 4. `Router::dispatch()` matcht Pfad + Methode, instanziiert den Controller,
    ruft die Methode auf.
 5. Controller lädt ggf. Daten aus der DB, ruft `$this->render($view, $data)`.
@@ -155,11 +168,14 @@ die zugrundeliegenden Architekturentscheidungen.
 - `App\Plugin\HookManager`: Action-/Filter-Registry mit try/catch-Isolation
   pro Hook-Aufruf – ein fehlerhaftes Plugin bricht nie den gesamten Request
   ab. Zugriff aus Controllern über `BaseController::hooks()`.
-- Definierte Erweiterungspunkte (Phase 1): `horse.before_save`/
+- Definierte Erweiterungspunkte: `horse.before_save`/
   `horse.after_save` (`HorseController`), `horse.detail_sections`
   (`PublicController::horseDetail`, erhält zusätzlich den bereits
-  berechneten Pedigree-Baum als vierten Filter-Parameter), `admin.dashboard_tiles`
-  (`AdminController::dashboard`).
+  berechneten Pedigree-Baum als vierten Filter-Parameter),
+  `catalog.card_sections` (je gerenderter Katalogkarte,
+  `PublicController::catalog`), `admin.dashboard_tiles`
+  (`AdminController::dashboard`). Vollständige Referenz samt Datenvertrag:
+  [plugin-development.md](plugin-development.md).
 - `App\Service\PedigreeBuilder`: rekursiver Pedigree-Baum-Aufbau, aus
   `PublicController` herausgelöst und für Plugins direkt mit eigener
   Generationstiefe aufrufbar (siehe
@@ -203,18 +219,24 @@ Löschen/Veröffentlichen) plus ein fest verdrahteter Admin-Sonderfall.
   Standardrechten für die fachlichen CRUD-Bereiche, über die Admin-UI frei
   editierbar), `public` (die nicht angemeldeten Besucher – erhält
   serverseitig mehrfach unabhängig abgesichert niemals Zugriff auf das
-  Backend oder irgendeine Berechtigung). **Security-by-Design:**
-  Mitgliedschaft ist für JEDE Gruppe (auch `admin`/`editor`) ausschließlich
-  explizit über `user_groups` – keine Gruppe wird automatisch zugewiesen,
-  jede startet bei Anlage ohne Rechte wie `public`. `App\Permission\GroupMembership`
-  bündelt "Gruppen-IDs eines Benutzers" und "ist Mitglied von `admin`" als
-  einzige Quelle für beide Fragen (genutzt sowohl von `BaseController` als
-  auch von Stellen ohne Controller-Instanz). Die Matrix-Bearbeitung von
-  `admin`/`public` bleibt serverseitig gesperrt
-  (`GroupController::PROTECTED_PERMISSION_SLUGS`), ihre Zuweisbarkeit an
-  Benutzer regelt die kleinere `GroupController::NON_ASSIGNABLE_SLUGS`
-  (nur `public`). Verwaltung unter `/admin/groups` bzw. Gruppenzuordnung im
-  Benutzer-Formular.
+  Backend, steuert aber über ihre Leseberechtigungen die **öffentliche
+  Sichtbarkeit**: der Seed gibt ihr `horses.view` und
+  `breeding_stations.view`, und `PublicController` gatet den Katalog, die
+  Detailseiten und die Filterlisten darüber). **Security-by-Design:**
+  Für angemeldete Benutzer ist Mitgliedschaft ausschließlich explizit über
+  `user_groups` – einzig nicht angemeldete Besucher werden automatisch der
+  Gast-Gruppe `public` zugeordnet (`GroupMembership::groupIds(null)`), denn
+  ohne diese Zuordnung wäre die öffentliche Sichtbarkeit nicht über die
+  Matrix steuerbar. Jede neu angelegte Gruppe startet ohne Rechte.
+  `App\Permission\GroupMembership` bündelt "Gruppen-IDs eines Benutzers" und
+  "ist Mitglied von `admin`" als einzige Quelle für beide Fragen (genutzt
+  sowohl von `BaseController` als auch von Stellen ohne Controller-Instanz).
+  Die Matrix-Bearbeitung ist nur für `admin` gesperrt
+  (`GroupController::PROTECTED_PERMISSION_SLUGS = ['admin']`) – die Matrix
+  von `public` ist bewusst editierbar, sie ist der Steuerungspunkt der
+  öffentlichen Sichtbarkeit. Die Zuweisbarkeit an Benutzer regelt
+  `GroupController::NON_ASSIGNABLE_SLUGS` (nur `public`). Verwaltung unter
+  `/admin/groups` bzw. Gruppenzuordnung im Benutzer-Formular.
 - `App\Permission\PermissionRegistry`: Katalog der verfügbaren Module/
   Aktionen – fester Kern-Anteil (`horses` inkl. `publish`, `persons`,
   `breeding_stations`) plus zur Laufzeit von aktivierten Plugins

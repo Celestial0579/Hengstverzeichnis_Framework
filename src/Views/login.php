@@ -47,7 +47,9 @@
     <?php if (\App\Controllers\EntraSsoController::isConfigured()): ?>
         <div style="text-align: center; margin-top: 1rem;">
             <a href="/auth/entra" class="btn btn-secondary" style="width: 100%; display: block; box-sizing: border-box;">
-                <?= htmlspecialchars(App\I18n\Translator::t('auth.entra_login_button')) ?>
+                <?= htmlspecialchars(\App\Controllers\EntraSsoController::isGenericMode()
+                    ? App\I18n\Translator::t('auth.sso_login_button', ['provider' => \App\Controllers\EntraSsoController::providerLabel()])
+                    : App\I18n\Translator::t('auth.entra_login_button')) ?>
             </a>
         </div>
     <?php endif; ?>

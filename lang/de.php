@@ -180,6 +180,12 @@ return [
     'auth.email_verified_success' => '✓ E-Mail-Adresse bestätigt. Sie können sich jetzt anmelden.',
     'auth.register_link' => 'Noch kein Konto? Jetzt registrieren',
     'auth.entra_login_button' => '🪟 Mit Microsoft anmelden',
+    'auth.sso_login_button' => 'Mit {provider} anmelden',
+    'auth.sso_failed' => 'Die {provider}-Anmeldung konnte nicht abgeschlossen werden.',
+    'auth.sso_cancelled' => '{provider}-Anmeldung abgebrochen oder fehlgeschlagen:',
+    'auth.sso_no_code' => 'Die {provider}-Anmeldung lieferte keinen Autorisierungscode.',
+    'auth.sso_no_email' => 'Die {provider}-Anmeldung lieferte keine verwendbare E-Mail-Adresse.',
+    'auth.sso_no_account' => 'Für diese {provider}-Identität existiert kein Konto in dieser Installation. Bitte wenden Sie sich an den Administrator.',
     'meta.title_login_failed' => 'Login Fehlgeschlagen',
 
     // Admin-Dashboard (#48, erster i18n-Schritt im Admin-Bereich)

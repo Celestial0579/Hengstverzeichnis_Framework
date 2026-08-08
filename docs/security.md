@@ -231,25 +231,61 @@ oder `APP_URL` setzen — dann wird der Host-Header gar nicht erst befragt.
 
 ## EntraID-SSO (#42, `src/Controllers/EntraSsoController.php`)
 
-Optionaler Microsoft Entra ID (Azure AD)-Login per OIDC
-Authorization-Code-Flow als **zusätzliche** Login-Methode neben dem lokalen
-Login. Strikt opt-in: Ohne vollständige Konfiguration (`ENTRA_TENANT_ID`,
-`ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` — Umgebungsvariable oder
-`db_config.php`, analog `TRUSTED_PROXIES`) sind die Routen `/auth/entra*`
-nicht erreichbar und der Login-Button erscheint nicht.
+Optionaler SSO-Login per OIDC Authorization-Code-Flow als **zusätzliche**
+Login-Methode neben dem lokalen Login — mit zwei Betriebsarten:
+
+- **Generischer OIDC-Modus** (Authentik, Keycloak, jeder standardkonforme
+  Provider): `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
+  (optional `OIDC_PROVIDER_LABEL` für den Login-Button, Default „SSO").
+  Authorize- und Token-Endpunkt werden pro Login-Versuch per OIDC-Discovery
+  (`<issuer>/.well-known/openid-configuration`) ermittelt und in
+  `App\Security\OidcDiscovery` fail-closed geprüft: Der `issuer` im Dokument
+  muss der konfigurierten URL **exakt** entsprechen (RFC 8414, trailing
+  slash zählt), und Issuer wie Endpunkte müssen `https://` sein — `http://`
+  ist einzig für Loopback-Adressen erlaubt (lokale Tests). Der ermittelte
+  Token-Endpunkt wird in der Session festgehalten und im Callback verwendet.
+- **ENTRA-Modus** (Microsoft-Kurzform, unverändertes Verhalten):
+  `ENTRA_TENANT_ID`, `ENTRA_CLIENT_ID`, `ENTRA_CLIENT_SECRET` mit den
+  festen `login.microsoftonline.com`-Endpunkten, ohne Discovery. Bei
+  vollständiger `OIDC_*`-Konfiguration hat der generische Modus Vorrang.
+
+Strikt opt-in: Ohne vollständige Konfiguration eines der beiden Modi
+(Umgebungsvariable oder `db_config.php`, analog `TRUSTED_PROXIES`) sind die
+Routen `/auth/entra*` nicht erreichbar und der Login-Button erscheint nicht.
 
 - **Kein Auto-Provisioning:** SSO meldet ausschließlich bestehende lokale
-  Konten an (Zuordnung über die E-Mail-Adresse); unbekannte
-  Entra-Identitäten werden abgewiesen und protokolliert.
+  Konten an (Zuordnung über die E-Mail-Adresse); unbekannte Identitäten
+  werden abgewiesen und protokolliert.
 - **Flow-Härtung:** `state`-Parameter (Einmalwert in der Session,
   `hash_equals`), Code-Tausch ausschließlich serverseitig mit Client-Secret
   über TLS; ID-Token-Claims (`aud`/`iss`/`exp`) werden in
-  `App\Security\OidcIdToken` fail-closed validiert.
+  `App\Security\OidcIdToken` fail-closed validiert. Es findet bewusst keine
+  JWT-Signaturprüfung statt: Das Token stammt immer aus der serverseitigen
+  TLS-Verbindung zum Token-Endpunkt — im generischen Modus aus dem
+  issuer-geprüften Discovery-Dokument, im ENTRA-Modus von der festen
+  Microsoft-URL. Genau deshalb ist die `https://`-Pflicht der Discovery
+  Teil des Sicherheitsmodells, nicht Kosmetik.
 - **2FA:** Die lokale TOTP-Pflicht gilt für SSO-Logins nicht zusätzlich —
-  Entra ID bringt eigene MFA-/Conditional-Access-Richtlinien mit. Die
+  der Identity-Provider bringt eigene MFA-Richtlinien mit. Die
   Session-Härtung (`App\Service\LoginSession`) ist identisch zum lokalen
   Login, inkl. Session-Invalidierung bei Passwortänderung (#113).
-- **Redirect-URI** in der App-Registrierung: `<Stamm-URL>/auth/entra/callback`.
+- **Redirect-URI** beim Provider: `<Stamm-URL>/auth/entra/callback` — der
+  Pfad heißt aus Kompatibilität zu bestehenden Entra-App-Registrierungen
+  für alle Provider gleich.
+
+**Beispiel Authentik:** Provider „OAuth2/OpenID" (Confidential, Redirect-URI
+wie oben, Scopes `openid profile email`), Application mit Slug
+`hengstverzeichnis` daran binden, dann:
+
+```
+OIDC_ISSUER_URL=https://auth.example.org/application/o/hengstverzeichnis/   # exakt wie von Authentik ausgewiesen, inkl. Slash
+OIDC_CLIENT_ID=<Client-ID aus Authentik>
+OIDC_CLIENT_SECRET=<Client-Secret aus Authentik>
+OIDC_PROVIDER_LABEL=Authentik
+```
+
+Der SSO-Benutzer braucht beim Provider dieselbe E-Mail-Adresse wie sein
+bestehendes lokales Konto (kein Auto-Provisioning, unverändert).
 
 ## Selfservice-Registrierung (#83, `src/Controllers/RegistrationController.php`)
 

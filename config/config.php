@@ -54,6 +54,16 @@ define('ENTRA_TENANT_ID', getenv('ENTRA_TENANT_ID') !== false ? getenv('ENTRA_TE
 define('ENTRA_CLIENT_ID', getenv('ENTRA_CLIENT_ID') !== false ? getenv('ENTRA_CLIENT_ID') : ($dbConfig['entra_client_id'] ?? ''));
 define('ENTRA_CLIENT_SECRET', getenv('ENTRA_CLIENT_SECRET') !== false ? getenv('ENTRA_CLIENT_SECRET') : ($dbConfig['entra_client_secret'] ?? ''));
 
+// Generischer OIDC-Login (Authentik, Keycloak, ...): Sind ISSUER_URL,
+// CLIENT_ID und CLIENT_SECRET vollständig gesetzt, hat dieser Modus Vorrang
+// vor den ENTRA_*-Variablen (die als Microsoft-Kurzform unverändert weiter
+// funktionieren). Endpunkte kommen per OIDC-Discovery vom Issuer, siehe
+// App\Security\OidcDiscovery und docs/security.md.
+define('OIDC_ISSUER_URL', getenv('OIDC_ISSUER_URL') !== false ? getenv('OIDC_ISSUER_URL') : ($dbConfig['oidc_issuer_url'] ?? ''));
+define('OIDC_CLIENT_ID', getenv('OIDC_CLIENT_ID') !== false ? getenv('OIDC_CLIENT_ID') : ($dbConfig['oidc_client_id'] ?? ''));
+define('OIDC_CLIENT_SECRET', getenv('OIDC_CLIENT_SECRET') !== false ? getenv('OIDC_CLIENT_SECRET') : ($dbConfig['oidc_client_secret'] ?? ''));
+define('OIDC_PROVIDER_LABEL', getenv('OIDC_PROVIDER_LABEL') !== false ? getenv('OIDC_PROVIDER_LABEL') : ($dbConfig['oidc_provider_label'] ?? ''));
+
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 // isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
 // als vertrauenswürdig gelisteten Reverse Proxy. Der Host-Fallback nutzt den

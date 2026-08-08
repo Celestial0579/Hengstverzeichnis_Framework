@@ -8,6 +8,20 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Der SSO-Login funktioniert jetzt mit **jedem OIDC-Provider** (Authentik,
+  Keycloak, …), nicht mehr nur mit Microsoft Entra ID: Neuer generischer
+  Modus über `OIDC_ISSUER_URL`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`
+  (+ optional `OIDC_PROVIDER_LABEL` für den Login-Button) mit
+  OIDC-Discovery, Issuer-Gegenprüfung (RFC 8414) und `https://`-Pflicht
+  (Loopback ausgenommen) — siehe `App\Security\OidcDiscovery` und
+  [docs/security.md](docs/security.md). Die bisherigen `ENTRA_*`-Variablen
+  funktionieren unverändert weiter (Microsoft-Kurzform mit festen
+  Endpunkten); bei vollständiger `OIDC_*`-Konfiguration hat der generische
+  Modus Vorrang. Die Routen bleiben `/auth/entra*`, bestehende
+  Redirect-URIs bleiben gültig.
+
 ### Behoben
 
 - `X-XSS-Protection` wird jetzt auch PHP-seitig mit `0` gesendet

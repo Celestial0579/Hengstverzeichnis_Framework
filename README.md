@@ -84,7 +84,8 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `TRUSTED_PROXIES`| –  | – (kein Proxy vertraut) | Kommagetrennte Liste vertrauenswürdiger Reverse-Proxy-IPs/-Netze, siehe unten |
 | `TRACKING_DOMAINS`| – | – (kein Tracking) | Kommagetrennte Liste von `https://`-Origins (Matomo/Google Analytics o. Ä.), die in der Content-Security-Policy freigeschaltet werden. Alternative ohne Env-Var: Admin → Systemeinstellungen. |
 | `TRUSTED_HOSTS`  | –  | – (Host-Header wird akzeptiert) | Kommagetrennte Liste erlaubter Hostnamen; schützt in Mail-Links vor Host-Header-Injection |
-| `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_CLIENT_SECRET` | – | – (SSO deaktiviert) | Aktivieren zusammen den optionalen Microsoft-Entra-ID-Login, siehe [docs/security.md](docs/security.md) |
+| `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | – | – (SSO deaktiviert) | Aktivieren zusammen den generischen OIDC-Login (Authentik, Keycloak, …) per Discovery; `OIDC_PROVIDER_LABEL` benennt den Login-Button. Siehe [docs/security.md](docs/security.md) |
+| `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_CLIENT_SECRET` | – | – (SSO deaktiviert) | Microsoft-Kurzform des SSO-Logins (feste Entra-Endpunkte, ohne Discovery); `OIDC_*` hat bei vollständiger Konfiguration Vorrang |
 
 Neuen `APP_KEY` generieren:
 ```bash

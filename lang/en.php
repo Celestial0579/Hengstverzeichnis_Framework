@@ -178,6 +178,12 @@ return [
     'auth.email_verified_success' => '✓ Email address confirmed. You can sign in now.',
     'auth.register_link' => 'No account yet? Register now',
     'auth.entra_login_button' => '🪟 Sign in with Microsoft',
+    'auth.sso_login_button' => 'Sign in with {provider}',
+    'auth.sso_failed' => 'The {provider} sign-in could not be completed.',
+    'auth.sso_cancelled' => '{provider} sign-in was cancelled or failed:',
+    'auth.sso_no_code' => 'The {provider} sign-in did not return an authorization code.',
+    'auth.sso_no_email' => 'The {provider} sign-in did not return a usable email address.',
+    'auth.sso_no_account' => 'No account exists in this installation for this {provider} identity. Please contact the administrator.',
     'meta.title_login_failed' => 'Login Failed',
 
     // Admin dashboard (#48, first i18n step in the admin area)

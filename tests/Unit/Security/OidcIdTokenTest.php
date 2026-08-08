@@ -14,6 +14,7 @@ class OidcIdTokenTest extends TestCase {
 
     private const CLIENT_ID = 'client-123';
     private const TENANT_ID = 'tenant-abc';
+    private const ISSUER = 'https://login.microsoftonline.com/tenant-abc/v2.0';
 
     private function makeJwt(array $claims): string {
         $encode = fn(array $data) => rtrim(strtr(base64_encode(json_encode($data)), '+/', '-_'), '=');
@@ -31,7 +32,7 @@ class OidcIdTokenTest extends TestCase {
 
     public function testValidTokenReturnsClaims(): void {
         $jwt = $this->makeJwt($this->validClaims());
-        $claims = OidcIdToken::parseAndValidate($jwt, self::CLIENT_ID, self::TENANT_ID);
+        $claims = OidcIdToken::parseAndValidate($jwt, self::CLIENT_ID, self::ISSUER);
         $this->assertSame('user@example.org', $claims['preferred_username']);
     }
 
@@ -39,26 +40,48 @@ class OidcIdTokenTest extends TestCase {
         $claims = $this->validClaims();
         $claims['aud'] = 'andere-app';
         $this->expectException(\RuntimeException::class);
-        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::TENANT_ID);
+        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::ISSUER);
     }
 
     public function testWrongTenantIssuerIsRejected(): void {
         $claims = $this->validClaims();
         $claims['iss'] = 'https://login.microsoftonline.com/fremder-tenant/v2.0';
         $this->expectException(\RuntimeException::class);
-        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::TENANT_ID);
+        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::ISSUER);
+    }
+
+    public function testGenericIssuerWithTrailingSlashIsAcceptedExactly(): void {
+        // Authentik-Issuer enden auf '/' - der exakte Vergleich muss sie
+        // unverändert akzeptieren.
+        $issuer = 'https://auth.example.org/application/o/hengstverzeichnis/';
+        $claims = $this->validClaims();
+        $claims['iss'] = $issuer;
+        $result = OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, $issuer);
+        $this->assertSame($issuer, $result['iss']);
+    }
+
+    public function testTrailingSlashDifferenceIsRejected(): void {
+        // Exakter Vergleich: konfiguriert MIT Slash, Token OHNE - abgelehnt.
+        $claims = $this->validClaims();
+        $claims['iss'] = 'https://auth.example.org/application/o/hengstverzeichnis';
+        $this->expectException(\RuntimeException::class);
+        OidcIdToken::parseAndValidate(
+            $this->makeJwt($claims),
+            self::CLIENT_ID,
+            'https://auth.example.org/application/o/hengstverzeichnis/'
+        );
     }
 
     public function testExpiredTokenIsRejected(): void {
         $claims = $this->validClaims();
         $claims['exp'] = time() - 3600;
         $this->expectException(\RuntimeException::class);
-        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::TENANT_ID);
+        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::ISSUER);
     }
 
     public function testMalformedTokenIsRejected(): void {
         $this->expectException(\RuntimeException::class);
-        OidcIdToken::parseAndValidate('kein-jwt', self::CLIENT_ID, self::TENANT_ID);
+        OidcIdToken::parseAndValidate('kein-jwt', self::CLIENT_ID, self::ISSUER);
     }
 
     public function testExtractEmailPrefersEmailClaimAndValidatesFormat(): void {

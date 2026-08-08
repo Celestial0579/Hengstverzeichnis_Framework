@@ -6,17 +6,20 @@ namespace App\Security;
 /**
  * Class OidcIdToken
  *
- * Minimale Auswertung eines OIDC-ID-Tokens für den EntraID-SSO-Login (#42,
- * siehe App\Controllers\EntraSsoController) - ohne externe JWT-Bibliothek,
+ * Minimale Auswertung eines OIDC-ID-Tokens für den SSO-Login (#42, siehe
+ * App\Controllers\EntraSsoController) - ohne externe JWT-Bibliothek,
  * konsistent mit der "keine Abhängigkeiten"-Philosophie des Kerns.
  *
  * Wichtiger Sicherheits-Kontext: Das ID-Token stammt hier IMMER direkt aus
- * der serverseitigen Antwort des Microsoft-Token-Endpunkts über TLS
- * (Authorization-Code-Flow mit Client-Secret) - nie aus dem Browser. Die
- * Authentizität ist damit durch den TLS-Kanal zur bekannten Token-URL
- * gegeben; eine zusätzliche Signaturprüfung (JWKS) entfällt bewusst.
- * Validiert werden stattdessen die inhaltlichen Claims: Aussteller
- * (Tenant), Zielgruppe (Client-ID) und Ablaufzeit.
+ * der serverseitigen Antwort des Token-Endpunkts des konfigurierten
+ * Providers über TLS (Authorization-Code-Flow mit Client-Secret) - nie aus
+ * dem Browser. Die Authentizität ist damit durch den TLS-Kanal zur bekannten
+ * Token-URL gegeben; eine zusätzliche Signaturprüfung (JWKS) entfällt
+ * bewusst. Im generischen OIDC-Modus kommt die Token-URL aus dem
+ * Discovery-Dokument des konfigurierten Issuers und wird von
+ * App\Security\OidcDiscovery gegen genau diesen Issuer geprüft - das
+ * TLS-Trust-Modell bleibt also geschlossen. Validiert werden die
+ * inhaltlichen Claims: Aussteller, Zielgruppe (Client-ID) und Ablaufzeit.
  */
 final class OidcIdToken {
 
@@ -29,7 +32,7 @@ final class OidcIdToken {
      * @throws \RuntimeException wenn das Token strukturell ungültig ist oder
      *                           ein Pflicht-Claim nicht passt (fail-closed)
      */
-    public static function parseAndValidate(string $jwt, string $expectedClientId, string $expectedTenantId, ?int $now = null): array {
+    public static function parseAndValidate(string $jwt, string $expectedClientId, string $expectedIssuer, ?int $now = null): array {
         $now = $now ?? time();
 
         $parts = explode('.', $jwt);
@@ -49,11 +52,13 @@ final class OidcIdToken {
             throw new \RuntimeException('ID-Token ist nicht für diese Anwendung ausgestellt (aud-Claim).');
         }
 
-        // Aussteller: v2.0-Endpunkt des erwarteten Tenants.
+        // Aussteller: exakter Vergleich mit dem erwarteten Issuer - ein
+        // trailing slash zählt (Authentik-Issuer enden z. B. auf '/'). Den
+        // Microsoft-Issuer 'https://login.microsoftonline.com/<tenant>/v2.0'
+        // baut im ENTRA-Modus der Controller.
         $iss = (string)($claims['iss'] ?? '');
-        $expectedIss = "https://login.microsoftonline.com/{$expectedTenantId}/v2.0";
-        if ($iss !== $expectedIss) {
-            throw new \RuntimeException('ID-Token stammt nicht vom erwarteten Tenant (iss-Claim).');
+        if ($iss === '' || $iss !== $expectedIssuer) {
+            throw new \RuntimeException('ID-Token stammt nicht vom erwarteten Aussteller (iss-Claim).');
         }
 
         // Ablauf (mit kleiner Toleranz für Uhrenabweichung).

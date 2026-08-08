@@ -120,11 +120,16 @@ CREATE TABLE IF NOT EXISTS `horses` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Horse Persons Relation (Ownership History & Roles)
+-- person_id ist NULL-faehig: Eine Zeile kann auch NUR eine Deckstation
+-- zuordnen (breeding_station_id fuer verknuepfte Stationen,
+-- breeding_station_text fuer freien Text ohne Stations-Datensatz).
 CREATE TABLE IF NOT EXISTS `horse_persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `horse_id` INT NOT NULL,
-    `person_id` INT NOT NULL,
+    `person_id` INT NULL DEFAULT NULL,
     `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
+    `breeding_station_id` INT NULL,
+    `breeding_station_text` VARCHAR(255) NULL,
     `from_year` SMALLINT UNSIGNED NULL,
     `until_year` SMALLINT UNSIGNED NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -168,17 +173,35 @@ CREATE TABLE IF NOT EXISTS `plugins` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Addon-Store-Quellen (GitHub-Repos, aus denen /admin/plugins/store Addons
+-- anbietet) samt Katalog-Cache. Das offizielle Repo wird von
+-- Database::ensureSchemaUpToDate() per INSERT IGNORE eingetragen.
+CREATE TABLE IF NOT EXISTS `addon_repos` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `owner` VARCHAR(100) NOT NULL,
+    `repo` VARCHAR(100) NOT NULL,
+    `ref` VARCHAR(100) NULL DEFAULT NULL,
+    `is_official` TINYINT(1) NOT NULL DEFAULT 0,
+    `added_by` INT NULL DEFAULT NULL,
+    `cached_catalog_json` MEDIUMTEXT NULL DEFAULT NULL,
+    `cached_at` DATETIME NULL DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY `owner_repo` (`owner`, `repo`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
 -- BaseController::hasPermission()) - EINZIGES Rechtesystem der App (das
 -- frühere users.role wurde vollständig entfernt, siehe
--- Database::ensureSchemaUpToDate()). Security-by-Design: Mitgliedschaft ist
--- für JEDE Gruppe (auch `admin`/`editor`) ausschließlich explizit über
--- `user_groups` - kein impliziter Standard (siehe
--- BaseController::userGroupIds()). `admin` hat zusätzlich systemseitig immer
--- implizit ALLE Rechte, unabhängig vom Inhalt von `group_permissions` (siehe
--- hasPermission()) - ihre eigene Berechtigungs-Matrix bleibt deshalb bewusst
--- leer und nicht editierbar. `public` repräsentiert nicht angemeldete
--- Besucher und erhält nie Berechtigungs-Zeilen.
+-- Database::ensureSchemaUpToDate()). Security-by-Design: Für angemeldete
+-- Benutzer ist Mitgliedschaft ausschließlich explizit über `user_groups`;
+-- einzig nicht angemeldete Besucher gehören automatisch der Gast-Gruppe
+-- `public` an (GroupMembership::groupIds(null)). `admin` hat systemseitig
+-- immer implizit ALLE Rechte, unabhängig vom Inhalt von `group_permissions`
+-- (siehe hasPermission()) - ihre eigene Berechtigungs-Matrix bleibt deshalb
+-- bewusst leer und nicht editierbar. `public` erhält per Seed unten
+-- Leseberechtigungen (horses.view, breeding_stations.view) und ist über die
+-- Matrix editierbar - sie ist der Steuerungspunkt der öffentlichen
+-- Sichtbarkeit (#121/#122).
 CREATE TABLE IF NOT EXISTS `groups` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `slug` VARCHAR(50) NOT NULL UNIQUE,

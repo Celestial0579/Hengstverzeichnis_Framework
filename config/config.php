@@ -84,7 +84,13 @@ if (PHP_SAPI !== 'cli') {
     if (!headers_sent()) {
         header("X-Content-Type-Options: nosniff");
         header("X-Frame-Options: SAMEORIGIN");
-        header("X-XSS-Protection: 1; mode=block");
+        // X-XSS-Protection bewusst auf "0", identisch zu public/.htaccess: Der
+        // veraltete Browser-XSS-Filter (1; mode=block) kann selbst Lecks/DoS
+        // ermöglichen und ist deprecated; OWASP empfiehlt "0" - der Schutz kommt
+        // aus der CSP unten. Bis hierher sendete PHP noch den Altwert, den die
+        // .htaccess unter Apache überschrieb - unter php -S (Tests, Dev) ging er
+        // aber tatsächlich raus. Eine Regel, eine Aussage, an beiden Stellen gleich.
+        header("X-XSS-Protection: 0");
         header("Referrer-Policy: strict-origin-when-cross-origin");
         header("Permissions-Policy: camera=(), microphone=(), geolocation=()");
 

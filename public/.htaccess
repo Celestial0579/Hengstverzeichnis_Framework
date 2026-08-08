@@ -13,7 +13,10 @@ ServerSignature Off
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
-    Header set X-XSS-Protection "1; mode=block"
+    # X-XSS-Protection bewusst auf "0": Der veraltete Browser-XSS-Filter
+    # (1; mode=block) kann selbst Lecks/DoS ermoeglichen und ist deprecated.
+    # OWASP empfiehlt "0" — der XSS-Schutz kommt hier aus der CSP unten.
+    Header set X-XSS-Protection "0"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
     Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
     # Keine PHP-Versionspreisgabe. Greift auch beim klassischen Shared-Hosting,

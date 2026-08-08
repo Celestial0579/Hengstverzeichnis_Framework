@@ -1,4 +1,7 @@
-FROM php:8.5-apache
+# Base-Image per Digest festgenagelt (Supply-Chain-Härtung, OpenSSF Scorecard
+# "Pinned-Dependencies"). Der Tag bleibt lesbar dran; Dependabot (docker) hält
+# den Digest aktuell, Diun meldet neue Tags weiterhin.
+FROM php:8.5-apache@sha256:0b69594dd09a95f41b262a4fc03acc03da5b1ceda01dd33876f5226e90e19750
 
 # ftp: für App\Service\FtpsClient (#93, FTPS als Backup-Ziel) - das
 # FTP-Protokoll selbst lässt sich anders als S3/WebDAV nicht über PHP-Streams

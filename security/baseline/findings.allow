@@ -1,0 +1,11 @@
+# findings.allow — bewusst akzeptierte Funde (Allowlist).
+#
+# Eine Zeile je Muster. Ein Fund wird als "acknowledged" gewertet (zaehlt NICHT
+# als blockierend), wenn "<check>|<titel>" das Muster als Teilstring enthaelt.
+# Nur fuer bewertete, dokumentierte Ausnahmen — nicht als Stummschalter.
+#
+# Format-Beispiele:
+#   fingerprint|Apache-Version im Banner erkennbar
+#   nikto|/robots.txt contains
+#
+# (leer: es gibt derzeit keine akzeptierten Ausnahmen)

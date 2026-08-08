@@ -1,0 +1,21 @@
+# discovery.expected — regulaere, erwartet erreichbare Routen/Pfade.
+# Treffer der Content-Discovery, die hier (exakt) aufgelistet sind, gelten als
+# bekannt und werden nicht gemeldet. Pfade wie von gobuster ausgegeben (mit
+# fuehrendem /). Neue legitime Routen hier ergaenzen.
+/
+/katalog
+/hengst
+/station
+/login
+/logout
+/setup
+/dsgvo
+/impressum
+/datenschutz
+/forgot-password
+/reset-password
+/css
+/js
+/uploads
+/robots.txt
+/favicon.ico

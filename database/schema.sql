@@ -267,3 +267,27 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
     INDEX (`category`),
     INDEX (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- API-Schlüssel für die JSON-API (`/api/...`, siehe docs/api.md und
+-- App\Security\ApiKey). Die API ist ausschließlich mit einem gültigen Schlüssel
+-- erreichbar; jeder Schlüssel gehört einem Benutzer und darf höchstens das, was
+-- dieser Benutzer aktuell selbst darf (Schnittmenge aus seinen Gruppenrechten
+-- und `scope_permissions`).
+--
+-- `token_hash` ist ein SHA-256-Hash - der Klartext-Schlüssel wird nie
+-- gespeichert und ist nach dem Anlegen nicht wieder abrufbar (wie die
+-- 2FA-Backup-Codes). `scope_permissions` = NULL bedeutet "alle Rechte des
+-- Besitzers" (dynamisch), sonst eine JSON-Liste erlaubter "modul.aktion"-Paare.
+CREATE TABLE IF NOT EXISTS `api_keys` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT NOT NULL,
+    `label` VARCHAR(100) NOT NULL,
+    `token_hash` CHAR(64) NOT NULL UNIQUE,
+    `token_prefix` VARCHAR(20) NOT NULL,
+    `scope_permissions` TEXT NULL DEFAULT NULL,
+    `last_used_at` DATETIME NULL DEFAULT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `revoked_at` DATETIME NULL DEFAULT NULL,
+    INDEX `idx_api_keys_user` (`user_id`, `revoked_at`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -8,6 +8,28 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Geändert
+
+- **Breaking:** Die JSON-API (`GET /api/horses`, `GET /api/horses/show`) ist
+  nicht mehr anonym erreichbar, sondern verlangt einen API-Schlüssel im
+  Header `Authorization: Bearer <Schlüssel>` (ohne gültigen Schlüssel: `401`).
+  Bestehende Einbindungen müssen einen Schlüssel hinterlegen. Bewusst kein
+  `?api_key=`-Parameter, damit der Schlüssel nicht in Logs, `Referer`-Headern
+  und Browser-History landet (analog zum Cron-Secret, #114).
+  - Jeder angemeldete Benutzer verwaltet bis zu **5** eigene Schlüssel unter
+    `/api-keys`. Der Klartextwert wird genau einmal angezeigt; gespeichert
+    wird nur sein SHA-256-Hash. Widerruf wirkt sofort.
+  - Ein Schlüssel darf **höchstens das, was sein Besitzer aktuell darf**
+    (Schnittmenge aus dessen Rechten und dem Scope des Schlüssels) - verliert
+    der Besitzer ein Recht, verliert es der Schlüssel im selben Moment mit.
+    Ein Schlüssel kann bewusst auf **weniger** Rechte eingeschränkt werden.
+  - Der Wildcard-CORS-Header (`Access-Control-Allow-Origin: *`) entfällt: ein
+    Schlüssel gehört nicht in Browser-JavaScript. Serverseitige Aufrufe sind
+    davon nicht betroffen. Antworten tragen zusätzlich `Cache-Control: no-store`.
+  - Die Gast-Gruppe (`public`) steuert damit weiterhin den öffentlichen
+    HTML-Katalog, aber nicht mehr die API.
+  - Siehe [docs/api.md](docs/api.md).
+
 ### Behoben
 
 - Sicherheit:

@@ -6,9 +6,12 @@ namespace Tests\Functional;
 /**
  * HTTP-Funktionstests für die öffentliche Read-only-JSON-API (#47, siehe
  * App\Controllers\ApiController und docs/api.md): Liste mit Filtern/
- * Pagination, Einzelabruf über UELN, sowie dass die API - wie der übrige
- * öffentliche Katalog - ohne Login erreichbar ist und gelöschte Pferde nie
- * ausliefert.
+ * Pagination, Einzelabruf über UELN sowie dass gelöschte Pferde nie
+ * ausgeliefert werden. Alle Abrufe laufen über einen echten, per
+ * Selfservice-Route angelegten API-Schlüssel (siehe ApiKeyHelper) - die API
+ * ist seit der Schlüsselpflicht nicht mehr anonym erreichbar. Die
+ * Authentifizierung und das Rechtemodell selbst sind in ApiKeyAuthTest
+ * abgedeckt.
  *
  * Der Test, der über /admin/horses/delete löscht und danach die API abfragt,
  * brachte in der vollständigen Functional-Suite reproduzierbar spätere,
@@ -20,6 +23,8 @@ namespace Tests\Functional;
  * eine Logdatei), ist der Regressionstest unten wieder gefahrlos möglich.
  */
 class ApiHorsesTest extends FunctionalTestCase {
+
+    use ApiKeyHelper;
 
     public function testListAndFilterAndShowByUeln(): void {
         $admin = $this->authenticatedClient();
@@ -43,9 +48,10 @@ class ApiHorsesTest extends FunctionalTestCase {
         ]);
         $this->assertSame('/admin/horses?success=created', $storeResponse->location());
 
-        // 1. Liste ohne Login erreichbar, enthält das neu angelegte Pferd.
+        // 1. Liste ist mit gültigem Schlüssel abrufbar und enthält das neu angelegte Pferd.
+        $token = $this->createApiKey($admin, 'ApiHorsesTest ' . $unique);
         $client = $this->newClient();
-        $listResponse = $client->get('/api/horses?search=' . urlencode($horseName));
+        $listResponse = $client->get('/api/horses?search=' . urlencode($horseName), $this->bearer($token));
         $this->assertSame(200, $listResponse->statusCode);
         $body = json_decode($listResponse->body, true);
         $this->assertIsArray($body);
@@ -55,23 +61,23 @@ class ApiHorsesTest extends FunctionalTestCase {
         $this->assertSame('/hengst?id=' . $body['data'][0]['id'], $body['data'][0]['profile_url']);
 
         // 2. Einzelabruf über UELN liefert dasselbe Pferd.
-        $showResponse = $client->get('/api/horses/show?ueln=' . urlencode($ueln));
+        $showResponse = $client->get('/api/horses/show?ueln=' . urlencode($ueln), $this->bearer($token));
         $this->assertSame(200, $showResponse->statusCode);
         $showBody = json_decode($showResponse->body, true);
         $this->assertSame($horseName, $showBody['data']['name']);
 
         // 3. Unbekannte UELN -> 404 mit Fehler-Payload.
-        $notFound = $client->get('/api/horses/show?ueln=UNBEKANNT-' . uniqid());
+        $notFound = $client->get('/api/horses/show?ueln=UNBEKANNT-' . uniqid(), $this->bearer($token));
         $this->assertSame(404, $notFound->statusCode);
         $notFoundBody = json_decode($notFound->body, true);
         $this->assertSame('not_found', $notFoundBody['error']);
 
         // 4. Fehlender Parameter -> 400.
-        $missing = $client->get('/api/horses/show');
+        $missing = $client->get('/api/horses/show', $this->bearer($token));
         $this->assertSame(400, $missing->statusCode);
 
         // 5. Filter ohne Treffer liefert leere Liste, kein Fehler.
-        $noHits = $client->get('/api/horses?search=' . urlencode('garantiert-kein-treffer-' . $unique));
+        $noHits = $client->get('/api/horses?search=' . urlencode('garantiert-kein-treffer-' . $unique), $this->bearer($token));
         $noHitsBody = json_decode($noHits->body, true);
         $this->assertSame(0, $noHitsBody['meta']['total']);
         $this->assertSame([], $noHitsBody['data']);
@@ -105,12 +111,13 @@ class ApiHorsesTest extends FunctionalTestCase {
 
         // Vor dem Löschen ist das Pferd per UELN abrufbar - damit der spätere 404
         // das Löschen belegt und nicht einen Tippfehler in der UELN.
-        $beforeDelete = $this->newClient()->get('/api/horses/show?ueln=' . urlencode($ueln));
+        $token = $this->createApiKey($admin, 'ApiHorsesDeleteTest ' . $unique);
+        $beforeDelete = $this->newClient()->get('/api/horses/show?ueln=' . urlencode($ueln), $this->bearer($token));
         $this->assertSame(200, $beforeDelete->statusCode);
 
         // ID über die (an dieser Stelle bereits getestete) API-Suche ermitteln,
         // statt das HTML-Markup der Admin-Liste zu parsen.
-        $lookup = $admin->get('/api/horses?search=' . urlencode($horseName));
+        $lookup = $admin->get('/api/horses?search=' . urlencode($horseName), $this->bearer($token));
         $horseId = json_decode($lookup->body, true)['data'][0]['id'];
 
         $deleteResponse = $admin->post('/admin/horses/delete', [
@@ -120,14 +127,14 @@ class ApiHorsesTest extends FunctionalTestCase {
         $this->assertSame('/admin/horses?success=deleted', $deleteResponse->location());
 
         $client = $this->newClient();
-        $afterDelete = $client->get('/api/horses?search=' . urlencode($horseName));
+        $afterDelete = $client->get('/api/horses?search=' . urlencode($horseName), $this->bearer($token));
         $afterDeleteBody = json_decode($afterDelete->body, true);
         $this->assertSame(0, $afterDeleteBody['meta']['total'], 'Gelöschtes Pferd darf nie über die Listen-API sichtbar sein');
 
         // Auch der Einzelabruf per UELN darf das gelöschte Pferd nicht mehr
         // ausliefern - die "nie sichtbar"-Eigenschaft muss über beide
         // API-Endpunkte (Liste und Show) gelten.
-        $afterDeleteShow = $client->get('/api/horses/show?ueln=' . urlencode($ueln));
+        $afterDeleteShow = $client->get('/api/horses/show?ueln=' . urlencode($ueln), $this->bearer($token));
         $this->assertSame(404, $afterDeleteShow->statusCode, 'Gelöschtes Pferd darf nie über die Show-API sichtbar sein');
         $afterDeleteShowBody = json_decode($afterDeleteShow->body, true);
         $this->assertSame('not_found', $afterDeleteShowBody['error']);

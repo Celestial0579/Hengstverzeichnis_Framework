@@ -56,4 +56,8 @@ jobs:
           sarif_file: semgrep-results.sarif
 
       - name: Gate auf ERROR-Findings
-        run: semgrep scan --config=p/php --config=p/security-audit --config=p/owasp-top-ten --severity ERROR
+        # --error ist hier zwingend: "semgrep scan" beendet sich ohne dieses
+        # Flag auch dann mit Exit 0, wenn es Funde meldet ("N blocking" in der
+        # Zusammenfassung). Der Gate-Schritt sah damit lange grün aus, obwohl
+        # zwei ERROR-Funde offenstanden - ein Pflicht-Check, der nie blockte.
+        run: semgrep scan --config=p/php --config=p/security-audit --config=p/owasp-top-ten --severity ERROR --error

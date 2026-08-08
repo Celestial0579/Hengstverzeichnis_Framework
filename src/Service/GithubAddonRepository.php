@@ -440,22 +440,41 @@ final class GithubAddonRepository {
         return @mkdir($dir, 0700, true) ? $dir : null;
     }
 
+    /**
+     * Löscht ein Verzeichnis samt Inhalt. Bewusst OHNE
+     * RecursiveDirectoryIterator und mit einer is_link()-Prüfung VOR is_dir():
+     * so wird garantiert nie in ein (potenziell aus dem Zielbaum
+     * hinausverweisendes) Symlink-Verzeichnis abgestiegen - der Symlink selbst
+     * wird entfernt, sein Ziel nie. Diese Garantie hängt damit nicht mehr am
+     * impliziten Verhalten von RecursiveDirectoryIterator::hasChildren()
+     * (folgt Symlinks per Default nicht), sondern ist lokal in dieser Methode
+     * ablesbar.
+     *
+     * Relevant, weil deleteDirRecursive() auch in finally-Zweigen läuft, wenn
+     * verifyExtractedTreeIsSafe() gerade einen Symlink ABGELEHNT hat - der zu
+     * löschende Baum kann also noch ungeprüfte Symlinks enthalten (defense in
+     * depth; unlink() auf einen Symlink entfernt ohnehin nur den Link, nie
+     * dessen Ziel).
+     */
     private static function deleteDirRecursive(string $dir): void {
-        if (!is_dir($dir)) {
+        // is_link() zuerst: is_dir() folgt Symlinks und wäre für einen
+        // Symlink-auf-Verzeichnis true - dann würde ein Abstieg/rmdir auf das
+        // ZIEL statt auf den Link wirken.
+        if (is_link($dir) || !is_dir($dir)) {
+            @unlink($dir);
             return;
         }
-        $items = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
-            \RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($items as $item) {
-            /** @var \SplFileInfo $item */
-            if ($item->isDir() && !$item->isLink()) {
-                @rmdir($item->getPathname());
-            } else {
-                @unlink($item->getPathname());
+
+        $entries = @scandir($dir);
+        if ($entries !== false) {
+            foreach ($entries as $entry) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+                self::deleteDirRecursive($dir . DIRECTORY_SEPARATOR . $entry);
             }
         }
+
         @rmdir($dir);
     }
 

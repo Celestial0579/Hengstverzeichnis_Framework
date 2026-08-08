@@ -14,6 +14,10 @@
 /datenschutz
 /forgot-password
 /reset-password
+# Selfservice-Verwaltung eigener API-Schluessel: leitet ohne Anmeldung auf
+# /login um (302). Die JSON-API selbst (/api/horses) antwortet ohne gueltigen
+# Schluessel mit 401 und wird von der Content-Discovery ohnehin nicht gemeldet.
+/api-keys
 /css
 /js
 /uploads

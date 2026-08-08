@@ -37,7 +37,10 @@ jobs:
     name: Semgrep SAST
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      # Per Digest festgenagelt (Supply-Chain-Härtung). Achtung: Dependabot
+      # (docker) erfasst nur Dockerfile/Compose, NICHT container:-Images in
+      # Workflows — dieser Digest wird also manuell/periodisch nachgezogen.
+      image: semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8
     permissions:
       contents: read
       security-events: write

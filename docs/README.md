@@ -28,9 +28,10 @@ Das Hengstverzeichnis Framework ist eine Open-Source-Webanwendung zur
 Verwaltung und öffentlichen Darstellung von Blutlinien/Stammbäumen in der
 Pferdezucht (Hengstverzeichnis, vergleichbar mit Zuchtverzeichnissen wie dem
 IGF-Hengstverzeichnis). Es ist ein klassisches serverseitig gerendertes
-PHP-Framework **ohne externe Abhängigkeiten** (kein Composer/npm nötig) –
-bewusst schlank gehalten, um auf einfachem Shared-Hosting genauso lauffähig
-zu sein wie in Docker.
+PHP-Framework **ohne externe Laufzeit-Abhängigkeiten** (die Anwendung selbst
+braucht kein Composer/npm; Composer wird nur für die PHPUnit-Testsuite in
+Entwicklung und CI benötigt) – bewusst schlank gehalten, um auf einfachem
+Shared-Hosting genauso lauffähig zu sein wie in Docker.
 
-**Tech-Stack:** PHP 8.3, MySQL/MariaDB (PDO), Apache, reines HTML/CSS/JS
+**Tech-Stack:** PHP 8.5, MySQL/MariaDB (PDO), Apache, reines HTML/CSS/JS
 (kein Frontend-Framework), Docker/Docker Compose für den Betrieb.

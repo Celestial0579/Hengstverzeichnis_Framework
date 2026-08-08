@@ -3,7 +3,7 @@
 ## Voraussetzungen
 
 Keine Paketmanager-Abhängigkeiten zur Laufzeit (kein Composer, kein npm) –
-das Framework läuft mit reinem PHP 8.3 + PDO MySQL-Erweiterung. Für lokale
+das Framework läuft mit reinem PHP 8.5 + PDO MySQL-Erweiterung. Für lokale
 Entwicklung entweder Docker (empfohlen) oder ein klassischer lokaler
 PHP/MySQL-Stack. Composer wird ausschließlich **dev-only** für die
 PHPUnit-Testsuite benötigt (siehe [Tests](#tests) unten) – für Betrieb/
@@ -49,7 +49,7 @@ Aufruf greift entweder der Setup-Wizard (`/setup`) oder – falls `SITE_NAME`
 und `ADMIN_*`-Variablen in `.env` gesetzt sind – die vollautomatische
 Ersteinrichtung (siehe README, Abschnitt „Ersteinrichtung ganz ohne Wizard“).
 
-Aufbau von `docker-compose.yml`: ein `app`-Service (PHP 8.3 + Apache, Docroot
+Aufbau von `docker-compose.yml`: ein `app`-Service (PHP 8.5 + Apache, Docroot
 auf `public/`, siehe [Dockerfile](../Dockerfile)) und ein `db`-Service
 (MariaDB 11) mit Healthcheck, sodass die App erst startet, wenn die DB bereit
 ist. `public/uploads` liegt in einem eigenen Docker-Volume (`uploads_data`),
@@ -83,12 +83,19 @@ PHPUnit-Testsuite unter [`tests/`](../tests) (dev-only Composer-Abhängigkeit,
 siehe [`composer.json`](../composer.json) – betrifft nicht die
 Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main`
 automatisch über [`.github/workflows/tests.yml`](../.github/workflows/tests.yml),
-siehe [Issue #54](../../../issues/54). Drei Ebenen:
+siehe [Issue #54](../../../issues/54). Die Suite ist streng konfiguriert:
+`phpunit.xml` setzt `failOnDeprecation`/`failOnNotice`/`failOnWarning` —
+eine Deprecation ist wie ein fehlgeschlagener Test zu behandeln, nicht zu
+tolerieren. Drei Ebenen:
 
 ### `tests/Unit` – reine Logik, keine Abhängigkeiten
 
-`Security\Totp`, `Security\Crypto`, `Security\ClientIp::isValidProxyEntry()`,
-`Helper\Markdown::parse()`. Läuft ohne weitere Voraussetzungen:
+U. a. `Security\Totp`, `Security\Crypto`, `Security\ApiKey`,
+`Security\OidcIdToken`, `Security\TrustedHost`,
+`Security\ClientIp::isValidProxyEntry()`, `Helper\Markdown::parse()`,
+`I18n\Translator`, `Plugin\HookManager` sowie die Service-Klassen
+(S3-Signaturen, WebDAV-/FTPS-Clients, CSV-Import, Update-Auswahl). Läuft
+ohne weitere Voraussetzungen:
 
 ```bash
 composer install
@@ -97,8 +104,9 @@ composer test -- --testsuite Unit
 
 ### `tests/Integration` – `App\Database` direkt im PHPUnit-Prozess
 
-Ruft `Database::getInstance()`/`ensureSchemaUpToDate()` gegen eine echte
-MariaDB-Testdatenbank auf (siehe `tests/Integration/DatabaseTest.php`).
+Läuft gegen eine echte MariaDB-Testdatenbank: Schema-Aufbau
+(`DatabaseTest`), Dump/Restore, externe Backup-Ziele, Digest, Scheduler,
+Pedigree-Builder und die S3-/WebDAV-Clients (siehe `tests/Integration/`).
 Braucht `DB_HOST`/`DB_NAME`/`DB_USER`/`DB_PASS` als Umgebungsvariable (siehe
 `tests/bootstrap.php`) – ohne diese wird die Suite übersprungen:
 
@@ -109,8 +117,13 @@ DB_HOST=127.0.0.1 DB_NAME=hengst_integration DB_USER=hengst DB_PASS=hengst \
 
 ### `tests/Functional` – HTTP-Requests gegen eine echte, laufende Instanz
 
-Deckt Auth-Flow, CSRF-Schutz, Stamm-URL-SSRF-Härtung und die
-Blutlinien-Match-Logik ab. **Nicht** in-process testbar: praktisch jede
+Inzwischen 27 Testklassen: Auth-Flow inkl. 2FA-Gruppenpflicht, TOTP-Replay
+und Session-Invalidierung, CSRF-Schutz, Stamm-URL-SSRF-Härtung,
+Blutlinien-Matching, JSON-API und API-Schlüssel, Gruppen-Berechtigungen,
+Feature-Sichtbarkeit, Plugin-Verwaltung/Addon-Store, Plugin-Hook-Vertrag
+(`HorseDetailSectionsHookTest`), CSV-Import, DSGVO-Verwaltung, Papierkorb,
+Registrierung, Entra-SSO, Backups, Digest, Cron und Updates. **Nicht**
+in-process testbar: praktisch jede
 Controller-Aktion, die Formulardaten verarbeitet, endet mit
 `header(...); exit;` – das würde den PHPUnit-Prozess selbst beenden. Die
 Suite startet daher automatisch einen `php -S`-Subprozess (siehe
@@ -150,14 +163,19 @@ abgezweigt wurden und das laufend unnötige Merge-Konflikte beim Promote
 verursacht hat.
 
 - **`main`**: PRs brauchen grüne Pflicht-Checks (CodeQL, PHPUnit,
-  Semgrep SAST) **und** mindestens 1 genehmigendes Review, bevor gemergt
-  werden kann. Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
-  [semgrep.yml](../.github/workflows/semgrep.yml). Quelle für die
+  Semgrep SAST, dependency-review), bevor gemergt werden kann — die
+  Protection gilt mit `enforce_admins` auch für Administratoren; eine
+  Review-Pflicht ist bewusst nicht konfiguriert (Ein-Personen-Projekt).
+  Semgrep blockiert dabei nur bei ERROR-Severity-Funden, siehe
+  [semgrep.yml](../.github/workflows/semgrep.yml). Daneben laufen
+  nicht-blockierend `security-scan.yml` (DAST-Harness aus
+  [`security/`](../security), siehe [security.md](security.md)),
+  `scorecard.yml` und `dependabot-auto-merge.yml`. Quelle für die
   öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
 
 ## Coding-Konventionen
 
-- **PHP 8.3**, `strict_types` wird aktuell nicht projektweit erzwungen –
+- **PHP 8.5**, `strict_types` wird aktuell nicht projektweit erzwungen –
   bei neuem Code an bestehendem Stil orientieren (Typed Properties/Return-Types
   werden aber durchgängig verwendet, siehe z. B. `Router.php`, `Database.php`).
 - **Namespace `App\`** folgt PSR-4-artig der Verzeichnisstruktur unter `src/`.

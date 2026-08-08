@@ -10,6 +10,22 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- Dokumentation vollständig gegen den Code abgeglichen und auf den Ist-Stand
+  gehoben. Die wichtigsten Korrekturen: kein Rollen-System mehr (README nannte
+  noch „Rollen (Admin/Editor)"), 2FA ist pro Gruppe konfigurierbar statt
+  global verpflichtend, Backup-Codes werden gehasht (nie als Klartext)
+  gespeichert, PHP 8.5 statt 8.3, die Gast-Gruppe `public` erhält bewusst
+  Leseberechtigungen und steuert darüber die öffentliche Sichtbarkeit
+  (architecture.md/security.md behaupteten das Gegenteil), der Katalog
+  paginiert serverseitig (der Performance-Hinweis zu `catalog.card_sections`
+  war sachlich umgedreht), `PedigreeBuilder::build()` ist inkl. des für
+  öffentliche Ausgaben zwingenden `publishedOnly`-Parameters dokumentiert,
+  und database.md beschreibt jetzt `is_published`, das Gruppen-/API-Schema
+  und die tatsächlichen Rate-Limiter-Typen. Die beiden Planungsdokumente
+  (plugin-system-plan.md, user-groups-plan.md) sind als historisch markiert
+  und benennen, wo die Umsetzung abweicht — verbindlich sind
+  architecture.md/security.md/plugin-development.md.
+
 - Der Datenvertrag der Plugin-Hooks `horse.detail_sections` und
   `catalog.card_sections` ist jetzt dokumentiert und durch einen Functional-Test
   festgenagelt (`tests/Functional/HorseDetailSectionsHookTest.php`): `$horse`,

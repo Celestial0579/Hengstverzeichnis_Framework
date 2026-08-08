@@ -23,6 +23,33 @@
 > einzelner Pferde hängt am neuen Flag `horses.is_published` (entkoppelt vom
 > Lebenszyklus-`status`); öffentliche Ableitungen (Pedigree/Inzucht) nutzen den
 > `publishedOnly`-Modus.
+>
+> **Nachtrag 3 (Ist-Stand gegenüber den Details dieses Plans):**
+>
+> - Die `publish`-Aktion steuert **nicht** (mehr) den Lebenszyklus-`status`,
+>   wie in Abschnitt 8 beschrieben, sondern ausschließlich das
+>   `is_published`-Flag (Einzel-Checkbox und Massen-Aktion; öffentliche
+>   Filter prüfen `is_published = 1`, nicht `status = 'active'`). Das Flag
+>   existiert inzwischen auch auf `persons` und `breeding_stations`.
+> - Das in Abschnitt 3.1/3.3/3.5 entworfene Feature-Zugriffssystem
+>   (`feature_access`/`feature_access_groups`, `requireFeatureAccess()`,
+>   `/admin/feature-access`) wurde **so nie gebaut**. Umgesetzt ist #57
+>   stattdessen über `App\Permission\FeatureRegistry`/`FeatureGate`
+>   (Plugin-`features()`-Methode, Setting `feature_visibility__<key>`,
+>   Modul `feature_<key>` mit Aktion `read`) — siehe
+>   [plugin-development.md](plugin-development.md), Abschnitt
+>   „Zusatzfunktionen".
+> - Die `groups`-Tabelle hat zusätzlich `is_builtin` und `require_2fa`
+>   (2FA-Pflicht pro Gruppe, #84, Route `/admin/groups/require-2fa`).
+> - Die „Offenen Punkte für Rücksprache" (Abschnitt im hinteren Teil) sind
+>   sämtlich entschieden und umgesetzt: Admin-Bypass ja, ODER-Semantik über
+>   alle Gruppen, kein eigener `authenticated`-Modus (ersetzt durch
+>   `members` der Feature-Sichtbarkeit).
+>
+> Der **verbindliche Ist-Stand** steht in [architecture.md](architecture.md),
+> [security.md](security.md) und [plugin-development.md](plugin-development.md);
+> bei Widersprüchen gelten jene Dokumente. Dieses hier bleibt als
+> historischer Entscheidungskontext erhalten.
 
 **Status:** Phase 1 (siehe Abschnitt 6, nach der Konkretisierung in
 Abschnitt 8) umgesetzt.
@@ -30,9 +57,9 @@ Abschnitt 8) umgesetzt.
 
 Dieses Dokument bricht #66 auf eine konkrete, mit der bestehenden
 Architektur kompatible Umsetzung herunter — analog zu
-[plugin-system-plan.md](plugin-system-plan.md) für #56. Es ist die
-Planungsgrundlage für die eigentliche Implementierung, noch kein fertiges
-Design.
+[plugin-system-plan.md](plugin-system-plan.md) für #56. Es ist ein
+**historisches Planungsdokument**; die Nachträge oben benennen, wo die
+Umsetzung abweicht.
 
 ## 1. Ausgangslage & Ziel
 

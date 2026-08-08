@@ -16,6 +16,10 @@ ServerSignature Off
     Header set X-XSS-Protection "1; mode=block"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
     Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    # Keine PHP-Versionspreisgabe. Greift auch beim klassischen Shared-Hosting,
+    # wo expose_php serverseitig gesetzt ist und nicht in der eigenen Hand liegt.
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
 </IfModule>
 
 # 4. Front Controller URL Rewriting

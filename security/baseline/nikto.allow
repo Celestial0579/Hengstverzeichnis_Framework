@@ -1,0 +1,13 @@
+# nikto.allow — bekannte, bewertete nikto-Rauschzeilen (Teilstring-Match).
+# Nur ergaenzen, wenn der Fund geprueft und als unkritisch eingestuft wurde.
+# Der Anlass gehoert dann in die Commit-/PR-Beschreibung.
+#
+# Der Retry-/ETag-Hinweis und generische Header-Meldungen deckt bereits der
+# eigene, praezisere headers-Check ab:
+Retrieved x-powered-by header
+Retrieved x-frame-options header
+Uncommon header
+The anti-clickjacking X-Frame-Options header is present
+The X-Content-Type-Options header is set
+/robots.txt contains
+Multiple index files found

@@ -1,0 +1,12 @@
+# sqli-targets.txt — explizite Parameter-URLs fuer den sqlmap-Check.
+# Eine relative URL je Zeile (mit fuehrendem /), inkl. Beispielparametern, die
+# sqlmap testet. Ergaenzt den Formular-Crawl um Endpunkte, die sqlmap sonst nicht
+# selbst findet. Kommentar mit '#'.
+#
+# Die konkreten Query-Parameter der Katalogsuche/-filter hier eintragen, sobald
+# sie feststehen, z. B.:
+#   /katalog?q=test
+#   /katalog?rasse=1&geschlecht=hengst&sort=name
+#   /hengst?id=1
+#
+# (leer lassen ist ok — dann laeuft nur der Formular-Crawl aus 60-sqli.sh)

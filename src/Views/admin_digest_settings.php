@@ -23,7 +23,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
 
     <?php if (($_GET['success'] ?? '') === 'digest_run'): ?>
         <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
-            ✓ Digest wurde an <?= (int)($_GET['sent'] ?? 0) ?> Empfänger versendet.
+            ✓ Digest wurde an <?= htmlspecialchars((string)(int)($_GET['sent'] ?? 0)) ?> Empfänger versendet.
         </div>
     <?php elseif (($_GET['success'] ?? '') === 'digest_skipped'): ?>
         <div style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">

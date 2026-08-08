@@ -32,7 +32,26 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- Qualitätssicherung: Zwei Prüfschritte meldeten Funde, ohne den Lauf rot zu
+  machen - beide melden jetzt auch tatsächlich einen Fehler:
+  - Der Semgrep-Schritt „Gate auf ERROR-Findings" lief mit Exit `0` durch,
+    obwohl er Funde als `blocking` auswies (`semgrep scan` braucht dafür
+    `--error`). Der als Pflicht-Check konfigurierte Job war deshalb grün,
+    während im Security-Tab zwei ERROR-Funde offenstanden.
+  - PHPUnit quittierte Deprecations, Notices und Warnings nur mit „OK, but
+    there were issues!" - ohne Fundstelle und ohne roten Lauf. `phpunit.xml`
+    nennt jetzt Datei und Zeile (`displayDetailsOnAllIssues`) und lässt die
+    Suite daran scheitern (`failOnDeprecation` u. a.).
+- Vier PHP-8.5-Deprecations in der Testsuite entfernt, die dadurch
+  unbemerkt geblieben waren: `ReflectionMethod::setAccessible()` (ohne
+  Wirkung seit PHP 8.1) und `curl_close()` (ohne Wirkung seit PHP 8.0).
 - Sicherheit:
+  - Die beiden vom Semgrep-Gate durchgelassenen Funde
+    (`php.lang.security.injection.echoed-request`) sind bereinigt: Die
+    Trefferzähler in den Erfolgsmeldungen von `/admin/cron` und
+    `/admin/digest` gehen jetzt zusätzlich durch `htmlspecialchars()`, statt
+    sich allein auf den `(int)`-Cast zu verlassen - damit folgt jede Ausgabe
+    von Request-Daten im Projekt derselben Regel.
   - `persons.is_published` wird jetzt auf allen öffentlichen Routen erzwungen
     (#121): Katalog, Pferde-Detailseite und JSON-API zeigen nur noch
     veröffentlichte, nicht gelöschte Personen (inkl. der Filter

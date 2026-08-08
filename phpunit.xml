@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  displayDetailsOnAllIssues + failOn*: Deprecations, Notices und Warnings
+  liefen bisher nur als "OK, but there were issues!" mit - ohne Fundstelle
+  und ohne roten Lauf. Vier PHP-8.5-Deprecations (ReflectionMethod::
+  setAccessible, curl_close) standen so unbemerkt herum, bis sie in einer
+  kuenftigen PHP-Version zu echten Fehlern geworden waeren. Jetzt nennt die
+  Ausgabe Datei und Zeile, und der Lauf wird rot - eine Deprecation ist damit
+  genauso zu behandeln wie ein fehlgeschlagener Test.
+-->
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
          bootstrap="tests/bootstrap.php"
          colors="true"
-         cacheDirectory=".phpunit.cache">
+         cacheDirectory=".phpunit.cache"
+         displayDetailsOnAllIssues="true"
+         failOnDeprecation="true"
+         failOnPhpunitDeprecation="true"
+         failOnNotice="true"
+         failOnWarning="true">
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>

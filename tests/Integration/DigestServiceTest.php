@@ -159,7 +159,6 @@ class DigestServiceTest extends TestCase {
 
         $reflection = new \ReflectionClass(DigestService::class);
         $method = $reflection->getMethod('countExpiringTrashItems');
-        $method->setAccessible(true);
 
         $this->assertSame(1, $method->invoke(null));
     }

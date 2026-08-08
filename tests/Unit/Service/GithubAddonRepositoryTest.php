@@ -179,7 +179,6 @@ class GithubAddonRepositoryTest extends TestCase {
         symlink($target, $dir . '/escape-link');
 
         $method = new \ReflectionMethod(GithubAddonRepository::class, 'verifyExtractedTreeIsSafe');
-        $method->setAccessible(true);
 
         $this->assertFalse($method->invoke(null, $dir));
     }
@@ -198,7 +197,6 @@ class GithubAddonRepositoryTest extends TestCase {
      */
     public function testDeleteDirRecursiveDoesNotFollowSymlinkedDirectory(): void {
         $method = new \ReflectionMethod(GithubAddonRepository::class, 'deleteDirRecursive');
-        $method->setAccessible(true);
 
         // "Fremdes" Verzeichnis mit wichtiger Datei - darf NICHT gelöscht werden.
         $outside = sys_get_temp_dir() . '/hengst_addon_test_outside_' . bin2hex(random_bytes(8));
@@ -234,7 +232,6 @@ class GithubAddonRepositoryTest extends TestCase {
      */
     public function testDeleteDirRecursiveRemovesNestedTreeCompletely(): void {
         $method = new \ReflectionMethod(GithubAddonRepository::class, 'deleteDirRecursive');
-        $method->setAccessible(true);
 
         $tree = sys_get_temp_dir() . '/hengst_addon_test_tree_' . bin2hex(random_bytes(8));
         mkdir($tree . '/a/b/c', 0700, true);

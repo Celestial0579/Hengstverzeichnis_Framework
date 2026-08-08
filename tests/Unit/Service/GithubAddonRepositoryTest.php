@@ -184,6 +184,70 @@ class GithubAddonRepositoryTest extends TestCase {
         $this->assertFalse($method->invoke(null, $dir));
     }
 
+    /**
+     * deleteDirRecursive() (per Reflection, da privat) darf beim Aufräumen
+     * eines Temp-Baums, der einen Symlink auf ein Verzeichnis AUSSERHALB des
+     * Baums enthält, niemals in dieses Ziel absteigen oder dort Dateien
+     * löschen - der Symlink selbst wird entfernt, sein Ziel bleibt unberührt.
+     *
+     * Wichtig, weil deleteDirRecursive() auch in finally-Zweigen läuft, wenn
+     * verifyExtractedTreeIsSafe() einen Symlink gerade abgelehnt hat, der Baum
+     * also noch ungeprüfte Symlinks enthalten kann. Die is_link()-vor-is_dir()-
+     * Prüfung in der Methode macht diese Sicherheit lokal beweisbar, statt sie
+     * dem Default-Verhalten von RecursiveDirectoryIterator zu überlassen.
+     */
+    public function testDeleteDirRecursiveDoesNotFollowSymlinkedDirectory(): void {
+        $method = new \ReflectionMethod(GithubAddonRepository::class, 'deleteDirRecursive');
+        $method->setAccessible(true);
+
+        // "Fremdes" Verzeichnis mit wichtiger Datei - darf NICHT gelöscht werden.
+        $outside = sys_get_temp_dir() . '/hengst_addon_test_outside_' . bin2hex(random_bytes(8));
+        mkdir($outside, 0700, true);
+        $this->cleanupPaths[] = $outside;
+        $importantFile = $outside . '/important.txt';
+        file_put_contents($importantFile, 'DO NOT DELETE ME');
+
+        // Der zu löschende Temp-Baum mit normalem Inhalt und zwei Symlinks
+        // (auf das externe Verzeichnis und auf die externe Datei).
+        $victim = sys_get_temp_dir() . '/hengst_addon_test_victim_' . bin2hex(random_bytes(8));
+        mkdir($victim . '/sub', 0700, true);
+        $this->cleanupPaths[] = $victim;
+        file_put_contents($victim . '/normal.txt', 'ok to delete');
+        file_put_contents($victim . '/sub/deep.txt', 'ok to delete');
+        symlink($outside, $victim . '/dir-link');
+        symlink($importantFile, $victim . '/file-link');
+
+        $method->invoke(null, $victim);
+
+        // Der Temp-Baum ist restlos weg ...
+        $this->assertDirectoryDoesNotExist($victim, 'Der Temp-Baum sollte vollständig entfernt sein.');
+        // ... das externe Ziel aber unangetastet.
+        $this->assertDirectoryExists($outside, 'Das über einen Symlink erreichbare externe Verzeichnis darf nicht gelöscht werden.');
+        $this->assertFileExists($importantFile, 'Über einen Symlink erreichbare externe Dateien dürfen nicht gelöscht werden.');
+        $this->assertSame('DO NOT DELETE ME', file_get_contents($importantFile));
+    }
+
+    /**
+     * Gegenprobe: ein regulärer, verschachtelter Baum ohne Symlinks wird von
+     * deleteDirRecursive() restlos entfernt (Verhalten auf dem Normalpfad
+     * unverändert gegenüber der früheren Iterator-basierten Implementierung).
+     */
+    public function testDeleteDirRecursiveRemovesNestedTreeCompletely(): void {
+        $method = new \ReflectionMethod(GithubAddonRepository::class, 'deleteDirRecursive');
+        $method->setAccessible(true);
+
+        $tree = sys_get_temp_dir() . '/hengst_addon_test_tree_' . bin2hex(random_bytes(8));
+        mkdir($tree . '/a/b/c', 0700, true);
+        $this->cleanupPaths[] = $tree;
+        file_put_contents($tree . '/root.txt', 'x');
+        file_put_contents($tree . '/a/x.txt', 'x');
+        file_put_contents($tree . '/a/b/c/y.txt', 'x');
+
+        $method->invoke(null, $tree);
+
+        $this->assertDirectoryDoesNotExist($tree);
+    }
+
     public function testInstallFromTarballFileCopiesPluginAndRefusesOverwriteWithoutFlag(): void {
         $tarPath = $this->buildTarGzFromFiles([
             'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([

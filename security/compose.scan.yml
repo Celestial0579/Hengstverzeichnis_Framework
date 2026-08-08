@@ -1,0 +1,42 @@
+# security/compose.scan.yml — startet eine EPHEMERE Instanz nur fuer den Scan.
+#
+# Unterschiede zur produktiven docker-compose.yml im Repo-Wurzelverzeichnis:
+#   - Port wird an eine konfigurierbare Host-IP gebunden (SCAN_BIND), im
+#     Devhost-Betrieb die Docker-Bridge-Gateway-IP — so ist die Instanz fuer
+#     den kali-Container und den Host erreichbar, NICHT aber im LAN.
+#   - Frei waehlbarer Host-Port (SCAN_PORT), damit parallele Laeufe und der
+#     produktive 8080 sich nicht in die Quere kommen.
+#   - KEINE benannten Volumes: db- und uploads-Daten liegen in anonymen
+#     Volumes, die `docker compose down -v` restlos entfernt. Der Scan darf
+#     keinen Zustand hinterlassen.
+#   - Eigener Projektname (-p) beim Aufruf sorgt fuer einen isolierten
+#     Namensraum; nichts kollidiert mit einer echten Installation.
+#
+# Gebaut wird aus demselben Dockerfile wie das Release-Image — der Scan trifft
+# also genau das Artefakt, das ausgeliefert wird.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "${SCAN_BIND:-127.0.0.1}:${SCAN_PORT:-8080}:80"
+    env_file:
+      - "${SCAN_ENV:?SCAN_ENV (Pfad zur generierten .env) muss gesetzt sein}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASS:-scan-root}"
+      MARIADB_DATABASE: "${DB_NAME:-hengstverzeichnis}"
+      MARIADB_USER: "${DB_USER:-hengst_user}"
+      MARIADB_PASSWORD: "${DB_PASS:?DB_PASS muss gesetzt sein}"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

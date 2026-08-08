@@ -1,0 +1,61 @@
+# Dynamischer Sicherheits-Scan (DAST)
+#
+# Ergaenzt tests.yml (PHPUnit) und semgrep.yml (statisch) um eine Blackbox-Sicht
+# auf die laufende App: security/run-security-scan.sh baut eine ephemere Instanz
+# aus dem aktuellen Stand, scannt sie mit Kali-Werkzeugen und raeumt wieder ab.
+# Details und lokaler Aufruf: security/README.md.
+#
+# Ausloeser:
+#   - woechentlich (Montagnacht) als regelmaessiges Netz,
+#   - manuell (workflow_dispatch),
+#   - aufrufbar aus anderen Workflows (workflow_call) — so laesst sich der Scan
+#     bei Bedarf als Gate in release.yml einhaengen (siehe security/README.md).
+#
+# In GitHub-Runnern gibt es kein 'kali'-Werkzeug; die Scan-Werkzeuge werden per
+# apt installiert und im 'local'-Modus gegen die an 127.0.0.1 gebundene Instanz
+# ausgefuehrt.
+name: Security Scan
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  dast:
+    name: DAST (Kali)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Scan-Werkzeuge installieren
+        run: |
+          sudo apt-get update
+          # Fehlende Einzelwerkzeuge sind unkritisch: der jeweilige Check
+          # ueberspringt sich selbst. Daher pro Paket, ohne den Lauf abzubrechen.
+          for p in nmap nikto whatweb sqlmap gobuster wafw00f; do
+            sudo apt-get install -y --no-install-recommends "$p" || echo "::warning::$p nicht installierbar — Check wird uebersprungen"
+          done
+
+      - name: Sicherheits-Scan ausfuehren
+        env:
+          SEC_RUNNER: local
+          SEC_REPORT: security-report.txt
+          SEC_TOOL_TIMEOUT: "300"
+          NIKTO_MAXTIME: "90"
+        run: |
+          chmod +x security/run-security-scan.sh security/checks/*.sh
+          security/run-security-scan.sh
+
+      - name: Report als Artefakt sichern
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: security-report
+          path: security-report.txt
+          if-no-files-found: ignore

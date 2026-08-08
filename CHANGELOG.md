@@ -10,6 +10,23 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- Der Datenvertrag der Plugin-Hooks `horse.detail_sections` und
+  `catalog.card_sections` ist jetzt dokumentiert und durch einen Functional-Test
+  festgenagelt (`tests/Functional/HorseDetailSectionsHookTest.php`): `$horse`,
+  `$horsePersons` und `$pedigree` sind **öffentlich gefilterte** Daten, keine
+  Roh-Datensätze. Insbesondere sind alle `station_*`-Felder gemeinsam `null`,
+  wenn die Deckstation unveröffentlicht oder gelöscht ist oder der Gast-Gruppe
+  `breeding_stations.view` fehlt — `$horse['breeding_station_id']` bleibt dabei
+  gesetzt und taugt nicht als Indikator.
+  - **Für Plugin-Autoren relevant:** Seit der Sichtbarkeitsverschärfung (#121/#122
+    zusammen mit `breeding_stations.is_published`, Default `0`) sehen Plugins bei
+    unveröffentlichten Stationen keine Stationsdaten mehr. Ein Plugin, das seinen
+    Abschnitt daran knüpft, rendert für solche Pferde nichts — das ist die
+    beabsichtigte Wirkung und kein Fehler (#151). Bisher war diese Zusicherung
+    nirgends beschrieben.
+  - Siehe [docs/plugin-development.md](docs/plugin-development.md),
+    Abschnitt „Was in `$horse` und `$horsePersons` steht".
+
 - **Breaking:** Die JSON-API (`GET /api/horses`, `GET /api/horses/show`) ist
   nicht mehr anonym erreichbar, sondern verlangt einen API-Schlüssel im
   Header `Authorization: Bearer <Schlüssel>` (ohne gültigen Schlüssel: `401`).
@@ -31,6 +48,17 @@ Breaking Changes sind jederzeit möglich).
   - Siehe [docs/api.md](docs/api.md).
 
 ### Behoben
+
+- Der **Name** einer unveröffentlichten oder gelöschten Deckstation konnte
+  öffentlich weiterhin erscheinen, obwohl ihre Kontaktdaten korrekt ausgeblendet
+  waren (#122): `horses.breeding_station` ist bei verknüpfter Station eine
+  denormalisierte Kopie des Stationsnamens, und Pferde-Detailseite, Katalogkarte
+  und JSON-API zeigten sie als Fallback, sobald `station_name` fehlte. Die Kopie
+  wird jetzt in allen drei Pfaden unterdrückt, sobald die Station öffentlich nicht
+  sichtbar ist; freie Texteingaben ohne Stations-Datensatz (z. B. aus dem
+  CSV-Import) bleiben unverändert erhalten. Ebenfalls geschlossen: Volltext- und
+  Deckstations-Filter des Katalogs trafen auf diese Kopie und ließen sich so als
+  Existenz-Orakel für Namen unveröffentlichter Stationen nutzen (#151).
 
 - Qualitätssicherung: Zwei Prüfschritte meldeten Funde, ohne den Lauf rot zu
   machen - beide melden jetzt auch tatsächlich einen Fehler:

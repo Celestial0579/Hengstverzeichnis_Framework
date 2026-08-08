@@ -198,10 +198,19 @@ class ApiController extends BaseController {
         // so genau EINEN API-Datensatz - und nur veröffentlichte Personen (#121).
         $limitSql = $limit !== null ? "LIMIT ? OFFSET ?" : "";
 
+        // Denormalisierte Kopie des Stationsnamens unterdrücken, wenn die Station
+        // öffentlich nicht sichtbar ist: der bs-JOIN unten ist auf is_published = 1 AND
+        // deleted_at IS NULL eingeschränkt, "bs.id IS NULL" heißt dort also exakt: nicht
+        // öffentlich sichtbar. Ohne das gäbe die API den Namen unveröffentlichter
+        // Stationen über den Fallback station_name ?: breeding_station heraus, obwohl
+        // deren Kontaktdaten korrekt ausgeblendet sind (#151/#122). Freitext ohne
+        // Stations-Datensatz hat keine breeding_station_id und bleibt erhalten.
         $stmt = $db->prepare("
             SELECT
                 h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url,
-                h.breeding_station, bs.name AS station_name,
+                CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
+                     THEN NULL ELSE h.breeding_station END AS breeding_station,
+                bs.name AS station_name,
                 sire.name AS linked_sire_name, sire.ueln AS linked_sire_ueln,
                 h.sire_name AS unlinked_sire_name, h.sire_ueln AS unlinked_sire_ueln,
                 dam.name AS linked_dam_name, dam.ueln AS linked_dam_ueln,

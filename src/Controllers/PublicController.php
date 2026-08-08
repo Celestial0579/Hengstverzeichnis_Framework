@@ -71,7 +71,7 @@ class PublicController extends BaseController {
                 dam.ueln LIKE ? OR
                 dam.foreign_ueln LIKE ? OR
                 bs.name LIKE ? OR
-                h.breeding_station LIKE ? OR
+                (h.breeding_station_id IS NULL AND h.breeding_station LIKE ?) OR
                 EXISTS (
                     SELECT 1 FROM horse_persons hps
                     JOIN persons ps ON ps.id = hps.person_id AND ps.deleted_at IS NULL AND ps.is_published = 1
@@ -133,8 +133,12 @@ class PublicController extends BaseController {
             $params[] = '%' . $qOwner . '%';
         }
 
+        // Stations-Filter nur gegen öffentlich sichtbare Stationen: bs ist bereits auf
+        // is_published/deleted_at eingeschränkt, und der denormalisierte Text zählt nur
+        // ohne breeding_station_id (echter Freitext). Sonst bliebe der Filter ein
+        // Existenz-Orakel für Namen unveröffentlichter Stationen (#151, analog #121).
         if (!empty($qStation)) {
-            $where[] = "(bs.name LIKE ? OR h.breeding_station LIKE ?)";
+            $where[] = "(bs.name LIKE ? OR (h.breeding_station_id IS NULL AND h.breeding_station LIKE ?))";
             $params[] = '%' . $qStation . '%';
             $params[] = '%' . $qStation . '%';
         }
@@ -195,9 +199,18 @@ class PublicController extends BaseController {
             $page = min($page, $totalPages);
             $offset = ($page - 1) * self::CATALOG_PER_PAGE;
 
+            // h.breeding_station ist bei gesetzter breeding_station_id die
+            // denormalisierte Kopie des Stationsnamens, und die Katalogkarte zeigt sie
+            // als Fallback zu station_name. Sie wird deshalb unterdrückt, sobald die
+            // Station öffentlich nicht sichtbar ist - der bs-JOIN ist bereits auf
+            // is_published = 1 AND deleted_at IS NULL eingeschränkt, "bs.id IS NULL"
+            // heißt dort also exakt: nicht öffentlich sichtbar. Freitext ohne
+            // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
             $sql = "
                 SELECT
-                    h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url, h.breeding_station,
+                    h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url,
+                    CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
+                         THEN NULL ELSE h.breeding_station END AS breeding_station,
                     bs.name as station_name,
                     sire.name as linked_sire_name, h.sire_name as unlinked_sire_name,
                     dam.name as linked_dam_name, h.dam_name as unlinked_dam_name,
@@ -316,6 +329,20 @@ class PublicController extends BaseController {
             foreach (['station_name', 'station_contact', 'station_address', 'station_phone', 'station_email', 'station_website'] as $stationField) {
                 $horse[$stationField] = null;
             }
+        }
+
+        // `horses.breeding_station` ist bei gesetzter breeding_station_id eine
+        // DENORMALISIERTE Kopie des Stationsnamens (HorseController::saveHorsePersons()
+        // schreibt beide Spalten immer gemeinsam fort). Die View zeigt sie als Fallback,
+        // wenn station_name fehlt - ohne diese Zeile erschiene der NAME einer
+        // unveröffentlichten oder gelöschten Station also weiterhin öffentlich, obwohl
+        // der JOIN oben sie bewusst ausblendet (#122). Die Bedingung deckt beide
+        // Ursachen ab: gefilterter JOIN und fehlendes breeding_stations.view des Gastes
+        // (Block darüber) führen gleichermaßen zu leerem station_name.
+        // Freie Texteingaben (CSV-Import, Personenzeile ohne Stations-Datensatz) haben
+        // KEINE breeding_station_id und bleiben deshalb unangetastet (#151).
+        if (!empty($horse['breeding_station_id']) && empty($horse['station_name'])) {
+            $horse['breeding_station'] = null;
         }
 
         // Fetch ownership history, person roles and associated breeding stations/studs.

@@ -50,8 +50,25 @@ class Plugin {
      * unter der Domain "demo-plugin" registriert (siehe App\Plugin\PluginManager).
      */
     public function addDetailSection(array $sections, array $horse, array $horsePersons): array {
-        $sections[] = '<h3 style="margin-top:0;">' . htmlspecialchars(\App\I18n\Translator::t('detail_heading', [], 'demo-plugin')) . '</h3>'
+        $html = '<h3 style="margin-top:0;">' . htmlspecialchars(\App\I18n\Translator::t('detail_heading', [], 'demo-plugin')) . '</h3>'
             . '<p>' . htmlspecialchars(\App\I18n\Translator::t('detail_text', [], 'demo-plugin')) . '</p>';
+
+        // Demonstriert den Datenvertrag des Hooks (siehe docs/plugin-development.md,
+        // "Was in $horse und $horsePersons steht"): Geprüft wird das FELD, das
+        // tatsächlich gebraucht wird - nicht die Verknüpfung $horse['breeding_station_id'].
+        // Die ist auch dann gesetzt, wenn die Station unveröffentlicht oder gelöscht ist
+        // oder der Gast-Gruppe breeding_stations.view fehlt; die station_*-Felder sind
+        // dann sämtlich null. Ein Addon ist an genau dieser Verwechslung schon
+        // stillschweigend gebrochen (#151).
+        if (!empty($horse['station_email'])) {
+            $html .= '<p data-demo-station="1">' . htmlspecialchars(\App\I18n\Translator::t(
+                'detail_station',
+                ['station' => (string)$horse['station_name'], 'email' => (string)$horse['station_email']],
+                'demo-plugin'
+            )) . '</p>';
+        }
+
+        $sections[] = $html;
         return $sections;
     }
 

@@ -1,7 +1,7 @@
 {
     "slug": "demo-plugin",
     "name": "Demo-Plugin",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "core_compatibility": ">=0.1.0-beta.1",
     "description": "Referenz-Plugin, das alle in Phase 1 verfügbaren Hooks demonstriert (siehe docs/plugin-development.md).",
     "author": "Hengstverzeichnis Framework",

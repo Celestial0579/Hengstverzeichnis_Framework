@@ -166,8 +166,8 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 |---|---|---|---|
 | `horse.before_save` | Action | Direkt vor `INSERT`/`UPDATE` in `HorseController::store()`/`update()` | `function(?int $horseId, array $postData): void` — `$horseId` ist `null` beim Anlegen |
 | `horse.after_save` | Action | Direkt nach dem erfolgreichen Speichern (inkl. Personen-/Match-Verknüpfung) | `function(int $horseId, array $postData, bool $isNew): void` |
-| `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde |
-| `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten |
+| `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde. Zum Inhalt von `$horse`/`$horsePersons` siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
+| `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten. `$horse` unterliegt denselben Sichtbarkeitsfiltern, siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
 
 **Performance-Hinweis zu `catalog.card_sections`:** Der Filter läuft einmal
@@ -188,6 +188,73 @@ Erweiterungspunkts (bisher nicht Teil von Phase 1).
 Weitere Hooks werden nach Bedarf ergänzt (siehe
 [plugin-system-plan.md](plugin-system-plan.md), Phase 2) — Vorschläge gerne
 als Issue.
+
+### Was in `$horse` und `$horsePersons` steht — und wann Felder `null` sind
+
+`horse.detail_sections` und `catalog.card_sections` erhalten **öffentlich
+gefilterte** Daten, keine Roh-Datensätze: Die Sichtbarkeitsregeln aus #121/#122
+sind bereits angewandt, bevor der Filter läuft. Ein Plugin darf sich deshalb nie
+darauf verlassen, dass ein Feld gesetzt ist, nur weil der Datensatz im
+Admin-Bereich gepflegt ist. Ein fehlendes Feld ist kein Fehler, sondern die
+Zusicherung, dass diese Angabe öffentlich nicht gezeigt werden darf — ein Plugin
+darf sie dann auch nicht per eigener Abfrage nachladen und ausgeben.
+
+**`$horse`** enthält alle Spalten von `horses` (siehe `database/schema.sql`) plus
+die Deckstationsfelder `station_name`, `station_contact`, `station_address`,
+`station_phone`, `station_email`, `station_website`. Alle sechs `station_*`-Felder
+sind **gemeinsam** `null`, wenn
+
+- die verknüpfte Deckstation unveröffentlicht ist (`is_published = 0` — neu
+  angelegte Stationen sind das per Default),
+- die Deckstation im Papierkorb liegt (`deleted_at IS NOT NULL`),
+- oder die Gast-Gruppe die Leseberechtigung `breeding_stations.view` nicht
+  besitzt (dann fehlen sie auch bei veröffentlichter Station).
+
+`$horse['breeding_station_id']` bleibt in allen drei Fällen gesetzt und ist
+deshalb **kein** Indikator dafür, dass Stationsdaten vorliegen.
+`$horse['breeding_station']` ist doppelt belegt: bei gesetzter
+`breeding_station_id` ist es die denormalisierte Kopie des Stationsnamens und
+wird in den drei Fällen oben ebenfalls auf `null` gesetzt; ohne
+`breeding_station_id` ist es freier Text (z. B. aus dem CSV-Import) und bleibt
+immer erhalten.
+
+**`$horsePersons`** enthält die Zeilen aus `horse_persons` (`role`, `from_year`,
+`until_year`, `breeding_station_id`, `breeding_station_text`) plus `person_name`,
+`contact_info`, `station_name`, `station_id`. Dabei gilt:
+
+- `person_name`/`contact_info` sind `null`, wenn die Person unveröffentlicht oder
+  gelöscht ist (#121);
+- `station_name`/`station_id` sind `null`, wenn die Station unveröffentlicht oder
+  gelöscht ist (#122);
+- Zeilen, bei denen danach weder `person_name` noch `station_name` noch der
+  Freitext `breeding_station_text` übrig bleibt, sind gar nicht erst enthalten.
+  `$horsePersons` kann also leer sein, obwohl im Admin-Bereich Personen zugeordnet
+  sind — und die Indizes sind neu durchnummeriert, entsprechen also **nicht** den
+  `horse_persons.id`-Werten.
+
+**`$pedigree`** enthält nur veröffentlichte Vorfahren; unveröffentlichte
+erscheinen als namenlose Platzhalterknoten (siehe `App\Service\PedigreeBuilder`).
+
+**Muster:** immer das konkret benötigte Feld prüfen, nie die Verknüpfung.
+
+```php
+public function addDetailSection(array $sections, array $horse, array $horsePersons, ?array $pedigree): array {
+    // richtig: prüft das Feld, das tatsächlich gebraucht wird
+    if (empty($horse['station_email'])) {
+        return $sections; // Station unveröffentlicht, gelöscht oder für Gäste gesperrt
+    }
+
+    // falsch: breeding_station_id ist auch dann gesetzt, wenn die Station
+    // öffentlich gar nicht sichtbar ist
+    // if (empty($horse['breeding_station_id'])) { ... }
+
+    return $sections;
+}
+```
+
+Diese Zusicherungen sind Teil des Hook-Vertrags und in
+`tests/Functional/HorseDetailSectionsHookTest.php` festgenagelt; sie ändern sich
+nicht ohne Eintrag in [CHANGELOG.md](../CHANGELOG.md).
 
 ## Wiederverwendbarer Dienst: `App\Service\PedigreeBuilder`
 

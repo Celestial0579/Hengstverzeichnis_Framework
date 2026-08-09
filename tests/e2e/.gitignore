@@ -1,0 +1,4 @@
+# Vom Nachtlauf zur Laufzeit erzeugt - nie committen:
+helpers/certs/
+artefakte/
+.e2e-state

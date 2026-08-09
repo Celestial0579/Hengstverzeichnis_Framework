@@ -1,0 +1,17 @@
+# Override für den E2E-Nachtlauf: die App zusätzlich an das interne e2e-Netz
+# hängen (Alias hvapp, über den der Parcours-Container sie erreicht) und den
+# veröffentlichten Port auf einen zufälligen Loopback-Port legen, damit es
+# keinen Konflikt mit einem belegten 8080 auf dem Host gibt.
+services:
+  app:
+    ports: !override
+      - "127.0.0.1:0:80"
+    networks:
+      default: {}
+      e2e:
+        aliases: [hvapp]
+
+networks:
+  e2e:
+    name: ${E2E_NET}
+    external: true

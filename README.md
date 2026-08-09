@@ -62,9 +62,11 @@ und Variante B unten).
 
 - **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 30 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks und Abstammungs-Validierung. Noch nicht abgedeckt: Benutzerverwaltung. Ergänzend läuft nächtlich ein Browser-basierter End-to-End-Parcours (siehe [tests/e2e/](tests/e2e/)) sowie manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
-Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B.
-Klick-Tracking für Weblinks) werden als Feature-Requests in den
-[Issues](../../issues) verwaltet.
+Weitere gewünschte, aber noch nicht umgesetzte Funktionen werden als
+Feature-Requests in den [Issues](../../issues) verwaltet. Ein eigener
+Klick-Zähler pro Weblink ist dagegen bewusst kein Ziel — dafür wird auf
+spezialisierte externe Software (Matomo/Google Analytics) gesetzt, die sich
+über `TRACKING_DOMAINS` einbinden lässt (siehe [Konfiguration](#konfiguration)).
 
 Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 

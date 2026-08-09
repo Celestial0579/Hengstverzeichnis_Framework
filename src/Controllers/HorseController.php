@@ -493,15 +493,25 @@ class HorseController extends BaseController {
         if ($id) {
             $db = Database::getInstance();
 
-            // Fetch name for audit log
-            $stmt = $db->prepare("SELECT name FROM horses WHERE id = ?");
+            // Kompletter Datensatz: fürs Audit-Log und als Hook-Payload (#164) -
+            // Plugins sollen beim Aufräumen nicht selbst nachladen müssen.
+            $stmt = $db->prepare("SELECT * FROM horses WHERE id = ?");
             $stmt->execute([$id]);
-            $horseName = $stmt->fetchColumn() ?: 'Unbekannt';
+            $horse = $stmt->fetch() ?: null;
+            $horseName = $horse['name'] ?? 'Unbekannt';
+
+            // Plugin-Hook (#164): VOR dem Verschieben in den Papierkorb. Kann das
+            // Löschen nicht blockieren (HookManager-Isolation, wie horse.before_save).
+            $this->hooks()->doAction('horse.before_delete', (int)$id, $horse ?? [], false);
 
             $stmt = $db->prepare("UPDATE horses SET deleted_at = NOW() WHERE id = ?");
             $stmt->execute([$id]);
 
             \App\Service\AuditLogger::log("Pferd in Papierkorb verschoben", "horses", "Pferd ID {$id}: {$horseName}");
+
+            // Plugin-Hook (#164): NACH dem Soft-Delete - z. B. damit ein Plugin
+            // abhängige Daten (Inserate, Verknüpfungen) deaktivieren kann.
+            $this->hooks()->doAction('horse.trashed', (int)$id, $horse ?? []);
         }
 
         header("Location: /admin/horses?success=deleted");

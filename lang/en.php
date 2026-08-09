@@ -13,6 +13,10 @@ return [
     'footer.impressum' => 'Legal Notice',
     'footer.datenschutz' => 'Privacy Policy',
     'footer.dsgvo' => 'GDPR Request',
+    'footer.manual' => 'Manual',
+    'footer.discussions' => 'Discussions',
+    'footer.report_bug' => 'Report a bug',
+    'footer.license' => 'License',
 
     'meta.description_suffix' => 'Horse Breeding Registry',
 

@@ -246,6 +246,13 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             <a href="/impressum"><?= htmlspecialchars($t('footer.impressum')) ?></a> | <a href="/datenschutz"><?= htmlspecialchars($t('footer.datenschutz')) ?></a> | <a href="/dsgvo"><?= htmlspecialchars($t('footer.dsgvo')) ?></a>
         </p>
         <?php
+            // Projekt-Links (#184-#187): Handbuch/Lizenz/Fehlermeldung/Austausch
+            // sind sonst nur über die README auffindbar.
+        ?>
+        <p style="font-size: 0.85rem; margin-top: 0.5rem;">
+            <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/wiki" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.manual')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/discussions" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.discussions')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/new" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.report_bug')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/blob/main/LICENSE" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.license')) ?></a>
+        </p>
+        <?php
             // Sprachumschalter (#48): setzt ?lang=xx auf dem aktuellen Pfad (ohne
             // bestehende Query-Parameter mitzuführen, bewusst einfach gehalten) -
             // BaseController::initLocale() übernimmt den Wert danach in die Session.

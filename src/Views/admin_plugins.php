@@ -27,13 +27,13 @@ $manager = \App\Plugin\PluginManager::getInstance();
     </p>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Aktion erfolgreich ausgeführt.
         </div>
     <?php endif; ?>
 
     <?php if (isset($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($errorMessages[$_GET['error']]) ?>
         </div>
     <?php endif; ?>
@@ -83,15 +83,15 @@ $manager = \App\Plugin\PluginManager::getInstance();
                         </td>
                         <td style="padding: 0.5rem;">
                             <?php if ($plugin['error'] !== null): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #f8d7da; color: #721c24; font-weight: 600;" title="<?= htmlspecialchars($plugin['error']) ?>">⚠️ Ungültiges Manifest</span>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--danger-soft-bg); color: var(--danger-fg); font-weight: 600;" title="<?= htmlspecialchars($plugin['error']) ?>">⚠️ Ungültiges Manifest</span>
                             <?php elseif (!$plugin['compatible']): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #fff3cd; color: #856404; font-weight: 600;">⚠️ Inkompatibel</span>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;">⚠️ Inkompatibel</span>
                             <?php elseif ($needsReapproval): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #fff3cd; color: #856404; font-weight: 600;" title="Der Code hat sich seit der letzten Freigabe verändert, ohne dass die Versionsnummer im Manifest erhöht wurde. Das Plugin wird deshalb aktuell NICHT geladen. Die Aktivierung selbst ist NICHT verloren gegangen - ein Klick auf 'Erneut freigeben' reicht.">⚠️ Code geändert - erneute Freigabe nötig</span>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;" title="Der Code hat sich seit der letzten Freigabe verändert, ohne dass die Versionsnummer im Manifest erhöht wurde. Das Plugin wird deshalb aktuell NICHT geladen. Die Aktivierung selbst ist NICHT verloren gegangen - ein Klick auf 'Erneut freigeben' reicht.">⚠️ Code geändert - erneute Freigabe nötig</span>
                             <?php elseif ($isEnabled): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #d4edda; color: #155724; font-weight: 600;">✅ Aktiv</span>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--success-soft-bg); color: var(--success-fg); font-weight: 600;">✅ Aktiv</span>
                             <?php else: ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #e2e3e5; color: #383d41; font-weight: 600;">⏸️ Inaktiv</span>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-color); font-weight: 600;">⏸️ Inaktiv</span>
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
@@ -106,14 +106,14 @@ $manager = \App\Plugin\PluginManager::getInstance();
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">
                                     <input type="hidden" name="enable" value="0">
-                                    <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: #dc3545; color: var(--danger-fg);">Deaktivieren</button>
+                                    <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: var(--danger-fg); color: var(--danger-fg);">Deaktivieren</button>
                                 </form>
                             <?php elseif ($isUsable): ?>
                                 <form action="/admin/plugins/toggle" method="POST" style="display:inline;" <?= $isEnabled ? '' : 'onsubmit="return confirm(\'Plugin \\\'' . htmlspecialchars(addslashes($manifest['name'] ?? $slug)) . '\\\' aktivieren? Der Plugin-Code läuft danach im selben Prozess wie der Kern - nur Plugins aus vertrauenswürdiger Quelle aktivieren.\');"' ?>>
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">
                                     <input type="hidden" name="enable" value="<?= $isEnabled ? '0' : '1' ?>">
-                                    <button type="submit" class="btn <?= $isEnabled ? 'btn-secondary' : '' ?>" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; <?= $isEnabled ? 'border-color: #dc3545; color: var(--danger-fg);' : '' ?>">
+                                    <button type="submit" class="btn <?= $isEnabled ? 'btn-secondary' : '' ?>" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; <?= $isEnabled ? 'border-color: var(--danger-fg); color: var(--danger-fg);' : '' ?>">
                                         <?= $isEnabled ? 'Deaktivieren' : 'Aktivieren' ?>
                                     </button>
                                 </form>

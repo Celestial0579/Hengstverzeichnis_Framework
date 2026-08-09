@@ -17,14 +17,14 @@
     </div>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Verknüpfung erfolgreich durchgeführt! Der Stammbaum wurde aktualisiert.
         </div>
     <?php endif; ?>
 
     <?php if (empty($unlinkedMatches)): ?>
         <div style="text-align: center; padding: 3rem 1rem; background: var(--surface-muted); border-radius: 8px; border: 1px dashed var(--border-color);">
-            <h3 style="color: #28a745; margin-bottom: 0.5rem;">🎉 Keine unvollständigen Eltern-Einträge gefunden!</h3>
+            <h3 style="color: var(--success-fg); margin-bottom: 0.5rem;">🎉 Keine unvollständigen Eltern-Einträge gefunden!</h3>
             <p style="color: var(--text-muted);">Alle eingetragenen Väter und Mütter sind bereits perfekt mit echten Pferdeprofilen verknüpft.</p>
         </div>
     <?php else: ?>
@@ -41,7 +41,7 @@
                             </h3>
                             <p style="margin: 0; color: var(--text-muted);">
                                 Unverknüpfter <strong><?= htmlspecialchars($match['parent_type_label']) ?></strong>: 
-                                <span style="background: #fff3cd; padding: 0.2rem 0.5rem; border-radius: 4px; color: #856404; font-weight: bold;">
+                                <span style="background: var(--warning-soft-bg); padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--warning-fg); font-weight: bold;">
                                     <?= htmlspecialchars($match['placeholder_name'] ?: 'Kein Name') ?> 
                                     <?= $match['placeholder_ueln'] ? '[' . htmlspecialchars($match['placeholder_ueln']) . ']' : '' ?>
                                 </span>
@@ -75,7 +75,7 @@
                                             <?php if (!empty($sug['reasons'])): ?>
                                                 <div style="margin-top: 0.3rem; display: flex; gap: 0.4rem; flex-wrap: wrap;">
                                                     <?php foreach ($sug['reasons'] as $reason): ?>
-                                                        <span style="background: var(--surface-muted); color: #495057; border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.75rem; border: 1px solid #dee2e6;">
+                                                        <span style="background: var(--surface-muted); color: var(--text-muted); border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.75rem; border: 1px solid #dee2e6;">
                                                             <?= htmlspecialchars($reason) ?>
                                                         </span>
                                                     <?php endforeach; ?>

@@ -22,7 +22,7 @@ $inPlaceEnabled = $inPlaceEnabled ?? true;
     </p>
 
     <?php if (isset($_GET['channel_saved'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
             Update-Kanal gespeichert.
         </div>
     <?php endif; ?>
@@ -50,7 +50,7 @@ $inPlaceEnabled = $inPlaceEnabled ?? true;
     </form>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             ✓ Update von <strong><?= htmlspecialchars($_GET['from'] ?? '') ?></strong> auf
             <strong><?= htmlspecialchars($_GET['to'] ?? '') ?></strong> angewendet.
             Datenbank-Migrationen laufen automatisch beim nächsten Seitenaufruf.
@@ -58,13 +58,13 @@ $inPlaceEnabled = $inPlaceEnabled ?? true;
     <?php endif; ?>
 
     <?php if (isset($_GET['error'])): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($_GET['error']) ?>
         </div>
     <?php endif; ?>
 
     <?php if (!$backupConfigured): ?>
-        <div style="background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+        <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); border: 1px solid #ffeeba; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
             ⚠️ <strong>Automatische Backups sind nicht konfiguriert.</strong>
             Ein Update wird grundsätzlich nur nach einem unmittelbar zuvor erfolgreichen
             externen Backup ausgeführt - bitte zunächst unter
@@ -73,7 +73,7 @@ $inPlaceEnabled = $inPlaceEnabled ?? true;
     <?php endif; ?>
 
     <?php if (isset($checkError)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Release-Prüfung fehlgeschlagen: <?= htmlspecialchars($checkError) ?>
         </div>
     <?php endif; ?>
@@ -83,7 +83,7 @@ $inPlaceEnabled = $inPlaceEnabled ?? true;
             <div style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                 📦 Neue Version verfügbar: <strong><?= htmlspecialchars($checkResult['latest']) ?></strong>
                 <?php if (!empty($checkResult['is_prerelease'])): ?>
-                    <span style="padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: #fff3cd; color: #856404; font-weight: 600;">Beta-Vorabversion</span>
+                    <span style="padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;">Beta-Vorabversion</span>
                 <?php endif; ?>
                 (installiert: <?= htmlspecialchars($checkResult['current']) ?>).
                 <?php if (!empty($checkResult['html_url'])): ?>
@@ -113,7 +113,7 @@ $inPlaceEnabled = $inPlaceEnabled ?? true;
                 </div>
             <?php endif; ?>
         <?php else: ?>
-            <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                 ✓ Diese Installation ist aktuell<?php if (!empty($checkResult['latest'])): ?> (neuestes Release im Kanal „<?= $checkResult['channel'] === 'beta' ? 'Beta' : 'Stabil' ?>": <?= htmlspecialchars($checkResult['latest']) ?>)<?php endif; ?>.
             </div>
         <?php endif; ?>

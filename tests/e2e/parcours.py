@@ -41,6 +41,7 @@ index = []
 counter = [0]
 log_lines = []
 click_audit = []   # (seite, anzahl_buttons, sichtbar_enabled, problematisch)
+dark_audit = []    # (seite, anzahl_kontrastfunde, funde[:8])
 
 def log(msg):
     line = f"[{time.strftime('%H:%M:%S')}] {msg}"
@@ -78,6 +79,45 @@ _ACC_JS = r"""el => {
     inClosedDetails: !!el.closest('details:not([open])'),
     displayNone: cs.display === 'none' || cs.visibility === 'hidden'
   };
+}"""
+
+# Dark-Mode-Kontrast-Audit, bewusst REGRESSIONS-spezifisch: meldet nur Text,
+# der im DUNKLEN Theme zu wenig Kontrast hat (< 3.0 gegen die effektive
+# Hintergrundfläche) UND im HELLEN Theme lesbar wäre (>= 3.0). So werden genau
+# die Dark-Mode-Fehler gefangen (hartkodierte helle Fläche + geerbte helle
+# Theme-Textfarbe usw.), nicht aber pre-existing allgemeine Kontrast-Themen wie
+# ein Brand-Button, der in beiden Modi grenzwertig ist - die gehören nicht ins
+# Dark-Mode-Gate. Das Skript togglet data-theme selbst (dunkel -> hell -> dunkel).
+_DARK_AUDIT = r"""() => {
+  const parse = c => { const m=(c||'').match(/rgba?\(([^)]+)\)/); if(!m) return null;
+    const p=m[1].split(',').map(x=>parseFloat(x)); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}; };
+  const lum = ({r,g,b}) => { const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};
+    return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
+  const ratio = (a,b) => { const L1=lum(a),L2=lum(b); return (Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05); };
+  const effBg = el => { let e=el; while(e){ const c=parse(getComputedStyle(e).backgroundColor); if(c&&c.a>0.5) return c; e=e.parentElement; } return {r:22,g:24,b:28,a:1}; };
+  const root=document.documentElement;
+  root.setAttribute('data-theme','dark');
+  const cand=[];
+  document.querySelectorAll('body *').forEach(el=>{
+    const txt=[...el.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent.trim()).join(' ').trim();
+    if(!txt||txt.length<2) return;
+    const r=el.getBoundingClientRect(); if(r.width<2||r.height<2) return;
+    const st=getComputedStyle(el); if(st.visibility==='hidden'||st.display==='none'||parseFloat(st.opacity)<0.3) return;
+    const fg=parse(st.color); if(!fg) return;
+    const cr=ratio(fg,effBg(el));
+    if(cr<3.0) cand.push({el, txt:txt.slice(0,45), color:st.color, bg:st.backgroundColor, dr:Math.round(cr*100)/100});
+  });
+  root.setAttribute('data-theme','light');
+  const out=[]; const seen=new Set();
+  cand.forEach(c=>{
+    const fg=parse(getComputedStyle(c.el).color); if(!fg) return;
+    const lr=ratio(fg,effBg(c.el));
+    if(lr>=3.0){ const key=c.txt.slice(0,30);
+      if(seen.has(key)) return; seen.add(key);
+      out.push({text:c.txt, color:c.color, bg:c.bg, ratio:c.dr, lightRatio:Math.round(lr*100)/100}); }
+  });
+  root.setAttribute('data-theme','dark');
+  return out;
 }"""
 
 def audit_clickable(page, slug):
@@ -856,6 +896,51 @@ def run():
             finally:
                 sctx.close()
 
+        # ---- Phase: Dark-Mode-Kontrast -------------------------------------
+        def phase_darkmode():
+            # Dark-Mode erzwingen: das Head-Script der App liest localStorage
+            # 'theme' und setzt data-theme. Einmal setzen wirkt auf Folgeseiten;
+            # zusätzlich pro Seite data-theme hart setzen (falls JS-Timing).
+            # Läuft als LETZTE Phase, damit die vorherigen Screenshots hell sind.
+            try:
+                page.goto(BASE + "/", wait_until="load", timeout=30000)
+                page.evaluate("() => localStorage.setItem('theme','dark')")
+            except Exception as e:
+                log(f"  Dark-Mode aktivieren: {e}")
+            hid = ids.get("haupt")
+            seiten = [
+                ("dark-start", "/"), ("dark-katalog", "/katalog"),
+                ("dark-hengst-detail", f"/hengst?id={hid}" if hid else "/katalog"),
+                ("dark-login", "/login"),
+                ("dark-admin-dashboard", "/admin"), ("dark-admin-logs", "/admin/logs"),
+                ("dark-admin-personen", "/admin/persons"), ("dark-admin-gdpr", "/admin/gdpr"),
+                ("dark-api-keys", "/api-keys"), ("dark-admin-system", "/admin/system-settings"),
+                ("dark-admin-trash", "/admin/trash"), ("dark-admin-backups", "/admin/backups"),
+                ("dark-admin-digest", "/admin/digest"), ("dark-admin-mail", "/admin/mail-settings"),
+                ("dark-admin-import", "/admin/import-horses"), ("dark-admin-matches", "/admin/matches"),
+                ("dark-admin-updates", "/admin/updates"),
+            ]
+            for slug, url in seiten:
+                counter[0] += 1; n = f"{counter[0]:03d}"; fn = f"{n}-{slug}.png"; status = "ok"
+                funde = []
+                try:
+                    page.goto(BASE + url, wait_until="load", timeout=30000)
+                    page.evaluate("() => document.documentElement.setAttribute('data-theme','dark')")
+                    page.wait_for_timeout(500)
+                    page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
+                    funde = page.evaluate(_DARK_AUDIT)
+                except Exception as e:
+                    status = f"FEHLER: {type(e).__name__}: {str(e)[:100]}"
+                    try: page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
+                    except Exception: fn = "(kein Screenshot)"
+                dark_audit.append((slug, len(funde), funde[:8]))
+                if funde and not status.startswith("FEHLER"):
+                    bsp = funde[0]
+                    status = (f"FEHLER: {len(funde)} Kontrast-Fund(e) <3.0 im Dark-Mode "
+                              f"(z. B. '{bsp['text']}' ratio {bsp['ratio']})")
+                index.append((n, fn, url, f"Dark-Mode: {slug}", status))
+                log(f"{n} {slug}: {status}")
+
         # ---- Ablauf --------------------------------------------------------
         phases = [
             ("setup", phase_setup, True),
@@ -869,6 +954,7 @@ def run():
             ("extern", phase_extern, False),
             ("sso", phase_sso, False),
             ("update", phase_update, False),
+            ("darkmode", phase_darkmode, False),
         ]
         for name, fn, always in phases:
             if not (always or phase_enabled(name)):
@@ -896,6 +982,15 @@ def run():
         f.write("| Seite | klickbar/gesamt | Auffälligkeiten |\n|---|---|---|\n")
         for slug, total, clickable, probs in click_audit:
             f.write(f"| {slug} | {clickable}/{total} | {probs or '—'} |\n")
+    with open(os.path.join(OUT, "darkmode.md"), "w") as f:
+        f.write("# Dark-Mode-Kontrast-Audit\n\n")
+        f.write("Je Seite im Dark-Mode: Anzahl Textstellen mit WCAG-Kontrast < 3.0 "
+                "gegen die effektive Hintergrundfläche (heller Text auf heller "
+                "Fläche o. ä. = unlesbar). 0 = sauber.\n\n")
+        f.write("| Seite | Funde < 3.0 | Beispiele (Text · ratio · Farbe auf Fläche) |\n|---|---|---|\n")
+        for slug, anzahl, funde in dark_audit:
+            bsp = "; ".join(f"'{x['text']}' r{x['ratio']} {x['color']}→{x['bg']}" for x in funde[:3]) or "—"
+            f.write(f"| {slug} | {anzahl} | {bsp} |\n")
     with open(os.path.join(OUT, "lauf.log"), "w") as f:
         f.write("\n".join(log_lines))
     fails = [i for i in index if str(i[4]).startswith("FEHLER")]

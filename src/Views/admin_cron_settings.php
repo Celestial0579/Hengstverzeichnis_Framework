@@ -16,11 +16,11 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
     </p>
 
     <?php if (($_GET['success'] ?? '') === 'secret_regenerated'): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             ✓ Neues Cron-Secret wurde erzeugt. Bitte den Cron-Aufruf beim Betreiber (System-Cron) entsprechend aktualisieren.
         </div>
     <?php elseif (($_GET['success'] ?? '') === 'run_now'): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             ✓ Manueller Lauf abgeschlossen: <?= htmlspecialchars((string)(int)($_GET['ran'] ?? 0)) ?> fällige Aufgabe(n) ausgeführt.
         </div>
     <?php endif; ?>

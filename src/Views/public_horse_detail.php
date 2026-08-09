@@ -224,7 +224,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
         <div>
             <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('horse.description_heading')) ?></h3>
-            <div style="background: #f9f9f9; padding: 1rem; border-radius: var(--border-radius); border: 1px solid var(--border-color); min-height: 120px;">
+            <div style="background: var(--surface-muted); padding: 1rem; border-radius: var(--border-radius); border: 1px solid var(--border-color); min-height: 120px;">
                 <?php if (!empty($horse['description'])): ?>
                     <?= App\Helper\Markdown::parse($horse['description']) ?>
                 <?php else: ?>
@@ -400,7 +400,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 .pedigree-box.pedigree-link-box:hover,
 .pedigree-box.pedigree-link-box:active {
     border-color: var(--primary-fg);
-    background-color: #f8fbfd;
+    background-color: var(--surface-muted);
     box-shadow: 0 4px 10px rgba(0,0,0,0.12);
     transform: translateY(-2px);
 }

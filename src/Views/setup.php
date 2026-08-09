@@ -22,7 +22,7 @@ $hideSite = $hideSite ?? false;
     </p>
 
     <?php if (!empty($errors)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <ul style="margin-left: 1.2rem;">
                 <?php foreach ($errors as $error): ?>
                     <li><?= htmlspecialchars($error) ?></li>
@@ -105,7 +105,7 @@ $hideSite = $hideSite ?? false;
         </div>
 
         <!-- Danger Zone for Overwriting Database -->
-        <div style="border: 2px solid #dc3545; background-color: #fff8f8; padding: 1rem; border-radius: 6px; margin-top: 1rem; margin-bottom: 1.5rem;">
+        <div style="border: 2px solid #dc3545; background-color: var(--danger-soft-bg); padding: 1rem; border-radius: 6px; margin-top: 1rem; margin-bottom: 1.5rem;">
             <label style="display: flex; align-items: flex-start; gap: 0.6rem; color: var(--danger-fg); font-weight: bold; cursor: pointer;">
                 <input type="checkbox" name="overwrite_db" value="1" style="margin-top: 3px; width: 18px; height: 18px;">
                 <span>

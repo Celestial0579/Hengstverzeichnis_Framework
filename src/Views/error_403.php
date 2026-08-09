@@ -12,7 +12,7 @@
         <?= htmlspecialchars($message ?? App\I18n\Translator::t('errors.403_default_message')) ?>
     </p>
 
-    <div style="background: #fff3cd; color: #856404; padding: 0.9rem; border-radius: var(--border-radius); font-size: 0.88rem; margin-bottom: 2rem; border-left: 4px solid #ffeeba;">
+    <div style="background: var(--warning-soft-bg); color: var(--warning-fg); padding: 0.9rem; border-radius: var(--border-radius); font-size: 0.88rem; margin-bottom: 2rem; border-left: 4px solid #ffeeba;">
         <?= htmlspecialchars(App\I18n\Translator::t('errors.403_audit_note')) ?>
     </div>
 

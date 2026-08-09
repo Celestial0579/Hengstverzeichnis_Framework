@@ -11,7 +11,7 @@
     </p>
 
     <?php if (isset($error)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem; text-align: center;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem; text-align: center;">
             <?= htmlspecialchars($error) ?>
         </div>
     <?php endif; ?>

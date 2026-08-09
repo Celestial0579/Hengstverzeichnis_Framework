@@ -25,7 +25,7 @@ $publishFormId = 'personPublishForm';
     </div>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Aktion erfolgreich ausgeführt.
         </div>
     <?php endif; ?>
@@ -60,7 +60,7 @@ $publishFormId = 'personPublishForm';
                             <?= !empty($p['contact_info']) ? nl2br(htmlspecialchars((string)$p['contact_info'])) : '<em>Keine Angaben</em>' ?>
                         </td>
                         <td style="padding: 0.5rem;">
-                            <span style="background: #e2e3e5; padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
+                            <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
                                 <?= (int)$p['horse_count'] ?> Zuordnungen
                             </span>
                         </td>
@@ -77,7 +77,7 @@ $publishFormId = 'personPublishForm';
                                 <form action="/admin/persons/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben.');" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $p['id'] ?>">
-                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #dc3545;">Löschen</button>
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>
                                 </form>
                             <?php endif; ?>
                         </td>

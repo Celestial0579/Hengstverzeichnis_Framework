@@ -20,13 +20,13 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
     </p>
 
     <?php if (!empty($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?= $_GET['success'] === 'backup_run' ? '✓ Backup wurde erfolgreich manuell ausgeführt.' : 'Backup-Einstellungen erfolgreich gespeichert.' ?>
         </div>
     <?php endif; ?>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Backup fehlgeschlagen: <?= htmlspecialchars($_GET['error']) ?>
         </div>
     <?php endif; ?>
@@ -41,7 +41,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
                 <?= $lastStatus === 'ok' ? '✓ Erfolgreich' : '✗ Fehlgeschlagen' ?>
             </span>
             <?php if ($lastStatus !== 'ok' && $lastError !== ''): ?>
-                <div style="color: #721c24; font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
+                <div style="color: var(--danger-fg); font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
             <?php endif; ?>
         <?php endif; ?>
         <br>

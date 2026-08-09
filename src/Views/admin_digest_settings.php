@@ -22,7 +22,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
     </p>
 
     <?php if (($_GET['success'] ?? '') === 'digest_run'): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             ✓ Digest wurde an <?= htmlspecialchars((string)(int)($_GET['sent'] ?? 0)) ?> Empfänger versendet.
         </div>
     <?php elseif (($_GET['success'] ?? '') === 'digest_skipped'): ?>
@@ -30,13 +30,13 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
             ℹ️ Aktuell nichts zu berichten - kein Digest versendet.
         </div>
     <?php elseif (!empty($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Digest-Einstellungen erfolgreich gespeichert.
         </div>
     <?php endif; ?>
 
     <?php if (!empty($_GET['error'])): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Digest fehlgeschlagen: <?= htmlspecialchars($_GET['error']) ?>
         </div>
     <?php endif; ?>

@@ -25,7 +25,7 @@ $publishFormId = 'stationPublishForm';
     </div>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= $_GET['success'] === 'created' ? '✓ Deckstation erfolgreich angelegt.' : ($_GET['success'] === 'updated' ? '✓ Deckstation aktualisiert.' : '✓ Deckstation gelöscht.') ?>
         </div>
     <?php endif; ?>
@@ -69,7 +69,7 @@ $publishFormId = 'stationPublishForm';
                             <?php if (empty($st['phone']) && empty($st['email'])): ?>-<?php endif; ?>
                         </td>
                         <td style="padding: 0.6rem;">
-                            <span style="background: #e2e3e5; color: #383d41; padding: 0.2rem 0.5rem; border-radius: 12px; font-size: 0.85rem; font-weight: bold;">
+                            <span style="background: var(--surface-muted); color: var(--text-color); padding: 0.2rem 0.5rem; border-radius: 12px; font-size: 0.85rem; font-weight: bold;">
                                 <?= (int)$st['horse_count'] ?> Pferde
                             </span>
                         </td>
@@ -86,7 +86,7 @@ $publishFormId = 'stationPublishForm';
                                 <form action="/admin/breeding-stations/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Deckstation wirklich löschen?');" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $st['id'] ?>">
-                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #dc3545;">Löschen</button>
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>
                                 </form>
                             <?php endif; ?>
                         </td>

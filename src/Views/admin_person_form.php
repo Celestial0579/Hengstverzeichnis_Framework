@@ -15,7 +15,7 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
     <h2><?= htmlspecialchars($title) ?></h2>
 
     <?php if (isset($error)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-top: 1rem;">
             <?= htmlspecialchars($error) ?>
         </div>
     <?php endif; ?>

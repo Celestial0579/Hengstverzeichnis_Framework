@@ -38,7 +38,7 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </div>
         <form action="/logout" method="POST" style="margin: 0;">
             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-            <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: var(--danger-fg); padding: 0.5rem 1rem;">🚪 <?= htmlspecialchars($t('admin.dashboard.logout')) ?></button>
+            <button type="submit" class="btn btn-secondary" style="border-color: var(--danger-fg); color: var(--danger-fg); padding: 0.5rem 1rem;">🚪 <?= htmlspecialchars($t('admin.dashboard.logout')) ?></button>
         </form>
     </div>
 

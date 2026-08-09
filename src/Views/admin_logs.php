@@ -62,7 +62,7 @@
         <div style="overflow-x: auto;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
                 <thead>
-                    <tr style="background: #f1f3f5; border-bottom: 2px solid #dee2e6; text-align: left;">
+                    <tr style="background: var(--surface-muted); border-bottom: 2px solid #dee2e6; text-align: left;">
                         <th style="padding: 0.8rem;">Zeitstempel</th>
                         <th style="padding: 0.8rem;">Benutzer</th>
                         <th style="padding: 0.8rem;">Kategorie</th>
@@ -87,7 +87,7 @@
                                 </span>
                             </td>
                             <td style="padding: 0.7rem; white-space: nowrap;">
-                                <span style="background: var(--surface-muted); color: #495057; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid #ced4da;">
+                                <span style="background: var(--surface-muted); color: var(--text-muted); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; border: 1px solid #ced4da;">
                                     <?= htmlspecialchars($log['category']) ?>
                                 </span>
                             </td>

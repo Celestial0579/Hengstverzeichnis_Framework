@@ -3,7 +3,9 @@
 /**
  * @var array $unlinkedMatches
  * @var array $allHorses
+ * @var array $sexMismatches Bestehende Eltern-Verknüpfungen mit unpassendem Geschlecht (#166)
  */
+$sexMismatches = $sexMismatches ?? [];
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -19,6 +21,42 @@
     <?php if (isset($_GET['success'])): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Verknüpfung erfolgreich durchgeführt! Der Stammbaum wurde aktualisiert.
+        </div>
+    <?php endif; ?>
+
+    <?php if (isset($_GET['error'])): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            <?php
+            // Fehlercodes aus HorseController::linkMatch() (#131/#167).
+            $errorMessages = [
+                'self_link' => 'Nicht verknüpft: Ein Pferd kann nicht sein eigener Elternteil sein.',
+                'sex_mismatch' => 'Nicht verknüpft: Das Geschlecht des gewählten Pferds passt nicht zur Eltern-Rolle (Stute als Vater bzw. Hengst/Wallach als Mutter).',
+            ];
+            echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
+            ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($sexMismatches)): ?>
+        <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            <strong>⚠️ Bestehende Verknüpfungen mit unpassendem Geschlecht (<?= count($sexMismatches) ?>):</strong>
+            <p style="margin: 0.4rem 0 0.6rem; font-size: 0.9rem;">
+                Diese Eltern-Verknüpfungen entstanden, bevor das Geschlechtsfeld eingeführt wurde,
+                und widersprechen ihm jetzt. Bitte Stammbaum oder Geschlechtsangabe korrigieren.
+            </p>
+            <ul style="margin: 0; padding-left: 1.4rem;">
+                <?php foreach ($sexMismatches as $m): ?>
+                    <li style="margin-bottom: 0.3rem;">
+                        <a href="/admin/horses/edit?id=<?= (int)$m['id'] ?>" style="color: inherit; font-weight: bold;"><?= htmlspecialchars($m['name']) ?></a>:
+                        <?php if ($m['sire_sex'] === 'mare'): ?>
+                            Vater „<?= htmlspecialchars($m['sire_name']) ?>" ist als Stute erfasst.
+                        <?php endif; ?>
+                        <?php if (in_array($m['dam_sex'], ['stallion', 'gelding'], true)): ?>
+                            Mutter „<?= htmlspecialchars($m['dam_name']) ?>" ist als <?= $m['dam_sex'] === 'stallion' ? 'Hengst' : 'Wallach' ?> erfasst.
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
         </div>
     <?php endif; ?>
 
@@ -108,6 +146,15 @@
                                     <option value="">-- Manuell wählen --</option>
                                     <?php foreach ($allHorses as $candidate): ?>
                                         <?php if ($candidate['id'] == $match['child_id']) continue; ?>
+                                        <?php
+                                        // Geschlechtsfremde Kandidaten je Rolle ausblenden (#167);
+                                        // NULL (unbekannt) bleibt wählbar. Serverseitig prüft
+                                        // linkMatch() zusätzlich.
+                                        $wrongSex = $match['parent_type'] === 'sire'
+                                            ? in_array($candidate['sex'] ?? null, ['mare', 'gelding'], true)
+                                            : in_array($candidate['sex'] ?? null, ['stallion', 'gelding'], true);
+                                        if ($wrongSex) continue;
+                                        ?>
                                         <option value="<?= $candidate['id'] ?>">
                                             <?= htmlspecialchars($candidate['name']) ?> <?= $candidate['ueln'] ? '[' . htmlspecialchars($candidate['ueln']) . ']' : '' ?>
                                         </option>

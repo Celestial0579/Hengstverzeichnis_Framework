@@ -79,6 +79,12 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <option value="">-- Nicht verknüpft / Text-Eingabe nutzen --</option>
                     <?php foreach ($allHorses as $h): ?>
                         <?php if ($isEdit && $h['id'] == $horse['id']) continue; ?>
+                        <?php
+                        // Als Vater nur Hengste und Pferde ohne Geschlechtsangabe (#166);
+                        // eine bereits gespeicherte (Alt-)Verknüpfung bleibt wählbar,
+                        // damit das Formular sie nicht beim Speichern still verwirft.
+                        if (in_array($h['sex'] ?? null, ['mare', 'gelding'], true) && ($horse['sire_id'] ?? '') != $h['id']) continue;
+                        ?>
                         <option value="<?= $h['id'] ?>" <?= ($horse['sire_id'] ?? '') == $h['id'] ? 'selected' : '' ?>>
                             <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?>
                         </option>
@@ -110,6 +116,11 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <option value="">-- Nicht verknüpft / Text-Eingabe nutzen --</option>
                     <?php foreach ($allHorses as $h): ?>
                         <?php if ($isEdit && $h['id'] == $horse['id']) continue; ?>
+                        <?php
+                        // Als Mutter nur Stuten und Pferde ohne Geschlechtsangabe (#166);
+                        // Alt-Verknüpfung bleibt wählbar (siehe Vater-Auswahl).
+                        if (in_array($h['sex'] ?? null, ['stallion', 'gelding'], true) && ($horse['dam_id'] ?? '') != $h['id']) continue;
+                        ?>
                         <option value="<?= $h['id'] ?>" <?= ($horse['dam_id'] ?? '') == $h['id'] ? 'selected' : '' ?>>
                             <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?>
                         </option>
@@ -136,10 +147,27 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 <label for="birth_year">Geburtsjahr</label>
                 <input type="number" id="birth_year" name="birth_year" min="1700" max="<?= date('Y') + 1 ?>" class="form-control" value="<?= htmlspecialchars((string)($horse['birth_year'] ?? '')) ?>">
             </div>
-            
+
             <div class="form-group" style="flex: 1;">
                 <label for="color">Farbe</label>
                 <input type="text" id="color" name="color" class="form-control" value="<?= htmlspecialchars($horse['color'] ?? '') ?>">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="sex">Geschlecht</label>
+                <select id="sex" name="sex" class="form-control">
+                    <option value="">-- Unbekannt --</option>
+                    <option value="stallion" <?= ($horse['sex'] ?? '') === 'stallion' ? 'selected' : '' ?>>Hengst</option>
+                    <option value="mare" <?= ($horse['sex'] ?? '') === 'mare' ? 'selected' : '' ?>>Stute</option>
+                    <option value="gelding" <?= ($horse['sex'] ?? '') === 'gelding' ? 'selected' : '' ?>>Wallach</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="flex: 1;">
+                <label for="breed">Rasse</label>
+                <input type="text" id="breed" name="breed" class="form-control" value="<?= htmlspecialchars($horse['breed'] ?? '') ?>" placeholder="z. B. Trakehner">
             </div>
         </div>
 

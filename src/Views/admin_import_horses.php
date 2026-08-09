@@ -124,10 +124,11 @@ $canPublish = $canPublish ?? false;
 
         <div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
             <strong>Unterstützte Spalten:</strong>
-            <code>name*, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, breeding_station, description, status</code>
+            <code>name*, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, sex, breed, breeding_station, description, status</code>
             <br>
             <span style="color: var(--text-muted);">
-                <code>status</code>: active/inactive/deceased (Standard: active). <code>sire_name</code>/<code>dam_name</code>
+                <code>status</code>: active/inactive/deceased (Standard: active).
+                <code>sex</code>: stallion/hengst, mare/stute, gelding/wallach (leer = unbekannt). <code>sire_name</code>/<code>dam_name</code>
                 werden wie bei der manuellen Einzelanlage als unverknüpfter Freitext gespeichert - siehe
                 <a href="/admin/matches">Blutlinien Zusammenführen</a> für die anschließende Verknüpfung.
                 Maximal <?= App\Service\HorseCsvImporter::MAX_ROWS ?> Datenzeilen je Datei.

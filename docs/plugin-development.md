@@ -78,7 +78,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 
 Format: optionaler Operator (`>=`, `<=`, `>`, `<`, `=`) gefolgt von einer
 Versionsnummer, ausgewertet mit PHP `version_compare()` gegen die im Kern
-definierte Konstante `CORE_VERSION` (aktuell `0.2.0-beta.2`, siehe
+definierte Konstante `CORE_VERSION` (aktuell `0.2.0`, siehe
 `config/config.php`). Ohne Operator wird exakte Übereinstimmung geprüft.
 
 Ein Plugin, dessen Manifest fehlerhaft ist oder dessen

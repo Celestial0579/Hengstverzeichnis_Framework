@@ -8,6 +8,14 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.3.0] – 2026-08-09
+
+Stammdaten-Ausbau für die IGFjordpferd-Migration (fehlende Felder des alten
+Verzeichnisses) samt Status-Split, dazu Footer-Projektlinks, UI-/Doku-Pflege
+und Supply-Chain-Härtung der E2E-Helfer. **Enthält einen Breaking Change**
+(Status-Split, siehe unten) - bestehende Installationen migrieren beim ersten
+Request automatisch.
+
 ### Hinzugefügt
 
 - **Vollständiges Geburtsdatum, Stockmaß und Todesjahr** für Pferde (#188):
@@ -31,6 +39,33 @@ Breaking Changes sind jederzeit möglich).
 
 - Der Zuchtstatus im Pferde-Formular wird jetzt serverseitig gegen eine
   Whitelist geprüft (vorher ungeprüft übernommen).
+- **Footer-Projektlinks** (#184, #185, #186, #187): Handbuch (Wiki),
+  Diskussionen, Fehler melden (GitHub Issues) und Lizenz (AGPL-3.0) sind
+  jetzt aus der laufenden App heraus verlinkt.
+- Rasse-Platzhalter in Formular und Katalog-Filter auf „Fjordpferd"/„Fjord
+  Horse" geändert (#183).
+
+### Behoben
+
+- **Admin-Menü-Hover ruckelte** (#181): `transition: all` animierte auch
+  Layout-Eigenschaften (font-weight/padding) und erzwang
+  Layout-Neuberechnung pro Mausbewegung - ersetzt durch explizite
+  Property-Listen.
+- Interne Issue-Verweise („(#48)" u. ä.) aus den Admin-Hilfetexten entfernt
+  (#182) - Systemeinstellungen, Backup-, Digest-, Cron- und
+  Gruppen-Verwaltung.
+- Doku- und Wiki-Abgleich (#180): `docs/` nennt die kanonische
+  `/horse`-Route und das „Verzeichnis"; das GitHub-Wiki wurde komplett auf
+  den aktuellen Stand gehoben (inkl. der neuen Felder, Pedigree-Tiefe 3/6
+  und der Sichtbarkeit über das Veröffentlichen-Flag).
+
+### Sicherheit
+
+- E2E-Helfer supply-chain-gehärtet (Scorecard Pinned-Dependencies):
+  Basisimages per Digest, pip-Pakete inkl. transitiver Abhängigkeiten per
+  `--require-hashes`, minio/mailpit im Helper-Compose per Digest gepinnt;
+  checkout-Action in codeql.yml auf den überall verwendeten v7.0.1-SHA
+  angeglichen.
 
 ### Breaking Changes
 

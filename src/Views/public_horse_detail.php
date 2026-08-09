@@ -117,6 +117,14 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.sex')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(!empty($horse['sex']) ? App\I18n\Translator::t('value.sex.' . $horse['sex']) : App\I18n\Translator::t('field.unknown')) ?></td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.breed')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)(($horse['breed'] ?? '') ?: App\I18n\Translator::t('field.unknown'))) ?></td>
+                </tr>
                 <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
                         <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>

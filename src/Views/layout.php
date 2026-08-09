@@ -169,8 +169,9 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         }
 
         .nav-btn-admin-dashboard:hover {
-            background: var(--secondary-color);
-            border-color: var(--secondary-color);
+            /* --secondary-btn-bg statt der Markenfarbe: weißer Text braucht >= 4,5:1 (#169) */
+            background: var(--secondary-btn-bg);
+            border-color: var(--secondary-btn-bg);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
     </style>

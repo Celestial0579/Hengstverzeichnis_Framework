@@ -174,6 +174,16 @@ class TrashController extends BaseController {
                 $stmt->execute([$id]);
 
                 \App\Service\AuditLogger::log("Element aus Papierkorb wiederhergestellt", "trash", "Typ: {$type}, ID: {$id}");
+
+                // Plugin-Hook (#164): NACH der Wiederherstellung, mit dem dann
+                // aktuellen Datensatz (deleted_at bereits NULL) - z. B. damit ein
+                // Plugin beim Soft-Delete deaktivierte Daten reaktivieren kann.
+                if ($type === 'horse') {
+                    $rowStmt = $db->prepare("SELECT * FROM horses WHERE id = ?");
+                    $rowStmt->execute([$id]);
+                    $horse = $rowStmt->fetch() ?: [];
+                    $this->hooks()->doAction('horse.restored', $id, $horse);
+                }
             }
         }
 
@@ -213,6 +223,16 @@ class TrashController extends BaseController {
 
             // Rule: Permanent deletion allowed if user is Admin OR if item is older than 30 days
             if ($isAdmin || $isOlderThan30Days) {
+                // Plugin-Hook (#164): VOR dem endgültigen Löschen - die letzte
+                // Gelegenheit für Plugins, den Datensatz noch zu lesen.
+                $horse = [];
+                if ($type === 'horse') {
+                    $rowStmt = $db->prepare("SELECT * FROM horses WHERE id = ?");
+                    $rowStmt->execute([$id]);
+                    $horse = $rowStmt->fetch() ?: [];
+                    $this->hooks()->doAction('horse.before_delete', $id, $horse, true);
+                }
+
                 $deleteStmt = match ($type) {
                     'horse' => $db->prepare("DELETE FROM horses WHERE id = ?"),
                     'person' => $db->prepare("DELETE FROM persons WHERE id = ?"),
@@ -220,6 +240,12 @@ class TrashController extends BaseController {
                     'user' => $db->prepare("DELETE FROM users WHERE id = ?"),
                 };
                 $deleteStmt->execute([$id]);
+
+                // Plugin-Hook (#164): NACH dem endgültigen Löschen (der FK-Cascade
+                // hat abhängige Zeilen bereits entfernt).
+                if ($type === 'horse') {
+                    $this->hooks()->doAction('horse.deleted', $id, $horse);
+                }
 
                 \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", "Typ: {$type}, ID: {$id}");
 
@@ -244,7 +270,7 @@ class TrashController extends BaseController {
 
         if ($isAdmin) {
             // Admins can clear all trash immediately
-            $db->exec("DELETE FROM horses WHERE deleted_at IS NOT NULL");
+            $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL");
             $db->exec("DELETE FROM persons WHERE deleted_at IS NOT NULL");
             $db->exec("DELETE FROM breeding_stations WHERE deleted_at IS NOT NULL");
             $db->exec("DELETE FROM users WHERE deleted_at IS NOT NULL");
@@ -255,7 +281,7 @@ class TrashController extends BaseController {
             // Elemente bereinigen, wenn sie die jeweilige Lösch-Berechtigung
             // besitzen - ein Benutzer ohne Rechte bereinigt so nichts.
             if ($this->hasPermission('horses', 'delete')) {
-                $db->exec("DELETE FROM horses WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+                $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
             }
             if ($this->hasPermission('persons', 'delete')) {
                 $db->exec("DELETE FROM persons WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
@@ -269,5 +295,35 @@ class TrashController extends BaseController {
 
         header("Location: /admin/trash?success=emptied");
         exit;
+    }
+
+    /**
+     * Endgültiges Löschen von Pferden inkl. der Lösch-Hooks (#164). Der frühere
+     * pauschale Bulk-DELETE lieferte keine Datensätze für die Hook-Payload -
+     * deshalb erst SELECT *, dann je Pferd horse.before_delete, ein DELETE über
+     * dieselbe WHERE-Bedingung, danach je Pferd horse.deleted. $condition ist
+     * eine feste, hier im Controller definierte Bedingung, kein Benutzereingang.
+     */
+    private function deleteHorsesWithHooks(\PDO $db, string $condition): void {
+        $horses = $db->query("SELECT * FROM horses WHERE {$condition}")->fetchAll();
+        if (!$horses) {
+            return;
+        }
+
+        foreach ($horses as $horse) {
+            $this->hooks()->doAction('horse.before_delete', (int)$horse['id'], $horse, true);
+        }
+
+        // Gelöscht wird exakt die selektierte ID-Menge - nicht erneut über die
+        // Bedingung, damit ein ZWISCHEN SELECT und DELETE frisch in den
+        // Papierkorb gewandertes Pferd nicht ohne before_delete-Hook stirbt.
+        $deleteStmt = $db->prepare("DELETE FROM horses WHERE id = ?");
+        foreach ($horses as $horse) {
+            $deleteStmt->execute([(int)$horse['id']]);
+        }
+
+        foreach ($horses as $horse) {
+            $this->hooks()->doAction('horse.deleted', (int)$horse['id'], $horse);
+        }
     }
 }

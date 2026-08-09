@@ -4,6 +4,16 @@
     /* Fallback variables, normally injected dynamically via PHP */
     --primary-color: #2c3e50;
     --secondary-color: #18bc9c;
+    /* Flächenfarbe für weißen Text (#169): Die Markenfarbe --secondary-color
+       erreicht mit weißem Text nur 2,41:1 (WCAG-AA-Minimum: 4,5:1) und bleibt
+       deshalb Akzent-/Textfarbe; Flächen unter weißem Text (Button-Hover,
+       Admin-Nav-Hover) nutzen diesen dunkleren Ton (5,26:1 zu #fff).
+       Bewusst eine EIGENSTÄNDIGE Farbe statt color-mix aus --secondary-color:
+       die Markenfarbe ist zur Laufzeit admin-konfigurierbar (layout.php), und
+       ein abgeleiteter Ton könnte je nach gewählter Farbe erneut unter das
+       Minimum fallen. Wer die Markenfarbe ändert, wählt hier ggf. bewusst
+       einen passenden dunklen Begleitton. */
+    --secondary-btn-bg: #0e7a66;
     --bg-color: #f8f9fa;
     --text-color: #333333;
     --card-bg: #ffffff;
@@ -264,7 +274,8 @@ h1, h2, h3 {
 }
 
 .btn:hover {
-    background-color: var(--secondary-color);
+    /* --secondary-btn-bg statt der Markenfarbe: weißer Text braucht >= 4,5:1 (#169) */
+    background-color: var(--secondary-btn-bg);
 }
 
 .btn:active {

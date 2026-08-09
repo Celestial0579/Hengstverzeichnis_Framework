@@ -6,7 +6,7 @@
 
 return [
     'nav.home' => 'Startseite',
-    'nav.catalog' => 'Hengstkatalog',
+    'nav.catalog' => 'Verzeichnis',
     'nav.admin_login' => 'Admin Login',
     'nav.admin_portal' => 'Admin Portal',
     'nav.toggle_theme' => 'Farbschema umschalten (hell/dunkel)',
@@ -20,6 +20,11 @@ return [
 
     // Gemeinsam genutzte Feld-Labels (öffentliche Seiten)
     'field.color' => 'Farbe',
+    'field.sex' => 'Geschlecht',
+    'field.breed' => 'Rasse',
+    'value.sex.stallion' => 'Hengst',
+    'value.sex.mare' => 'Stute',
+    'value.sex.gelding' => 'Wallach',
     'field.birth_year' => 'Geburtsjahr',
     'field.ueln_full' => 'UELN (Haupt-Lebensnummer)',
     'field.foreign_ueln_label' => 'Lebensnummer Ursprungsland',
@@ -41,21 +46,21 @@ return [
     'status.deceased' => 'Verstorben',
     'status.unknown' => 'Unbekannt',
 
-    'common.back_to_catalog' => '← Zurück zum Katalog',
+    'common.back_to_catalog' => '← Zurück zum Verzeichnis',
 
     // Startseite
     'home.welcome_title' => 'Willkommen im {site}',
     'home.default_text' => 'Das Open-Source Framework zur Nachverfolgung von Blutlinien in der Pferdezucht.',
-    'home.cta_catalog' => 'Zum Hengstkatalog',
+    'home.cta_catalog' => 'Zum Verzeichnis',
     'home.latest_entries' => 'Neueste Einträge',
     'home.view_details' => 'Details ansehen',
     'meta.title_home' => 'Willkommen',
 
-    // Hengstkatalog
-    'catalog.heading' => 'Hengstkatalog',
+    // Verzeichnis (öffentlicher Katalog)
+    'catalog.heading' => 'Verzeichnis',
     'catalog.loading' => 'Lädt...',
-    'catalog.hit_count_one' => '{count} Hengst gefunden',
-    'catalog.hit_count_other' => '{count} Hengste gefunden',
+    'catalog.hit_count_one' => '{count} Pferd gefunden',
+    'catalog.hit_count_other' => '{count} Pferde gefunden',
     'catalog.search_placeholder' => 'Volltextsuche (Pferd, UELN, Züchter, Besitzer, Deckstation, Vater, Mutter)...',
     'catalog.search_button' => 'Suchen',
     'catalog.reset_filters' => 'Filter zurücksetzen',
@@ -72,6 +77,8 @@ return [
     'catalog.dam' => '♀ Mutter (Dam)',
     'catalog.dam_placeholder' => 'Name der Mutter',
     'catalog.all_colors' => '-- Alle Farben --',
+    'catalog.all_sexes' => '-- Alle Geschlechter --',
+    'catalog.breed_placeholder' => 'z. B. Trakehner',
     'catalog.birth_year_from' => 'Geburtsjahr Von',
     'catalog.birth_year_to' => 'Geburtsjahr Bis',
     'catalog.birth_year_from_placeholder' => 'z. B. 2010',
@@ -85,7 +92,7 @@ return [
     'catalog.breeding_station_inline' => '🏠 Deckstation:',
     'catalog.breeder_inline' => '👤 Züchter:',
     'catalog.owner_inline' => '👤 Besitzer:',
-    'meta.title_catalog' => 'Hengstkatalog',
+    'meta.title_catalog' => 'Verzeichnis',
 
     // Pferde-Detailseite
     'horse.master_data' => 'Stammdaten',
@@ -194,7 +201,7 @@ return [
     'admin.dashboard.no_group' => 'ohne Gruppe',
     'admin.dashboard.logout' => 'Abmelden',
     'admin.dashboard.management_heading' => 'Verwaltung & Daten',
-    'admin.dashboard.management_text' => 'Verwaltung des Hengstkatalogs, Züchter-, Besitzer- und Stammbaumdaten.',
+    'admin.dashboard.management_text' => 'Verwaltung des Verzeichnisses, Züchter-, Besitzer- und Stammbaumdaten.',
     'admin.dashboard.tile_horses' => 'Pferde verwalten',
     'admin.dashboard.tile_persons' => 'Personen verwalten',
     'admin.dashboard.tile_breeding_stations' => 'Deckstationen verwalten',
@@ -272,7 +279,7 @@ return [
     'errors.to_home' => '🏠 Zur Startseite',
     'errors.404_title' => '404 - Seite nicht gefunden',
     'errors.404_default_message' => 'Die von Ihnen aufgerufene Adresse existiert nicht oder wurde verschoben.',
-    'errors.404_to_catalog' => '🐴 Zum Hengstkatalog',
+    'errors.404_to_catalog' => '🐴 Zum Verzeichnis',
     'errors.404_route_not_found' => 'Die angeforderte Adresse ({path}) wurde auf dem Server nicht gefunden.',
     'errors.500_title' => '500 - Serverfehler',
     'errors.500_default_message' => 'Unerwarteter Systemfehler. Bitte versuchen Sie es zu einem späteren Zeitpunkt erneut.',

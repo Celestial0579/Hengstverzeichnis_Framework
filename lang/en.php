@@ -4,7 +4,7 @@
 
 return [
     'nav.home' => 'Home',
-    'nav.catalog' => 'Stallion Catalog',
+    'nav.catalog' => 'Registry',
     'nav.admin_login' => 'Admin Login',
     'nav.admin_portal' => 'Admin Portal',
     'nav.toggle_theme' => 'Toggle color scheme (light/dark)',
@@ -18,6 +18,11 @@ return [
 
     // Shared field labels (public pages)
     'field.color' => 'Color',
+    'field.sex' => 'Sex',
+    'field.breed' => 'Breed',
+    'value.sex.stallion' => 'Stallion',
+    'value.sex.mare' => 'Mare',
+    'value.sex.gelding' => 'Gelding',
     'field.birth_year' => 'Birth Year',
     'field.ueln_full' => 'UELN (Primary Life Number)',
     'field.foreign_ueln_label' => 'Life Number (Country of Origin)',
@@ -39,21 +44,21 @@ return [
     'status.deceased' => 'Deceased',
     'status.unknown' => 'Unknown',
 
-    'common.back_to_catalog' => '← Back to Catalog',
+    'common.back_to_catalog' => '← Back to Registry',
 
     // Homepage
     'home.welcome_title' => 'Welcome to {site}',
     'home.default_text' => 'The open-source framework for tracking bloodlines in horse breeding.',
-    'home.cta_catalog' => 'Browse Stallion Catalog',
+    'home.cta_catalog' => 'Browse Registry',
     'home.latest_entries' => 'Latest Entries',
     'home.view_details' => 'View Details',
     'meta.title_home' => 'Welcome',
 
-    // Stallion Catalog
-    'catalog.heading' => 'Stallion Catalog',
+    // Registry (public catalog)
+    'catalog.heading' => 'Registry',
     'catalog.loading' => 'Loading...',
-    'catalog.hit_count_one' => '{count} stallion found',
-    'catalog.hit_count_other' => '{count} stallions found',
+    'catalog.hit_count_one' => '{count} horse found',
+    'catalog.hit_count_other' => '{count} horses found',
     'catalog.search_placeholder' => 'Full-text search (horse, UELN, breeder, owner, breeding station, sire, dam)...',
     'catalog.search_button' => 'Search',
     'catalog.reset_filters' => 'Reset Filters',
@@ -70,6 +75,8 @@ return [
     'catalog.dam' => '♀ Dam',
     'catalog.dam_placeholder' => "Dam's name",
     'catalog.all_colors' => '-- All Colors --',
+    'catalog.all_sexes' => '-- All Sexes --',
+    'catalog.breed_placeholder' => 'e.g. Trakehner',
     'catalog.birth_year_from' => 'Birth Year From',
     'catalog.birth_year_to' => 'Birth Year To',
     'catalog.birth_year_from_placeholder' => 'e.g. 2010',
@@ -83,7 +90,7 @@ return [
     'catalog.breeding_station_inline' => '🏠 Breeding Station:',
     'catalog.breeder_inline' => '👤 Breeder:',
     'catalog.owner_inline' => '👤 Owner:',
-    'meta.title_catalog' => 'Stallion Catalog',
+    'meta.title_catalog' => 'Registry',
 
     // Horse detail page
     'horse.master_data' => 'Master Data',
@@ -192,7 +199,7 @@ return [
     'admin.dashboard.no_group' => 'no group',
     'admin.dashboard.logout' => 'Sign Out',
     'admin.dashboard.management_heading' => 'Management & Data',
-    'admin.dashboard.management_text' => 'Manage the stallion catalog, breeder, owner and pedigree data.',
+    'admin.dashboard.management_text' => 'Manage the registry, breeder, owner and pedigree data.',
     'admin.dashboard.tile_horses' => 'Manage Horses',
     'admin.dashboard.tile_persons' => 'Manage Persons',
     'admin.dashboard.tile_breeding_stations' => 'Manage Breeding Stations',
@@ -270,7 +277,7 @@ return [
     'errors.to_home' => '🏠 Go to Homepage',
     'errors.404_title' => '404 - Page Not Found',
     'errors.404_default_message' => 'The address you requested does not exist or has been moved.',
-    'errors.404_to_catalog' => '🐴 Browse Stallion Catalog',
+    'errors.404_to_catalog' => '🐴 Browse Registry',
     'errors.404_route_not_found' => 'The requested address ({path}) was not found on the server.',
     'errors.500_title' => '500 - Server Error',
     'errors.500_default_message' => 'An unexpected system error occurred. Please try again later.',

@@ -76,7 +76,7 @@ return [
     'catalog.dam_placeholder' => "Dam's name",
     'catalog.all_colors' => '-- All Colors --',
     'catalog.all_sexes' => '-- All Sexes --',
-    'catalog.breed_placeholder' => 'e.g. Trakehner',
+    'catalog.breed_placeholder' => 'e.g. Fjord Horse',
     'catalog.birth_year_from' => 'Birth Year From',
     'catalog.birth_year_to' => 'Birth Year To',
     'catalog.birth_year_from_placeholder' => 'e.g. 2010',

@@ -78,7 +78,7 @@ return [
     'catalog.dam_placeholder' => 'Name der Mutter',
     'catalog.all_colors' => '-- Alle Farben --',
     'catalog.all_sexes' => '-- Alle Geschlechter --',
-    'catalog.breed_placeholder' => 'z. B. Trakehner',
+    'catalog.breed_placeholder' => 'z. B. Fjordpferd',
     'catalog.birth_year_from' => 'Geburtsjahr Von',
     'catalog.birth_year_to' => 'Geburtsjahr Bis',
     'catalog.birth_year_from_placeholder' => 'z. B. 2010',

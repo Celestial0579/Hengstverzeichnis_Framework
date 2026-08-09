@@ -124,7 +124,10 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             color: var(--text-color);
             font-weight: 500;
             font-size: 0.95rem;
-            transition: all 0.2s ease-in-out;
+            /* Nur die Eigenschaften animieren, die sich beim Hover/Aktiv-Wechsel
+               tatsächlich ändern - "all" nimmt font-weight/padding mit und
+               erzwingt Layout-Neuberechnung pro Mausbewegung (#181). */
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
         }
 
         nav a.nav-link:hover {
@@ -147,7 +150,8 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             font-size: 0.9rem;
             font-weight: 600;
             text-decoration: none;
-            transition: all 0.2s ease;
+            /* Explizite Liste statt "all", siehe Kommentar bei nav a.nav-link (#181). */
+            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
         .nav-btn-admin-login {

@@ -15,6 +15,10 @@ return [
     'footer.impressum' => 'Impressum',
     'footer.datenschutz' => 'Datenschutz',
     'footer.dsgvo' => 'DSGVO Auskunft',
+    'footer.manual' => 'Handbuch',
+    'footer.discussions' => 'Diskussionen',
+    'footer.report_bug' => 'Fehler melden',
+    'footer.license' => 'Lizenz',
 
     'meta.description_suffix' => 'Pferdezucht Verzeichnis',
 

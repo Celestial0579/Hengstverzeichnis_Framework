@@ -113,6 +113,30 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
                     </select>
                 </div>
 
+                <!-- Geschlecht (#165) -->
+                <div class="form-group">
+                    <label for="filter-q-sex" style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.sex')) ?></label>
+                    <select id="filter-q-sex" name="q_sex" class="form-control filter-field" style="padding: 0.5rem;">
+                        <option value=""><?= htmlspecialchars(App\I18n\Translator::t('catalog.all_sexes')) ?></option>
+                        <?php foreach (['stallion', 'mare', 'gelding'] as $sexOption): ?>
+                            <option value="<?= $sexOption ?>" <?= ($filters['q_sex'] ?? '') === $sexOption ? 'selected' : '' ?>>
+                                <?= htmlspecialchars(App\I18n\Translator::t('value.sex.' . $sexOption)) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <!-- Rasse (#163) -->
+                <div class="form-group">
+                    <label for="filter-q-breed" style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.breed')) ?></label>
+                    <input type="text" id="filter-q-breed" name="q_breed" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.breed_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_breed'] ?? '') ?>" list="breed_list">
+                    <datalist id="breed_list">
+                        <?php foreach ($breeds ?? [] as $b): ?>
+                            <option value="<?= htmlspecialchars($b) ?>">
+                        <?php endforeach; ?>
+                    </datalist>
+                </div>
+
                 <!-- Geburtsjahr Von -->
                 <div class="form-group">
                     <label for="filter-birth-year-from" style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.birth_year_from')) ?></label>

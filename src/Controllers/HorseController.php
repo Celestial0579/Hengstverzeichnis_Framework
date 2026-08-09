@@ -7,6 +7,9 @@ use App\Database;
 
 class HorseController extends BaseController {
 
+    /** Gültige Werte der horses.sex-ENUM (#165); NULL = unbekannt. */
+    private const SEXES = ['stallion', 'mare', 'gelding'];
+
     public function __construct() {
         parent::__construct();
         $this->checkAuth();
@@ -80,7 +83,7 @@ class HorseController extends BaseController {
         $this->requirePermission('horses', 'create');
 
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, name, ueln, birth_year FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
+        $stmt = $db->query("SELECT id, name, ueln, birth_year, sex FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
         $allHorses = $stmt->fetchAll();
 
         $stmt = $db->query("SELECT id, name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC");
@@ -115,6 +118,8 @@ class HorseController extends BaseController {
         $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         $color = trim($_POST['color'] ?? '');
+        $sex = in_array($_POST['sex'] ?? '', self::SEXES, true) ? $_POST['sex'] : null;
+        $breed = trim($_POST['breed'] ?? '') ?: null;
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
         $breeding_station = trim($_POST['breeding_station'] ?? '');
         $description = trim($_POST['description'] ?? '');
@@ -136,6 +141,13 @@ class HorseController extends BaseController {
         $dam_name = $dam_id ? null : (trim($_POST['dam_name'] ?? '') ?: null);
         $dam_ueln = $dam_id ? null : (trim($_POST['dam_ueln'] ?? '') ?: null);
 
+        // Geschlechts-Validierung der Abstammung (#166) - vor dem Bild-Upload,
+        // damit bei Ablehnung keine verwaiste Datei zurückbleibt.
+        if ($error = $this->parentSexMismatch($sire_id, $dam_id)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         // Handle Photo Upload
         $imageUrl = $this->handleImageUpload($_FILES['horse_image'] ?? null);
 
@@ -146,8 +158,8 @@ class HorseController extends BaseController {
         $this->hooks()->doAction('horse.before_save', null, $_POST);
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, color, breeding_station_id, breeding_station, description, status, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $isPublished, $imageUrl]);
+        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, color, sex, breed, breeding_station_id, breeding_station, description, status, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $sex, $breed, $breeding_station_id, $breeding_station, $description, $status, $isPublished, $imageUrl]);
         $newHorseId = (int)$db->lastInsertId();
 
         \App\Service\AuditLogger::log("Pferd angelegt", "horses", "Name: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
@@ -185,7 +197,7 @@ class HorseController extends BaseController {
             exit;
         }
 
-        $stmt = $db->query("SELECT id, name, ueln, birth_year FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
+        $stmt = $db->query("SELECT id, name, ueln, birth_year, sex FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
         $allHorses = $stmt->fetchAll();
 
         $stmt = $db->query("SELECT id, name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC");
@@ -230,6 +242,8 @@ class HorseController extends BaseController {
         $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         $color = trim($_POST['color'] ?? '');
+        $sex = in_array($_POST['sex'] ?? '', self::SEXES, true) ? $_POST['sex'] : null;
+        $breed = trim($_POST['breed'] ?? '') ?: null;
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
         $breeding_station = trim($_POST['breeding_station'] ?? '');
         $description = trim($_POST['description'] ?? '');
@@ -248,6 +262,13 @@ class HorseController extends BaseController {
         // Prevent self-referencing
         if ($sire_id === (int)$id) $sire_id = null;
         if ($dam_id === (int)$id) $dam_id = null;
+
+        // Geschlechts-Validierung der Abstammung (#166) - vor Bild-Änderungen,
+        // damit bei Ablehnung weder Dateien gelöscht noch verwaiste angelegt werden.
+        if ($error = $this->parentSexMismatch($sire_id, $dam_id)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
 
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT image_url, status, is_published FROM horses WHERE id = ?");
@@ -286,8 +307,8 @@ class HorseController extends BaseController {
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.before_save', (int)$id, $_POST);
 
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, color = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, is_published = ?, image_url = ? WHERE id = ?");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $breeding_station_id, $breeding_station, $description, $status, $isPublished, $currentImageUrl, $id]);
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, color = ?, sex = ?, breed = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, is_published = ?, image_url = ? WHERE id = ?");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $color, $sex, $breed, $breeding_station_id, $breeding_station, $description, $status, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 
@@ -302,6 +323,34 @@ class HorseController extends BaseController {
 
         header("Location: /admin/horses?success=updated");
         exit;
+    }
+
+    /**
+     * Geschlechts-Validierung der Abstammung (#166): Der Vater darf keine Stute
+     * sein, die Mutter weder Hengst noch Wallach. NULL (unbekannt) besteht die
+     * Prüfung immer - so bleibt der Altbestand ohne Geschlechtsangabe editierbar.
+     * Ein Wallach ist als Vater serverseitig zulässig (Nachkommen können vor dem
+     * Legen entstanden sein); das Formular bietet ihn lediglich nicht an.
+     * Liefert den Fehlercode für den Redirect oder null, wenn alles passt.
+     */
+    private function parentSexMismatch(?int $sireId, ?int $damId): ?string {
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT sex FROM horses WHERE id = ?");
+
+        if ($sireId) {
+            $stmt->execute([$sireId]);
+            if ($stmt->fetchColumn() === 'mare') {
+                return 'sex_mismatch_sire';
+            }
+        }
+        if ($damId) {
+            $stmt->execute([$damId]);
+            $sex = $stmt->fetchColumn();
+            if ($sex === 'stallion' || $sex === 'gelding') {
+                return 'sex_mismatch_dam';
+            }
+        }
+        return null;
     }
 
     /**
@@ -422,12 +471,28 @@ class HorseController extends BaseController {
         $unlinkedMatches = \App\Service\MatchSuggestionFinder::findAll();
 
         $db = Database::getInstance();
-        $allHorses = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station FROM horses WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll();
+        $allHorses = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, sex, breeding_station_id, breeding_station FROM horses WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll();
+
+        // Datenqualitäts-Report (#166): bestehende Verknüpfungen, deren Elternteil
+        // ein unpassendes Geschlecht trägt - entstanden, bevor es das Geschlechtsfeld
+        // und die Speicher-Validierung gab. NULL (unbekannt) gilt nicht als Verstoß.
+        $sexMismatches = $db->query(
+            "SELECT c.id, c.name,
+                    s.id AS sire_id, s.name AS sire_name, s.sex AS sire_sex,
+                    d.id AS dam_id, d.name AS dam_name, d.sex AS dam_sex
+             FROM horses c
+             LEFT JOIN horses s ON c.sire_id = s.id
+             LEFT JOIN horses d ON c.dam_id = d.id
+             WHERE c.deleted_at IS NULL
+               AND (s.sex = 'mare' OR d.sex IN ('stallion', 'gelding'))
+             ORDER BY c.name ASC"
+        )->fetchAll();
 
         $this->render('admin_matches', [
             'title' => 'Blutlinien Zusammenführen & Match-Vorschläge',
             'unlinkedMatches' => $unlinkedMatches,
-            'allHorses' => $allHorses
+            'allHorses' => $allHorses,
+            'sexMismatches' => $sexMismatches
         ]);
     }
 
@@ -452,6 +517,18 @@ class HorseController extends BaseController {
             exit;
         }
 
+        // Geschlechts-Guard analog zur Selbst-Link-Sperre (#167): eine Stute kann
+        // nicht als Vater, ein Hengst/Wallach nicht als Mutter verknüpft werden.
+        if ($parentHorseId > 0 && in_array($parentType, ['sire', 'dam'], true)) {
+            $mismatch = ($parentType === 'sire')
+                ? $this->parentSexMismatch($parentHorseId, null)
+                : $this->parentSexMismatch(null, $parentHorseId);
+            if ($mismatch) {
+                header("Location: /admin/matches?error=sex_mismatch");
+                exit;
+            }
+        }
+
         if ($childId && $parentHorseId && in_array($parentType, ['sire', 'dam'])) {
             $db = Database::getInstance();
 
@@ -463,7 +540,9 @@ class HorseController extends BaseController {
             $stmt->execute([$parentHorseId]);
             $parentName = $stmt->fetchColumn() ?: "Pferd #{$parentHorseId}";
 
-            $roleLabel = ($parentType === 'sire') ? 'Vater (Hengst)' : 'Mutter (Stute)';
+            // Rollen-Bezeichnung ohne Geschlechts-Behauptung (#167): das verknüpfte
+            // Tier kann auch ohne hinterlegtes Geschlecht (NULL) gespeichert sein.
+            $roleLabel = ($parentType === 'sire') ? 'Vater' : 'Mutter';
 
             if ($parentType === 'sire') {
                 $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE id = ?");

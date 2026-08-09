@@ -52,12 +52,15 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertStringContainsString('mehrfach in dieser Datei', $duplicateCheck->body);
 
         // Hauptszenario: gemischt gültige/ungültige Zeilen -> Vorschau, dann Commit.
+        // Die gültige Zeile nutzt den deutschen Geschlechts-Alias "Stute" (#165),
+        // der beim Import auf den kanonischen ENUM-Wert 'mare' abgebildet wird.
         $validName = "CSV Import Testpferd {$unique}";
         $validUeln = 'DE' . substr($unique, -9) . 'CSV';
-        $csv = "name;ueln;birth_year;color;status\n"
-            . "{$validName};{$validUeln};2017;Fuchs;active\n"
-            . ";;2017;Rappe;active\n" // Name fehlt -> ungültig
-            . "Ungueltiges Jahr {$unique};;zwanzigsiebzehn;Schimmel;active\n"; // ungültiges Geburtsjahr -> ungültig
+        $csv = "name;ueln;birth_year;color;sex;breed;status\n"
+            . "{$validName};{$validUeln};2017;Fuchs;Stute;Fjordpferd;active\n"
+            . ";;2017;Rappe;;;active\n" // Name fehlt -> ungültig
+            . "Ungueltiges Jahr {$unique};;zwanzigsiebzehn;Schimmel;;;active\n" // ungültiges Geburtsjahr -> ungültig
+            . "Ungueltiges Geschlecht {$unique};;2017;Fuchs;Zwitter;;active\n"; // ungültiges Geschlecht -> ungültig
 
         $previewResponse = $admin->postFile(
             '/admin/import/horses/preview',
@@ -68,10 +71,11 @@ class HorseCsvImportTest extends FunctionalTestCase {
         );
 
         $this->assertSame(200, $previewResponse->statusCode);
-        $this->assertStringContainsString('1 von 3 Zeilen', $this->stripHtml($previewResponse->body), "Vorschau sollte 1 gültige von 3 Zeilen zeigen (nur die erste Zeile ist fehlerfrei), Body: {$previewResponse->body}");
+        $this->assertStringContainsString('1 von 4 Zeilen', $this->stripHtml($previewResponse->body), "Vorschau sollte 1 gültige von 4 Zeilen zeigen (nur die erste Zeile ist fehlerfrei), Body: {$previewResponse->body}");
         $this->assertStringContainsString($validName, $previewResponse->body);
         $this->assertStringContainsString('Name fehlt', $previewResponse->body);
         $this->assertStringContainsString('ungültig', $previewResponse->body);
+        $this->assertStringContainsString('Geschlecht &#039;Zwitter&#039; ist ungültig', $previewResponse->body);
 
         // Ohne gesetzte Veröffentlichen-Checkbox: importierte Pferde bleiben - wie jedes
         // neu angelegte Pferd - standardmäßig unveröffentlicht (is_published = 0). Die
@@ -84,7 +88,7 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertSame(200, $commitResponse->statusCode);
         $commitText = $this->stripHtml($commitResponse->body);
         $this->assertStringContainsString('1 Pferd(e) erfolgreich importiert', $commitText, "Body: {$commitResponse->body}");
-        $this->assertStringContainsString('2 Zeile(n) wegen Fehlern übersprungen', $commitText);
+        $this->assertStringContainsString('3 Zeile(n) wegen Fehlern übersprungen', $commitText);
 
         // Tatsächlich in der DB gelandet: genau die eine gültige Zeile. Verifiziert
         // über die Backend-Liste statt über die öffentliche API, da importierte Pferde
@@ -96,9 +100,18 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertSame(200, $adminList->statusCode);
         $this->assertStringContainsString(htmlspecialchars($validName), $adminList->body, "Die eine gültige Zeile sollte importiert worden und in der Backend-Liste sichtbar sein, Body: {$adminList->body}");
         $this->assertStringContainsString(htmlspecialchars($validUeln), $adminList->body);
-        // Die beiden fehlerhaften Zeilen (Name fehlt / ungültiges Jahr) dürfen NICHT
-        // importiert worden sein - über ihr gemeinsames $unique-Suffix geprüft.
+        // Die fehlerhaften Zeilen (Name fehlt / ungültiges Jahr / ungültiges
+        // Geschlecht) dürfen NICHT importiert worden sein.
         $this->assertStringNotContainsString('Ungueltiges Jahr ' . $unique, $adminList->body);
+        $this->assertStringNotContainsString('Ungueltiges Geschlecht ' . $unique, $adminList->body);
+
+        // Der deutsche Alias "Stute" muss kanonisch als 'mare' gespeichert sein,
+        // die Rasse als Freitext (#165/#163).
+        $stmt = \App\Database::getInstance()->prepare("SELECT sex, breed FROM horses WHERE name = ?");
+        $stmt->execute([$validName]);
+        $row = $stmt->fetch();
+        $this->assertSame('mare', $row['sex']);
+        $this->assertSame('Fjordpferd', $row['breed']);
     }
 
     private function stripHtml(string $html): string {

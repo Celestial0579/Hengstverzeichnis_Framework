@@ -18,6 +18,11 @@ return [
 
     // Shared field labels (public pages)
     'field.color' => 'Color',
+    'field.sex' => 'Sex',
+    'field.breed' => 'Breed',
+    'value.sex.stallion' => 'Stallion',
+    'value.sex.mare' => 'Mare',
+    'value.sex.gelding' => 'Gelding',
     'field.birth_year' => 'Birth Year',
     'field.ueln_full' => 'UELN (Primary Life Number)',
     'field.foreign_ueln_label' => 'Life Number (Country of Origin)',
@@ -70,6 +75,8 @@ return [
     'catalog.dam' => '♀ Dam',
     'catalog.dam_placeholder' => "Dam's name",
     'catalog.all_colors' => '-- All Colors --',
+    'catalog.all_sexes' => '-- All Sexes --',
+    'catalog.breed_placeholder' => 'e.g. Trakehner',
     'catalog.birth_year_from' => 'Birth Year From',
     'catalog.birth_year_to' => 'Birth Year To',
     'catalog.birth_year_from_placeholder' => 'e.g. 2010',

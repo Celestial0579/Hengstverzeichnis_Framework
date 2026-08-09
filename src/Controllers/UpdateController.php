@@ -41,6 +41,7 @@ class UpdateController extends BaseController {
             'updateChannel' => UpdateService::normalizeChannel((string)($this->settings['update_channel'] ?? UpdateService::CHANNEL_STABLE)),
             'checkResult' => $checkResult,
             'checkError' => $checkError,
+            'inPlaceEnabled' => UPDATE_IN_PLACE,
         ]);
     }
 
@@ -76,6 +77,16 @@ class UpdateController extends BaseController {
     public function run(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        // Defense-in-Depth: Ist die In-Place-Aktualisierung deaktiviert
+        // (Container-Betrieb, UPDATE_IN_PLACE=0), wird das Update auch bei einem
+        // direkten POST verweigert - die View blendet den Knopf ohnehin aus.
+        if (!UPDATE_IN_PLACE) {
+            header("Location: /admin/updates?error=" . urlencode(
+                'Die In-Place-Aktualisierung ist in dieser Installation deaktiviert '
+                . '(Container-Betrieb). Aktualisiere über ein neues Image, z. B. mit Watchtower.'));
+            exit;
         }
 
         try {

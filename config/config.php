@@ -82,6 +82,19 @@ define('APP_KEY', getenv('APP_KEY') ?: ($dbConfig['app_key'] ?? ''));
 // geladen wird (siehe docs/plugin-development.md).
 define('CORE_VERSION', '0.2.0-beta.2');
 
+// In-Place-Selbstaktualisierung (#85). In einer klassischen/Shared-Hosting-
+// Installation gehört der Code demselben Benutzer, unter dem PHP läuft - das
+// Update darf ihn dann überschreiben (gleiche Vertrauensgrenze, kein
+// Rechtegewinn). Im Container ist das anders: der Code gehört root, PHP läuft
+// als www-data; ein durch den Web-Prozess beschreibbarer Codebaum wäre ein
+// RCE-Verstärker (jede Schreib-Lücke würde persistent). Deshalb schaltet das
+// offizielle Docker-Image UPDATE_IN_PLACE ab und aktualisiert stattdessen über
+// ein neues Image (z. B. per Watchtower). Default: an (Shared-Hosting). Siehe
+// #158 und docs/releasing.md.
+define('UPDATE_IN_PLACE', getenv('UPDATE_IN_PLACE') !== false
+    ? in_array(strtolower((string)getenv('UPDATE_IN_PLACE')), ['1', 'true', 'yes', 'on'], true)
+    : true);
+
 // Environment: Existiert bereits eine config/db_config.php (App wurde über den
 // Setup-Wizard eingerichtet), handelt es sich um eine echte Installation - dann
 // ohne explizite Angabe sicherheitshalber IMMER 'production' annehmen (keine

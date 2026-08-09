@@ -9,6 +9,22 @@
 > `public/uploads/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
 > laufen wie gewohnt beim nächsten Request (`Database::ensureSchemaUpToDate()`).
 >
+> **Docker/Container-Betrieb (In-Place-Update abgeschaltet):** Das
+> In-Place-Update oben setzt voraus, dass der PHP-Prozess den Anwendungscode
+> überschreiben darf - beim klassischen Shared-Hosting gehört der Code
+> demselben Benutzer, unter dem PHP läuft (gleiche Vertrauensgrenze). Im
+> offiziellen Docker-Image ist das anders: der Code gehört `root`, PHP läuft
+> als `www-data`. Ein durch den Web-Prozess überschreibbarer Codebaum wäre ein
+> RCE-Verstärker, deshalb setzt das Image `UPDATE_IN_PLACE=0` und macht nur die
+> Datenverzeichnisse (`config/` per Sticky-Bit für `db_config.php`,
+> `public/uploads/`, `plugins/`, `storage/`) www-data-schreibbar. Der
+> Updates-Screen zeigt weiterhin an, ob ein neues Release vorliegt, bietet aber
+> keinen In-Place-Knopf. Aktualisiert wird über ein **neues Image**
+> (`docker compose pull && docker compose up -d`) - automatisierbar mit einem
+> Watchtower-Fork (`nickfedor/watchtower`, Image
+> `ghcr.io/nicholas-fedor/watchtower`), siehe den auskommentierten Dienst in
+> `docker-compose.yml`.
+>
 > **Update-Kanäle:** Standard ist „Stabil" (nur reguläre Releases). Per
 > Beta-Opt-in auf der Update-Seite (Setting `update_channel`) werden
 > zusätzlich als **Prerelease** markierte GitHub-Releases angeboten — beim

@@ -91,7 +91,8 @@ Liste aller öffentlich sichtbaren Pferde, optional gefiltert und paginiert.
 | `name` | Teilstring-Suche im Namen |
 | `ueln` | Teilstring-Suche über UELN/ausländische UELN |
 | `color` | Teilstring-Suche in der Farbbezeichnung |
-| `status` | Exakt `active`, `inactive` oder `deceased` |
+| `status` | Exakt `active` oder `inactive` (Zuchtstatus) |
+| `deceased` | `0` (nur lebende) oder `1` (nur verstorbene) |
 | `birth_year_from` / `birth_year_to` | Geburtsjahr-Bereich |
 | `page` | Seite (Standard `1`) |
 | `per_page` | `10`/`25`/`50`/`100`/`all` (Standard `50`) |
@@ -99,6 +100,12 @@ Liste aller öffentlich sichtbaren Pferde, optional gefiltert und paginiert.
 Bewusst ein kleinerer Filtersatz als die interaktive Katalog-Seite (dort u. a.
 zusätzlich Zucht-/Besitzer-/Deckstation-Filter) - bei Bedarf später
 erweiterbar, siehe `App\Controllers\ApiController::fetchHorses()`.
+
+> **Breaking in 0.x (Status-Split, #188):** Das Response-Feld `status` liefert
+> nur noch den Zuchtstatus (`active`/`inactive`) und nie mehr `deceased`; der
+> Lebensstatus steht in den neuen Feldern `is_deceased`/`death_year`. Ein
+> Filter `status=deceased` fällt wie jeder unbekannte Wert aus der Whitelist
+> und wird ignoriert - stattdessen `deceased=1` verwenden.
 
 **Beispiel:**
 
@@ -116,10 +123,14 @@ curl -H "Authorization: Bearer hv_..." \
       "ueln": "DE001TESTM01",
       "foreign_ueln": null,
       "birth_year": 2015,
+      "birth_date": "2015-06-13",
       "color": "Rappe",
       "sex": "stallion",
       "breed": "Trakehner",
+      "height_cm": 146,
       "status": "active",
+      "is_deceased": false,
+      "death_year": null,
       "image_url": "/uploads/horses/quantum.jpg",
       "breeding_station": "Gestüt Musterhof",
       "sire": { "name": "Quantensprung", "ueln": "DE002TESTM02" },

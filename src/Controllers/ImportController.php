@@ -138,8 +138,8 @@ class ImportController extends BaseController {
         $skippedCount = 0;
 
         $insertStmt = $db->prepare("
-            INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, sex, breed, breeding_station, description, status, is_published)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, birth_date, color, sex, breed, height_cm, breeding_station, description, status, is_deceased, death_year, is_published)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         // Alle Inserts in EINER Transaktion: schlägt eine Zeile fehl, bleibt die
@@ -161,9 +161,9 @@ class ImportController extends BaseController {
                 $insertStmt->execute([
                     $data['name'], $data['ueln'], $data['foreign_ueln'],
                     $data['sire_name'], $data['sire_ueln'], $data['dam_name'], $data['dam_ueln'],
-                    $data['birth_year'], $data['color'], $data['sex'], $data['breed'],
-                    $data['breeding_station'], $data['description'],
-                    $data['status'], $isPublished,
+                    $data['birth_year'], $data['birth_date'], $data['color'], $data['sex'], $data['breed'],
+                    $data['height_cm'], $data['breeding_station'], $data['description'],
+                    $data['status'], $data['deceased'], $data['death_year'], $isPublished,
                 ]);
                 $importedCount++;
             }

@@ -41,7 +41,11 @@ class PublicController extends BaseController {
         // gilt als "kein Filter".
         $qSex = in_array($_GET['q_sex'] ?? '', ['stallion', 'mare', 'gelding'], true) ? $_GET['q_sex'] : '';
         $qBreed = trim($_GET['q_breed'] ?? '');
-        $qStatus = trim($_GET['q_status'] ?? '');
+        // Status-Filter nach dem Split (#188): active/inactive filtern den
+        // Zuchtstatus; der Wert 'deceased' bleibt als Kompatibilitäts-Mapping
+        // auf is_deceased erhalten (Bookmarks/geteilte Filter-URLs), alles
+        // andere gilt als "kein Filter".
+        $qStatus = in_array($_GET['q_status'] ?? '', ['active', 'inactive', 'deceased'], true) ? $_GET['q_status'] : '';
         $qBreeder = trim($_GET['q_breeder'] ?? '');
         $qOwner = trim($_GET['q_owner'] ?? '');
         $qStation = trim($_GET['q_station'] ?? '');
@@ -121,7 +125,9 @@ class PublicController extends BaseController {
             $params[] = '%' . $qBreed . '%';
         }
 
-        if (!empty($qStatus)) {
+        if ($qStatus === 'deceased') {
+            $where[] = "h.is_deceased = 1";
+        } elseif ($qStatus !== '') {
             $where[] = "h.status = ?";
             $params[] = $qStatus;
         }
@@ -222,7 +228,7 @@ class PublicController extends BaseController {
             // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
             $sql = "
                 SELECT
-                    h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url,
+                    h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
                     CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
                          THEN NULL ELSE h.breeding_station END AS breeding_station,
                     bs.name as station_name,
@@ -364,8 +370,12 @@ class PublicController extends BaseController {
         // Fetch ownership history, person roles and associated breeding stations/studs.
         // Nur veröffentlichte Personen/Stationen (#121/#122) - unveröffentlichte
         // Namen und Kontaktdaten dürfen auf der öffentlichen Seite nicht erscheinen.
+        // Von den strukturierten Personenfeldern (#188) werden bewusst NUR
+        // city/country/membership_status selektiert - email/street/house_number/
+        // postal_code bleiben Admin-only und erreichen weder die View noch den
+        // horse.detail_sections-Hook (siehe docs/plugin-development.md).
         $stmt = $db->prepare("
-            SELECT hp.*, p.name as person_name, p.contact_info, bs.name as station_name, bs.id as station_id
+            SELECT hp.*, p.name as person_name, p.contact_info, p.city, p.country, p.membership_status, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
             LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
             LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
@@ -440,7 +450,7 @@ class PublicController extends BaseController {
         $horses = [];
         if ($this->hasPermission('horses', 'view')) {
             $stmt = $db->prepare("
-                SELECT id, name, ueln, birth_year, color, status, image_url
+                SELECT id, name, ueln, birth_year, color, status, is_deceased, death_year, image_url
                 FROM horses
                 WHERE breeding_station_id = ? AND deleted_at IS NULL AND is_published = 1
                 ORDER BY name ASC

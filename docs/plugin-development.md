@@ -187,7 +187,8 @@ einzigen Abfrage laden statt im Callback selbst zu queryen.
 
 **Achtung, `$horse` ist hier schmaler als bei `horse.detail_sections`:**
 Die Katalog-Query liefert eine feste Spaltenteilmenge (`id`, `name`, `ueln`,
-`foreign_ueln`, `birth_year`, `color`, `status`, `image_url`,
+`foreign_ueln`, `birth_year`, `birth_date`, `color`, `status`, `is_deceased`,
+`death_year`, `image_url`,
 `breeding_station`, `station_name`, verknüpfte/unverknüpfte Elternnamen,
 `breeder_name`, `owner_name`). Insbesondere fehlen `description`,
 `sire_id`/`dam_id` und sämtliche Stations-Kontaktfelder
@@ -219,7 +220,10 @@ darf sie dann auch nicht per eigener Abfrage nachladen und ausgeben.
 
 **`$horse`** enthält alle Spalten von `horses` (siehe `database/schema.sql`) plus
 die Deckstationsfelder `station_name`, `station_contact`, `station_address`,
-`station_phone`, `station_email`, `station_website`. Alle sechs `station_*`-Felder
+`station_phone`, `station_email`, `station_website`. Seit dem Status-Split
+(#188) enthält `$horse['status']` nur noch den Zuchtstatus
+(`active`/`inactive`) und nie mehr `deceased` — der Lebensstatus steht in
+`$horse['is_deceased']`/`$horse['death_year']`. Alle sechs `station_*`-Felder
 sind **gemeinsam** `null`, wenn
 
 - die verknüpfte Deckstation unveröffentlicht ist (`is_published = 0` — neu
@@ -238,10 +242,14 @@ immer erhalten.
 
 **`$horsePersons`** enthält die Zeilen aus `horse_persons` (`role`, `from_year`,
 `until_year`, `breeding_station_id`, `breeding_station_text`) plus `person_name`,
-`contact_info`, `station_name`, `station_id`. Dabei gilt:
+`contact_info`, `city`, `country`, `membership_status`, `station_name`,
+`station_id`. Von den strukturierten Personenfeldern (#188) sind das **bewusst
+die einzigen drei** im Payload: `email`, `street`, `house_number` und
+`postal_code` werden nie mitgeliefert — sie sind Admin-only, und ein Plugin darf
+sie auch nicht per eigener Abfrage öffentlich machen. Dabei gilt:
 
-- `person_name`/`contact_info` sind `null`, wenn die Person unveröffentlicht oder
-  gelöscht ist (#121);
+- `person_name`/`contact_info`/`city`/`country`/`membership_status` sind `null`,
+  wenn die Person unveröffentlicht oder gelöscht ist (#121);
 - `station_name`/`station_id` sind `null`, wenn die Station unveröffentlicht oder
   gelöscht ist (#122);
 - Zeilen, bei denen danach weder `person_name` noch `station_name` noch der

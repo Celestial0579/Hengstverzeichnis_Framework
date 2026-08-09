@@ -101,6 +101,7 @@ class PersonController extends BaseController {
 
         $name = trim($_POST['name'] ?? '');
         $contact_info = trim($_POST['contact_info'] ?? '');
+        $fields = $this->parseStructuredFields();
 
         if (empty($name)) {
             $this->render('admin_person_form', [
@@ -119,8 +120,8 @@ class PersonController extends BaseController {
         $isPublished = (!empty($_POST['is_published']) && $this->hasPermission('persons', 'publish')) ? 1 : 0;
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, is_published) VALUES (?, ?, ?)");
-        $stmt->execute([$name, $contact_info, $isPublished]);
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, country, email, membership_status, is_published) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $contact_info, $fields['street'], $fields['house_number'], $fields['postal_code'], $fields['city'], $fields['country'], $fields['email'], $fields['membership_status'], $isPublished]);
         $newPersonId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Person angelegt", "persons", "Person ID {$newPersonId}: {$name}");
@@ -169,11 +170,17 @@ class PersonController extends BaseController {
 
         $name = trim($_POST['name'] ?? '');
         $contact_info = trim($_POST['contact_info'] ?? '');
+        $fields = $this->parseStructuredFields();
 
         if (empty($name)) {
+            // Fehlerpfad baut das Person-Array von Hand - alle Felder mitgeben,
+            // sonst gehen die Eingaben beim erneuten Rendern verloren.
             $this->render('admin_person_form', [
                 'title' => 'Person bearbeiten',
-                'person' => ['id' => $id, 'name' => $name, 'contact_info' => $contact_info, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                'person' => array_merge(
+                    ['id' => $id, 'name' => $name, 'contact_info' => $contact_info, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                    $fields
+                ),
                 'error' => 'Der Name der Person ist erforderlich.',
                 'canPublish' => $this->hasPermission('persons', 'publish')
             ]);
@@ -183,20 +190,36 @@ class PersonController extends BaseController {
         // Veröffentlichung nur mit 'persons.publish' änderbar; ohne das Recht bleibt der
         // bisherige Zustand erhalten (ein übermittelter Wunsch wird ignoriert, analog
         // HorseController::update()).
+        $structuredSql = "street = ?, house_number = ?, postal_code = ?, city = ?, country = ?, email = ?, membership_status = ?";
+        $structuredValues = [$fields['street'], $fields['house_number'], $fields['postal_code'], $fields['city'], $fields['country'], $fields['email'], $fields['membership_status']];
         $db = Database::getInstance();
         if ($this->hasPermission('persons', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, is_published = ? WHERE id = ?");
-            $stmt->execute([$name, $contact_info, $isPublished, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_published = ? WHERE id = ?");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isPublished, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ? WHERE id = ?");
-            $stmt->execute([$name, $contact_info, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql} WHERE id = ?");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $id]);
         }
 
         \App\Service\AuditLogger::log("Person aktualisiert", "persons", "Person ID {$id}: {$name}");
 
         header("Location: /admin/persons?success=updated");
         exit;
+    }
+
+    /**
+     * Strukturierte Personenfelder (#188) aus dem POST: Adresse, E-Mail und
+     * Mitgliedsstatus, jeweils leer -> NULL. Bewusst ohne Formatvalidierung
+     * (Freitext-Philosophie wie breed; auch breeding_stations.email wird
+     * nicht validiert).
+     */
+    private function parseStructuredFields(): array {
+        $fields = [];
+        foreach (['street', 'house_number', 'postal_code', 'city', 'country', 'email', 'membership_status'] as $field) {
+            $fields[$field] = trim($_POST[$field] ?? '') ?: null;
+        }
+        return $fields;
     }
 
     public function delete(): void {

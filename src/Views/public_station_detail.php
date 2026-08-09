@@ -5,10 +5,11 @@
  * @var array $horses
  */
 
+// Zuchtstatus seit dem Status-Split (#188) zweiwertig; der Lebensstatus
+// (is_deceased) bekommt unten ein eigenes Badge.
 $statusLabels = [
     'active' => [App\I18n\Translator::t('status.active'), '#d4edda', '#155724'],
     'inactive' => [App\I18n\Translator::t('status.inactive'), '#f8d7da', '#721c24'],
-    'deceased' => [App\I18n\Translator::t('status.deceased'), '#e2e3e5', '#383d41'],
 ];
 ?>
 <div style="margin-bottom: 1rem;">
@@ -71,8 +72,15 @@ $statusLabels = [
                             <?= !empty($horse['ueln']) ? '[' . htmlspecialchars($horse['ueln']) . ']' : '' ?>
                         </span>
                     </div>
-                    <span style="background: <?= $statusMeta[1] ?>; color: <?= $statusMeta[2] ?>; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">
-                        <?= $statusMeta[0] ?>
+                    <span>
+                        <span style="background: <?= $statusMeta[1] ?>; color: <?= $statusMeta[2] ?>; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">
+                            <?= $statusMeta[0] ?>
+                        </span>
+                        <?php if (!empty($horse['is_deceased'])): ?>
+                            <span style="background: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">
+                                ✝ <?= htmlspecialchars(App\I18n\Translator::t('status.deceased')) ?><?= !empty($horse['death_year']) ? ' ' . (int)$horse['death_year'] : '' ?>
+                            </span>
+                        <?php endif; ?>
                     </span>
                 </a>
             <?php endforeach; ?>

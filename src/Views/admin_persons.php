@@ -57,7 +57,14 @@ $publishFormId = 'personPublishForm';
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$p['id']) ?></td>
                         <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$p['name']) ?></strong></td>
                         <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
-                            <?= !empty($p['contact_info']) ? nl2br(htmlspecialchars((string)$p['contact_info'])) : '<em>Keine Angaben</em>' ?>
+                            <?php
+                                // Strukturierte Felder (#188) zuerst, Freitext-Rest darunter.
+                                $addressLine = trim(implode(' ', array_filter([$p['street'] ?? '', $p['house_number'] ?? ''])));
+                                $placeLine = trim(implode(' ', array_filter([$p['postal_code'] ?? '', $p['city'] ?? ''])));
+                                if (!empty($p['country'])) { $placeLine = trim($placeLine . ($placeLine !== '' ? ', ' : '') . $p['country']); }
+                                $lines = array_filter([$addressLine, $placeLine, $p['email'] ?? '', $p['membership_status'] ?? '', $p['contact_info'] ?? '']);
+                            ?>
+                            <?= !empty($lines) ? nl2br(htmlspecialchars(implode("\n", $lines))) : '<em>Keine Angaben</em>' ?>
                         </td>
                         <td style="padding: 0.5rem;">
                             <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">

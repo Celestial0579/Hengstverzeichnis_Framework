@@ -207,7 +207,7 @@ class ApiController extends BaseController {
         // Stations-Datensatz hat keine breeding_station_id und bleibt erhalten.
         $stmt = $db->prepare("
             SELECT
-                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.sex, h.breed, h.status, h.image_url,
+                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.sex, h.breed, h.height_cm, h.status, h.is_deceased, h.death_year, h.image_url,
                 CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
                      THEN NULL ELSE h.breeding_station END AS breeding_station,
                 bs.name AS station_name,
@@ -306,10 +306,19 @@ class ApiController extends BaseController {
             $bindings[] = '%' . $color . '%';
         }
 
+        // Zuchtstatus seit dem Split (#188) nur noch active/inactive; der frühere
+        // Wert 'deceased' fällt wie jeder unbekannte Wert aus der Whitelist
+        // (= kein Filter). Der Lebensstatus hat den eigenen Parameter 'deceased'.
         $status = trim((string)($params['status'] ?? ''));
-        if (in_array($status, ['active', 'inactive', 'deceased'], true)) {
+        if (in_array($status, ['active', 'inactive'], true)) {
             $where[] = "h.status = ?";
             $bindings[] = $status;
+        }
+
+        $deceased = trim((string)($params['deceased'] ?? ''));
+        if ($deceased === '0' || $deceased === '1') {
+            $where[] = "h.is_deceased = ?";
+            $bindings[] = (int)$deceased;
         }
 
         if (!empty($params['birth_year_from'])) {
@@ -344,10 +353,14 @@ class ApiController extends BaseController {
             'ueln' => $row['ueln'],
             'foreign_ueln' => $row['foreign_ueln'],
             'birth_year' => $row['birth_year'] !== null ? (int)$row['birth_year'] : null,
+            'birth_date' => $row['birth_date'],
             'color' => $row['color'],
             'sex' => $row['sex'],
             'breed' => $row['breed'],
+            'height_cm' => $row['height_cm'] !== null ? (int)$row['height_cm'] : null,
             'status' => $row['status'],
+            'is_deceased' => (bool)$row['is_deceased'],
+            'death_year' => $row['death_year'] !== null ? (int)$row['death_year'] : null,
             'image_url' => $row['image_url'],
             'breeding_station' => $row['station_name'] ?: $row['breeding_station'],
             'sire' => $sireName ? ['name' => $sireName, 'ueln' => $row['linked_sire_ueln'] ?: $row['unlinked_sire_ueln']] : null,

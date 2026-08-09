@@ -32,9 +32,49 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
             <input type="text" id="name" name="name" class="form-control" value="<?= htmlspecialchars($old['name'] ?? $person['name'] ?? '') ?>" placeholder="z. B. Max Mustermann" required>
         </div>
 
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 3;">
+                <label for="street">Straße</label>
+                <input type="text" id="street" name="street" class="form-control" value="<?= htmlspecialchars($old['street'] ?? $person['street'] ?? '') ?>" placeholder="z. B. Musterstraße">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="house_number">Hausnr.</label>
+                <input type="text" id="house_number" name="house_number" class="form-control" value="<?= htmlspecialchars($old['house_number'] ?? $person['house_number'] ?? '') ?>" placeholder="12">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="postal_code">PLZ</label>
+                <input type="text" id="postal_code" name="postal_code" class="form-control" value="<?= htmlspecialchars($old['postal_code'] ?? $person['postal_code'] ?? '') ?>" placeholder="12345">
+            </div>
+            <div class="form-group" style="flex: 2;">
+                <label for="city">Ort</label>
+                <input type="text" id="city" name="city" class="form-control" value="<?= htmlspecialchars($old['city'] ?? $person['city'] ?? '') ?>" placeholder="Musterstadt">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="country">Land</label>
+                <input type="text" id="country" name="country" class="form-control" value="<?= htmlspecialchars($old['country'] ?? $person['country'] ?? '') ?>" placeholder="z. B. DE, NO">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="email">E-Mail</label>
+                <input type="email" id="email" name="email" class="form-control" value="<?= htmlspecialchars($old['email'] ?? $person['email'] ?? '') ?>" placeholder="kontakt@example.de">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="membership_status">Mitgliedsstatus beim Verband</label>
+                <input type="text" id="membership_status" name="membership_status" class="form-control" value="<?= htmlspecialchars($old['membership_status'] ?? $person['membership_status'] ?? '') ?>" placeholder="z. B. Mitglied / Nichtmitglied NO">
+            </div>
+        </div>
+        <p style="color: var(--text-subtle); font-size: 0.8rem; margin: -0.3rem 0 1rem 0;">
+            Öffentlich sichtbar sind nur Ort, Land und Mitgliedsstatus - Straße, Hausnummer, PLZ und E-Mail bleiben intern.
+        </p>
+
         <div class="form-group">
-            <label for="contact_info">Kontaktinformationen & Standort (Adresse, E-Mail, Telefon)</label>
-            <textarea id="contact_info" name="contact_info" class="form-control" rows="4" placeholder="Musterstraße 12, 12345 Musterstadt&#10;E-Mail: kontakt@example.de&#10;Tel: 01234-56789"><?= htmlspecialchars($old['contact_info'] ?? $person['contact_info'] ?? '') ?></textarea>
+            <label for="contact_info">Sonstige Kontaktinformationen (z. B. Telefon)</label>
+            <textarea id="contact_info" name="contact_info" class="form-control" rows="3" placeholder="Tel: 01234-56789"><?= htmlspecialchars($old['contact_info'] ?? $person['contact_info'] ?? '') ?></textarea>
         </div>
 
         <?php if ($canPublish): ?>

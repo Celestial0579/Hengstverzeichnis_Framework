@@ -57,8 +57,19 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   darf auf keine Stute zeigen, `dam_id` auf keinen Hengst/Wallach; Pferde
   ohne Geschlechtsangabe bestehen jede Prüfung (#165)
 - `breed` – Rasse als Freitext, bewusst keine normierte Rasseliste (#163)
-- `status` – `active` | `inactive` | `deceased`; rein informativ, steuert
-  die öffentliche Sichtbarkeit **nicht** (das tat er früher)
+- `birth_date` – vollständiges Geburtsdatum (#188), führend wenn gesetzt:
+  `birth_year` wird dann serverseitig daraus abgeleitet. `birth_year` bleibt
+  eigenständig befüllbar (Altbestand kennt oft nur das Jahr) und ist die
+  Filter-/Plugin-Schnittstelle
+- `height_cm` – Stockmaß in cm (#188), plausibler Bereich 50–250
+- `status` – `active` | `inactive`; seit dem Status-Split (#188) **nur noch
+  der Zuchtstatus**, rein informativ, steuert die öffentliche Sichtbarkeit
+  **nicht**. Der frühere Enum-Wert `deceased` wurde per Migration in
+  `is_deceased = 1` + `status = 'inactive'` überführt
+- `is_deceased`/`death_year` – Lebensstatus (#188), unabhängig vom
+  Zuchtstatus: ein Tier kann verstorben und zu Lebzeiten dennoch `active`
+  geführt sein. Ein gesetztes `death_year` impliziert `is_deceased = 1`
+  (serverseitig normalisiert); `death_year < birth_year` wird abgelehnt
 - `deleted_at` – Soft-Delete (Papierkorb), `NULL` = aktiv
 
 ### `horse_persons`
@@ -74,13 +85,21 @@ Wie alle Schema-Änderungen doppelt gepflegt: im Ersteinrichtungs-Schema
 `Database::ensureSchemaUpToDate()` für bestehende Installationen.
 
 ### `persons`
-Züchter/Besitzer/Halter. `contact_info` als Freitext. `is_published`
+Züchter/Besitzer/Halter. Strukturierte Felder seit #188: `street`,
+`house_number`, `postal_code`, `city`, `country` (Freitext, auch Kürzel wie
+`NO`), `email` und `membership_status` (Mitgliedsstatus beim Verband,
+Freitext); `contact_info` bleibt als Freitext-Restfeld (z. B. Telefon).
+**Öffentlich (und im Plugin-Hook-Payload) erscheinen nur `city`, `country`
+und `membership_status`** – Straße, Hausnummer, PLZ und E-Mail sind
+Admin-only. `is_published`
 (Default `0` = unveröffentlicht): nur veröffentlichte Personen erscheinen
 auf öffentlichen Seiten, in Filterlisten und in der API. `deleted_at` für
 Soft-Delete. Wird über die DSGVO-Verwaltung ggf. anonymisiert (Name wird
-durch `"Anonymisierte Person (#<id>)"` ersetzt, `contact_info = NULL`) statt
+durch `"Anonymisierte Person (#<id>)"` ersetzt, `contact_info` und **alle**
+strukturierten PII-Felder werden `NULL`) statt
 zwingend gelöscht, um bestehende `horse_persons`-Zuordnungen (Provenienz der
-Zuchtdaten) zu erhalten.
+Zuchtdaten) zu erhalten. Die DSGVO-Personensuche findet Personen auch über
+die `email`-Spalte.
 
 ### `breeding_stations`
 Deckstationen/Gestüte als eigenständige Entität (Name, Kontakt, Adresse).

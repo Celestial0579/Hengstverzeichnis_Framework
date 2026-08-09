@@ -576,6 +576,39 @@ class Database {
         // greift nur bei bekanntem Geschlecht. Spiegelbildlich zu database/schema.sql.
         $addColumn('horses', 'sex', "ENUM('stallion', 'mare', 'gelding') NULL DEFAULT NULL AFTER `color`");
         $addColumn('horses', 'breed', 'VARCHAR(100) NULL DEFAULT NULL AFTER `sex`');
+
+        // 21. Stammdaten-Ausbau (#188): Geburtsdatum, Stockmaß und der
+        // Status-Split. status wird zum reinen Zuchtstatus (active/inactive),
+        // der Lebensstatus wandert nach is_deceased/death_year. Einmal-Gate
+        // über den Spaltentyp: solange 'deceased' noch im Enum steht, ist die
+        // Umstellung offen - erst Backfill (UPDATE), DANN das MODIFY, sonst
+        // schneidet der Strict Mode die deceased-Werte ab. Spiegelbildlich zu
+        // database/schema.sql.
+        $addColumn('horses', 'birth_date', 'DATE NULL DEFAULT NULL AFTER `birth_year`');
+        $addColumn('horses', 'height_cm', 'SMALLINT UNSIGNED NULL DEFAULT NULL AFTER `breed`');
+        $addColumn('horses', 'is_deceased', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`');
+        $addColumn('horses', 'death_year', 'SMALLINT UNSIGNED NULL DEFAULT NULL AFTER `is_deceased`');
+        try {
+            $statusColumn = $pdo->query("SHOW COLUMNS FROM `horses` LIKE 'status'")->fetch();
+            if (stripos((string)($statusColumn['Type'] ?? ''), 'deceased') !== false) {
+                $pdo->exec("UPDATE `horses` SET `is_deceased` = 1, `status` = 'inactive' WHERE `status` = 'deceased'");
+                $pdo->exec("ALTER TABLE `horses` MODIFY COLUMN `status` ENUM('active', 'inactive') NOT NULL DEFAULT 'active'");
+            }
+        } catch (\Throwable $e) {
+            // Tabelle existiert noch nicht
+        }
+
+        // 22. Strukturierte Personendaten (#188): Adresse, E-Mail und
+        // Mitgliedsstatus als eigene Spalten; contact_info bleibt als
+        // Freitext-Restfeld. Kein Backfill - der bisherige Freitext lässt
+        // sich nicht zuverlässig zerlegen. Spiegelbildlich zu database/schema.sql.
+        $addColumn('persons', 'street', 'VARCHAR(150) NULL DEFAULT NULL AFTER `contact_info`');
+        $addColumn('persons', 'house_number', 'VARCHAR(20) NULL DEFAULT NULL AFTER `street`');
+        $addColumn('persons', 'postal_code', 'VARCHAR(20) NULL DEFAULT NULL AFTER `house_number`');
+        $addColumn('persons', 'city', 'VARCHAR(100) NULL DEFAULT NULL AFTER `postal_code`');
+        $addColumn('persons', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
+        $addColumn('persons', 'email', 'VARCHAR(100) NULL DEFAULT NULL AFTER `country`');
+        $addColumn('persons', 'membership_status', 'VARCHAR(100) NULL DEFAULT NULL AFTER `email`');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

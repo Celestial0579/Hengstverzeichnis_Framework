@@ -167,7 +167,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
 
             <div class="form-group" style="flex: 1;">
                 <label for="breed">Rasse</label>
-                <input type="text" id="breed" name="breed" class="form-control" value="<?= htmlspecialchars($horse['breed'] ?? '') ?>" placeholder="z. B. Trakehner">
+                <input type="text" id="breed" name="breed" class="form-control" value="<?= htmlspecialchars($horse['breed'] ?? '') ?>" placeholder="z. B. Fjordpferd">
             </div>
         </div>
 

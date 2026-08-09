@@ -570,6 +570,12 @@ class Database {
         $addIndex('persons', 'idx_persons_deleted_name', '`deleted_at`, `name`');
         $addIndex('breeding_stations', 'idx_bs_deleted_name', '`deleted_at`, `name`');
         $addIndex('users', 'idx_users_deleted', '`deleted_at`');
+
+        // 20. Geschlecht (#165) und Rasse (#163) für Pferde. NULL = unbekannt
+        // (Altbestand); die Geschlechts-Validierung der Abstammung (#166/#167)
+        // greift nur bei bekanntem Geschlecht. Spiegelbildlich zu database/schema.sql.
+        $addColumn('horses', 'sex', "ENUM('stallion', 'mare', 'gelding') NULL DEFAULT NULL AFTER `color`");
+        $addColumn('horses', 'breed', 'VARCHAR(100) NULL DEFAULT NULL AFTER `sex`');
         } catch (\Exception $e) {
             // Falls Tabellen noch nicht initialisiert wurden
         }

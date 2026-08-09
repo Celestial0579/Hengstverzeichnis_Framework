@@ -20,6 +20,11 @@ return [
 
     // Gemeinsam genutzte Feld-Labels (öffentliche Seiten)
     'field.color' => 'Farbe',
+    'field.sex' => 'Geschlecht',
+    'field.breed' => 'Rasse',
+    'value.sex.stallion' => 'Hengst',
+    'value.sex.mare' => 'Stute',
+    'value.sex.gelding' => 'Wallach',
     'field.birth_year' => 'Geburtsjahr',
     'field.ueln_full' => 'UELN (Haupt-Lebensnummer)',
     'field.foreign_ueln_label' => 'Lebensnummer Ursprungsland',
@@ -72,6 +77,8 @@ return [
     'catalog.dam' => '♀ Mutter (Dam)',
     'catalog.dam_placeholder' => 'Name der Mutter',
     'catalog.all_colors' => '-- Alle Farben --',
+    'catalog.all_sexes' => '-- Alle Geschlechter --',
+    'catalog.breed_placeholder' => 'z. B. Trakehner',
     'catalog.birth_year_from' => 'Geburtsjahr Von',
     'catalog.birth_year_to' => 'Geburtsjahr Bis',
     'catalog.birth_year_from_placeholder' => 'z. B. 2010',

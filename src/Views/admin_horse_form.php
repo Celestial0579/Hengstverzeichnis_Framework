@@ -144,13 +144,26 @@ foreach (($allBreedingStations ?? []) as $bs) {
 
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
-                <label for="birth_year">Geburtsjahr</label>
-                <input type="number" id="birth_year" name="birth_year" min="1700" max="<?= date('Y') + 1 ?>" class="form-control" value="<?= htmlspecialchars((string)($horse['birth_year'] ?? '')) ?>">
+                <label for="birth_date">Geburtsdatum</label>
+                <input type="date" id="birth_date" name="birth_date" class="form-control" value="<?= htmlspecialchars((string)($horse['birth_date'] ?? '')) ?>">
+                <small style="color: var(--text-muted);">Bei gesetztem Datum wird das Geburtsjahr automatisch daraus übernommen.</small>
             </div>
 
             <div class="form-group" style="flex: 1;">
+                <label for="birth_year">Geburtsjahr</label>
+                <input type="number" id="birth_year" name="birth_year" min="1700" max="<?= date('Y') + 1 ?>" class="form-control" value="<?= htmlspecialchars((string)($horse['birth_year'] ?? '')) ?>">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
                 <label for="color">Farbe</label>
                 <input type="text" id="color" name="color" class="form-control" value="<?= htmlspecialchars($horse['color'] ?? '') ?>">
+            </div>
+
+            <div class="form-group" style="flex: 1;">
+                <label for="height_cm">Stockmaß (cm)</label>
+                <input type="number" id="height_cm" name="height_cm" min="50" max="250" class="form-control" value="<?= htmlspecialchars((string)($horse['height_cm'] ?? '')) ?>" placeholder="z. B. 146">
             </div>
         </div>
 
@@ -327,14 +340,30 @@ foreach (($allBreedingStations ?? []) as $bs) {
         </script>
 
         <div class="form-group">
-            <label for="status">Status (Lebenszyklus)</label>
+            <label for="status">Zuchtstatus</label>
             <select id="status" name="status" class="form-control">
                 <option value="active" <?= ($horse['status'] ?? '') === 'active' ? 'selected' : '' ?>>Aktiv (Gekört)</option>
                 <option value="inactive" <?= ($horse['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inaktiv</option>
-                <option value="deceased" <?= ($horse['status'] ?? '') === 'deceased' ? 'selected' : '' ?>>Verstorben</option>
             </select>
             <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
-                Der Status ist rein informativ und beeinflusst die öffentliche Sichtbarkeit nicht.
+                Der Zuchtstatus ist rein informativ und beeinflusst die öffentliche Sichtbarkeit nicht.
+                Verstorben ist davon getrennt: ein Tier kann verstorben und dennoch zu Lebzeiten aktiv geführt sein.
+            </p>
+        </div>
+
+        <div class="form-group">
+            <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; flex: 1; margin-bottom: 0.6rem;">
+                    <input type="checkbox" name="is_deceased" value="1" style="width: auto;" <?= !empty($horse['is_deceased']) ? 'checked' : '' ?>>
+                    ✝ Verstorben
+                </label>
+                <div style="flex: 1;">
+                    <label for="death_year">Todesjahr</label>
+                    <input type="number" id="death_year" name="death_year" min="1700" max="<?= date('Y') ?>" class="form-control" value="<?= htmlspecialchars((string)($horse['death_year'] ?? '')) ?>">
+                </div>
+            </div>
+            <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                Ein eingetragenes Todesjahr setzt "Verstorben" automatisch.
             </p>
         </div>
 

@@ -30,6 +30,11 @@ return [
     'value.sex.mare' => 'Stute',
     'value.sex.gelding' => 'Wallach',
     'field.birth_year' => 'Geburtsjahr',
+    'field.birth_date' => 'Geburtsdatum',
+    'field.height' => 'Stockmaß',
+    'field.death_year' => 'Todesjahr',
+    // PHP-date()-Format für volle Datumsangaben der jeweiligen Locale (#188).
+    'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (Haupt-Lebensnummer)',
     'field.foreign_ueln_label' => 'Lebensnummer Ursprungsland',
     'field.foreign_ueln_inline' => 'Ausland',

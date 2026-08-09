@@ -516,6 +516,7 @@ def run():
             # Hauptpferd: Eltern + Station + Personen-Rollen
             hd = {"csrf_token": c, "name": "Hengst Nordstern", "status": "active", "is_published": "1",
                   "ueln": "DE000000000001", "color": "Falbe", "birth_year": "2020",
+                  "birth_date": "2020-05-14", "height_cm": "146",
                   "description": "Vorführpferd des Testlaufs mit vollständigem Stammbaum.",
                   "sire_id": str(ids["vater"] or ""), "dam_id": str(ids["mutter"] or ""),
                   "breeding_station_id": str(ids["station"] or ""),

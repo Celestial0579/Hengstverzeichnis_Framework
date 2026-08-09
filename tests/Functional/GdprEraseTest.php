@@ -28,8 +28,10 @@ class GdprEraseTest extends FunctionalTestCase {
     private function createPersonWithHorseAndRequest(string $personName, string $email): array {
         $db = $this->db();
 
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, is_published) VALUES (?, 'Musterweg 3, Tel. 0170-1234567', 1)");
-        $stmt->execute([$personName]);
+        // Alle strukturierten PII-Felder (#188) befüllen - die Anonymisierung
+        // unten muss jedes einzelne davon nullen.
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, country, email, membership_status, is_published) VALUES (?, 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'DE', ?, 'Mitglied', 1)");
+        $stmt->execute([$personName, $email]);
         $personId = (int)$db->lastInsertId();
 
         $stmt = $db->prepare("INSERT INTO horses (name, is_published) VALUES (?, 1)");
@@ -109,6 +111,29 @@ class GdprEraseTest extends FunctionalTestCase {
         $fixture = $this->createPersonWithHorseAndRequest("DSGVO Anonperson {$unique}", "gdpr-anon-{$unique}@example.com");
         $db = $this->db();
 
+        // E-Mail-only-Suche (#188): ein Antrag ohne Namen muss die Person über
+        // die persons.email-Spalte finden (der Antragsteller kennt seinen
+        // Datensatz-Namen oft nicht). Direkter INSERT, weil das öffentliche
+        // Formular den Namen verlangt; der Suchpfad im GdprController ist
+        // derselbe.
+        $stmt = $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message, status) VALUES ('', ?, 'deletion', 'Suche per E-Mail', 'pending')");
+        $stmt->execute(["gdpr-anon-{$unique}@example.com"]);
+        $emailOnlyRequestId = (int)$db->lastInsertId();
+        // Den namensbasierten Fixture-Antrag währenddessen auf 'processed'
+        // stellen - nur offene Anträge bekommen Personen-Treffer. Als
+        // Nachweis dient das person_id-Formularfeld des Treffer-Blocks (der
+        // Personenname allein stünde schon als Antragsname auf der Seite und
+        // wäre nicht aussagekräftig).
+        $db->prepare("UPDATE gdpr_requests SET status = 'processed' WHERE id = ?")->execute([$fixture['requestId']]);
+        $overview = $admin->get('/admin/gdpr');
+        $this->assertStringContainsString(
+            '<input type="hidden" name="person_id" value="' . $fixture['personId'] . '">',
+            $overview->body,
+            'Person muss über die E-Mail-Spalte gefunden werden, wenn der Antrag keinen Namen nennt'
+        );
+        $db->prepare("DELETE FROM gdpr_requests WHERE id = ?")->execute([$emailOnlyRequestId]);
+        $db->prepare("UPDATE gdpr_requests SET status = 'pending' WHERE id = ?")->execute([$fixture['requestId']]);
+
         $anonResponse = $admin->post('/admin/gdpr/anonymize-person', [
             'csrf_token' => $this->currentCsrfToken($admin),
             'person_id' => (string)$fixture['personId'],
@@ -120,11 +145,16 @@ class GdprEraseTest extends FunctionalTestCase {
             "Anonymisierung fehlgeschlagen, Body: {$anonResponse->body}"
         );
 
-        $stmt = $db->prepare("SELECT name, contact_info FROM persons WHERE id = ?");
+        $stmt = $db->prepare("SELECT name, contact_info, street, house_number, postal_code, city, country, email, membership_status FROM persons WHERE id = ?");
         $stmt->execute([$fixture['personId']]);
         $person = $stmt->fetch();
         $this->assertSame('Anonymisierte Person (#' . $fixture['personId'] . ')', $person['name']);
         $this->assertNull($person['contact_info']);
+        // Die Anonymisierung muss ALLE strukturierten PII-Felder (#188) leeren -
+        // ein vergessenes Feld wäre ein stiller DSGVO-Leak.
+        foreach (['street', 'house_number', 'postal_code', 'city', 'country', 'email', 'membership_status'] as $field) {
+            $this->assertNull($person[$field], "persons.{$field} muss nach der Anonymisierung NULL sein");
+        }
 
         // Die Pferd-Verknüpfung bleibt bei der Anonymisierung erhalten.
         $stmt = $db->prepare("SELECT COUNT(*) FROM horse_persons WHERE person_id = ?");

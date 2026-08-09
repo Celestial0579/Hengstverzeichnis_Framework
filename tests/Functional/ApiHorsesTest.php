@@ -41,6 +41,8 @@ class ApiHorsesTest extends FunctionalTestCase {
             'color' => 'Rappe',
             'sex' => 'stallion',
             'breed' => 'Trakehner',
+            'birth_date' => '2018-04-02',
+            'height_cm' => '146',
             'breeding_station' => 'API-Testgestüt',
             'birth_year' => '2018',
             'status' => 'active',
@@ -63,6 +65,11 @@ class ApiHorsesTest extends FunctionalTestCase {
         // Geschlecht und Rasse werden in der API ausgeliefert (#165/#163).
         $this->assertSame('stallion', $body['data'][0]['sex']);
         $this->assertSame('Trakehner', $body['data'][0]['breed']);
+        // Stammdaten-Ausbau (#188): neue stabile Felder.
+        $this->assertSame('2018-04-02', $body['data'][0]['birth_date']);
+        $this->assertSame(146, $body['data'][0]['height_cm']);
+        $this->assertFalse($body['data'][0]['is_deceased']);
+        $this->assertNull($body['data'][0]['death_year']);
         $this->assertSame('/horse?id=' . $body['data'][0]['id'], $body['data'][0]['profile_url']);
 
         // 2. Einzelabruf über UELN liefert dasselbe Pferd.
@@ -86,6 +93,32 @@ class ApiHorsesTest extends FunctionalTestCase {
         $noHitsBody = json_decode($noHits->body, true);
         $this->assertSame(0, $noHitsBody['meta']['total']);
         $this->assertSame([], $noHitsBody['data']);
+
+        // 6. Status-Split (#188): zweites, verstorbenes Pferd - der neue
+        // deceased-Filter greift, status=deceased wird als unbekannter Wert
+        // ignoriert (liefert beide), und das status-Feld bleibt 'active'.
+        $deceasedName = "API Verstorben {$unique}";
+        $storeResponse = $admin->post('/admin/horses/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'name' => $deceasedName,
+            'birth_year' => '1994',
+            'death_year' => '2018',
+            'status' => 'active',
+            'is_published' => '1',
+        ]);
+        $this->assertSame('/admin/horses?success=created', $storeResponse->location());
+
+        $filtered = $client->get('/api/horses?search=' . urlencode($unique) . '&deceased=1', $this->bearer($token));
+        $filteredBody = json_decode($filtered->body, true);
+        $this->assertSame(1, $filteredBody['meta']['total'], 'deceased=1 sollte genau das verstorbene Pferd liefern');
+        $this->assertSame($deceasedName, $filteredBody['data'][0]['name']);
+        $this->assertTrue($filteredBody['data'][0]['is_deceased']);
+        $this->assertSame(2018, $filteredBody['data'][0]['death_year']);
+        $this->assertSame('active', $filteredBody['data'][0]['status'], 'Zuchtstatus bleibt vom Lebensstatus unabhängig');
+
+        $ignored = $client->get('/api/horses?search=' . urlencode($unique) . '&status=deceased', $this->bearer($token));
+        $ignoredBody = json_decode($ignored->body, true);
+        $this->assertSame(2, $ignoredBody['meta']['total'], 'status=deceased ist kein gültiger Wert mehr und wird ignoriert');
     }
 
     /**

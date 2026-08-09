@@ -51,7 +51,22 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
 CREATE TABLE IF NOT EXISTS `persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL,
+    -- Freitext-Restfeld (z. B. Telefon); Adresse/E-Mail seit #188 strukturiert.
     `contact_info` TEXT,
+    -- Strukturierte Adresse (#188). Öffentlich (und im Hook-Payload) erscheinen
+    -- NUR city, country und membership_status - street/house_number/postal_code/
+    -- email bleiben Admin-only (siehe PublicController::horseDetail und
+    -- docs/plugin-development.md). Die DSGVO-Anonymisierung nullt alle Felder.
+    `street` VARCHAR(150) NULL DEFAULT NULL,
+    `house_number` VARCHAR(20) NULL DEFAULT NULL,
+    `postal_code` VARCHAR(20) NULL DEFAULT NULL,
+    `city` VARCHAR(100) NULL DEFAULT NULL,
+    -- Freitext, auch Länderkürzel wie 'NO' (Altsystem-Konvention).
+    `country` VARCHAR(100) NULL DEFAULT NULL,
+    `email` VARCHAR(100) NULL DEFAULT NULL,
+    -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
+    -- (z. B. 'Mitglied', 'Nichtmitglied NO').
+    `membership_status` VARCHAR(100) NULL DEFAULT NULL,
     -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
     -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
     -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
@@ -93,20 +108,34 @@ CREATE TABLE IF NOT EXISTS `horses` (
     `dam_name` VARCHAR(100) NULL, -- Unlinked Mother Name
     `dam_ueln` VARCHAR(15) NULL, -- Unlinked Mother UELN
     `birth_year` SMALLINT UNSIGNED NULL,
+    -- Vollständiges Geburtsdatum (#188): führend, wenn gesetzt - birth_year
+    -- wird dann serverseitig daraus abgeleitet. birth_year bleibt eigenständig
+    -- befüllbar (Altbestand kennt oft nur das Jahr) und ist die Filter-/
+    -- Plugin-Schnittstelle.
+    `birth_date` DATE NULL DEFAULT NULL,
     `color` VARCHAR(50),
     -- Geschlecht (#165): NULL = unbekannt (Altbestand). Werte englisch wie beim
-    -- Lebenszyklus-`status`; Wallache sind als Vater ausgeschlossen (#166).
+    -- Zuchtstatus `status`; Wallache sind als Vater ausgeschlossen (#166).
     `sex` ENUM('stallion', 'mare', 'gelding') NULL DEFAULT NULL,
     -- Rasse (#163): bewusst Freitext, keine normierte Rasseliste.
     `breed` VARCHAR(100) NULL DEFAULT NULL,
+    -- Stockmaß in cm (#188), plausibler Bereich 50-250 (Formular + CSV-Import).
+    `height_cm` SMALLINT UNSIGNED NULL DEFAULT NULL,
     `breeding_station_id` INT NULL,
     `breeding_station` VARCHAR(255) NULL,
     `description` TEXT,
-    `status` ENUM('active', 'inactive', 'deceased') DEFAULT 'active',
-    -- Öffentliche Sichtbarkeit, bewusst UNABHÄNGIG vom Lebenszyklus-`status`
+    -- Zuchtstatus (#188): seit dem Status-Split NUR noch aktiv/inaktiv im
+    -- Zuchtbuch. Der Lebensstatus steht getrennt in is_deceased/death_year -
+    -- ein Tier kann verstorben und zu Lebzeiten dennoch "aktiv" geführt sein.
+    `status` ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+    -- Lebensstatus (#188): unabhängig vom Zuchtstatus. Ein gesetztes
+    -- death_year impliziert is_deceased = 1 (serverseitig normalisiert).
+    `is_deceased` TINYINT(1) NOT NULL DEFAULT 0,
+    `death_year` SMALLINT UNSIGNED NULL DEFAULT NULL,
+    -- Öffentliche Sichtbarkeit, bewusst UNABHÄNGIG von Zucht-/Lebensstatus
     -- (#66-Folge): nur is_published = 1 erscheint im öffentlichen Katalog/API,
     -- gesteuert durch die Berechtigung horses.publish. `status` ist rein
-    -- informativ (Gekört/Inaktiv/Verstorben) und beeinflusst die Sichtbarkeit nicht.
+    -- informativ (Gekört/Inaktiv) und beeinflusst die Sichtbarkeit nicht.
     `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `image_url` VARCHAR(255) NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

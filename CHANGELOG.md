@@ -8,6 +8,48 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- **Vollständiges Geburtsdatum, Stockmaß und Todesjahr** für Pferde (#188):
+  `horses.birth_date` ist führend, wenn gesetzt - `birth_year` wird daraus
+  abgeleitet und bleibt für Filter und Plugins erhalten. `horses.height_cm`
+  (Stockmaß in cm, 50–250) und `horses.death_year` neu. Überall verfügbar:
+  Admin-Formular, CSV-Import (neue Spalten `birth_date` [ISO oder TT.MM.JJJJ],
+  `height_cm`, `deceased`, `death_year`; Alt-Wert `status=deceased` bleibt
+  importierbar), JSON-API (`birth_date`, `height_cm`, `is_deceased`,
+  `death_year` + neuer Filter `deceased=0|1`) und öffentliche Detailseite.
+  Todesjahr vor Geburtsjahr wird serverseitig abgelehnt.
+- **Strukturierte Personendaten** (#188): Straße, Hausnummer, PLZ, Ort, Land,
+  E-Mail und Verbands-Mitgliedsstatus als eigene Felder; `contact_info`
+  bleibt als Freitext-Restfeld. Öffentlich (und im `$horsePersons`-
+  Hook-Payload) erscheinen nur Ort, Land und Mitgliedsstatus - E-Mail und
+  Adresse bleiben Admin-only. Die DSGVO-Anonymisierung leert alle neuen
+  Felder; die DSGVO-Personensuche findet Personen jetzt auch über die
+  E-Mail-Spalte.
+
+### Geändert
+
+- Der Zuchtstatus im Pferde-Formular wird jetzt serverseitig gegen eine
+  Whitelist geprüft (vorher ungeprüft übernommen).
+
+### Breaking Changes
+
+- **Status-Split** (#188): `horses.status` ist nur noch der **Zuchtstatus**
+  (`active`/`inactive`); der Lebensstatus steht getrennt in
+  `horses.is_deceased` + `horses.death_year` - ein Tier kann verstorben und
+  zu Lebzeiten dennoch aktiv geführt sein. Die Migration überführt
+  `status='deceased'` einmalig in `is_deceased=1, status='inactive'` und
+  entfernt `deceased` aus dem Enum. Folgen: Das API-Feld `status` liefert
+  nie mehr `deceased`; der API-Filter `status=deceased` wird ignoriert
+  (neu: `deceased=0|1`). Der Katalogfilter `q_status=deceased` bleibt
+  funktional und mappt auf `is_deceased=1`. Plugins, die `deceased` aus
+  `status` lesen, müssen auf `is_deceased` umstellen (betroffen:
+  katalog-export, statistik-dashboard im Addons-Repo).
+- **Hook-Vertrag erweitert** (#188): `$horsePersons` enthält zusätzlich
+  `city`, `country`, `membership_status` (bewusst NICHT E-Mail/Adresse);
+  die `catalog.card_sections`-Teilmenge zusätzlich `birth_date`,
+  `is_deceased`, `death_year`.
+
 ## [0.2.0] – 2026-08-09
 
 Erstes stabiles Release. Gegenüber v0.2.0-beta.2 kamen die Kernattribute

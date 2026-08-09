@@ -84,8 +84,17 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 <div class="card" style="margin-bottom: 2rem;">
     <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
         <span><?= htmlspecialchars((string)$horse['name']) ?></span>
-        <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
-            <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : ($horse['status'] === 'inactive' ? 'status.inactive' : 'status.deceased'))) ?>
+        <span>
+            <?php // Zuchtstatus-Badge; seit dem Status-Split (#188) zweiwertig. ?>
+            <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
+                <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : 'status.inactive')) ?>
+            </span>
+            <?php if (!empty($horse['is_deceased'])): ?>
+                <?php // Lebensstatus getrennt vom Zuchtstatus (#188). ?>
+                <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color);">
+                    ✝ <?= htmlspecialchars(App\I18n\Translator::t('status.deceased')) ?><?= !empty($horse['death_year']) ? ' ' . (int)$horse['death_year'] : '' ?>
+                </span>
+            <?php endif; ?>
         </span>
     </h1>
 
@@ -110,9 +119,21 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     </tr>
                 <?php endif; ?>
                 <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
+                    <?php // Volles Geburtsdatum (#188) wenn erfasst, sonst nur das Jahr. ?>
+                    <?php if (!empty($horse['birth_date'])): ?>
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_date')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['birth_date']))) ?></td>
+                    <?php else: ?>
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
+                    <?php endif; ?>
                 </tr>
+                <?php if (!empty($horse['death_year'])): ?>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.death_year')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= (int)$horse['death_year'] ?></td>
+                    </tr>
+                <?php endif; ?>
                 <tr style="border-bottom: 1px solid var(--border-color);">
                     <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
@@ -125,6 +146,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.breed')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)(($horse['breed'] ?? '') ?: App\I18n\Translator::t('field.unknown'))) ?></td>
                 </tr>
+                <?php if (!empty($horse['height_cm'])): ?>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.height')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= (int)$horse['height_cm'] ?> cm</td>
+                    </tr>
+                <?php endif; ?>
                 <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
                     <tr style="border-bottom: 1px solid var(--border-color);">
                         <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>
@@ -218,6 +245,18 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                     </div>
                                 <?php endif; ?>
 
+                                <?php
+                                    // Ort/Land/Mitgliedsstatus (#188) sind die einzigen
+                                    // strukturierten Personenfelder auf der öffentlichen
+                                    // Seite - Adresse/E-Mail bleiben Admin-only (siehe
+                                    // PublicController::horseDetail).
+                                    $placeParts = array_filter([$hp['city'] ?? '', $hp['country'] ?? '']);
+                                ?>
+                                <?php if (!empty($placeParts) || !empty($hp['membership_status'])): ?>
+                                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
+                                        <?= htmlspecialchars(implode(', ', $placeParts)) ?><?php if (!empty($placeParts) && !empty($hp['membership_status'])): ?> · <?php endif; ?><?= htmlspecialchars((string)($hp['membership_status'] ?? '')) ?>
+                                    </div>
+                                <?php endif; ?>
                                 <?php if (!empty($hp['contact_info'])): ?>
                                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
                                         <?= nl2br(htmlspecialchars($hp['contact_info'])) ?>

@@ -39,6 +39,7 @@ $publishFormId = 'horsePublishForm';
             $errorMessages = [
                 'sex_mismatch_sire' => 'Nicht gespeichert: Das als Vater gewählte Pferd ist als Stute erfasst.',
                 'sex_mismatch_dam' => 'Nicht gespeichert: Das als Mutter gewählte Pferd ist als Hengst oder Wallach erfasst.',
+                'death_before_birth' => 'Nicht gespeichert: Das Todesjahr liegt vor dem Geburtsjahr.',
             ];
             echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
             ?>
@@ -83,8 +84,13 @@ $publishFormId = 'horsePublishForm';
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
                         <td style="padding: 0.5rem;">
                             <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-color);">
-                                <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : ($horse['status'] === 'inactive' ? 'Inaktiv' : 'Verstorben') ?>
+                                <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : 'Inaktiv' ?>
                             </span>
+                            <?php if (!empty($horse['is_deceased'])): ?>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color);">
+                                    ✝ Verstorben
+                                </span>
+                            <?php endif; ?>
                             <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($horse['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($horse['is_published']) ? '#155724' : '#721c24' ?>;">
                                 <?= !empty($horse['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
                             </span>

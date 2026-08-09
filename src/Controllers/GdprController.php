@@ -48,10 +48,13 @@ class GdprController extends BaseController {
 
         $candidates = [];
         if (!empty($terms)) {
-            $conditions = implode(' OR ', array_fill(0, count($terms), '(p.name LIKE ? OR p.contact_info LIKE ?)'));
+            // E-Mail seit #188 eigenes Feld - Anträge nennen oft nur die
+            // E-Mail-Adresse, die Suche muss sie auch dort finden.
+            $conditions = implode(' OR ', array_fill(0, count($terms), '(p.name LIKE ? OR p.contact_info LIKE ? OR p.email LIKE ?)'));
             $params = [];
             foreach (array_keys($terms) as $term) {
                 $like = '%' . $term . '%';
+                $params[] = $like;
                 $params[] = $like;
                 $params[] = $like;
             }
@@ -74,7 +77,8 @@ class GdprController extends BaseController {
             if ($req['request_type'] === 'deletion' && $req['status'] !== 'processed' && $searchTerm !== '') {
                 foreach ($candidates as $candidate) {
                     if (self::containsIgnoreCase((string)$candidate['name'], $searchTerm)
-                        || self::containsIgnoreCase((string)($candidate['contact_info'] ?? ''), $searchTerm)) {
+                        || self::containsIgnoreCase((string)($candidate['contact_info'] ?? ''), $searchTerm)
+                        || self::containsIgnoreCase((string)($candidate['email'] ?? ''), $searchTerm)) {
                         $matchingPersons[] = $candidate;
                     }
                 }
@@ -135,9 +139,11 @@ class GdprController extends BaseController {
         if ($personId > 0) {
             $db = Database::getInstance();
 
-            // Anonymize person data while preserving horse relationships in horse_persons
+            // Anonymize person data while preserving horse relationships in horse_persons.
+            // Alle PII-Felder nullen - auch city/country/membership_status sind
+            // personenbezogen, sobald sie am Namen hängen (#188).
             $anonName = "Anonymisierte Person (#" . $personId . ")";
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, country = NULL, email = NULL, membership_status = NULL WHERE id = ?");
             $stmt->execute([$anonName, $personId]);
 
             // Automatically mark GDPR request as processed

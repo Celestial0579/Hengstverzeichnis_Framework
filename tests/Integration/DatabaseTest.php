@@ -93,6 +93,17 @@ class DatabaseTest extends TestCase {
                 `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
+
+        // Bestandspferde mit dem Alt-Enum inkl. 'deceased' - der Status-Split
+        // (#188, Block 21 in ensureSchemaUpToDate()) muss das deceased-Pferd
+        // in is_deceased=1 + status='inactive' überführen und die anderen
+        // unangetastet lassen.
+        self::$setupPdo->exec("
+            INSERT INTO `horses` (`name`, `status`) VALUES
+            ('Legacy Aktiv', 'active'),
+            ('Legacy Inaktiv', 'inactive'),
+            ('Legacy Verstorben', 'deceased')
+        ");
     }
 
     /**
@@ -126,11 +137,43 @@ class DatabaseTest extends TestCase {
         $this->assertColumnExists($pdo, 'horses', 'is_published');
         $this->assertColumnExists($pdo, 'horses', 'deleted_at');
 
+        // Geschlecht/Rasse (#172) und der Stammdaten-Ausbau (#188)
+        $this->assertColumnExists($pdo, 'horses', 'sex');
+        $this->assertColumnExists($pdo, 'horses', 'breed');
+        $this->assertColumnExists($pdo, 'horses', 'birth_date');
+        $this->assertColumnExists($pdo, 'horses', 'height_cm');
+        $this->assertColumnExists($pdo, 'horses', 'is_deceased');
+        $this->assertColumnExists($pdo, 'horses', 'death_year');
+
+        // Strukturierte Personendaten (#188)
+        $this->assertColumnExists($pdo, 'persons', 'street');
+        $this->assertColumnExists($pdo, 'persons', 'house_number');
+        $this->assertColumnExists($pdo, 'persons', 'postal_code');
+        $this->assertColumnExists($pdo, 'persons', 'city');
+        $this->assertColumnExists($pdo, 'persons', 'country');
+        $this->assertColumnExists($pdo, 'persons', 'email');
+        $this->assertColumnExists($pdo, 'persons', 'membership_status');
+
         // birth_year wird von YEAR auf SMALLINT UNSIGNED umgestellt (historische
         // Geburtsjahre vor 1901, die der YEAR-Typ nicht abbilden kann, siehe #10
         // in ensureSchemaUpToDate())
         $columnType = $pdo->query("SHOW COLUMNS FROM `horses` LIKE 'birth_year'")->fetch()['Type'] ?? '';
         $this->assertStringContainsString('smallint', strtolower($columnType));
+
+        // Status-Split (#188): 'deceased' muss aus dem Enum entfernt sein und
+        // der Backfill muss das Bestandspferd korrekt überführt haben - die
+        // beiden anderen bleiben unangetastet.
+        $statusType = $pdo->query("SHOW COLUMNS FROM `horses` LIKE 'status'")->fetch()['Type'] ?? '';
+        $this->assertStringNotContainsString('deceased', strtolower($statusType), "horses.status-Enum sollte 'deceased' nach dem Status-Split nicht mehr enthalten");
+
+        $rows = $pdo->query("SELECT name, status, is_deceased FROM horses ORDER BY id")->fetchAll();
+        $byName = array_column($rows, null, 'name');
+        $this->assertSame('active', $byName['Legacy Aktiv']['status']);
+        $this->assertSame(0, (int)$byName['Legacy Aktiv']['is_deceased']);
+        $this->assertSame('inactive', $byName['Legacy Inaktiv']['status']);
+        $this->assertSame(0, (int)$byName['Legacy Inaktiv']['is_deceased']);
+        $this->assertSame('inactive', $byName['Legacy Verstorben']['status']);
+        $this->assertSame(1, (int)$byName['Legacy Verstorben']['is_deceased']);
 
         // Neue Tabellen, die ensureSchemaUpToDate() bei Bedarf komplett anlegt
         $this->assertTableExists($pdo, 'audit_logs');

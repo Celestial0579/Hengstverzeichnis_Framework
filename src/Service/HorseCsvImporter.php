@@ -37,11 +37,33 @@ final class HorseCsvImporter {
      */
     public const KNOWN_COLUMNS = [
         'name', 'ueln', 'foreign_ueln', 'sire_name', 'sire_ueln',
-        'dam_name', 'dam_ueln', 'birth_year', 'color', 'sex', 'breed',
-        'breeding_station', 'description', 'status',
+        'dam_name', 'dam_ueln', 'birth_year', 'birth_date', 'color', 'sex', 'breed',
+        'height_cm', 'breeding_station', 'description', 'status', 'deceased', 'death_year',
     ];
 
-    private const VALID_STATUSES = ['active', 'inactive', 'deceased'];
+    /**
+     * Zuchtstatus seit dem Status-Split (#188): active/inactive. Der frühere
+     * Wert 'deceased' wird als Legacy-Eingabe weiter akzeptiert und zu
+     * status=inactive + deceased=1 normalisiert - Exporte aus der Zeit vor dem
+     * Split (und der Migrations-Backfill-Semantik entsprechend) bleiben damit
+     * importierbar.
+     */
+    private const VALID_STATUSES = ['active', 'inactive'];
+
+    /**
+     * Akzeptierte Wahrheitswerte der deceased-Spalte (case-insensitiv) und ihr
+     * kanonischer Wert - deutsch und englisch, analog SEX_ALIASES.
+     */
+    private const DECEASED_ALIASES = [
+        '1' => 1, '0' => 0,
+        'ja' => 1, 'nein' => 0,
+        'yes' => 1, 'no' => 0,
+        'true' => 1, 'false' => 0,
+    ];
+
+    /** Plausibler Stockmaß-Bereich in cm (#188), identisch zum Formular. */
+    private const HEIGHT_MIN = 50;
+    private const HEIGHT_MAX = 250;
 
     /**
      * Akzeptierte Geschlechts-Angaben (case-insensitiv) und ihr kanonischer
@@ -170,12 +192,16 @@ final class HorseCsvImporter {
                 'dam_name' => $get('dam_name') ?: null,
                 'dam_ueln' => $get('dam_ueln') ?: null,
                 'birth_year' => $get('birth_year'),
+                'birth_date' => $get('birth_date'),
                 'color' => $get('color'),
                 'sex' => $get('sex'),
                 'breed' => $get('breed') ?: null,
+                'height_cm' => $get('height_cm'),
                 'breeding_station' => $get('breeding_station'),
                 'description' => $get('description'),
                 'status' => $get('status') ?: 'active',
+                'deceased' => $get('deceased'),
+                'death_year' => $get('death_year'),
             ];
 
             $errors = [];
@@ -202,8 +228,77 @@ final class HorseCsvImporter {
             }
             $data['birth_year'] = $data['birth_year'] !== '' && ctype_digit($data['birth_year']) ? (int)$data['birth_year'] : null;
 
+            // Geburtsdatum (#188): ISO (YYYY-MM-DD) oder deutsches Format
+            // (TT.MM.JJJJ, üblicher Excel-Export). Anders als im Formular ist
+            // ein Widerspruch zwischen birth_date und birth_year hier ein
+            // Zeilenfehler - beim Import ist er ein Datenqualitätsproblem,
+            // keine Tippkorrektur.
+            if ($data['birth_date'] !== '') {
+                $parsedDate = self::parseBirthDate($data['birth_date']);
+                if ($parsedDate === null) {
+                    $errors[] = "Geburtsdatum '{$data['birth_date']}' ist ungültig (erwartet: JJJJ-MM-TT oder TT.MM.JJJJ, Jahr 1600 bis " . ((int)date('Y') + 1) . ").";
+                    $data['birth_date'] = null;
+                } else {
+                    $dateYear = (int)substr($parsedDate, 0, 4);
+                    if ($data['birth_year'] !== null && $data['birth_year'] !== $dateYear) {
+                        $errors[] = "Geburtsdatum '{$parsedDate}' und Geburtsjahr '{$data['birth_year']}' widersprechen sich.";
+                    }
+                    $data['birth_date'] = $parsedDate;
+                    $data['birth_year'] = $dateYear;
+                }
+            } else {
+                $data['birth_date'] = null;
+            }
+
+            if ($data['height_cm'] !== '') {
+                if (!ctype_digit($data['height_cm']) || (int)$data['height_cm'] < self::HEIGHT_MIN || (int)$data['height_cm'] > self::HEIGHT_MAX) {
+                    $errors[] = "Stockmaß '{$data['height_cm']}' ist ungültig (erwartet: " . self::HEIGHT_MIN . " bis " . self::HEIGHT_MAX . " cm).";
+                    $data['height_cm'] = null;
+                } else {
+                    $data['height_cm'] = (int)$data['height_cm'];
+                }
+            } else {
+                $data['height_cm'] = null;
+            }
+
+            // Status-Split (#188): Legacy-Wert 'deceased' normalisieren wie der
+            // Migrations-Backfill, danach Whitelist.
+            if ($data['status'] === 'deceased') {
+                $data['status'] = 'inactive';
+                if ($data['deceased'] === '') {
+                    $data['deceased'] = '1';
+                }
+            }
             if (!in_array($data['status'], self::VALID_STATUSES, true)) {
-                $errors[] = "Status '{$data['status']}' ist ungültig (erlaubt: " . implode(', ', self::VALID_STATUSES) . ").";
+                $errors[] = "Status '{$data['status']}' ist ungültig (erlaubt: " . implode(', ', self::VALID_STATUSES) . " sowie 'deceased' als Alt-Wert).";
+            }
+
+            // Lebensstatus (#188): deceased-Spalte als Wahrheitswert, Todesjahr
+            // impliziert verstorben; Todesjahr vor Geburtsjahr ist ein Fehler.
+            if ($data['deceased'] !== '') {
+                $deceasedKey = strtolower($data['deceased']);
+                if (isset(self::DECEASED_ALIASES[$deceasedKey])) {
+                    $data['deceased'] = self::DECEASED_ALIASES[$deceasedKey];
+                } else {
+                    $errors[] = "Verstorben-Angabe '{$data['deceased']}' ist ungültig (erlaubt: " . implode(', ', array_keys(self::DECEASED_ALIASES)) . ").";
+                    $data['deceased'] = 0;
+                }
+            } else {
+                $data['deceased'] = 0;
+            }
+            if ($data['death_year'] !== '') {
+                if (!ctype_digit($data['death_year']) || (int)$data['death_year'] < 1600 || (int)$data['death_year'] > (int)date('Y') + 1) {
+                    $errors[] = "Todesjahr '{$data['death_year']}' ist ungültig (erwartet: Jahreszahl zwischen 1600 und " . ((int)date('Y') + 1) . ").";
+                    $data['death_year'] = null;
+                } else {
+                    $data['death_year'] = (int)$data['death_year'];
+                    $data['deceased'] = 1;
+                    if ($data['birth_year'] !== null && $data['death_year'] < $data['birth_year']) {
+                        $errors[] = "Todesjahr '{$data['death_year']}' liegt vor dem Geburtsjahr '{$data['birth_year']}'.";
+                    }
+                }
+            } else {
+                $data['death_year'] = null;
             }
 
             // Geschlecht (#165): leer -> NULL (unbekannt); ungültige Angabe ist ein
@@ -233,6 +328,28 @@ final class HorseCsvImporter {
         }
 
         return $results;
+    }
+
+    /**
+     * Geburtsdatum (#188) aus einer CSV-Zelle: ISO YYYY-MM-DD oder deutsches
+     * TT.MM.JJJJ, echtes Kalenderdatum, Jahresbereich wie birth_year.
+     * Liefert das normalisierte ISO-Datum oder null bei ungültiger Eingabe.
+     */
+    private static function parseBirthDate(string $value): ?string {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m)) {
+            [, $year, $month, $day] = $m;
+        } elseif (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $value, $m)) {
+            [, $day, $month, $year] = $m;
+        } else {
+            return null;
+        }
+        if (!checkdate((int)$month, (int)$day, (int)$year)) {
+            return null;
+        }
+        if ((int)$year < 1600 || (int)$year > (int)date('Y') + 1) {
+            return null;
+        }
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
 
     /**

@@ -52,7 +52,7 @@ Daraus folgt beides bewusst:
 ## Sicherheits-/Sichtbarkeitsmodell
 
 Die API liefert **ausschließlich Felder, die auch über den öffentlichen
-HTML-Katalog** (`/katalog`, `/hengst?id=...`) einsehbar sind:
+HTML-Katalog** (`/katalog`, `/horse?id=...`) einsehbar sind:
 
 - Nur veröffentlichte Pferde (`is_published`); gelöschte (`deleted_at`)
   erscheinen nie - genau wie im HTML-Katalog.
@@ -126,7 +126,7 @@ curl -H "Authorization: Bearer hv_..." \
       "dam": null,
       "breeder": "Max Mustermann",
       "owner": "Erika Musterfrau",
-      "profile_url": "/hengst?id=42"
+      "profile_url": "/horse?id=42"
     }
   ],
   "meta": { "page": 1, "per_page": 25, "total_pages": 1, "total": 1 }

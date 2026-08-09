@@ -54,7 +54,7 @@ HTTPS-/Proxy-Erkennung beim Setzen der Security-Header).
 
 - Sehr einfaches Array von `['method', 'path', 'callback']`-Tupeln, exakter
   String-Vergleich (kein Pattern-/Parameter-Matching wie `/horse/{id}`).
-  IDs werden stattdessen über Query-Parameter übergeben (z. B. `/hengst?id=5`).
+  IDs werden stattdessen über Query-Parameter übergeben (z. B. `/horse?id=5`).
 - Alle Routen werden zentral in `public/index.php` registriert.
 - Kein Treffer → `PublicController::renderNotFound()` (404).
 - `Router::generateCsrfToken()` / `Router::verifyCsrfToken()`: zentrale
@@ -282,7 +282,7 @@ admin-konfigurierbare, gruppenspezifische Sichtbarkeit (#57).
   Footer, `layout.php`).
 - Deckt alle öffentlich (auch ohne Login) erreichbaren Seiten vollständig ab:
   Seiten-Grundgerüst (`layout.php`: Navigation, Footer), Startseite,
-  Hengstkatalog samt Filtern und asynchroner AJAX-Ergebnisliste, Pferde- und
+  das Verzeichnis samt Filtern und asynchroner AJAX-Ergebnisliste, Pferde- und
   Deckstation-Detailseiten inkl. Stammbaum, Impressum/Datenschutz/
   DSGVO-Anfrageformular sowie der nicht angemeldete Auth-Flow (Login,
   2FA-Verifikation, Passwort vergessen/zurücksetzen) und die Fehlerseiten

@@ -63,7 +63,7 @@ class ApiHorsesTest extends FunctionalTestCase {
         // Geschlecht und Rasse werden in der API ausgeliefert (#165/#163).
         $this->assertSame('stallion', $body['data'][0]['sex']);
         $this->assertSame('Trakehner', $body['data'][0]['breed']);
-        $this->assertSame('/hengst?id=' . $body['data'][0]['id'], $body['data'][0]['profile_url']);
+        $this->assertSame('/horse?id=' . $body['data'][0]['id'], $body['data'][0]['profile_url']);
 
         // 2. Einzelabruf über UELN liefert dasselbe Pferd.
         $showResponse = $client->get('/api/horses/show?ueln=' . urlencode($ueln), $this->bearer($token));

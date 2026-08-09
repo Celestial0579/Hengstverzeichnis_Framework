@@ -27,7 +27,7 @@
                 <h3><?= htmlspecialchars((string)$horse['name']) ?></h3>
                 <p><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?>: <?= htmlspecialchars((string)$horse['color']) ?></p>
                 <div style="margin-top: 1rem;">
-                    <a href="/hengst?id=<?= $horse['id'] ?>" class="btn btn-secondary"><?= htmlspecialchars(App\I18n\Translator::t('home.view_details')) ?></a>
+                    <a href="/horse?id=<?= $horse['id'] ?>" class="btn btn-secondary"><?= htmlspecialchars(App\I18n\Translator::t('home.view_details')) ?></a>
                 </div>
             </div>
         <?php endforeach; ?>

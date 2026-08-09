@@ -608,7 +608,7 @@ def run():
             hid = ids.get("haupt")
             if hid:
                 shot(page, "public-hengst-detail", "Öffentliche Pferde-Detailseite (Stammbaum, COI, Addon-Abschnitte)",
-                     f"/hengst?id={hid}")
+                     f"/horse?id={hid}")
             if ids.get("station"):
                 shot(page, "public-station", "Öffentliche Deckstationsseite", f"/station?id={ids['station']}")
             shot(page, "public-impressum", "Impressum", "/impressum")
@@ -658,7 +658,7 @@ def run():
             gshot("gast-katalog", "Katalog als anonymer Gast", "/katalog")
             if ids.get("haupt"):
                 gshot("gast-hengst-detail", "Pferde-Detailseite als Gast (Deckanfrage-Formular sichtbar)",
-                      f"/hengst?id={ids['haupt']}")
+                      f"/horse?id={ids['haupt']}")
             gshot("gast-login", "Login-Seite" + (f" mit SSO-Button ({OIDC_LABEL})" if OIDC_LABEL else ""), "/login")
             gctx.close()
 
@@ -910,7 +910,7 @@ def run():
             hid = ids.get("haupt")
             seiten = [
                 ("dark-start", "/"), ("dark-katalog", "/katalog"),
-                ("dark-hengst-detail", f"/hengst?id={hid}" if hid else "/katalog"),
+                ("dark-hengst-detail", f"/horse?id={hid}" if hid else "/katalog"),
                 ("dark-login", "/login"),
                 ("dark-admin-dashboard", "/admin"), ("dark-admin-logs", "/admin/logs"),
                 ("dark-admin-personen", "/admin/persons"), ("dark-admin-gdpr", "/admin/gdpr"),

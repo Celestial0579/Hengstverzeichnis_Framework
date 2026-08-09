@@ -59,7 +59,7 @@ $catalogPagination = $catalogPagination ?? null;
                         <?= $extraSection ?>
                     <?php endforeach; ?>
                 </div>
-                <a href="/hengst?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="display: block; text-align: center; margin-top: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.view_profile')) ?></a>
+                <a href="/horse?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="display: block; text-align: center; margin-top: 0.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.view_profile')) ?></a>
             </div>
         </div>
     <?php endforeach; ?>

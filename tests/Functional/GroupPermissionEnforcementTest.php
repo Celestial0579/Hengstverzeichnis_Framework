@@ -280,7 +280,7 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         $horsesPage = $admin->get('/admin/horses?search=' . urlencode($horseName));
         preg_match('#/admin/horses/edit\?id=(\d+)#', $horsesPage->body, $idMatch);
         $this->assertNotEmpty($idMatch, 'Konnte die ID des Testpferds nicht aus /admin/horses ermitteln.');
-        $detailPath = '/hengst?id=' . (int)$idMatch[1];
+        $detailPath = '/horse?id=' . (int)$idMatch[1];
 
         $guest = $this->newClient();
 

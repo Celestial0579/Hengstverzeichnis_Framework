@@ -354,7 +354,7 @@ class ApiController extends BaseController {
             'dam' => $damName ? ['name' => $damName, 'ueln' => $row['linked_dam_ueln'] ?: $row['unlinked_dam_ueln']] : null,
             'breeder' => $row['breeder_name'],
             'owner' => $row['owner_name'],
-            'profile_url' => '/hengst?id=' . (int)$row['id'],
+            'profile_url' => '/horse?id=' . (int)$row['id'],
         ];
     }
 

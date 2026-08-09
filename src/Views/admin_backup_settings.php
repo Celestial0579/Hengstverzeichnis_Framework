@@ -13,8 +13,8 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
     <h2>💾 Backups</h2>
     <p style="color: var(--text-muted);">
         Automatisierte, periodische Sicherung der Datenbank an ein von drei
-        wählbaren externen Zielen (#59, #93) - als Kernfunktion, aufbauend auf der
-        Cron-/Scheduler-Infrastruktur (#67, siehe
+        wählbaren externen Zielen - als Kernfunktion, aufbauend auf der
+        Cron-/Scheduler-Infrastruktur (siehe
         <a href="/admin/cron">Automatisierung (Cron)</a>). Enthält aktuell nur die
         Datenbank, keine hochgeladenen Dateien (Logos/Pferdebilder).
     </p>

@@ -9,7 +9,7 @@ $cronUrl = rtrim(APP_URL, '/') . '/cron/run';
 <div class="card" style="max-width: 800px;">
     <h2>⏱️ Automatisierung (Cron)</h2>
     <p style="color: var(--text-muted);">
-        Grundlegende Scheduler-Infrastruktur (#67) für periodisch auszuführende Aufgaben
+        Grundlegende Scheduler-Infrastruktur für periodisch auszuführende Aufgaben
         (z. B. künftige automatisierte Backups oder E-Mail-Digests). Ein externer System-Cron
         ruft dazu regelmäßig einen geschützten Endpunkt auf - alternativ lassen sich fällige
         Aufgaben auch manuell hier auslösen.

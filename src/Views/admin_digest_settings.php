@@ -12,7 +12,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
 <div class="card" style="max-width: 800px;">
     <h2>📋 E-Mail-Digest</h2>
     <p style="color: var(--text-muted);">
-        Optionaler periodischer E-Mail-Digest an alle Admin- und Editor-Konten (#52) mit
+        Optionaler periodischer E-Mail-Digest an alle Admin- und Editor-Konten mit
         offenen Blutlinien-Match-/Merge-Vorschlägen (siehe
         <a href="/admin/matches">Blutlinien Zusammenführen</a>) sowie Papierkorb-Einträgen,
         die sich der 30-Tage-Löschfrist nähern (siehe <a href="/admin/trash">Papierkorb</a>).

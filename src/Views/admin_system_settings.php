@@ -68,7 +68,7 @@
                 <?php endforeach; ?>
             </select>
             <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
-                Standardsprache der öffentlichen Seiten (#48). Besucher können sie über den Sprachumschalter im Footer für ihre eigene Sitzung übersteuern.
+                Standardsprache der öffentlichen Seiten. Besucher können sie über den Sprachumschalter im Footer für ihre eigene Sitzung übersteuern.
                 Weitere Sprachen sowie Übersetzungen im Admin-Bereich folgen schrittweise.
             </small>
         </div>
@@ -81,7 +81,7 @@
             </label>
             <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Standard: deaktiviert. Neue Konten müssen ihre E-Mail-Adresse per Link bestätigen,
-                bevor die Anmeldung möglich ist (#83). Registrierungen sind pro IP begrenzt.
+                bevor die Anmeldung möglich ist. Registrierungen sind pro IP begrenzt.
             </small>
             <div style="margin-top: 0.6rem;">
                 <label for="registration_default_group" style="font-size: 0.9rem;">Standard-Gruppe für neue Konten</label>
@@ -95,7 +95,7 @@
                 </select>
                 <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                     Administrator und Öffentlich/Gäste sind nicht wählbar. Ohne Standard-Gruppe erhalten
-                    neue Konten keinerlei Rechte (und wegen der Fail-safe-Regel aus #84 eine 2FA-Pflicht) -
+                    neue Konten keinerlei Rechte (und wegen der Fail-safe-Regel eine 2FA-Pflicht) -
                     ob die gewählte Gruppe 2FA verlangt, steuern Sie unter
                     <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>.
                 </small>
@@ -106,7 +106,7 @@
             <div class="form-group" style="margin-top: 1.5rem;">
                 <label>✨ Sichtbarkeit von Zusatzfunktionen</label>
                 <small style="color: var(--text-muted); display: block; margin-bottom: 0.5rem;">
-                    Von Plugins bereitgestellte Zusatzfunktionen (#57): „Öffentlich" sehen alle Besucher,
+                    Von Plugins bereitgestellte Zusatzfunktionen: „Öffentlich" sehen alle Besucher,
                     „Nur für Gruppen mit Leseberechtigung" sehen ausschließlich angemeldete Benutzer,
                     deren Gruppe die jeweilige Leseberechtigung besitzt (zuweisbar unter
                     <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>; Administratoren immer).

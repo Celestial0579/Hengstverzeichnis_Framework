@@ -8,6 +8,68 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.2.0] – 2026-08-09
+
+Erstes stabiles Release. Gegenüber v0.2.0-beta.2 kamen die Kernattribute
+Geschlecht und Rasse samt Abstammungs-Validierung, Lösch-Hooks für Plugins,
+die kanonische `/horse`-Route, ein nächtlicher End-to-End-Testlauf sowie
+Darkmode- und Barrierefreiheits-Korrekturen hinzu. Beide Repos
+(Framework und Addons) stehen auf null offenen Issues; die volle Suite
+(Unit/Integration/Functional) und der E2E-Parcours sind grün.
+
+### Hinzugefügt
+
+- **Geschlechts- und Rassefeld für Pferde** (#163, #165): `horses.sex`
+  (`stallion`/`mare`/`gelding`, `NULL` = unbekannt — der Altbestand bleibt
+  uneingeschränkt editierbar) und `horses.breed` (Freitext). Beide Felder im
+  Admin-Formular, CSV-Import (Geschlechts-Aliasse `hengst`/`stute`/`wallach`,
+  ungültige Angabe = Zeilenfehler), in der JSON-API, auf der öffentlichen
+  Detailseite und als Katalogfilter (`q_sex`, `q_breed` inkl. AJAX-Pfad).
+- **Abstammungs-Validierung** (#166, #167): Eltern-Auswahlfelder bieten nur
+  rollen-passende Tiere an (Vater keine Stuten/Wallache, Mutter keine
+  Hengste/Wallache); das Speichern und der Blutlinien-/Match-Assistent
+  lehnen geschlechts-widrige Verknüpfungen serverseitig ab. Ein
+  Datenqualitäts-Report unter `/admin/matches` listet Altbestand mit
+  unpassendem Eltern-Geschlecht. Fehl-Aktionen werden auf
+  `/admin/horses` und `/admin/matches` jetzt sichtbar gemeldet (die
+  `?error=`-Codes wurden zuvor stumm verworfen).
+- **Lösch- und Papierkorb-Hooks** (#164): `horse.before_delete`,
+  `horse.trashed`, `horse.restored`, `horse.deleted` — jeweils mit dem
+  kompletten Datensatz als Payload; auch das Papierkorb-Leeren feuert je
+  Pferd. Damit können Plugins abhängige Daten (z. B. Verkaufs-Inserate)
+  nachziehen; dokumentiert in `docs/plugin-development.md`.
+- **Kanonische Route `/horse`** (#171): Die Detailseite läuft unter
+  `/horse?id=…`; `/hengst` leitet **dauerhaft** per 301 mit
+  Query-Passthrough weiter — gedruckte QR-Codes und exportierte PDFs mit
+  alten URLs bleiben für immer gültig. Neuer Router-Helfer
+  `Router::redirect()`.
+- **Nächtlicher End-to-End-Testlauf** (#161, #162): `tests/e2e/` baut die
+  App aus dem Dockerfile, fährt Wegwerf-Backup-Ziele (S3/WebDAV/FTPS) und
+  mailpit hoch und prüft Store, Stammdaten, Ansichten, Filter, API,
+  Backups, Mail, Cron und Update per Browser-Parcours — inklusive
+  WCAG-Kontrast-Audit im Dark-Mode.
+
+### Behoben
+
+- **Dark-Mode-Kontrastfehler in den Kern-Ansichten** (#160): hartkodierte
+  Farben auf Theme-Variablen umgestellt (`--success-fg`/`--warning-fg`/
+  `*-soft-bg`/`--link-color`); öffentlicher Bereich und Admin ohne
+  Dark-Regressionen (vorher 10 bzw. 30 Befunde).
+- **Barrierefreiheit** (#169): Weißer Text auf der Sekundärfarbe `#18bc9c`
+  erreichte nur 2,41:1 (WCAG-AA-Minimum 4,5:1). Flächen unter weißem Text
+  (Button-Hover, Admin-Nav-Hover) nutzen jetzt die eigene Variable
+  `--secondary-btn-bg` (`#0e7a66`, 5,26:1); die Markenfarbe bleibt überall
+  sonst unverändert.
+- **Katalog-Beschriftung** (#170): Der öffentliche Katalog heißt jetzt
+  „Verzeichnis" (en: „Registry") statt „Hengstkatalog" — er führt alle
+  Pferde, und die Trefferzahl „N Hengste gefunden" war bei gemischtem
+  Bestand schlicht falsch (jetzt „N Pferde gefunden").
+- **Docker-Betrieb** (#157, #158, #159): PHP-FTP-Extension im Image mit
+  SSL gebaut (FTPS-Backups funktionieren im Container); In-Place-Update im
+  Container bewusst abgeschaltet (`UPDATE_IN_PLACE=0`) — der Code bleibt
+  `root`, nur Datenverzeichnisse sind `www-data`-schreibbar, aktualisiert
+  wird über ein neues Image.
+
 ## [0.2.0-beta.2] – 2026-08-08
 
 ### Hinzugefügt
@@ -540,5 +602,6 @@ frischem Docker-Setup-Smoke-Test: Auto-Provisionierung, erzwungenes
 - CSP erlaubt aktuell noch `'unsafe-inline'` für Skripte/Styles (siehe
   [docs/security.md](docs/security.md))
 
+[0.2.0]: ../../releases/tag/v0.2.0
 [0.2.0-beta.1]: ../../releases/tag/v0.2.0-beta.1
 [0.1.0-beta.1]: ../../releases/tag/v0.1.0-beta.1

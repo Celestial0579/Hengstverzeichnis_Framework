@@ -217,7 +217,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
             <?php if ($selected['slug'] === 'admin'): ?>
                 <p style="color: var(--text-muted); font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
-                <p style="color: var(--text-muted); font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar (#84).</p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar.</p>
             <?php elseif ($selected['slug'] === 'public'): ?>
                 <p style="color: var(--text-muted); font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Nur Lese-Rechte steuern die öffentliche Sichtbarkeit; Backend-Zugriff bleibt ausgeschlossen.</p>
             <?php else: ?>

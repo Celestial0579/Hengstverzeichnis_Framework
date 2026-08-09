@@ -21,9 +21,9 @@ class Router {
      * Registriert eine neue HTTP-GET Route.
      *
      * @param string $path Ziel-Pfad (z. B. '/katalog')
-     * @param string|array $callback Controller-Array [Class, 'method'] oder Callable
+     * @param string|array|\Closure $callback Controller-Array [Class, 'method'] oder Callable
      */
-    public function get(string $path, string|array $callback): void {
+    public function get(string $path, string|array|\Closure $callback): void {
         $this->addRoute('GET', $path, $callback);
     }
 
@@ -31,10 +31,29 @@ class Router {
      * Registriert eine neue HTTP-POST Route.
      *
      * @param string $path Ziel-Pfad (z. B. '/login')
-     * @param string|array $callback Controller-Array [Class, 'method'] oder Callable
+     * @param string|array|\Closure $callback Controller-Array [Class, 'method'] oder Callable
      */
-    public function post(string $path, string|array $callback): void {
+    public function post(string $path, string|array|\Closure $callback): void {
         $this->addRoute('POST', $path, $callback);
+    }
+
+    /**
+     * Registriert eine dauerhafte GET-Weiterleitung von einem alten auf einen
+     * neuen Pfad (#171). Der Query-String wird unverändert mitgenommen -
+     * dispatch() verwirft ihn vor dem Routen-Match, deshalb wird er hier aus
+     * $_SERVER wieder angehängt. Standard 301 (permanent): gedruckte QR-Codes
+     * und exportierte PDFs mit alten URLs sollen dauerhaft weiterfunktionieren.
+     *
+     * @param string $from Alter Pfad (z. B. '/hengst')
+     * @param string $to Neuer Pfad (z. B. '/horse')
+     * @param int $statusCode HTTP-Statuscode, Standard 301
+     */
+    public function redirect(string $from, string $to, int $statusCode = 301): void {
+        $this->get($from, function () use ($to, $statusCode): void {
+            $query = (string)($_SERVER['QUERY_STRING'] ?? '');
+            header('Location: ' . $to . ($query !== '' ? '?' . $query : ''), true, $statusCode);
+            exit;
+        });
     }
 
     /**
@@ -42,9 +61,9 @@ class Router {
      *
      * @param string $method HTTP-Methode ('GET' oder 'POST')
      * @param string $path Relativer URL-Pfad
-     * @param string|array $callback Auszuführender Controller/Funktion
+     * @param string|array|\Closure $callback Auszuführender Controller/Funktion
      */
-    private function addRoute(string $method, string $path, string|array $callback): void {
+    private function addRoute(string $method, string $path, string|array|\Closure $callback): void {
         $this->routes[] = [
             'method' => $method,
             'path' => $path,

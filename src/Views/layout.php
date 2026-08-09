@@ -199,7 +199,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
                     <a href="/" class="nav-link <?= $currentPath === '/' ? 'active' : '' ?>">🏠 <?= htmlspecialchars($t('nav.home')) ?></a>
                 </li>
                 <li>
-                    <a href="/katalog" class="nav-link <?= $currentPath === '/katalog' || $currentPath === '/hengst' ? 'active' : '' ?>">🐴 <?= htmlspecialchars($t('nav.catalog')) ?></a>
+                    <a href="/katalog" class="nav-link <?= $currentPath === '/katalog' || $currentPath === '/horse' || $currentPath === '/hengst' ? 'active' : '' ?>">🐴 <?= htmlspecialchars($t('nav.catalog')) ?></a>
                 </li>
                 <li style="margin-left: 0.5rem;">
                     <?php if ($isLoggedIn): ?>

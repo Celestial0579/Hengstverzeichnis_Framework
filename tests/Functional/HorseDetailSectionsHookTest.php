@@ -104,7 +104,7 @@ class HorseDetailSectionsHookTest extends FunctionalTestCase {
 
             // 1. Veröffentlichte Station: Der Hook bekommt die Stationsdaten. Das ist
             //    die Zusicherung, auf die sich Addons stützen (siehe #151).
-            $public = $visitor->get("/hengst?id={$horseWithPublicStation}");
+            $public = $visitor->get("/horse?id={$horseWithPublicStation}");
             $this->assertSame(200, $public->statusCode);
             $this->assertStringContainsString(
                 self::STATION_MARKER,
@@ -117,7 +117,7 @@ class HorseDetailSectionsHookTest extends FunctionalTestCase {
             // 2. Unveröffentlichte Station: Der Hook feuert weiterhin, sieht aber keine
             //    Stationsdaten - und der Name darf auch nicht über die denormalisierte
             //    Spalte horses.breeding_station als Fallback auf die Seite gelangen.
-            $hidden = $visitor->get("/hengst?id={$horseWithHiddenStation}");
+            $hidden = $visitor->get("/horse?id={$horseWithHiddenStation}");
             $this->assertSame(200, $hidden->statusCode);
             $this->assertStringContainsString(
                 'Demo-Plugin',
@@ -139,7 +139,7 @@ class HorseDetailSectionsHookTest extends FunctionalTestCase {
 
             // 3. Freier Text (keine breeding_station_id): bleibt sichtbar - der Schutz
             //    aus Fall 2 darf nicht zu breit greifen.
-            $freeText = $visitor->get("/hengst?id={$horseWithFreeText}");
+            $freeText = $visitor->get("/horse?id={$horseWithFreeText}");
             $this->assertSame(200, $freeText->statusCode);
             $this->assertStringContainsString(
                 $freeTextStation,
@@ -191,7 +191,7 @@ class HorseDetailSectionsHookTest extends FunctionalTestCase {
             'name' => $name,
             'status' => 'active',
             // Öffentliche Sichtbarkeit hängt am Veröffentlicht-Flag, nicht am Status -
-            // ohne dieses Flag liefert /hengst?id= eine 404.
+            // ohne dieses Flag liefert /horse?id= eine 404.
             'is_published' => '1',
         ], $extra));
         $this->assertSame(

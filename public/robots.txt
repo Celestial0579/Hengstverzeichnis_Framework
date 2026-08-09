@@ -4,6 +4,8 @@
 User-agent: *
 Allow: /
 Allow: /katalog
+Allow: /horse
+# /hengst bleibt als dauerhafter 301-Redirect auf /horse bestehen (#171)
 Allow: /hengst
 Allow: /station
 Disallow: /admin/

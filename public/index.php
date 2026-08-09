@@ -59,7 +59,11 @@ if ($parsedPath !== '/setup' && SetupController::needsSetup()) {
 // Define basic routes
 $router->get('/', [App\Controllers\PublicController::class, 'index']);
 $router->get('/katalog', [App\Controllers\PublicController::class, 'catalog']);
-$router->get('/hengst', [App\Controllers\PublicController::class, 'horseDetail']); // Requires ?id=
+$router->get('/horse', [App\Controllers\PublicController::class, 'horseDetail']); // Requires ?id=
+// Alte Detailseiten-Route dauerhaft (301) auf /horse umleiten (#171): gedruckte
+// QR-Codes und exportierte PDFs mit /hengst?id=... bleiben so für immer gültig.
+// KEIN Übergangs-Redirect - er darf nie entfernt werden.
+$router->redirect('/hengst', '/horse');
 $router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
 
 // Read-only-JSON-API für Katalogdaten (#47, siehe docs/api.md). Zugriff nur

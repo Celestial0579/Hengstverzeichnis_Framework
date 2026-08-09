@@ -18,7 +18,7 @@ function renderPedigreeNode(?array $node, int $targetLevel = 1): void {
 
     if (!empty($node['id'])) {
         $viewProfileTitle = htmlspecialchars(App\I18n\Translator::t('horse.view_profile_title', ['name' => $node['name']]));
-        echo '<a href="/hengst?id=' . $node['id'] . '" class="pedigree-box pedigree-link-box gen-level-' . $node['depth'] . '" title="' . $viewProfileTitle . '">';
+        echo '<a href="/horse?id=' . $node['id'] . '" class="pedigree-box pedigree-link-box gen-level-' . $node['depth'] . '" title="' . $viewProfileTitle . '">';
         echo '<strong style="color: var(--primary-fg); font-size: 0.95rem;">' . $name . '</strong>';
         if ($year) echo '<div class="pedigree-year">' . $year . '</div>';
         if ($ueln) echo '<div class="pedigree-year" style="font-size: 0.75rem;">' . $ueln . '</div>';

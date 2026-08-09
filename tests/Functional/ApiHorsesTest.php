@@ -58,7 +58,7 @@ class ApiHorsesTest extends FunctionalTestCase {
         $this->assertSame(1, $body['meta']['total']);
         $this->assertSame($horseName, $body['data'][0]['name']);
         $this->assertSame($ueln, $body['data'][0]['ueln']);
-        $this->assertSame('/hengst?id=' . $body['data'][0]['id'], $body['data'][0]['profile_url']);
+        $this->assertSame('/horse?id=' . $body['data'][0]['id'], $body['data'][0]['profile_url']);
 
         // 2. Einzelabruf über UELN liefert dasselbe Pferd.
         $showResponse = $client->get('/api/horses/show?ueln=' . urlencode($ueln), $this->bearer($token));

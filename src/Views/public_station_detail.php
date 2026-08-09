@@ -63,7 +63,7 @@ $statusLabels = [
         <div style="display: flex; flex-direction: column; gap: 0.6rem;">
             <?php foreach ($horses as $horse): ?>
                 <?php $statusMeta = $statusLabels[$horse['status']] ?? [App\I18n\Translator::t('status.unknown'), '#e2e3e5', '#383d41']; ?>
-                <a href="/hengst?id=<?= $horse['id'] ?>" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--surface-muted); border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem; text-decoration: none; color: inherit;">
+                <a href="/horse?id=<?= $horse['id'] ?>" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--surface-muted); border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem; text-decoration: none; color: inherit;">
                     <div>
                         <strong style="color: var(--primary-fg);"><?= htmlspecialchars((string)$horse['name']) ?></strong>
                         <span style="color: var(--text-muted); font-size: 0.9rem;">

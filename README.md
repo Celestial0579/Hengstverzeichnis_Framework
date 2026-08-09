@@ -1,6 +1,6 @@
 # Hengstverzeichnis_Framework
 
-**Status: 🧪 Beta** — funktional vollständig für den Kern-Usecase und intern getestet, aber noch nicht in großem Umfang im Produktivbetrieb erprobt. Feedback und Fehlermeldungen über [Issues](../../issues) sind ausdrücklich erwünscht. Sicherheitsrelevante Funde bitte **nicht** öffentlich melden, siehe [SECURITY.md](SECURITY.md).
+**Status: ✅ Stable** — mit [v0.2.0](../../releases/tag/v0.2.0) liegt das erste stabile Release vor (Suite und E2E-Parcours grün, beide Repos auf null offenen Issues). Die Versionierung folgt weiterhin `0.y.z` nach SemVer, Breaking Changes bleiben also jederzeit möglich. Feedback und Fehlermeldungen über [Issues](../../issues) sind ausdrücklich erwünscht. Sicherheitsrelevante Funde bitte **nicht** öffentlich melden, siehe [SECURITY.md](SECURITY.md).
 
 Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinien in der Pferdezucht zu erstellen. Ziel ist es ein Framework bereitzustellen, welches alle Usecases abdeckt, die für das IGF Hengstverzeichnis und vergleichbare Zuchtverzeichnisse nötig sind.
 
@@ -8,7 +8,7 @@ Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinie
 
 - **Entwicklerdokumentation** (Architektur, Datenmodell, Sicherheitskonzept, lokale Entwicklung): [`docs/`](docs/README.md)
 - **Installation, Administration & Benutzerhandbuch**: [GitHub Wiki](../../wiki)
-- **Änderungen zwischen Releases**: [CHANGELOG.md](CHANGELOG.md)
+- **Änderungen zwischen Releases**: [CHANGELOG.md](CHANGELOG.md), vollständige Artefakte unter [Releases](../../releases)
 
 ## Schnellstart (Docker)
 
@@ -24,10 +24,20 @@ danach unter `http://localhost:8080` erreichbar. Details, Alternativen ohne
 Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 [Konfiguration](#konfiguration) unten und [docs/development.md](docs/development.md).
 
+Für den produktiven Betrieb ohne lokalen Build steht das bei jedem Release
+automatisch gebaute Image unter `ghcr.io/celestial0579/hengstverzeichnis_framework`
+bereit (Tags `<version>` und `latest`); klassisches Shared-Hosting ohne
+Docker nutzt stattdessen das bereinigte Source-Zip aus den
+[Releases](../../releases) (siehe [docs/releasing.md](docs/releasing.md)
+und Variante B unten).
+
 ## Bereits umgesetzt
 
-- Öffentlich zugänglicher Hengstkatalog mit Suche, Filtern und Blutlinien-/Pedigree-Ansicht
-- Pferde-, Personen- und Deckstationsverwaltung (CRUD) inkl. Papierkorb (Soft-Delete)
+- Öffentlich zugängliches Verzeichnis mit Suche, Filtern (u. a. nach Geschlecht
+  und Rasse) und Blutlinien-/Pedigree-Ansicht
+- Pferde-, Personen- und Deckstationsverwaltung (CRUD) inkl. Geschlechts-/
+  Rassefeld mit serverseitiger Abstammungs-Validierung sowie Papierkorb
+  (Soft-Delete) mit Plugin-Hooks für abhängige Daten
 - Veröffentlichungs-Workflow: öffentliche Sichtbarkeit (`is_published`) ist vom
   Lebenszyklus-Status entkoppelt, mit Einzel- und Massen-Veröffentlichung und
   eigenem `publish`-Recht je Modul
@@ -48,15 +58,13 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 - Impressum & Datenschutzinformationen
 - Docker-Deployment sowie klassisches Shared-Hosting über Setup-Wizard
 
-## Bekannte Einschränkungen (Beta)
+## Bekannte Einschränkungen
 
-- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 27 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks. Noch nicht abgedeckt: Benutzerverwaltung. Ergänzend weiterhin manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
+- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 30 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks und Abstammungs-Validierung. Noch nicht abgedeckt: Benutzerverwaltung. Ergänzend läuft nächtlich ein Browser-basierter End-to-End-Parcours (siehe [tests/e2e/](tests/e2e/)) sowie manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
 Weitere gewünschte, aber noch nicht umgesetzte Funktionen (z. B.
 Klick-Tracking für Weblinks) werden als Feature-Requests in den
-[Issues](../../issues) verwaltet. EntraID SSO ist inzwischen als optionale
-Login-Methode verfügbar (siehe
-[docs/security.md](docs/security.md#entraid-sso-42-srccontrollersentrassocontrollerphp)).
+[Issues](../../issues) verwaltet.
 
 Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 

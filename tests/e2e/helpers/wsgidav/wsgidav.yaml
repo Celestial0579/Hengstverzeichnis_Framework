@@ -1,0 +1,18 @@
+# RFC-4918-konformer WebDAV-Server (liefert 405 bei MKCOL auf existierende
+# Collection, anders als bytemark/webdav mit non-standard 301). Nur Test-Daten,
+# feste Wegwerf-Zugangsdaten auf internem Netz.
+host: 0.0.0.0
+port: 80
+provider_mapping:
+  "/": "/data"
+simple_dc:
+  user_mapping:
+    "*":
+      testdav:
+        password: "webdav-e2e-testpass"
+http_authenticator:
+  accept_basic: true
+  accept_digest: false
+  default_to_digest: false
+dir_browser:
+  enable: false

@@ -1,0 +1,52 @@
+# Wegwerf-Backup-Ziele + Mailserver für den E2E-Nachtlauf. Nur Testdaten auf
+# einem internen Netz; die Zugangsdaten sind bewusst feste Wegwerf-Werte. Der
+# echte Host-Mailserver wird NICHT angefasst - dafür mailpit.
+networks:
+  e2e:
+    name: ${E2E_NET:-hv-e2e-net}
+    external: true
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minio-e2e-testpass
+    networks:
+      e2e:
+        aliases: [e2e-minio]
+    restart: unless-stopped
+
+  webdav:
+    build: ./wsgidav
+    networks:
+      e2e:
+        aliases: [e2e-webdav]
+    restart: unless-stopped
+
+  ftps:
+    build: ./pyftps
+    environment:
+      FTP_USER_PASS: ftps-e2e-testpass
+    networks:
+      e2e:
+        aliases: [e2e-ftps]
+    restart: unless-stopped
+
+  # mailpit: fängt SMTP ab (STARTTLS mit dem von spinup.sh erzeugten Cert, dessen
+  # SAN auf 'e2e-mail' lautet - der App-Container vertraut ihm). Der Mailer der
+  # App verbietet Klartext-SMTP und prüft den Peer, deshalb TLS + Cert.
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_SMTP_TLS_CERT: /cert/cert.pem
+      MP_SMTP_TLS_KEY: /cert/cert.key
+    volumes:
+      - ${E2E_CERT_DIR:-./certs}:/cert:ro
+    networks:
+      e2e:
+        aliases: [e2e-mail]
+    restart: unless-stopped

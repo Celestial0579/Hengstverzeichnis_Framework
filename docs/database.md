@@ -52,6 +52,11 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   unabhängig vom Lebenszyklus-`status`; neue Pferde sind per Default
   unveröffentlicht. Veröffentlichen erfordert das `publish`-Recht
   (einzeln im Formular oder als Massen-Aktion in der Admin-Liste).
+- `sex` – `stallion` | `mare` | `gelding` | `NULL` (= unbekannt, Altbestand).
+  Grundlage der Geschlechts-Validierung der Abstammung (#166): `sire_id`
+  darf auf keine Stute zeigen, `dam_id` auf keinen Hengst/Wallach; Pferde
+  ohne Geschlechtsangabe bestehen jede Prüfung (#165)
+- `breed` – Rasse als Freitext, bewusst keine normierte Rasseliste (#163)
 - `status` – `active` | `inactive` | `deceased`; rein informativ, steuert
   die öffentliche Sichtbarkeit **nicht** (das tat er früher)
 - `deleted_at` – Soft-Delete (Papierkorb), `NULL` = aktiv

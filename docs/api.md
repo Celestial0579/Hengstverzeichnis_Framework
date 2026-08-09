@@ -117,6 +117,8 @@ curl -H "Authorization: Bearer hv_..." \
       "foreign_ueln": null,
       "birth_year": 2015,
       "color": "Rappe",
+      "sex": "stallion",
+      "breed": "Trakehner",
       "status": "active",
       "image_url": "/uploads/horses/quantum.jpg",
       "breeding_station": "Gestüt Musterhof",

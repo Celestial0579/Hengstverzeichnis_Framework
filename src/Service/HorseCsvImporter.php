@@ -37,11 +37,22 @@ final class HorseCsvImporter {
      */
     public const KNOWN_COLUMNS = [
         'name', 'ueln', 'foreign_ueln', 'sire_name', 'sire_ueln',
-        'dam_name', 'dam_ueln', 'birth_year', 'color', 'breeding_station',
-        'description', 'status',
+        'dam_name', 'dam_ueln', 'birth_year', 'color', 'sex', 'breed',
+        'breeding_station', 'description', 'status',
     ];
 
     private const VALID_STATUSES = ['active', 'inactive', 'deceased'];
+
+    /**
+     * Akzeptierte Geschlechts-Angaben (case-insensitiv) und ihr kanonischer
+     * ENUM-Wert (#165). Deutsche und englische Begriffe, damit Bestandslisten
+     * beider Sprachen ohne Umformung importierbar sind.
+     */
+    private const SEX_ALIASES = [
+        'stallion' => 'stallion', 'hengst' => 'stallion',
+        'mare' => 'mare', 'stute' => 'mare',
+        'gelding' => 'gelding', 'wallach' => 'gelding',
+    ];
 
     /**
      * Maximale Feldlängen, identisch zu den jeweiligen Spalten in
@@ -57,6 +68,7 @@ final class HorseCsvImporter {
         'dam_name' => 100,
         'dam_ueln' => 15,
         'color' => 50,
+        'breed' => 100,
         'breeding_station' => 255,
         // TEXT-Spalte: 65.535 Byte - ohne diese Grenze würde eine überlange
         // Beschreibung erst beim INSERT einen DB-Fehler auslösen (#133).
@@ -159,6 +171,8 @@ final class HorseCsvImporter {
                 'dam_ueln' => $get('dam_ueln') ?: null,
                 'birth_year' => $get('birth_year'),
                 'color' => $get('color'),
+                'sex' => $get('sex'),
+                'breed' => $get('breed') ?: null,
                 'breeding_station' => $get('breeding_station'),
                 'description' => $get('description'),
                 'status' => $get('status') ?: 'active',
@@ -190,6 +204,19 @@ final class HorseCsvImporter {
 
             if (!in_array($data['status'], self::VALID_STATUSES, true)) {
                 $errors[] = "Status '{$data['status']}' ist ungültig (erlaubt: " . implode(', ', self::VALID_STATUSES) . ").";
+            }
+
+            // Geschlecht (#165): leer -> NULL (unbekannt); ungültige Angabe ist ein
+            // Zeilenfehler (konsistent zur Status-Behandlung), keine stille NULL.
+            if ($data['sex'] !== '') {
+                $sexKey = strtolower($data['sex']);
+                if (isset(self::SEX_ALIASES[$sexKey])) {
+                    $data['sex'] = self::SEX_ALIASES[$sexKey];
+                } else {
+                    $errors[] = "Geschlecht '{$data['sex']}' ist ungültig (erlaubt: " . implode(', ', array_keys(self::SEX_ALIASES)) . ").";
+                }
+            } else {
+                $data['sex'] = null;
             }
 
             if ($data['ueln'] !== null) {

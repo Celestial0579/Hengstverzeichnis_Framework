@@ -37,6 +37,10 @@ class PublicController extends BaseController {
         $birthYearFrom = !empty($_GET['birth_year_from']) ? (int)$_GET['birth_year_from'] : null;
         $birthYearTo = !empty($_GET['birth_year_to']) ? (int)$_GET['birth_year_to'] : null;
         $qColor = trim($_GET['q_color'] ?? '');
+        // Geschlechtsfilter (#165): Whitelist gegen die ENUM-Werte, alles andere
+        // gilt als "kein Filter".
+        $qSex = in_array($_GET['q_sex'] ?? '', ['stallion', 'mare', 'gelding'], true) ? $_GET['q_sex'] : '';
+        $qBreed = trim($_GET['q_breed'] ?? '');
         $qStatus = trim($_GET['q_status'] ?? '');
         $qBreeder = trim($_GET['q_breeder'] ?? '');
         $qOwner = trim($_GET['q_owner'] ?? '');
@@ -105,6 +109,16 @@ class PublicController extends BaseController {
         if (!empty($qColor)) {
             $where[] = "h.color LIKE ?";
             $params[] = '%' . $qColor . '%';
+        }
+
+        if ($qSex !== '') {
+            $where[] = "h.sex = ?";
+            $params[] = $qSex;
+        }
+
+        if (!empty($qBreed)) {
+            $where[] = "h.breed LIKE ?";
+            $params[] = '%' . $qBreed . '%';
         }
 
         if (!empty($qStatus)) {
@@ -246,6 +260,7 @@ class PublicController extends BaseController {
 
         // Fetch distinct filter options for dropdowns
         $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
         // Nur veröffentlichte Stationen/Personen als öffentliche Filteroptionen anbieten
         // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
         $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
@@ -285,6 +300,7 @@ class PublicController extends BaseController {
             'totalHorses' => $totalHorses,
             'filters' => $_GET,
             'colors' => $colors,
+            'breeds' => $breeds,
             'stations' => $stations,
             'persons' => $persons,
             'cardSections' => $cardSections,

@@ -31,6 +31,20 @@ $publishFormId = 'horsePublishForm';
         </div>
     <?php endif; ?>
 
+    <?php if (isset($_GET['error'])): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <?php
+            // Fehlercodes aus HorseController::store()/update() (#166); unbekannte
+            // Codes bekommen eine neutrale Meldung statt roher Parameter-Ausgabe.
+            $errorMessages = [
+                'sex_mismatch_sire' => 'Nicht gespeichert: Das als Vater gewählte Pferd ist als Stute erfasst.',
+                'sex_mismatch_dam' => 'Nicht gespeichert: Das als Mutter gewählte Pferd ist als Hengst oder Wallach erfasst.',
+            ];
+            echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
+            ?>
+        </div>
+    <?php endif; ?>
+
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
 

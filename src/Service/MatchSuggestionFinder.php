@@ -43,14 +43,22 @@ final class MatchSuggestionFinder {
 
         // Fetch all existing active horses for matching (inkl. sire_id/dam_id,
         // um direkte Nachkommen des Kindes als Eltern-Kandidaten auszuschließen, #131)
-        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station, sire_id, dam_id FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
+        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, sex, breeding_station_id, breeding_station, sire_id, dam_id FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
         $allHorses = $stmt->fetchAll();
+
+        // Kandidaten je Eltern-Rolle nach Geschlecht einschränken (#167): als
+        // Vater kommen nur Hengste in Frage, als Mutter nur Stuten; Pferde ohne
+        // Geschlechtsangabe (NULL, Altbestand) bleiben in beiden Listen.
+        $sireCandidates = array_values(array_filter($allHorses,
+            fn($h) => !in_array($h['sex'] ?? null, ['mare', 'gelding'], true)));
+        $damCandidates = array_values(array_filter($allHorses,
+            fn($h) => !in_array($h['sex'] ?? null, ['stallion', 'gelding'], true)));
 
         $unlinkedMatches = [];
 
         // Calculate matches for Sires
         foreach ($sirePlaceholders as $sp) {
-            $suggestions = self::calculateSuggestions($sp['sire_name'], $sp['sire_ueln'], $sp, $allHorses);
+            $suggestions = self::calculateSuggestions($sp['sire_name'], $sp['sire_ueln'], $sp, $sireCandidates);
             if (!empty($suggestions)) {
                 $unlinkedMatches[] = [
                     'child_id' => $sp['id'],
@@ -66,7 +74,7 @@ final class MatchSuggestionFinder {
 
         // Calculate matches for Dams
         foreach ($damPlaceholders as $dp) {
-            $suggestions = self::calculateSuggestions($dp['dam_name'], $dp['dam_ueln'], $dp, $allHorses);
+            $suggestions = self::calculateSuggestions($dp['dam_name'], $dp['dam_ueln'], $dp, $damCandidates);
             if (!empty($suggestions)) {
                 $unlinkedMatches[] = [
                     'child_id' => $dp['id'],

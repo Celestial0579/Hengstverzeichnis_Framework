@@ -15,7 +15,9 @@ class SetupAndAuthTest extends FunctionalTestCase {
         $response = $this->newClient()->get('/katalog');
 
         $this->assertSame(200, $response->statusCode);
-        $this->assertStringContainsString('Hengstkatalog', $response->body);
+        // Beschriftung "Verzeichnis" statt "Hengstkatalog" (#170): der Katalog
+        // führt alle Pferde, nicht nur Hengste.
+        $this->assertStringContainsString('Verzeichnis', $response->body);
     }
 
     public function testLoginAndMandatory2faGrantsAdminAccess(): void {

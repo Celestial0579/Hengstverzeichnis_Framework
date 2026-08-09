@@ -207,7 +207,7 @@ class ApiController extends BaseController {
         // Stations-Datensatz hat keine breeding_station_id und bleibt erhalten.
         $stmt = $db->prepare("
             SELECT
-                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.status, h.image_url,
+                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.color, h.sex, h.breed, h.status, h.image_url,
                 CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
                      THEN NULL ELSE h.breeding_station END AS breeding_station,
                 bs.name AS station_name,
@@ -345,6 +345,8 @@ class ApiController extends BaseController {
             'foreign_ueln' => $row['foreign_ueln'],
             'birth_year' => $row['birth_year'] !== null ? (int)$row['birth_year'] : null,
             'color' => $row['color'],
+            'sex' => $row['sex'],
+            'breed' => $row['breed'],
             'status' => $row['status'],
             'image_url' => $row['image_url'],
             'breeding_station' => $row['station_name'] ?: $row['breeding_station'],

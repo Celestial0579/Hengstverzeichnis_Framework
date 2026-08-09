@@ -94,6 +94,11 @@ CREATE TABLE IF NOT EXISTS `horses` (
     `dam_ueln` VARCHAR(15) NULL, -- Unlinked Mother UELN
     `birth_year` SMALLINT UNSIGNED NULL,
     `color` VARCHAR(50),
+    -- Geschlecht (#165): NULL = unbekannt (Altbestand). Werte englisch wie beim
+    -- Lebenszyklus-`status`; Wallache sind als Vater ausgeschlossen (#166).
+    `sex` ENUM('stallion', 'mare', 'gelding') NULL DEFAULT NULL,
+    -- Rasse (#163): bewusst Freitext, keine normierte Rasseliste.
+    `breed` VARCHAR(100) NULL DEFAULT NULL,
     `breeding_station_id` INT NULL,
     `breeding_station` VARCHAR(255) NULL,
     `description` TEXT,

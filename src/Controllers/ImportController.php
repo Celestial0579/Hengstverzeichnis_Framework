@@ -138,8 +138,8 @@ class ImportController extends BaseController {
         $skippedCount = 0;
 
         $insertStmt = $db->prepare("
-            INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, breeding_station, description, status, is_published)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, color, sex, breed, breeding_station, description, status, is_published)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         // Alle Inserts in EINER Transaktion: schlägt eine Zeile fehl, bleibt die
@@ -161,7 +161,8 @@ class ImportController extends BaseController {
                 $insertStmt->execute([
                     $data['name'], $data['ueln'], $data['foreign_ueln'],
                     $data['sire_name'], $data['sire_ueln'], $data['dam_name'], $data['dam_ueln'],
-                    $data['birth_year'], $data['color'], $data['breeding_station'], $data['description'],
+                    $data['birth_year'], $data['color'], $data['sex'], $data['breed'],
+                    $data['breeding_station'], $data['description'],
                     $data['status'], $isPublished,
                 ]);
                 $importedCount++;

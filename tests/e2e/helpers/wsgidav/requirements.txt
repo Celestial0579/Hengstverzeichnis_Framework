@@ -1,0 +1,26 @@
+# WebDAV-Backup-Ziel für den E2E-Nachtlauf: wsgidav + cheroot samt aller
+# transitiven Abhängigkeiten, versions- und hash-gepinnt (Scorecard
+# Pinned-Dependencies). Nachziehen: Versionen anpassen, dann je Paket
+# 'pip download <pkg>==<ver> --no-deps' und 'pip hash' auf das Artefakt.
+bcrypt==4.3.0 \
+    --hash=sha256:531457e5c839d8caea9b589a1bcfe3756b0547d7814e9ce3d437f17da75c32b0
+cheroot==11.1.2 \
+    --hash=sha256:0f6c0ba05c00fbc869fb46b1de4ec2384e1d85418ae963d3bc10ae83b688dbfa
+defusedxml==0.7.1 \
+    --hash=sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61
+jaraco_functools==4.6.0 \
+    --hash=sha256:99e3dc0060c5cbe8fcd1cdb36258e2a65ca40f1566b2033b12abb1bb44dd3c30
+jinja2==3.1.6 \
+    --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+json5==0.15.0 \
+    --hash=sha256:56636a30c0e8a4665fe2179c0212f32eae3796dea89ea6f649b9436ecdb39618
+markupsafe==3.0.3 \
+    --hash=sha256:d6dd0be5b5b189d31db7cda48b91d7e0a9795f31430b7f271219ab30f1d3ac9d
+more_itertools==11.1.0 \
+    --hash=sha256:4b65538ae22f6fed0ce4874efd317463a7489796a0939fa66824dd542125a192
+passlib==1.7.4 \
+    --hash=sha256:aa6bca462b8d8bda89c70b382f0c298a20b5560af6cbfa2dce410c0a2fb669f1
+pyyaml==6.0.3 \
+    --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+wsgidav==4.3.5 \
+    --hash=sha256:0985f5cb572e00c151e1c60d00e1ae8cbf74dea2a3286ec0bc040ab482cd5095

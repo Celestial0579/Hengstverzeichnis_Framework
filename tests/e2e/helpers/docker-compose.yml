@@ -8,7 +8,8 @@ networks:
 
 services:
   minio:
-    image: minio/minio:latest
+    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: latest 2026-08
+    image: minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: server /data
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -38,7 +39,8 @@ services:
   # SAN auf 'e2e-mail' lautet - der App-Container vertraut ihm). Der Mailer der
   # App verbietet Klartext-SMTP und prüft den Peer, deshalb TLS + Cert.
   mailpit:
-    image: axllent/mailpit:latest
+    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: latest 2026-08
+    image: axllent/mailpit:latest@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"

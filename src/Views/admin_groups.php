@@ -59,10 +59,10 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
     </div>
 
     <?php if (isset($_GET['success'])): ?>
-        <div class="card" style="background-color: #d4edda; color: #155724;">Aktion erfolgreich ausgeführt.</div>
+        <div class="card" style="background-color: var(--success-soft-bg); color: var(--success-fg);">Aktion erfolgreich ausgeführt.</div>
     <?php endif; ?>
     <?php if (isset($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
-        <div class="card" style="background-color: #f8d7da; color: #721c24;"><?= htmlspecialchars($errorMessages[$_GET['error']]) ?></div>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);"><?= htmlspecialchars($errorMessages[$_GET['error']]) ?></div>
     <?php endif; ?>
 
     <!-- Kompakte Übersicht aller Gruppen -->
@@ -151,7 +151,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                                     <form action="/admin/groups/delete" method="POST" onsubmit="return confirm('Gruppe \'<?= htmlspecialchars(addslashes($group['name'])) ?>\' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen.');">
                                         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                         <input type="hidden" name="id" value="<?= (int)$group['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #dc3545;">Löschen</button>
+                                        <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>
                                     </form>
                                 <?php endif; ?>
                             </td>
@@ -208,7 +208,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             <h3 style="margin-top: 0;">
                 <?= htmlspecialchars($selected['name']) ?>
                 <?php if ($selected['is_builtin']): ?>
-                    <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background-color: #e2e3e5; color: #383d41; font-weight: 600; vertical-align: middle;">Eingebaut</span>
+                    <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; background-color: var(--surface-muted); color: var(--text-color); font-weight: 600; vertical-align: middle;">Eingebaut</span>
                 <?php endif; ?>
                 <?php if (!empty($selected['description'])): ?>
                     <span title="<?= htmlspecialchars($selected['description']) ?>" style="cursor: help; color: var(--text-subtle); font-size: 0.85rem; font-weight: normal; margin-left: 0.3rem;">ℹ️</span>
@@ -240,7 +240,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                 </form>
             <?php endif; ?>
             <?php if (isset($_GET['success']) && $_GET['success'] === 'require_2fa_updated'): ?>
-                <div style="background-color: #d4edda; color: #155724; padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
+                <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
                     2FA-Pflicht der Gruppe aktualisiert.
                 </div>
             <?php endif; ?>

@@ -33,7 +33,7 @@ $successMessages = [
         nur automatisiert. <strong>Installieren aktiviert ein Plugin nicht</strong> - das bleibt weiterhin ein
         bewusster, separater Schritt unter "Plugins verwalten".
     </p>
-    <div style="background-color: #fff3cd; color: #856404; padding: 0.8rem 1rem; border-radius: 4px; margin-bottom: 1.2rem; font-size: 0.9rem;">
+    <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 0.8rem 1rem; border-radius: 4px; margin-bottom: 1.2rem; font-size: 0.9rem;">
         ⚠️ <strong>Nur Repositories vertrauen, deren Code Sie kennen oder geprüft haben.</strong>
         Anders als bei den mitgelieferten Kern-Funktionen gibt es für zusätzlich hinzugefügte Repositories
         keine Prüfsumme durch eine dritte Stelle - die Sicherheitsentscheidung liegt beim hinzufügenden
@@ -41,13 +41,13 @@ $successMessages = [
     </div>
 
     <?php if (isset($_GET['success']) && isset($successMessages[$_GET['success']])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($successMessages[$_GET['success']]) ?>
         </div>
     <?php endif; ?>
 
     <?php if (isset($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($errorMessages[$_GET['error']]) ?>
         </div>
     <?php endif; ?>
@@ -88,7 +88,7 @@ $successMessages = [
                         <form action="/admin/plugins/store/remove-repo" method="POST" onsubmit="return confirm('Repository \'<?= htmlspecialchars(addslashes($repoLabel)) ?>\' wirklich entfernen?');">
                             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                             <input type="hidden" name="id" value="<?= $repoId ?>">
-                            <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: #dc3545; color: var(--danger-fg);">Entfernen</button>
+                            <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: var(--danger-fg); color: var(--danger-fg);">Entfernen</button>
                         </form>
                     <?php endif; ?>
                 </div>
@@ -128,11 +128,11 @@ $successMessages = [
                                 <td style="padding: 0.4rem;"><?= htmlspecialchars($entry['version']) ?></td>
                                 <td style="padding: 0.4rem;">
                                     <?php if ($hasUpdate): ?>
-                                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem; background-color: #fff3cd; color: #856404; font-weight: 600;">Update verfügbar (aktuell <?= htmlspecialchars((string)$installedVersion) ?>)</span>
+                                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;">Update verfügbar (aktuell <?= htmlspecialchars((string)$installedVersion) ?>)</span>
                                     <?php elseif ($isInstalled): ?>
-                                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem; background-color: #d4edda; color: #155724; font-weight: 600;">Installiert (aktuell)</span>
+                                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem; background-color: var(--success-soft-bg); color: var(--success-fg); font-weight: 600;">Installiert (aktuell)</span>
                                     <?php else: ?>
-                                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem; background-color: #e2e3e5; color: #383d41; font-weight: 600;">Nicht installiert</span>
+                                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.78rem; background-color: var(--surface-muted); color: var(--text-color); font-weight: 600;">Nicht installiert</span>
                                     <?php endif; ?>
                                 </td>
                                 <td style="padding: 0.4rem;">

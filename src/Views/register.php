@@ -14,13 +14,13 @@ $t = fn(string $key) => htmlspecialchars(App\I18n\Translator::t($key));
     <h2 class="text-center"><?= $t('register.heading') ?></h2>
 
     <?php if (isset($_GET['sent'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= $t('register.sent') ?>
         </div>
     <?php endif; ?>
 
     <?php if (isset($error)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($error) ?>
         </div>
     <?php endif; ?>

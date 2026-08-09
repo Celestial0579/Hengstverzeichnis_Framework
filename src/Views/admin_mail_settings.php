@@ -11,13 +11,13 @@
     <p style="color: var(--text-muted);">Konfigurieren Sie den E-Mail-Versand für Willkommensmails, DSGVO-Benachrichtigungen und Passwort-Resets.</p>
 
     <?php if (!empty($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?= $_GET['success'] === 'test_sent' ? '✓ Test-E-Mail wurde erfolgreich versendet!' : 'E-Mail-Einstellungen erfolgreich gespeichert.' ?>
         </div>
     <?php endif; ?>
 
     <?php if (!empty($error)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?= htmlspecialchars($error) ?>
         </div>
     <?php endif; ?>
@@ -53,7 +53,7 @@
                     <option value="tls" <?= ($settings['smtp_encryption'] ?? 'tls') === 'tls' ? 'selected' : '' ?>>🔒 STARTTLS / TLS (Standard Port 587)</option>
                     <option value="ssl" <?= ($settings['smtp_encryption'] ?? '') === 'ssl' ? 'selected' : '' ?>>🔒 SSL / SMTPS (Standard Port 465)</option>
                 </select>
-                <small style="color: #28a745; font-weight: bold; display: block; margin-top: 0.3rem;">✓ Unverschlüsselter Versand ist aus Sicherheitsgründen gesperrt.</small>
+                <small style="color: var(--success-fg); font-weight: bold; display: block; margin-top: 0.3rem;">✓ Unverschlüsselter Versand ist aus Sicherheitsgründen gesperrt.</small>
             </div>
 
             <div style="display: flex; gap: 1rem;">

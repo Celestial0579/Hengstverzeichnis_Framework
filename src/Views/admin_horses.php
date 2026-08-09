@@ -26,7 +26,7 @@ $publishFormId = 'horsePublishForm';
     </div>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Aktion erfolgreich durchgeführt.
         </div>
     <?php endif; ?>
@@ -68,7 +68,7 @@ $publishFormId = 'horsePublishForm';
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['ueln']) ?></td>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
                         <td style="padding: 0.5rem;">
-                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: #e2e3e5; color: #383d41;">
+                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-color);">
                                 <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : ($horse['status'] === 'inactive' ? 'Inaktiv' : 'Verstorben') ?>
                             </span>
                             <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($horse['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($horse['is_published']) ? '#155724' : '#721c24' ?>;">
@@ -83,7 +83,7 @@ $publishFormId = 'horsePublishForm';
                                 <form action="/admin/horses/delete" method="POST" onsubmit="return confirm('Möchten Sie dieses Pferd wirklich löschen?');" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $horse['id'] ?>">
-                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #dc3545;">Löschen</button>
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>
                                 </form>
                             <?php endif; ?>
                         </td>

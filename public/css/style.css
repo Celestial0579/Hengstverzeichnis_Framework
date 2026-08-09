@@ -23,6 +23,17 @@
        Text auf normalem Seitengrund, der mit #dc3545 selbst im hellen Theme
        nur 4,3:1 erreichte. */
     --danger-fg: #c62a38;
+    /* Status-Textfarben als Pendants zu --danger-fg (#160): gruen/gelb als
+       reine Textfarbe, WCAG-tauglich auf hellem UND (im Zwillingsblock) dunklem
+       Grund. Und weiche, theme-bewusste Flaechen fuer semantische Callout-Kaesten,
+       damit im Darkmode nicht heller Text auf heller Flaeche steht. */
+    --success-fg: #157347;
+    --warning-fg: #8a6a00;
+    --danger-soft-bg: #fdecea;
+    --warning-soft-bg: #fff3cd;
+    --info-soft-bg: #e7f1fb;
+    --success-soft-bg: #e6f4ea;
+    --link-color: #1a5fb4;
     /* --primary-color dient doppelt: als Hintergrund (Buttons, Badges - dort
        liegt weißer Text darauf) und als Textfarbe (Überschriften, Brand).
        Als Textfarbe muss sie zum Seitenhintergrund passen, als Hintergrund
@@ -68,6 +79,13 @@
         --text-subtle: #9ba2aa;
         --surface-muted: #1c1e22;
         --danger-fg: #f08a94;
+        --success-fg: #67d99a;
+        --warning-fg: #e6c34d;
+        --danger-soft-bg: #3a2427;
+        --warning-soft-bg: #3a3320;
+        --info-soft-bg: #1e2a38;
+        --success-soft-bg: #1f2e24;
+        --link-color: #7cb0f0;
         /* Erst der statische Rückfallwert, dann die berechnete Variante: Die
          * Primärfarbe ist im Admin frei wählbar, ein fester Ersatzton würde
          * also nur zufällig passen. color-mix hellt jeden gewählten Farbton so
@@ -93,6 +111,13 @@
     --text-subtle: #9ba2aa;
     --surface-muted: #1c1e22;
     --danger-fg: #f08a94;
+        --success-fg: #67d99a;
+        --warning-fg: #e6c34d;
+        --danger-soft-bg: #3a2427;
+        --warning-soft-bg: #3a3320;
+        --info-soft-bg: #1e2a38;
+        --success-soft-bg: #1f2e24;
+        --link-color: #7cb0f0;
     --primary-fg: #b5bbc2;
     --primary-fg: color-mix(in srgb, var(--primary-color) 35%, #ffffff);
     --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
@@ -408,3 +433,6 @@ footer a:hover {
         min-height: 48px;
     }
 }
+
+/* Ungestylte Inhalts-Links: Theme-Linkfarbe statt Browser-Default-Blau (#160). */
+a:not(.btn):not(.nav-link) { color: var(--link-color); }

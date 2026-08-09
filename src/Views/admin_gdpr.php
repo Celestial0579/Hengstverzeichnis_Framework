@@ -14,7 +14,7 @@
     </div>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?php if ($_GET['success'] === 'anonymized'): ?>
                 ✓ Person #<?= htmlspecialchars($_GET['person_id'] ?? '') ?> wurde erfolgreich anonymisiert. Alle verknüpften Pferdeprofile und Stammbäume bleiben erhalten!
             <?php elseif ($_GET['success'] === 'deleted'): ?>
@@ -40,7 +40,7 @@
                 <div style="border: 1px solid #e0e0e0; border-radius: 8px; padding: 1.2rem; background: var(--card-bg); box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid #f0f0f0; padding-bottom: 0.8rem; margin-bottom: 1rem;">
                         <div>
-                            <span style="display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: bold; margin-bottom: 0.4rem; <?= $isDeletion ? 'background: #f8d7da; color: #721c24;' : 'background: #cce5ff; color: #004085;' ?>">
+                            <span style="display: inline-block; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.8rem; font-weight: bold; margin-bottom: 0.4rem; <?= $isDeletion ? 'background: var(--danger-soft-bg); color: var(--danger-fg);' : 'background: #cce5ff; color: #004085;' ?>">
                                 <?= $isDeletion ? '🗑️ Löschanfrage (Art. 17 DSGVO)' : 'ℹ️ Auskunftsanfrage (Art. 15 DSGVO)' ?>
                             </span>
                             <h3 style="margin: 0; font-size: 1.1rem; color: var(--primary-fg);">
@@ -65,13 +65,13 @@
 
                     <!-- Matching Persons Section for Deletion / Anonymization -->
                     <?php if ($isDeletion && $req['status'] !== 'processed'): ?>
-                        <div style="background: #fff3cd; border: 1px solid #ffeeba; border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
-                            <h4 style="margin: 0 0 0.5rem 0; color: #856404; display: flex; align-items: center; gap: 0.5rem;">
+                        <div style="background: var(--warning-soft-bg); border: 1px solid #ffeeba; border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
+                            <h4 style="margin: 0 0 0.5rem 0; color: var(--warning-fg); display: flex; align-items: center; gap: 0.5rem;">
                                 🔍 Gefundene Personeneinträge in der Datenbank:
                             </h4>
                             
                             <?php if (empty($req['matching_persons'])): ?>
-                                <p style="margin: 0; font-size: 0.9rem; color: #856404;">
+                                <p style="margin: 0; font-size: 0.9rem; color: var(--warning-fg);">
                                     Keine direkten Personeneinträge für "<?= htmlspecialchars($req['name'] ?: $req['email']) ?>" gefunden.
                                 </p>
                             <?php else: ?>
@@ -101,7 +101,7 @@
                                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                                     <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
                                                     <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
-                                                    <button type="submit" class="btn" style="background-color: #dc3545; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                    <button type="submit" class="btn" style="background-color: #c62a38; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
                                                         🗑️ Person Löschen
                                                     </button>
                                                 </form>

@@ -19,7 +19,7 @@ $canPublish = $canPublish ?? false;
     </div>
 
     <?php if (!empty($errors)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <ul style="margin-left: 1.2rem;">
                 <?php foreach ($errors as $error): ?>
                     <li><?= htmlspecialchars($error) ?></li>
@@ -54,7 +54,7 @@ $canPublish = $canPublish ?? false;
         </p>
 
         <?php if (!$canPublish): ?>
-            <p style="background-color: #fff3cd; color: #856404; padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
+            <p style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
                 ⚠️ Ohne die Berechtigung "Veröffentlichen" werden importierte Pferde unveröffentlicht angelegt und erscheinen nicht im öffentlichen Katalog. Sie können später von einer berechtigten Person über die Massen-Veröffentlichung in der Pferdeverwaltung freigegeben werden.
             </p>
         <?php endif; ?>
@@ -78,15 +78,15 @@ $canPublish = $canPublish ?? false;
                             <td style="padding: 0.5rem;"><?= (int)$entry['row'] ?></td>
                             <td style="padding: 0.5rem;">
                                 <?php if ($isValid): ?>
-                                    <span style="color: #155724;">✅ Gültig</span>
+                                    <span style="color: var(--success-fg);">✅ Gültig</span>
                                 <?php else: ?>
-                                    <span style="color: #721c24;">❌ Fehler</span>
+                                    <span style="color: var(--danger-fg);">❌ Fehler</span>
                                 <?php endif; ?>
                             </td>
                             <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$entry['data']['name']) ?></td>
                             <td style="padding: 0.5rem;"><?= htmlspecialchars((string)($entry['data']['ueln'] ?? '-')) ?></td>
                             <td style="padding: 0.5rem;"><?= htmlspecialchars((string)($entry['data']['birth_year'] ?? '-')) ?></td>
-                            <td style="padding: 0.5rem; color: #721c24; font-size: 0.85rem;">
+                            <td style="padding: 0.5rem; color: var(--danger-fg); font-size: 0.85rem;">
                                 <?= htmlspecialchars(implode(' ', $entry['errors'])) ?>
                             </td>
                         </tr>

@@ -15,7 +15,7 @@ $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stat
     <h2><?= htmlspecialchars($title) ?></h2>
 
     <?php if (!empty($errors)): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-top: 1rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-top: 1rem;">
             <ul style="margin-left: 1.2rem;">
                 <?php foreach ($errors as $error): ?>
                     <li><?= htmlspecialchars($error) ?></li>

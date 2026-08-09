@@ -6,7 +6,7 @@
     <p>Passen Sie Namen, Logo, Farben und Texte des Frameworks für Ihren Verband an.</p>
 
     <?php if (isset($_GET['success'])): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Branding-Einstellungen erfolgreich gespeichert.
         </div>
     <?php endif; ?>

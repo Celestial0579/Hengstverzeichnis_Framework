@@ -39,19 +39,19 @@ $limitReached = $activeCount >= $maxKeys;
     </p>
 
     <?php if ($error !== null): ?>
-        <div style="background-color: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?= htmlspecialchars($errorMessages[$error] ?? 'Die Aktion konnte nicht ausgeführt werden.') ?>
         </div>
     <?php endif; ?>
 
     <?php if ($success !== null && $newToken === null): ?>
-        <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?= htmlspecialchars($successMessages[$success] ?? 'Aktion erfolgreich.') ?>
         </div>
     <?php endif; ?>
 
     <?php if ($newToken !== null): ?>
-        <div style="background-color: #fff8e6; border: 1px solid #f0d78c; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+        <div style="background-color: var(--info-soft-bg); border: 1px solid #f0d78c; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <h3 style="margin-top: 0;">Dein neuer Schlüssel &ndash; jetzt kopieren</h3>
             <p style="margin-bottom: 0.75rem;">
                 Dieser Wert wird <strong>nur dieses eine Mal</strong> angezeigt. Er ist nur als Hash gespeichert und
@@ -147,7 +147,7 @@ $limitReached = $activeCount >= $maxKeys;
                                   onsubmit="return confirm('Diesen Schlüssel wirklich widerrufen? Anwendungen, die ihn nutzen, verlieren sofort den Zugriff.');">
                                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(App\Router::generateCsrfToken()) ?>">
                                 <input type="hidden" name="id" value="<?= (int)$key['id'] ?>">
-                                <button type="submit" class="btn btn-secondary" style="border-color: #dc3545; color: var(--danger-fg); padding: 0.3rem 0.7rem; font-size: 0.85rem;">
+                                <button type="submit" class="btn btn-secondary" style="border-color: var(--danger-fg); color: var(--danger-fg); padding: 0.3rem 0.7rem; font-size: 0.85rem;">
                                     Widerrufen
                                 </button>
                             </form>

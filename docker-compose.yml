@@ -1,3 +1,11 @@
+# Aktualisierung im Container: Das In-Place-Selbstupdate (/admin/updates) ist im
+# Image bewusst ABgeschaltet (UPDATE_IN_PLACE=0 im Dockerfile) - der Code gehört
+# root und darf vom Web-Prozess (www-data) aus Sicherheitsgründen nicht
+# überschrieben werden. Der Updates-Screen zeigt weiterhin an, ob ein neues
+# Release vorliegt; aktualisiert wird über ein NEUES IMAGE:
+#   docker compose pull && docker compose up -d
+# Automatisieren lässt sich das mit einem Watchtower-Fork (siehe der unten
+# auskommentierte Dienst). Migrationen laufen wie gewohnt beim nächsten Aufruf.
 services:
   app:
     build: .
@@ -10,6 +18,16 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/var/www/html/public/uploads
+
+  # Optionaler Auto-Updater für den Container-Weg: zieht ein neues Image und
+  # startet den Container neu, sobald ein Release veröffentlicht ist. Ersetzt
+  # das im Image abgeschaltete In-Place-Update. Zum Aktivieren einkommentieren.
+  # watchtower:
+  #   image: ghcr.io/nicholas-fedor/watchtower   # nickfedor/watchtower (gepflegter Fork)
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   command: --cleanup --interval 3600
+  #   restart: unless-stopped
 
   db:
     image: mariadb:11@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf

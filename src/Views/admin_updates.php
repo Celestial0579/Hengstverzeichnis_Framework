@@ -8,7 +8,9 @@
  * @var string $updateChannel 'stable' oder 'beta'
  * @var array|null $checkResult
  * @var string|null $checkError
+ * @var bool $inPlaceEnabled  In-Place-Selbstaktualisierung erlaubt (UPDATE_IN_PLACE)
  */
+$inPlaceEnabled = $inPlaceEnabled ?? true;
 ?>
 <div class="card" style="max-width: 700px; margin: 0 auto;">
     <h2>🔄 Updates</h2>
@@ -89,12 +91,27 @@
                 <?php endif; ?>
             </div>
 
-            <form action="/admin/updates/run" method="POST" onsubmit="return confirm('Jetzt auf Version <?= htmlspecialchars(addslashes($checkResult['latest'])) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen.');" style="margin-bottom: 1rem;">
-                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                <button type="submit" class="btn" <?= $backupConfigured ? '' : 'disabled title="Backups zuerst konfigurieren"' ?>>
-                    ⬆️ Jetzt aktualisieren (mit Pflicht-Backup)
-                </button>
-            </form>
+            <?php if ($inPlaceEnabled): ?>
+                <form action="/admin/updates/run" method="POST" onsubmit="return confirm('Jetzt auf Version <?= htmlspecialchars(addslashes($checkResult['latest'])) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen.');" style="margin-bottom: 1rem;">
+                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                    <button type="submit" class="btn" <?= $backupConfigured ? '' : 'disabled title="Backups zuerst konfigurieren"' ?>>
+                        ⬆️ Jetzt aktualisieren (mit Pflicht-Backup)
+                    </button>
+                </form>
+            <?php else: ?>
+                <!-- Container-Betrieb: nur anzeigen, dass es ein Update gibt - die
+                     Installation läuft NICHT in-place (der Web-Prozess darf den Code
+                     aus Sicherheitsgründen nicht überschreiben, #158), sondern über
+                     ein neues Image. -->
+                <div style="background-color: #e2e3f3; color: #2f2f6b; border: 1px solid #c9c9e6; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+                    Aktualisiert wird in dieser Installation über ein <strong>neues Image</strong>,
+                    nicht in-place. Neues Image holen:
+                    <code>docker compose pull &amp;&amp; docker compose up -d</code> — oder automatisch
+                    mit einem Watchtower-Fork (<code>nickfedor/watchtower</code>,
+                    Image <code>ghcr.io/nicholas-fedor/watchtower</code>), der neue Images erkennt
+                    und den Container neu startet.
+                </div>
+            <?php endif; ?>
         <?php else: ?>
             <div style="background-color: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
                 ✓ Diese Installation ist aktuell<?php if (!empty($checkResult['latest'])): ?> (neuestes Release im Kanal „<?= $checkResult['channel'] === 'beta' ? 'Beta' : 'Stabil' ?>": <?= htmlspecialchars($checkResult['latest']) ?>)<?php endif; ?>.
@@ -104,11 +121,13 @@
 
     <a href="/admin/updates?check=1" class="btn btn-secondary">🔍 Auf Updates prüfen</a>
 
-    <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border-color);">
-    <p style="color: var(--text-muted); font-size: 0.85rem;">
-        Ablauf: Release-Prüfung → <strong>Pflicht-Backup</strong> (Abbruch bei Fehler) →
-        Herunterladen des offiziellen Release-Archivs → Anwenden (Konfiguration,
-        Uploads und Plugins bleiben unangetastet). Datenbank-Migrationen laufen wie
-        gewohnt automatisch beim nächsten Seitenaufruf. Details: docs/releasing.md.
-    </p>
+    <?php if ($inPlaceEnabled): ?>
+        <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border-color);">
+        <p style="color: var(--text-muted); font-size: 0.85rem;">
+            Ablauf: Release-Prüfung → <strong>Pflicht-Backup</strong> (Abbruch bei Fehler) →
+            Herunterladen des offiziellen Release-Archivs → Anwenden (Konfiguration,
+            Uploads und Plugins bleiben unangetastet). Datenbank-Migrationen laufen wie
+            gewohnt automatisch beim nächsten Seitenaufruf. Details: docs/releasing.md.
+        </p>
+    <?php endif; ?>
 </div>

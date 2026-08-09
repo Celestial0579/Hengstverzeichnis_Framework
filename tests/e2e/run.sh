@@ -17,11 +17,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 E2E_DIR="$REPO_ROOT/tests/e2e"
 # shellcheck disable=SC1091
 source "$E2E_DIR/.e2e-state"
+# Gegenüber dem docker-Wrapper als Eigentümer der ${NS}-* Container ausweisen
+# (sonst blockiert er das Aufräumen der EIGENEN Container, siehe lehren.json).
+[[ -n "${TESTLAUF_NS:-}" && -z "${ARBEIT_ID:-}" ]] && export ARBEIT_ID="$TESTLAUF_NS"
 OUT="$E2E_DIR/artefakte"
 mkdir -p "$OUT"; rm -f "$OUT"/*.png "$OUT"/*.md "$OUT"/*.log 2>/dev/null || true
 
 docker rm -f "${NS}-parcours" >/dev/null 2>&1 || true
-docker run --name "${NS}-parcours" --network "$E2E_NET" --user root \
+docker run --rm --name "${NS}-parcours" --network "$E2E_NET" --user root \
   -e PLAYWRIGHT_BROWSERS_PATH=/home/appuser/.cache/ms-playwright \
   -e BASE_URL=http://hvapp -e OUT_DIR=/out -e "RUN_LABEL=E2E-Nachtlauf (Docker)" \
   -e DO_SETUP=auto \
@@ -34,7 +37,6 @@ docker run --name "${NS}-parcours" --network "$E2E_NET" --user root \
   -v "$OUT":/out -v "$E2E_DIR/parcours.py":/parcours.py:ro \
   --shm-size=512m --entrypoint python unclecode/crawl4ai:0.9.2 /parcours.py
 RC=$?
-docker rm -f "${NS}-parcours" >/dev/null 2>&1 || true
 
 LOG="$OUT/lauf.log"
 if [[ $RC -eq 0 ]]; then

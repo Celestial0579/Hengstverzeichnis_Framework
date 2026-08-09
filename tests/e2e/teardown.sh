@@ -8,6 +8,9 @@ E2E_DIR="$REPO_ROOT/tests/e2e"
 [[ -f "$E2E_DIR/.e2e-state" ]] && source "$E2E_DIR/.e2e-state"
 NS="${NS:-${TESTLAUF_NS:-hv-e2e}}"
 export E2E_NET="${E2E_NET:-${NS}-net}"
+# Gegenüber dem docker-Wrapper als Eigentümer der ${NS}-* Container ausweisen,
+# sonst kann der abbau die EIGENEN Container nicht entfernen (lehren.json).
+[[ -n "${NS:-}" && -z "${ARBEIT_ID:-}" ]] && export ARBEIT_ID="$NS"
 
 docker rm -f "${NS}-parcours" >/dev/null 2>&1 || true
 docker compose -p "${NS}-hv" \

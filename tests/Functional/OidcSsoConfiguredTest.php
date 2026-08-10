@@ -91,6 +91,45 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         return new HttpClient(self::$app->baseUrl());
     }
 
+    /**
+     * Durchläuft den vollständigen Code-Flow für eine BELIEBIGE Identität und
+     * liefert die Callback-Antwort: Redirect zum Authorize-Endpunkt holen, den
+     * echten state übernehmen und den Callback mit einem Code aufrufen, der die
+     * gewünschte E-Mail trägt (Konvention "email:<adresse>", siehe
+     * tests/Support/fake_oidc_idp.php). Der Fake-IdP stellt dann genau diese
+     * Adresse im Token aus - die Abweisungsfälle (#216) brauchen so keine
+     * eigene IdP-Instanz je Testfall.
+     */
+    private function ssoCallbackForEmail(HttpClient $client, string $email): \Tests\Support\HttpResponse {
+        $redirect = $client->get('/auth/entra');
+        parse_str((string)parse_url($redirect->location() ?? '', PHP_URL_QUERY), $query);
+        $state = (string)($query['state'] ?? '');
+        $this->assertNotSame('', $state, 'Flow muss einen state liefern.');
+        return $client->get('/auth/entra/callback?code=' . urlencode('email:' . $email) . '&state=' . urlencode($state));
+    }
+
+    /**
+     * Legt ein lokales Konto direkt in der Datenbank an (beide Server nutzen
+     * dieselbe DB wie der PHPUnit-Prozess, siehe Klassen-Docblock und
+     * FunctionalTestCase::resetTotpReplayGuard()). Direkter DB-Zugriff, weil
+     * die getesteten Konto-Zustände über die Oberfläche nicht (unverifiziert:
+     * entsteht nur per Selfservice-Registrierung samt Mailversand) oder nur
+     * umständlich (soft-gelöscht) herstellbar sind.
+     */
+    private function insertLocalUser(string $email, ?string $verificationToken, bool $softDeleted): void {
+        $db = \App\Database::getInstance();
+        $stmt = $db->prepare(
+            "INSERT INTO users (username, email, password_hash, email_verification_token, deleted_at) " .
+            'VALUES (?, ?, ?, ?, ' . ($softDeleted ? 'NOW()' : 'NULL') . ')'
+        );
+        $stmt->execute([
+            'sso-test-' . bin2hex(random_bytes(6)),
+            $email,
+            password_hash('SsoTestIrrelevant123!', PASSWORD_DEFAULT),
+            $verificationToken,
+        ]);
+    }
+
     public function testLoginPageShowsProviderLabelAndFullCodeFlowSignsIn(): void {
         // Provisionierung sicherstellen (Admin-Konto existiert) - läuft gegen
         // den geteilten Server, dieselbe Datenbank.
@@ -150,5 +189,79 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         // Kein Login: Admin-Bereich bleibt zu.
         $admin = $client->get('/admin');
         $this->assertSame('/login', $admin->location());
+    }
+
+    /**
+     * Zentrale Leitplanke des SSO-Logins (Klassen-Docblock EntraSsoController):
+     * SSO meldet ausschließlich BESTEHENDE lokale Konten an - eine Identität
+     * ohne lokales Konto wird abgewiesen, kein Auto-Provisioning. Ohne diesen
+     * Test bliebe ein Wegfall der Abweisung (z. B. beim Umbau des Callbacks)
+     * grün, weil der Erfolgsfall-Test immer mit der Admin-E-Mail arbeitet.
+     */
+    public function testIdentityWithoutLocalAccountIsRejected(): void {
+        // Provisionierung sicherstellen (Schema + Admin-Konto existieren) -
+        // läuft gegen den geteilten Server, dieselbe Datenbank.
+        $this->authenticatedClient();
+
+        $client = $this->ssoClient();
+        $unknownEmail = 'niemand-' . bin2hex(random_bytes(6)) . '@example.org';
+
+        $callback = $this->ssoCallbackForEmail($client, $unknownEmail);
+        $this->assertNull(
+            $callback->location(),
+            "Identität ohne lokales Konto darf nicht angemeldet werden. Body: {$callback->body}"
+        );
+        $this->assertStringContainsString('Konto', $callback->body);
+
+        // Keine Session etabliert: Admin-Bereich bleibt zu.
+        $this->assertSame('/login', $client->get('/admin')->location());
+    }
+
+    /**
+     * Ein per Selfservice registriertes, noch nicht verifiziertes Konto
+     * (email_verification_token gesetzt, siehe #83) darf sich auch per SSO
+     * nicht anmelden - sonst umginge SSO die Verifizierungspflicht der
+     * Registrierung (EntraSsoController, Prüfung nach dem Konto-Lookup).
+     */
+    public function testUnverifiedLocalAccountCannotSignInViaSso(): void {
+        $this->authenticatedClient();
+
+        $email = 'sso-unverifiziert-' . bin2hex(random_bytes(6)) . '@example.org';
+        $this->insertLocalUser($email, bin2hex(random_bytes(32)), false);
+
+        $client = $this->ssoClient();
+        $callback = $this->ssoCallbackForEmail($client, $email);
+        $this->assertNull(
+            $callback->location(),
+            "Unverifiziertes Konto darf sich nicht per SSO anmelden. Body: {$callback->body}"
+        );
+        // Fehlermeldung auth.email_not_verified ("... bestätigen Sie zunächst
+        // Ihre E-Mail-Adresse ...") - nicht die generische sso_failed-Meldung.
+        $this->assertStringContainsString('bestätigen', $callback->body);
+
+        $this->assertSame('/login', $client->get('/admin')->location());
+    }
+
+    /**
+     * Ein soft-gelöschtes Konto (users.deleted_at gesetzt) darf sich nicht per
+     * SSO anmelden - deckt das "deleted_at IS NULL" der Konto-Abfrage im
+     * Callback ab. Es wird wie eine unbekannte Identität behandelt (gleiche
+     * sso_no_account-Meldung), nicht als gesperrtes Konto ausgewiesen.
+     */
+    public function testSoftDeletedAccountCannotSignInViaSso(): void {
+        $this->authenticatedClient();
+
+        $email = 'sso-geloescht-' . bin2hex(random_bytes(6)) . '@example.org';
+        $this->insertLocalUser($email, null, true);
+
+        $client = $this->ssoClient();
+        $callback = $this->ssoCallbackForEmail($client, $email);
+        $this->assertNull(
+            $callback->location(),
+            "Soft-gelöschtes Konto darf sich nicht per SSO anmelden. Body: {$callback->body}"
+        );
+        $this->assertStringContainsString('Konto', $callback->body);
+
+        $this->assertSame('/login', $client->get('/admin')->location());
     }
 }

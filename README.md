@@ -60,7 +60,7 @@ und Variante B unten).
 
 ## Bekannte Einschränkungen
 
-- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 30 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks und Abstammungs-Validierung. Noch nicht abgedeckt: Benutzerverwaltung. Ergänzend läuft nächtlich ein Browser-basierter End-to-End-Parcours (siehe [tests/e2e/](tests/e2e/)) sowie manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
+- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 38 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Benutzerverwaltung, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks und Abstammungs-Validierung. Ergänzend läuft nächtlich ein Browser-basierter End-to-End-Parcours (siehe [tests/e2e/](tests/e2e/)) sowie manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
 Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 

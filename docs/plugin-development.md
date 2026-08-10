@@ -55,6 +55,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
     "name": "Demo-Plugin",
     "version": "1.0.0",
     "core_compatibility": ">=0.1.0-beta.1",
+    "core_supported_max": "0.4",
     "description": "Kurzbeschreibung, wird im Admin-Bereich angezeigt.",
     "author": "...",
     "hooks": ["horse.after_save", "horse.detail_sections", "admin.dashboard_tiles"],
@@ -68,7 +69,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 | `name` | ✅ | Anzeigename im Admin-Bereich. |
 | `version` | ✅ | Frei wählbar (z. B. SemVer). Bei jedem Update **muss** sie sich ändern - siehe Abschnitt "Update-Erkennung" unten, sonst wird ein reguläres Update fälschlich als verdächtige Änderung erkannt. |
 | `core_compatibility` | ✅ | Vergleichsausdruck gegen `CORE_VERSION` (siehe unten). |
-| `core_supported_max` | (–)* | Höchste unterstützte Kern-Linie als `"Major.Minor"` (z. B. `"0.4"`). Läuft ein neuerer Kern, gilt das Plugin als inkompatibel (wird nicht geladen); die Update-Seite prüft die Angabe zusätzlich gegen die **Ziel**version eines anstehenden Kern-Updates und warnt vor dem Einspielen (#197). *Aktuell optional; wird mit dem Addon-Autoupdate zur **Pflicht** - Manifeste ohne Angabe werden dann abgewiesen. |
+| `core_supported_max` | ✅ | Höchste unterstützte Kern-Linie als `"Major.Minor"` (z. B. `"0.4"`). **Pflicht** seit dem Addon-Autoupdate (#197): Manifeste ohne (gültige) Angabe werden abgewiesen - Installation und Laden verweigert, fail-closed. Läuft ein neuerer Kern als angegeben, gilt das Plugin als inkompatibel (wird nicht geladen); die Update-Seite prüft die Angabe zusätzlich gegen die **Ziel**version eines anstehenden Kern-Updates und warnt vor dem Einspielen. |
 | `description` | – | Anzeigetext im Admin-Bereich. |
 | `author` | – | Anzeigetext im Admin-Bereich. |
 | `hooks` | – | Rein deklarativ/informativ - zeigt Admins vor der Aktivierung, was das Plugin laut Selbstauskunft tut. Wird **nicht** technisch erzwungen. |

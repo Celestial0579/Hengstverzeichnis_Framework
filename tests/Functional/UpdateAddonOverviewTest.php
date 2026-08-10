@@ -119,6 +119,32 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $this->assertStringContainsString('kompatibel mit Ziel 9.9.9?', $page->body);
     }
 
+    public function testAddonUpdateRequiresCsrfToken(): void {
+        $admin = $this->authenticatedClient();
+
+        $response = $admin->post('/admin/updates/addon', ['slug' => 'irrelevant']);
+        $this->assertSame(403, $response->statusCode);
+    }
+
+    /**
+     * Fremd-Quellen und manuell kopierte Addons (keine plugins.source-Zeile
+     * auf das offizielle Repo) lehnt der Server ab, BEVOR irgendein
+     * Netzwerkzugriff passiert (#197, Stufe 2).
+     */
+    public function testAddonUpdateRefusesNonOfficialSource(): void {
+        $admin = $this->authenticatedClient();
+        $this->createPluginDir([]);
+
+        $response = $admin->post('/admin/updates/addon', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::SLUG,
+        ]);
+
+        $location = (string)$response->location();
+        $this->assertStringStartsWith('/admin/updates?addon_error=', $location);
+        $this->assertStringContainsString('offiziellen', urldecode($location));
+    }
+
     // ---- Helfer --------------------------------------------------------
 
     private function pluginDir(): string {
@@ -133,6 +159,10 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
             'slug' => self::SLUG,
             'name' => 'Update-Übersicht Testaddon',
             'version' => '1.0.0',
+            // Seit Stufe 2 Pflicht - Basis-Fixture bewusst weit in der
+            // Zukunft, damit die Fälle unten den jeweils relevanten Aspekt
+            // testen (der Zielversions-Fall überschreibt mit '0.3').
+            'core_supported_max' => '9.9',
         ], $manifestExtra);
         file_put_contents($dir . '/plugin.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         file_put_contents($dir . '/Plugin.php', "<?php\nnamespace Plugin\\UpdateOverviewTestaddon;\nclass Plugin { public function register(\$hooks): void {} }\n");
@@ -169,7 +199,7 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
             'name' => 'Update-Übersicht Testaddon',
             'version' => $availableVersion,
             'core_compatibility' => '>=0.1.0-beta.1',
-            'core_supported_max' => null,
+            'core_supported_max' => '9.9',
             'description' => '',
             'author' => '',
             'hooks' => [],

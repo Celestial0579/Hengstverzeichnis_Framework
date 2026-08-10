@@ -243,7 +243,23 @@ class UpdateService {
 
         AuditLogger::log('Update angewendet', 'update', "Von {$check['current']} auf {$check['latest']}, {$files} Dateien aktualisiert");
 
-        return ['from' => $check['current'], 'to' => $check['latest'], 'files' => $files];
+        // Addon-Phase (#197, Stufe 2): Nach dem Kern werden die aus dem
+        // offiziellen Repo installierten Addons auf den zur ZIEL-Linie
+        // passenden Release-Stand mitgezogen (Reihenfolge Backup -> Kern ->
+        // Addons). Fehler einzelner Addons brechen das bereits angewendete
+        // Kern-Update nicht ab - sie landen in der Ergebnisliste und über
+        // AddonUpdateService im Audit-Log; PROTECTED_PATHS bleibt davon
+        // unberührt (der Kern-Kopiervorgang oben fasst plugins/ nie an,
+        // die Addon-Phase schreibt bewusst über ihren eigenen Weg).
+        $addonPhase = AddonUpdateService::updateOfficialAddonsAfterCoreUpdate($check['latest']);
+
+        return [
+            'from' => $check['current'],
+            'to' => $check['latest'],
+            'files' => $files,
+            'addons' => $addonPhase['results'],
+            'addons_ref' => $addonPhase['ref'],
+        ];
     }
 
     /**

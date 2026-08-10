@@ -93,6 +93,7 @@ class GithubAddonRepositoryTest extends TestCase {
                 'name' => 'Demo Addon',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
                 'description' => 'Test-Plugin',
             ]),
             'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\nnamespace Plugin\\DemoAddon;\nclass Plugin {}\n",
@@ -107,10 +108,13 @@ class GithubAddonRepositoryTest extends TestCase {
     }
 
     /**
-     * core_supported_max muss die Manifest-Whitelist passieren (#197) - sonst
-     * sehen Update-Seite und Store die Obergrenze im Katalog nie.
+     * core_supported_max ist Pflicht (#197, Stufe 2) und muss die
+     * Manifest-Whitelist passieren: Mit Angabe landet die Obergrenze im
+     * Katalog, OHNE Angabe fliegt das Plugin aus dem Katalog (und ist damit
+     * nicht installierbar) - fail-closed, wie beim manuellen Weg über
+     * PluginManager::validateManifest().
      */
-    public function testScanTarballFileCarriesCoreSupportedMaxIntoCatalog(): void {
+    public function testScanTarballFileRequiresAndCarriesCoreSupportedMax(): void {
         $tarPath = $this->buildTarGzFromFiles([
             'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon',
@@ -127,14 +131,24 @@ class GithubAddonRepositoryTest extends TestCase {
                 'core_compatibility' => '>=0.3.0',
             ]),
             'testrepo-main/plugins/ohne-max/Plugin.php' => "<?php\nnamespace Plugin\\OhneMax;\nclass Plugin {}\n",
+            'testrepo-main/plugins/kaputtes-max/plugin.json' => json_encode([
+                'slug' => 'kaputtes-max',
+                'name' => 'Kaputte Obergrenze',
+                'version' => '1.0.0',
+                'core_compatibility' => '>=0.3.0',
+                'core_supported_max' => '0.4.0', // drei Stellen: ungültig, Format ist Major.Minor
+            ]),
+            'testrepo-main/plugins/kaputtes-max/Plugin.php' => "<?php\nnamespace Plugin\\KaputtesMax;\nclass Plugin {}\n",
         ]);
 
         $result = GithubAddonRepository::scanTarballFile($tarPath);
 
         $this->assertTrue($result['ok'], $result['error'] ?? '');
         $bySlug = array_column($result['plugins'], null, 'slug');
+        $this->assertArrayHasKey('demo-addon', $bySlug);
         $this->assertSame('0.4', $bySlug['demo-addon']['core_supported_max']);
-        $this->assertNull($bySlug['ohne-max']['core_supported_max']);
+        $this->assertArrayNotHasKey('ohne-max', $bySlug, 'Manifest ohne core_supported_max darf nicht in den Katalog');
+        $this->assertArrayNotHasKey('kaputtes-max', $bySlug, 'Fehlformat darf nicht in den Katalog');
     }
 
     public function testScanTarballFileIgnoresPluginWithMismatchedSlug(): void {
@@ -144,6 +158,7 @@ class GithubAddonRepositoryTest extends TestCase {
                 'name' => 'Demo Addon',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
             ]),
         ]);
 
@@ -176,6 +191,7 @@ class GithubAddonRepositoryTest extends TestCase {
                 'name' => 'Evil',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
             ])),
             // Klassischer Zip-Slip-Versuch: sieht wie ein normaler Unterpfad aus,
             // enthält aber ".."-Segmente in Richtung Dateisystem-Wurzel.
@@ -283,6 +299,7 @@ class GithubAddonRepositoryTest extends TestCase {
                 'name' => 'Demo Addon',
                 'version' => '1.0.0',
                 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
             ]),
             'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v1\n",
         ]);
@@ -309,12 +326,14 @@ class GithubAddonRepositoryTest extends TestCase {
         $tarV1 = $this->buildTarGzFromFiles([
             'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon', 'name' => 'Demo Addon', 'version' => '1.0.0', 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
             ]),
             'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v1\n",
         ]);
         $tarV2 = $this->buildTarGzFromFiles([
             'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
                 'slug' => 'demo-addon', 'name' => 'Demo Addon', 'version' => '2.0.0', 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
             ]),
             'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v2\n",
         ]);

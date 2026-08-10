@@ -236,6 +236,114 @@ final class GithubAddonRepository {
     }
 
     /**
+     * Öffentlicher Zugriff auf den Tarball-Download für den
+     * AddonUpdateService (#197, Stufe 2) - dieselbe Sicherheits- und
+     * Größenprüfung wie beim Store-Install. Der Aufrufer räumt mit
+     * deleteWorkDirOf() auf.
+     */
+    public static function downloadTarballFor(string $owner, string $repo, ?string $ref): ?string {
+        return self::downloadTarball($owner, $repo, $ref);
+    }
+
+    /** Räumt das Arbeitsverzeichnis eines per downloadTarballFor() geholten Tarballs ab. */
+    public static function deleteWorkDirOf(string $tarPath): void {
+        self::deleteDirRecursive(dirname($tarPath));
+    }
+
+    /**
+     * Standard-URL der Releases-Liste eines Addon-Repos ({owner}/{repo}
+     * werden ersetzt). Bewusst die Liste statt /latest - das erlaubt die
+     * Auswahl je Kern-Linie. Übersteuerbar per ADDON_RELEASES_URL
+     * (Tests/Staging), Muster wie UpdateService::releasesUrl().
+     */
+    private const RELEASES_URL_TEMPLATE = 'https://api.github.com/repos/{owner}/{repo}/releases?per_page=30';
+
+    public static function releasesUrlFor(string $owner, string $repo): string {
+        $override = getenv('ADDON_RELEASES_URL');
+        if (is_string($override) && $override !== '') {
+            return $override;
+        }
+        return str_replace(
+            ['{owner}', '{repo}'],
+            [rawurlencode($owner), rawurlencode($repo)],
+            self::RELEASES_URL_TEMPLATE
+        );
+    }
+
+    /**
+     * Wählt aus einer Releases-Liste das beste Tag zur Kern-Linie "X.Y"
+     * (#197, Stufe 2/3): Tags der Form vX.Y.z (führendes v optional) mit
+     * exakt passender Linie, höchste Patch-Stelle gewinnt; Drafts und
+     * Prereleases werden übersprungen. Netzwerkfrei und damit isoliert
+     * testbar - Muster: UpdateService::selectBestRelease().
+     *
+     * @param array<int, mixed> $releases dekodierte GitHub-Releases-Liste
+     */
+    public static function selectBestReleaseTagForCoreLine(array $releases, string $coreLine): ?string {
+        if (!preg_match('/^\d+\.\d+$/', $coreLine)) {
+            return null;
+        }
+        $bestTag = null;
+        $bestPatch = -1;
+        foreach ($releases as $release) {
+            if (!is_array($release) || !empty($release['draft']) || !empty($release['prerelease'])) {
+                continue;
+            }
+            $tag = $release['tag_name'] ?? null;
+            if (!is_string($tag) || !preg_match('/^v?(\d+)\.(\d+)\.(\d+)$/', $tag, $m)) {
+                continue;
+            }
+            if ($m[1] . '.' . $m[2] !== $coreLine) {
+                continue;
+            }
+            $patch = (int)$m[3];
+            if ($patch > $bestPatch) {
+                $bestPatch = $patch;
+                $bestTag = $tag;
+            }
+        }
+        return $bestTag;
+    }
+
+    /**
+     * Bestes Release-Tag des Repos zur Kern-Linie - genau eine
+     * GitHub-Abfrage. null, wenn (noch) kein passendes Release existiert
+     * oder GitHub nicht erreichbar ist: Der Aufrufer fällt dann bewusst auf
+     * den Branch-Stand zurück (wichtig, solange das offizielle Addons-Repo
+     * noch keinen Release zur laufenden Linie hat).
+     */
+    public static function bestReleaseTagForCoreLine(string $owner, string $repo, string $coreLine): ?string {
+        if (!self::isValidOwnerOrRepo($owner) || !self::isValidOwnerOrRepo($repo)) {
+            return null;
+        }
+        $json = self::httpGetJson(self::releasesUrlFor($owner, $repo));
+        return is_array($json) ? self::selectBestReleaseTagForCoreLine($json, $coreLine) : null;
+    }
+
+    /** @return mixed dekodiertes JSON oder null */
+    private static function httpGetJson(string $url): mixed {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => self::TIMEOUT_SECONDS,
+                'follow_location' => 1,
+                'max_redirects' => 5,
+                'header' => "User-Agent: Hengstverzeichnis-Framework-AddonStore\r\nAccept: application/vnd.github+json\r\n",
+                'ignore_errors' => true,
+            ],
+        ]);
+        $body = @file_get_contents($url, false, $context);
+        if ($body === false) {
+            return null;
+        }
+        $status = self::extractStatusCode($http_response_header ?? []);
+        if ($status === null || $status >= 300) {
+            return null;
+        }
+        return json_decode($body, true);
+    }
+
+    /**
      * Lädt den Tarball über die GitHub-API (nicht direkt codeload.github.com,
      * da die API ohne Ref automatisch den tatsächlichen Standard-Branch
      * verwendet - "main" vs. "master" muss so nicht geraten werden;
@@ -417,6 +525,14 @@ final class GithubAddonRepository {
                 return null;
             }
         }
+        // Pflicht-Obergrenze (#197, Stufe 2): Ein Manifest ohne
+        // core_supported_max fliegt aus dem Katalog und ist damit nicht
+        // installierbar - dieselbe Durchsetzung wie in
+        // PluginManager::validateManifest() für den manuellen Weg.
+        $max = $manifest['core_supported_max'] ?? null;
+        if (!is_string($max) || !preg_match('/^\d+\.\d+$/', $max)) {
+            return null;
+        }
         if (!preg_match('/^[a-z0-9][a-z0-9-]*$/', $manifest['slug'])) {
             return null;
         }
@@ -431,7 +547,7 @@ final class GithubAddonRepository {
             'core_compatibility' => $manifest['core_compatibility'],
             // Obergrenze der unterstützten Kern-Linie (#197) - muss durch die
             // Whitelist, sonst sehen Update-Seite/Store das Feld im Katalog nie.
-            'core_supported_max' => is_string($manifest['core_supported_max'] ?? null) ? $manifest['core_supported_max'] : null,
+            'core_supported_max' => $max,
             'description' => is_string($manifest['description'] ?? null) ? $manifest['description'] : '',
             'author' => is_string($manifest['author'] ?? null) ? $manifest['author'] : '',
             'hooks' => is_array($manifest['hooks'] ?? null) ? array_values(array_filter($manifest['hooks'], 'is_string')) : [],

@@ -15,9 +15,27 @@ Breaking Changes sind jederzeit möglich).
   bekommt (Mehrfachauswahl, mindestens eine; Standard bleibt Admin +
   Editor, Bestandsinstallationen verhalten sich unverändert). Der
   „keine Empfänger"-Fehler nennt jetzt die konfigurierten Gruppen
-
-### Hinzugefügt
-
+- `App\Plugin\PluginPage::render()`: Plugin-Seiten rendern im zentralen
+  Haupt-Layout - mit Header, Navigation, Footer, Theme-Umschalter und den
+  admin-konfigurierten Markenfarben, statt als eigenständige, unthemebare
+  HTML-Dokumente. Das Referenz-Plugin nutzt den Dienst auf allen drei
+  Seiten; neuer Doku-Abschnitt „Theming & Darkmode für Plugin-Seiten" in
+  docs/plugin-development.md (inkl. Marker-Konvention für bewusste
+  Ausnahmen wie Druckansichten); statischer Lint-Test verhindert den
+  Rückfall des Demo-Plugins in eigenständige Dokumente (Addons#66)
+- Addon-Autoupdate für das offizielle Repo (#197, Stufe 2): Beim
+  Kern-Update werden die aus dem offiziellen Repo installierten Addons
+  automatisch auf den zur Ziel-Linie passenden Release-Stand mitgezogen
+  (Reihenfolge Pflicht-Backup → Kern → Addons; Addon-Fehler brechen das
+  Kern-Update nicht ab und stehen im Audit-Log). Auf der Update-Seite
+  lässt sich jedes Addon mit offenem Update einzeln innerhalb der
+  laufenden Kern-Linie aktualisieren. Fremd-Repos bleiben ausdrücklich
+  manuell; die Freigabe-Logik (Re-Approval) ist unverändert
+- Addon-Store und Autoupdate lesen für das offizielle Repo den besten
+  Release-Tag `vX.Y.z` zur Kern-Linie statt des Branch-HEAD (Fallback auf
+  den Branch, solange kein passender Release existiert) - ein halb
+  fertiger `main`-Stand kann nicht mehr auf Produktivinstanzen landen
+  (#197, Stufe 3; Release-Prozess im Addons-Repo: Addons#65)
 - Update-Seite denkt Addons mit (#197, Stufe 1): `/admin/updates` zeigt je
   installiertem Addon die Katalog-Version des offiziellen Repos (aus dem
   Store-Cache, netzwerkfrei) und die Kompatibilität - geprüft gegen die
@@ -51,6 +69,15 @@ Breaking Changes sind jederzeit möglich).
   der AGPL-3.0 (§ 5(d)); neuer Sprachschlüssel
   `footer.framework_copyright`, README um Lizenz-/Copyright-Abschnitt
   ergänzt (#199)
+
+### Geändert
+
+- **Breaking:** `core_supported_max` ist jetzt Pflichtfeld in
+  Addon-Manifesten - Manifeste ohne (gültige) Major.Minor-Angabe werden
+  abgewiesen: Installation über Store und manuellen Weg verweigert, ein
+  bereits installiertes Addon gilt als inkompatibel und wird nicht
+  geladen (sichtbar mit Begründung statt still, #197). Die Manifeste des
+  offiziellen Addons-Repos werden mit Addons#65 umgestellt
 
 ### Behoben
 

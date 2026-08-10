@@ -170,6 +170,7 @@ class HorseDeleteHooksTest extends FunctionalTestCase {
             'name' => 'Delete-Hook-Recorder (Test-Fixture)',
             'version' => '1.0.0',
             'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '9.9',
             'description' => 'Zeichnet die Lösch-/Papierkorb-Hooks (#164) für den Kontrakt-Test auf.',
             'author' => 'tests/Functional/HorseDeleteHooksTest',
             'hooks' => ['horse.before_delete', 'horse.trashed', 'horse.restored', 'horse.deleted'],

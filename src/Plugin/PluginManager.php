@@ -242,15 +242,15 @@ final class PluginManager {
             }
         }
 
-        // Obergrenze der unterstützten Kern-Version (#197): vorerst optional,
-        // damit Bestands-Addons installierbar bleiben, bis die Manifeste im
-        // offiziellen Addons-Repo umgestellt sind - wenn angegeben, muss das
-        // Format stimmen. Wird mit dem Addon-Autoupdate zur Pflicht.
-        if (array_key_exists('core_supported_max', $manifest)) {
-            if (!is_string($manifest['core_supported_max'])
-                || !preg_match('/^\d+\.\d+$/', $manifest['core_supported_max'])) {
-                return "Feld 'core_supported_max' muss eine Major.Minor-Angabe wie \"0.4\" sein.";
-            }
+        // Pflicht-Obergrenze der unterstützten Kern-Version (#197, Stufe 2):
+        // Jedes Addon muss die höchste bekannte unterstützte Kern-Linie
+        // ausweisen - fehlt die Angabe, wird das Manifest abgewiesen
+        // (Installation und Laden verweigert, fail-closed; sichtbar mit
+        // Begründung in /admin/plugins und auf der Update-Seite).
+        if (empty($manifest['core_supported_max'])
+            || !is_string($manifest['core_supported_max'])
+            || !preg_match('/^\d+\.\d+$/', $manifest['core_supported_max'])) {
+            return "Pflichtfeld 'core_supported_max' fehlt oder ist keine Major.Minor-Angabe wie \"0.4\" (höchste unterstützte Kern-Linie, siehe docs/plugin-development.md).";
         }
 
         if (!preg_match('/^[a-z0-9][a-z0-9-]*$/', $dirSlug)) {

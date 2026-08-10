@@ -11,7 +11,7 @@
     <?php else: ?>
         <p><em><?= htmlspecialchars(App\I18n\Translator::t('legal.impressum_placeholder_note')) ?></em></p>
 
-        <h3><?= htmlspecialchars(App\I18n\Translator::t('legal.impressum_section_tmg')) ?></h3>
+        <h3><?= htmlspecialchars(App\I18n\Translator::t('legal.impressum_section_ddg')) ?></h3>
         <p>
             <?= htmlspecialchars($settings['site_name'] ?? 'Musterverein e.V.') ?><br>
             <?= htmlspecialchars(App\I18n\Translator::t('legal.sample_address')) ?><br>

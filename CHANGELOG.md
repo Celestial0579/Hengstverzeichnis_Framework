@@ -18,6 +18,22 @@ Breaking Changes sind jederzeit möglich).
   docs/plugin-development.md (inkl. Marker-Konvention für bewusste
   Ausnahmen wie Druckansichten); statischer Lint-Test verhindert den
   Rückfall des Demo-Plugins in eigenständige Dokumente (Addons#66)
+- Update-Seite denkt Addons mit (#197, Stufe 1): `/admin/updates` zeigt je
+  installiertem Addon die Katalog-Version des offiziellen Repos (aus dem
+  Store-Cache, netzwerkfrei) und die Kompatibilität - geprüft gegen die
+  laufende UND gegen die Zielversion eines verfügbaren Kern-Updates; vor
+  dem Einspielen warnt die Seite, welche aktiven Addons das Update
+  deaktivieren würde. Das Dashboard zählt offene Addon-Updates an der
+  Update-Kachel
+- Neues optionales Manifestfeld `core_supported_max` ("Major.Minor"):
+  höchste unterstützte Kern-Linie eines Addons. Läuft ein neuerer Kern,
+  gilt das Addon als inkompatibel; die Angabe wird mit dem Addon-Autoupdate
+  zur Pflicht (Formatprüfung greift schon jetzt). `core_compatibility`
+  bleibt bewusst Ein-Operator-Format - Bereichs-Syntax wäre fail-closed
+  inkompatibel (#197)
+- Der bisher stumme Kompatibilitäts-Skip beim Plugin-Laden ist erklärbar:
+  `/admin/plugins` nennt zum „Inkompatibel"-Badge jetzt die Begründung
+  (z. B. „unterstützt höchstens Kern 0.3, geprüft gegen 0.4.0") (#197)
 - `App\Helper\ColorContrast`: WCAG-Kontrastrechnung (Hex-Parsing, Ratio,
   `readableTextOn()`) für die admin-konfigurierbaren Markenfarben; von
   `layout.php` zur Laufzeit genutzt und per Unit-Test abgesichert, dass die

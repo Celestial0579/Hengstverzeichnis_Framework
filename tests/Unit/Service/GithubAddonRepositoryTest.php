@@ -106,6 +106,37 @@ class GithubAddonRepositoryTest extends TestCase {
         $this->assertSame('1.0.0', $result['plugins'][0]['version']);
     }
 
+    /**
+     * core_supported_max muss die Manifest-Whitelist passieren (#197) - sonst
+     * sehen Update-Seite und Store die Obergrenze im Katalog nie.
+     */
+    public function testScanTarballFileCarriesCoreSupportedMaxIntoCatalog(): void {
+        $tarPath = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
+                'slug' => 'demo-addon',
+                'name' => 'Demo Addon',
+                'version' => '1.0.0',
+                'core_compatibility' => '>=0.3.0',
+                'core_supported_max' => '0.4',
+            ]),
+            'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\nnamespace Plugin\\DemoAddon;\nclass Plugin {}\n",
+            'testrepo-main/plugins/ohne-max/plugin.json' => json_encode([
+                'slug' => 'ohne-max',
+                'name' => 'Ohne Obergrenze',
+                'version' => '1.0.0',
+                'core_compatibility' => '>=0.3.0',
+            ]),
+            'testrepo-main/plugins/ohne-max/Plugin.php' => "<?php\nnamespace Plugin\\OhneMax;\nclass Plugin {}\n",
+        ]);
+
+        $result = GithubAddonRepository::scanTarballFile($tarPath);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $bySlug = array_column($result['plugins'], null, 'slug');
+        $this->assertSame('0.4', $bySlug['demo-addon']['core_supported_max']);
+        $this->assertNull($bySlug['ohne-max']['core_supported_max']);
+    }
+
     public function testScanTarballFileIgnoresPluginWithMismatchedSlug(): void {
         $tarPath = $this->buildTarGzFromFiles([
             'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([

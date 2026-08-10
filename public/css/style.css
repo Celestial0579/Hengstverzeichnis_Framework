@@ -51,6 +51,21 @@
        Deshalb die eigene Variable: --primary-color bleibt der Flächenton,
        --primary-fg ist die davon abgeleitete Textvariante. */
     --primary-fg: var(--primary-color);
+    /* Textfarbe AUF der Primärfarbfläche (#196): wird in layout.php aus der
+       admin-konfigurierten Primärfarbe berechnet (Weiß oder Schwarz, je nach
+       Luminanz, garantiert >= 4,5:1) und dort injiziert. Dieser Fallback
+       passt zur dunklen Default-Primärfarbe und greift nur auf Seiten, die
+       style.css ohne das Layout einbinden. */
+    --on-primary: #ffffff;
+    /* Footer (#196): Im hellen Theme bleibt der Footer die Markenfläche,
+       Text-/Linkfarbe kommen aus --on-primary statt aus hartem Weiß bzw. der
+       zweiten Markenfarbe (zwei frei wählbare Markenfarben übereinander
+       garantieren keinerlei Kontrast). Links unterscheiden sich durch
+       Unterstreichung statt durch Farbe. Im Darkmode (Zwillingsblöcke unten)
+       wechselt der Footer auf die Theme-Flächenfarben. */
+    --footer-bg: var(--primary-color);
+    --footer-fg: var(--on-primary);
+    --footer-link-color: var(--on-primary);
     --font-family: 'Inter', system-ui, sans-serif;
     --border-radius: 8px;
     --transition-speed: 0.3s;
@@ -104,6 +119,11 @@
          * nicht, greift die Zeile davor. */
         --primary-fg: #b5bbc2;
         --primary-fg: color-mix(in srgb, var(--primary-color) 35%, #ffffff);
+        /* Footer im Darkmode (#196): Theme-Flächen statt Markenfläche, damit
+           Text und Links den geprüften Theme-Farben folgen. */
+        --footer-bg: var(--header-bg);
+        --footer-fg: var(--text-color);
+        --footer-link-color: var(--link-color);
         --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
         --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
         --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
@@ -130,6 +150,11 @@
         --link-color: #7cb0f0;
     --primary-fg: #b5bbc2;
     --primary-fg: color-mix(in srgb, var(--primary-color) 35%, #ffffff);
+    /* Footer im Darkmode (#196): Theme-Flächen statt Markenfläche, damit
+       Text und Links den geprüften Theme-Farben folgen. */
+    --footer-bg: var(--header-bg);
+    --footer-fg: var(--text-color);
+    --footer-link-color: var(--link-color);
     --shadow-sm: 0 2px 4px rgba(0,0,0,0.4);
     --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
     --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
@@ -226,7 +251,7 @@ nav a {
 
 nav a:hover, nav a.active {
     background-color: var(--primary-color);
-    color: white;
+    color: var(--on-primary, #ffffff);
 }
 
 /* Main Layout */
@@ -264,18 +289,24 @@ h1, h2, h3 {
     display: inline-block;
     padding: 0.75rem 1.5rem;
     background-color: var(--primary-color);
-    color: white;
+    /* Kein hartes Weiß (#196): --on-primary wird aus der admin-konfigurierten
+       Primärfarbe berechnet und bleibt auch auf hellen Markenfarben lesbar. */
+    color: var(--on-primary, #ffffff);
     text-decoration: none;
     border-radius: var(--border-radius);
     border: none;
     cursor: pointer;
     font-weight: 600;
-    transition: background-color var(--transition-speed), transform 0.1s;
+    transition: background-color var(--transition-speed), color var(--transition-speed), transform 0.1s;
 }
 
 .btn:hover {
-    /* --secondary-btn-bg statt der Markenfarbe: weißer Text braucht >= 4,5:1 (#169) */
+    /* --secondary-btn-bg statt der Markenfarbe: weißer Text braucht >= 4,5:1 (#169).
+       Textfarbe hier bewusst fest Weiß: Die Hover-Fläche ist der feste dunkle
+       Begleitton, nicht die Markenfarbe - ein aus einer HELLEN Markenfarbe
+       berechnetes schwarzes --on-primary wäre darauf unlesbar (#196). */
     background-color: var(--secondary-btn-bg);
+    color: #ffffff;
 }
 
 .btn:active {
@@ -292,7 +323,20 @@ h1, h2, h3 {
 
 .btn-secondary:hover {
     background-color: var(--primary-color);
-    color: white;
+    color: var(--on-primary, #ffffff);
+}
+
+/* Nav-Variante der Buttons (#196): ersetzt die frühere .nav-btn-admin-Insel
+   aus layout.php. Kompaktere Metriken für die Kopfzeile; der Rahmen hebt die
+   Fläche im Darkmode >= 3:1 vom Header ab (--primary-fg ist dort die
+   aufgehellte Ableitung der Markenfarbe). */
+.btn-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1.1rem;
+    font-size: 0.9rem;
+    border: 2px solid var(--primary-fg);
 }
 
 /* Forms */
@@ -323,22 +367,27 @@ h1, h2, h3 {
     box-shadow: 0 0 0 3px rgba(44, 62, 80, 0.1);
 }
 
-/* Footer */
+/* Footer (#196): Flächen-/Text-/Linkfarbe kommen aus den abgeleiteten
+   Footer-Variablen (siehe :root und die Darkmode-Zwillingsblöcke) statt aus
+   rohen Markenfarben. Links sind durchgängig unterstrichen: Im hellen Theme
+   teilen sie sich die berechnete Textfarbe mit dem Fließtext, die
+   Unterstreichung ist das farbunabhängige Unterscheidungsmerkmal. */
 footer {
-    background-color: var(--primary-color);
-    color: white;
+    background-color: var(--footer-bg);
+    color: var(--footer-fg);
     text-align: center;
     padding: 2rem;
     margin-top: auto;
+    transition: background-color var(--transition-speed), color var(--transition-speed);
 }
 
 footer a {
-    color: var(--secondary-color);
-    text-decoration: none;
+    color: var(--footer-link-color);
+    text-decoration: underline;
 }
 
 footer a:hover {
-    text-decoration: underline;
+    opacity: 0.85;
 }
 
 /* Utilities */
@@ -417,6 +466,14 @@ footer a:hover {
         width: 100%;
         text-align: center;
         margin-bottom: 0.5rem;
+    }
+
+    /* Die Nav-Buttons stehen in der Kopfzeile neben dem Theme-Umschalter -
+       volle Breite würde den Header zerreißen (#196). Steht bewusst NACH der
+       .btn-Regel oben. */
+    .btn-nav {
+        width: auto;
+        margin-bottom: 0;
     }
 
     /* Table Responsiveness */

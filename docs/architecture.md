@@ -344,11 +344,21 @@ Zucht-/Blutlinien-Daten teils unwiederbringlich sind. Registriert sich bei
 aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
 (siehe oben).
 
-- `App\Service\DatabaseDumper::dump()`: reine-PHP-Alternative zu
+- `App\Service\DatabaseDumper`: reine-PHP-Alternative zu
   `mysqldump` (PDO-basiert, `SHOW CREATE TABLE` + `INSERT`-Anweisungen je
   Tabelle) - kein `mysqldump`-Client-Binary nötig, das im mitgelieferten
   Dockerfile nicht installiert ist und auf klassischem Webhosting oft fehlt
-  oder per `shell_exec` gesperrt ist.
+  oder per `shell_exec` gesperrt ist. Zwei APIs (#231): `dumpTo(callable
+  $write)` streamt den Dump statement-/zeilenweise mit konstantem
+  Speicherbedarf (Daten-SELECTs unbuffered, der Dump liegt nie als
+  Gesamtstring im Speicher); `dump(): string` bleibt als dünner,
+  byte-identischer Wrapper für Bestandsaufrufer erhalten.
+- `App\Service\TarArchive` (#233): streamender ustar-Schreiber in reinem
+  PHP (aus dem bewährten TarWriter des Addons `datenmigration` in den Kern
+  übernommen) - schreibt Datei für Datei in 512-KiB-Chunks direkt in die
+  Zieldatei (optional gzip via zlib), archiviert ausschließlich reguläre
+  Dateien und trägt Pfade bis 255 Zeichen über das ustar-prefix-Feld.
+  Hauptnutzer ist das optionale Uploads-Backup (siehe unten).
 - `App\Service\BackupTarget`: gemeinsame Schnittstelle (`putObject`/
   `deleteObject`/`listObjects`) für alle drei unterstützten Ziele (#93),
   damit `BackupService` unabhängig vom konkret gewählten Ziel arbeitet:
@@ -369,13 +379,19 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
     FTP-Protokoll nicht über PHP-Streams nachbilden lässt. Verbindet sich
     immer per TLS (`ftp_ssl_connect()`) - reines unverschlüsseltes FTP wird
     bewusst nicht angeboten.
-- `App\Service\BackupService::run()`: Dump erzeugen, mit `gzip` komprimieren
+- `App\Service\BackupService::run()`: Dump per `DatabaseDumper::dumpTo()`
+  streamend in eine Temp-Datei schreiben, dabei mit `gzip` komprimieren
   (Fallback auf unkomprimiert, falls die zlib-Extension fehlt), über das
   konfigurierte `BackupTarget` hochladen, anschließend Aufbewahrungsrotation
   anwenden (älteste Backups über dem konfigurierten Zähler löschen - ein
   Rotationsfehler zählt dabei bewusst NICHT als Fehlschlag des gesamten
   Laufs, da das eigentliche Backup zu diesem Zeitpunkt bereits sicher
-  hochgeladen ist). Status des letzten Laufs
+  hochgeladen ist). Mit der Opt-in-Einstellung „Hochgeladene Dateien
+  mitsichern" (`backup_include_uploads`, #233) wird zusätzlich ein
+  tar(.gz)-Archiv von `public/uploads` ans selbe Ziel hochgeladen
+  (`backups/uploads-<Zeitstempel>.tar.gz` neben
+  `backups/backup-<Zeitstempel>.sql.gz`); die Rotation läuft getrennt je
+  Backup-Art mit derselben Aufbewahrungsanzahl. Status des letzten Laufs
   (`backup_last_status`/`backup_last_run_at`/`backup_last_error`) wird in
   der `settings`-Tabelle für die Admin-Anzeige unter `/admin/backups`
   persistiert.
@@ -385,9 +401,9 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   `testBackup()` für einen sofortigen manuellen Testlauf). Alle Passwörter/
   Secret Keys werden wie das SMTP-Passwort mit AES-256-GCM verschlüsselt
   gespeichert (`App\Security\Crypto`).
-- Bewusst **nicht** enthalten: Sicherung hochgeladener Dateien
-  (Logos/Pferdebilder) - im Issue nur als optional genannt, die
-  Datenbank ist der eigentlich unwiederbringliche Teil.
+- Die Uploads-Sicherung ist bewusst **Opt-in** (Standard: aus): Die
+  Datenbank ist der eigentlich unwiederbringliche Teil, das Uploads-Archiv
+  kann je nach Bildbestand deutlich größer sein als der Dump.
 
 ## E-Mail-Digest für Admins/Editoren (`src/Service/DigestService.php`, #52)
 

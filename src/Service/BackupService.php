@@ -25,10 +25,13 @@ use App\Security\Crypto;
  * (Dump-Erzeugung, Aufbewahrungsrotation, Status-Protokollierung) ist
  * bewusst komplett ziel-unabhängig.
  *
- * Bewusst NICHT enthalten: Sicherung hochgeladener Dateien (Logos/
- * Pferdebilder) - im Issue selbst nur als "ggf." (optional) genannt, die
- * Zucht-/Blutliniendaten in der Datenbank sind der eigentlich unwiederbringliche
- * Teil. Kann bei Bedarf als eigenständige Erweiterung nachgezogen werden.
+ * Uploads (#233): Opt-in-Einstellung `backup_include_uploads` - zusätzlich
+ * zum SQL-Dump wird ein tar-Archiv von public/uploads (Logos/Pferdebilder/
+ * Galerie-Dateien, siehe App\Service\TarArchive) ans selbe Ziel hochgeladen,
+ * mit derselben Aufbewahrungsrotation wie der SQL-Dump. Standard bleibt
+ * "aus": Die Zucht-/Blutliniendaten in der Datenbank sind der eigentlich
+ * unwiederbringliche Teil, das Uploads-Archiv kann je nach Bildbestand groß
+ * werden.
  */
 final class BackupService {
 
@@ -90,8 +93,10 @@ final class BackupService {
     }
 
     /**
-     * Führt einen einzelnen Backup-Lauf durch: Datenbank-Dump erzeugen,
-     * komprimieren, hochladen, danach Aufbewahrungsrotation anwenden. Wird
+     * Führt einen einzelnen Backup-Lauf durch: Datenbank-Dump streamend
+     * erzeugen (#231), komprimieren, hochladen - bei aktivierter Option
+     * zusätzlich das tar-Archiv der Uploads (#233) -, danach die
+     * Aufbewahrungsrotation anwenden. Wird
      * sowohl vom Scheduler (Cron-Trigger/manueller Admin-Klick) als auch von
      * AdminController::testBackup() (siehe dort) aufgerufen.
      *
@@ -107,16 +112,52 @@ final class BackupService {
 
         $client = self::buildClient($settings);
 
-        $sql = DatabaseDumper::dump();
-        $useGzip = function_exists('gzencode');
-        $body = $useGzip ? gzencode($sql, 9) : $sql;
-        $key = self::OBJECT_PREFIX . 'backup-' . gmdate('Y-m-d_His') . ($useGzip ? '.sql.gz' : '.sql');
+        $useGzip = function_exists('gzopen');
+        $stamp = gmdate('Y-m-d_His');
+        $dumpFile = null;
+        $uploadsFile = null;
 
         try {
-            $client->putObject($key, $body, $useGzip ? 'application/gzip' : 'application/sql');
-        } catch (\Throwable $e) {
-            self::recordStatus('error', $e->getMessage());
-            throw $e;
+            // Dump streamend (#231) in eine Temp-Datei schreiben - über
+            // DatabaseDumper::dumpTo() direkt in den gzip-Stream, der Dump
+            // liegt nie als Gesamtstring im Speicher.
+            $dumpFile = self::tempFile('hv-backup-sql-');
+            self::writeDumpFile($dumpFile, $useGzip);
+            $dumpKey = self::OBJECT_PREFIX . 'backup-' . $stamp . ($useGzip ? '.sql.gz' : '.sql');
+
+            // Uploads-Archiv (#233, Opt-in) ebenfalls streamend in eine
+            // Temp-Datei bauen (App\Service\TarArchive), dann hochladen.
+            $uploadsKey = null;
+            if (self::includeUploads($settings)) {
+                $uploadsFile = self::tempFile('hv-backup-uploads-');
+                self::writeUploadsArchive($uploadsFile, $useGzip);
+                $uploadsKey = self::OBJECT_PREFIX . 'uploads-' . $stamp . ($useGzip ? '.tar.gz' : '.tar');
+            }
+
+            try {
+                // Grenze der Ziel-Clients: BackupTarget::putObject() nimmt den
+                // Inhalt als String entgegen (kein Stream-/Datei-Parameter).
+                // Deshalb wird hier je Objekt einmal die fertige (komprimierte)
+                // Temp-Datei in einem Stück geladen - der Speicherbedarf ist
+                // damit auf die größte Einzeldatei begrenzt statt auf den
+                // unkomprimierten Dump plus Archiv. Ein streamender Upload
+                // bräuchte einen API-Umbau aller drei Clients (bewusst nicht
+                // Teil von #231/#233).
+                $client->putObject($dumpKey, file_get_contents($dumpFile), $useGzip ? 'application/gzip' : 'application/sql');
+                if ($uploadsKey !== null) {
+                    $client->putObject($uploadsKey, file_get_contents($uploadsFile), $useGzip ? 'application/gzip' : 'application/x-tar');
+                }
+            } catch (\Throwable $e) {
+                self::recordStatus('error', $e->getMessage());
+                throw $e;
+            }
+        } finally {
+            if ($dumpFile !== null) {
+                @unlink($dumpFile);
+            }
+            if ($uploadsFile !== null) {
+                @unlink($uploadsFile);
+            }
         }
 
         self::recordStatus('ok', null);
@@ -133,19 +174,99 @@ final class BackupService {
     }
 
     /**
+     * Aufbewahrungsrotation, getrennt je Backup-Art (#233): SQL-Dumps
+     * (`backup-…`) und Uploads-Archive (`uploads-…`) werden unabhängig
+     * voneinander auf die konfigurierte Anzahl gehalten - sonst würde ein
+     * Lauf mit beiden Objekten die effektive Dump-Aufbewahrung halbieren.
+     * Uploads-Archive rotieren auch dann weiter, wenn die Option inzwischen
+     * deaktiviert ist (es kommen dann schlicht keine neuen hinzu).
+     *
      * @param array<string, string> $settings
      */
     private static function applyRetention(BackupTarget $client, array $settings): void {
         $keepCount = max(1, (int)($settings['backup_retention_count'] ?? self::DEFAULT_RETENTION_COUNT));
         $objects = $client->listObjects(self::OBJECT_PREFIX);
 
-        // listObjects() liefert aufsteigend nach Schlüssel sortiert - durch das
-        // "backup-<ISO-Zeitstempel>"-Namensschema entspricht das der
-        // chronologischen Reihenfolge, älteste zuerst.
-        $excess = count($objects) - $keepCount;
-        for ($i = 0; $i < $excess; $i++) {
-            $client->deleteObject($objects[$i]['key']);
+        foreach (['backup-', 'uploads-'] as $kindPrefix) {
+            // listObjects() liefert aufsteigend nach Schlüssel sortiert - durch
+            // das "<Art>-<ISO-Zeitstempel>"-Namensschema entspricht das je Art
+            // der chronologischen Reihenfolge, älteste zuerst.
+            $kind = array_values(array_filter(
+                $objects,
+                fn(array $object) => str_starts_with($object['key'], self::OBJECT_PREFIX . $kindPrefix)
+            ));
+            $excess = count($kind) - $keepCount;
+            for ($i = 0; $i < $excess; $i++) {
+                $client->deleteObject($kind[$i]['key']);
+            }
         }
+    }
+
+    /**
+     * @param array<string, string> $settings
+     */
+    private static function includeUploads(array $settings): bool {
+        return ($settings['backup_include_uploads'] ?? '') === '1';
+    }
+
+    /**
+     * Schreibt den Datenbank-Dump streamend (#231) in die Zieldatei -
+     * gzip-komprimiert, sofern die zlib-Extension vorhanden ist.
+     */
+    private static function writeDumpFile(string $path, bool $gzip): void {
+        $handle = $gzip ? gzopen($path, 'wb9') : fopen($path, 'wb');
+        if ($handle === false) {
+            throw new \RuntimeException("Backup-Zwischendatei nicht schreibbar: {$path}");
+        }
+        try {
+            DatabaseDumper::dumpTo(function (string $chunk) use ($handle, $gzip): void {
+                $ok = $gzip ? gzwrite($handle, $chunk) : fwrite($handle, $chunk);
+                if ($ok === false) {
+                    throw new \RuntimeException('Schreiben des Datenbank-Dumps fehlgeschlagen.');
+                }
+            });
+        } finally {
+            $gzip ? gzclose($handle) : fclose($handle);
+        }
+    }
+
+    /**
+     * Baut das tar(.gz)-Archiv des Uploads-Verzeichnisses streamend in die
+     * Zieldatei (#233). Ein fehlendes oder leeres Uploads-Verzeichnis ergibt
+     * ein gültiges leeres Archiv - der Lauf bleibt damit deterministisch,
+     * statt je nach Instanzzustand Objekte auszulassen.
+     */
+    private static function writeUploadsArchive(string $path, bool $gzip): void {
+        $archive = TarArchive::create($path, $gzip);
+        $dir = self::uploadsDir();
+        if (is_dir($dir)) {
+            $archive->addDirectoryTree($dir, 'uploads');
+        }
+        $archive->close();
+    }
+
+    private static ?string $uploadsDirOverride = null;
+
+    /**
+     * Nur für Tests: das zu sichernde Uploads-Verzeichnis umbiegen (analog
+     * Scheduler::resetForTests()), damit Integrationstests nicht vom echten
+     * public/uploads des Arbeitsverzeichnisses abhängen. `null` stellt den
+     * Normalzustand wieder her.
+     */
+    public static function overrideUploadsDirForTests(?string $dir): void {
+        self::$uploadsDirOverride = $dir;
+    }
+
+    private static function uploadsDir(): string {
+        return self::$uploadsDirOverride ?? dirname(__DIR__, 2) . '/public/uploads';
+    }
+
+    private static function tempFile(string $prefix): string {
+        $path = tempnam(sys_get_temp_dir(), $prefix);
+        if ($path === false) {
+            throw new \RuntimeException('Konnte keine temporäre Backup-Datei anlegen.');
+        }
+        return $path;
     }
 
     /**

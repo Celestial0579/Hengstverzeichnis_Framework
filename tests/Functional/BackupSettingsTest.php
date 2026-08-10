@@ -47,6 +47,7 @@ class BackupSettingsTest extends FunctionalTestCase {
         $response = $admin->post('/admin/backups', [
             'csrf_token' => $formPage->formField('csrf_token') ?? '',
             'backup_enabled' => '1',
+            'backup_include_uploads' => '1',
             'backup_s3_endpoint' => 'fake-endpoint.example.com',
             'backup_s3_region' => 'eu-central-1',
             'backup_s3_bucket' => 'functional-test-bucket',
@@ -65,6 +66,23 @@ class BackupSettingsTest extends FunctionalTestCase {
         // Secret Key selbst wird nie im Klartext ausgegeben, nur der Platzhalter.
         $this->assertStringNotContainsString('super-secret-value', $settingsPage->body);
         $this->assertStringContainsString('unverändert', $settingsPage->body);
+        // Opt-in "Uploads mitsichern" (#233) wird gespeichert und angehakt angezeigt.
+        $this->assertStringContainsString('name="backup_include_uploads" value="1" checked', $settingsPage->body);
+    }
+
+    public function testUploadsOptionDefaultsToUncheckedAndCanBeDisabledAgain(): void {
+        $admin = $this->authenticatedClient();
+
+        $formPage = $admin->get('/admin/backups');
+        // Checkbox nicht mitsenden = deaktivieren (HTML-Checkbox-Semantik).
+        $admin->post('/admin/backups', [
+            'csrf_token' => $formPage->formField('csrf_token') ?? '',
+            'backup_enabled' => '0',
+        ]);
+
+        $settingsPage = $admin->get('/admin/backups');
+        $this->assertStringContainsString('name="backup_include_uploads"', $settingsPage->body);
+        $this->assertStringNotContainsString('name="backup_include_uploads" value="1" checked', $settingsPage->body);
     }
 
     public function testTestBackupRequiresCsrfToken(): void {

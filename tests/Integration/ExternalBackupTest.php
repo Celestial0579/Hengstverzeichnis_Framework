@@ -67,6 +67,30 @@ class ExternalBackupTest extends TestCase {
         }
     }
 
+    protected function tearDown(): void {
+        BackupService::overrideUploadsDirForTests(null);
+    }
+
+    /**
+     * Legt ein Wegwerf-Uploads-Verzeichnis mit Beispieldateien an und biegt
+     * BackupService darauf um (statt auf das echte public/uploads des
+     * Arbeitsverzeichnisses).
+     *
+     * @return array<string, string> Archivname => erwarteter Inhalt
+     */
+    private function prepareFakeUploadsDir(): array {
+        $dir = sys_get_temp_dir() . '/backup_uploads_' . uniqid();
+        mkdir($dir . '/horses', 0777, true);
+        $files = [
+            'uploads/.htaccess' => "Deny from all\n",
+            'uploads/horses/hengst.jpg' => random_bytes(1500),
+        ];
+        file_put_contents($dir . '/.htaccess', $files['uploads/.htaccess']);
+        file_put_contents($dir . '/horses/hengst.jpg', $files['uploads/horses/hengst.jpg']);
+        BackupService::overrideUploadsDirForTests($dir);
+        return $files;
+    }
+
     private function configureBackup(array $overrides = []): void {
         $settings = array_merge([
             'backup_enabled' => '1',
@@ -128,6 +152,75 @@ class ExternalBackupTest extends TestCase {
         $lastRunAt = self::$db->query("SELECT setting_value FROM settings WHERE setting_key = 'backup_last_run_at'")->fetchColumn();
         $this->assertNotFalse($lastRunAt);
         $this->assertGreaterThan(0, (int)$lastRunAt);
+
+        // Ohne Opt-in (#233) wird KEIN Uploads-Archiv hochgeladen.
+        $this->assertSame([], glob(FakeS3Server::storageDir() . '/test-bucket__backups~uploads-*'));
+    }
+
+    /**
+     * Opt-in "Uploads mitsichern" (#233): zusätzlich zum SQL-Dump landet ein
+     * tar.gz-Archiv des Uploads-Verzeichnisses am Ziel, und es lässt sich
+     * (per System-tar) byte-identisch wieder entpacken - die eigentliche
+     * Katastrophen-Wiederherstellungs-Garantie.
+     */
+    public function testRunWithUploadsOptionUploadsRestorableTarArchive(): void {
+        $expectedFiles = $this->prepareFakeUploadsDir();
+        $this->configureBackup(['backup_include_uploads' => '1']);
+
+        BackupService::run();
+
+        $dumps = glob(FakeS3Server::storageDir() . '/test-bucket__backups~backup-*.sql.gz');
+        $this->assertCount(1, $dumps, 'Der SQL-Dump muss weiterhin hochgeladen werden');
+        $this->assertStringContainsString('CREATE TABLE', (string)gzdecode((string)file_get_contents($dumps[0])));
+
+        $archives = glob(FakeS3Server::storageDir() . '/test-bucket__backups~uploads-*.tar.gz');
+        $this->assertCount(1, $archives, 'Es sollte genau ein Uploads-Archiv im Fake-S3-Speicher liegen');
+
+        $status = self::$db->query("SELECT setting_value FROM settings WHERE setting_key = 'backup_last_status'")->fetchColumn();
+        $this->assertSame('ok', $status);
+
+        exec('command -v tar 2>/dev/null', $out, $tarMissing);
+        if ($tarMissing !== 0) {
+            $this->markTestIncomplete('Kein tar-Binary im PATH - Entpack-Gegenprobe übersprungen.');
+        }
+        $extractDir = sys_get_temp_dir() . '/backup_uploads_extract_' . uniqid();
+        mkdir($extractDir);
+        try {
+            exec('tar -xzf ' . escapeshellarg($archives[0]) . ' -C ' . escapeshellarg($extractDir) . ' 2>&1', $tarOut, $exitCode);
+            $this->assertSame(0, $exitCode, 'System-tar konnte das Uploads-Archiv nicht entpacken: ' . implode("\n", $tarOut));
+            foreach ($expectedFiles as $name => $content) {
+                $this->assertSame($content, file_get_contents($extractDir . '/' . $name), "Inhalt von {$name} weicht nach dem Entpacken ab");
+            }
+        } finally {
+            exec('rm -rf ' . escapeshellarg($extractDir));
+        }
+    }
+
+    /**
+     * Zielausfall bei aktivierter Uploads-Option: der Lauf endet als Fehler
+     * (Status 'error'), und die streamend aufgebauten Temp-Dateien (#231:
+     * Dump- und Archiv-Zwischendateien) bleiben nicht liegen - sonst würde
+     * jeder fehlgeschlagene nächtliche Lauf das Temp-Verzeichnis um die
+     * Größe von Dump + Uploads-Archiv wachsen lassen.
+     */
+    public function testRunWithUploadsOptionCleansUpTempFilesOnFailure(): void {
+        $this->prepareFakeUploadsDir();
+        $this->configureBackup([
+            'backup_include_uploads' => '1',
+            'backup_s3_endpoint' => '127.0.0.1:1',
+        ]);
+
+        $tempFilesBefore = glob(sys_get_temp_dir() . '/hv-backup-*');
+
+        try {
+            BackupService::run();
+            $this->fail('Erwartete RuntimeException bei nicht erreichbarem Backup-Ziel.');
+        } catch (\RuntimeException $e) {
+            $status = self::$db->query("SELECT setting_value FROM settings WHERE setting_key = 'backup_last_status'")->fetchColumn();
+            $this->assertSame('error', $status);
+        }
+
+        $this->assertSame($tempFilesBefore, glob(sys_get_temp_dir() . '/hv-backup-*'), 'Temp-Dateien des fehlgeschlagenen Laufs wurden nicht aufgeräumt');
     }
 
     public function testRunThrowsAndRecordsErrorStatusWhenUploadFails(): void {
@@ -170,5 +263,41 @@ class ExternalBackupTest extends TestCase {
         $this->assertNotContains('backups/backup-2021-01-01_000000.sql.gz', $remainingKeys);
         $this->assertContains('backups/backup-2022-01-01_000000.sql.gz', $remainingKeys);
         $this->assertCount(2, $remainingKeys);
+    }
+
+    /**
+     * Die Rotation zählt je Backup-Art getrennt (#233): SQL-Dumps und
+     * Uploads-Archive halten jeweils für sich die konfigurierte Anzahl -
+     * sonst würde ein Lauf mit beiden Objekten die effektive
+     * Dump-Aufbewahrung halbieren.
+     */
+    public function testRetentionRotatesDumpsAndUploadsArchivesIndependently(): void {
+        $this->prepareFakeUploadsDir();
+        $this->configureBackup(['backup_include_uploads' => '1', 'backup_retention_count' => '2']);
+
+        foreach ([
+            'backup-2020-01-01_000000.sql.gz',
+            'backup-2021-01-01_000000.sql.gz',
+            'uploads-2020-01-01_000000.tar.gz',
+            'uploads-2021-01-01_000000.tar.gz',
+        ] as $existingKey) {
+            file_put_contents(FakeS3Server::storageDir() . '/test-bucket__backups~' . $existingKey, 'altes-backup');
+        }
+
+        BackupService::run();
+
+        $remainingKeys = array_map(
+            fn($path) => str_replace('~', '/', substr(basename($path), strlen('test-bucket__'))),
+            glob(FakeS3Server::storageDir() . '/test-bucket__backups~*')
+        );
+        sort($remainingKeys);
+
+        // Je Art: das jeweils älteste simulierte Objekt rotiert, das neuere
+        // simulierte und das frisch hochgeladene bleiben (2 + 2 = 4 gesamt).
+        $this->assertNotContains('backups/backup-2020-01-01_000000.sql.gz', $remainingKeys);
+        $this->assertNotContains('backups/uploads-2020-01-01_000000.tar.gz', $remainingKeys);
+        $this->assertContains('backups/backup-2021-01-01_000000.sql.gz', $remainingKeys);
+        $this->assertContains('backups/uploads-2021-01-01_000000.tar.gz', $remainingKeys);
+        $this->assertCount(4, $remainingKeys);
     }
 }

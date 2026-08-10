@@ -52,7 +52,8 @@ und Variante B unten).
 - JSON-API mit benutzergebundenen, rechtebegrenzten API-Schlüsseln
 - Plugin-System mit Hooks, eigenem Addon-Store und Referenz-Plugin
 - Zeitgesteuerte Aufgaben (Cron/Scheduler), automatische externe Backups
-  (S3/WebDAV/FTPS), E-Mail-Digest, Auto-Update mit Pflicht-Backup
+  (S3/WebDAV/FTPS, optional inkl. hochgeladener Dateien), E-Mail-Digest,
+  Auto-Update mit Pflicht-Backup
 - Mehrsprachigkeit (Deutsch/Englisch)
 - DSGVO-Kontaktformular inkl. Verwaltung (Anonymisierung/Löschung) im Admin-Bereich
 - Impressum & Datenschutzinformationen

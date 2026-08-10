@@ -603,6 +603,7 @@ class AdminController extends BaseController {
 
         $settings = [
             'backup_enabled' => !empty($_POST['backup_enabled']) ? '1' : '0',
+            'backup_include_uploads' => !empty($_POST['backup_include_uploads']) ? '1' : '0',
             'backup_target' => $target,
             'backup_s3_endpoint' => trim($_POST['backup_s3_endpoint'] ?? ''),
             'backup_s3_region' => trim($_POST['backup_s3_region'] ?? ''),

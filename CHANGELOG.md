@@ -8,6 +8,28 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.4.1] – 2026-08-10
+
+### Behoben
+
+- Benutzerverwaltung: Ein (serverseitig korrekt verhinderter) Versuch, das
+  eigene Konto zu löschen, meldete trotzdem „Aktion erfolgreich
+  ausgeführt" - jetzt eigener Fehler-Redirect mit der Meldung „Das eigene
+  Konto kann nicht gelöscht werden." (#228)
+
+### Hinzugefügt
+
+- Functional-Testklasse für die Benutzerverwaltung (sieben Abläufe:
+  Anlegen/Validierung, Bearbeiten inkl. Gruppen, Soft-Delete mit
+  Session-Ende, Selbstschutz, Zugriffsschutz/CSRF, 2FA-Reset) - die in der
+  README dokumentierte Lücke „Noch nicht abgedeckt: Benutzerverwaltung"
+  ist damit geschlossen (#227)
+
+### Geändert
+
+- README: Statuszeile zeitlos formuliert (verwies noch auf v0.2.0) und
+  Testsuite-Beschreibung aktualisiert (#226, #227)
+
 ## [0.4.0] – 2026-08-10
 
 Update-System denkt Addons mit (Übersicht, Warnungen, Autoupdate aus

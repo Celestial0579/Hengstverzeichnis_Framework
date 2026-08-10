@@ -62,10 +62,39 @@ class AddonUpdateServiceTest extends TestCase {
             'kein-array',
         ];
         $this->assertSame('0.4.3', GithubAddonRepository::selectBestReleaseTagForCoreLine($releases, '0.4'));
-        // Ungültige Linie / leere Liste: nichts wählen (Aufrufer fällt auf
-        // den Branch-Stand zurück).
+        // Ungültige Linie / leere Liste: nichts wählen (automatische Updates
+        // verweigern dann, siehe resolveAutoUpdateRef; nur der manuelle
+        // Store-Install darf auf den Branch-Stand zurückfallen, #212).
         $this->assertNull(GithubAddonRepository::selectBestReleaseTagForCoreLine($releases, '0.4.0'));
         $this->assertNull(GithubAddonRepository::selectBestReleaseTagForCoreLine([], '0.4'));
+    }
+
+    // ---- resolveAutoUpdateRef ------------------------------------------
+
+    /**
+     * Kern von #212: Ohne Release-Tag zur Kern-Linie darf ein AUTOMATISCHES
+     * Update keinen Bezugspunkt liefern - früher fiel der Code hier auf den
+     * konfigurierten Ref/Branch-HEAD zurück (für das offizielle Repo per
+     * Seed NULL, also auf den veränderlichen Default-Branch) und spielte
+     * damit ungeprüften Code ein. Die sprechende Meldung muss den Grund
+     * nennen ("kein Addon-Release"), damit der Admin sie von einem
+     * Netz-/Downloadfehler unterscheiden kann.
+     */
+    public function testResolveAutoUpdateRefRefusesWithoutReleaseTag(): void {
+        $resolved = AddonUpdateService::resolveAutoUpdateRef(null, '0.4');
+
+        $this->assertNull($resolved['ref']);
+        $this->assertIsString($resolved['error']);
+        $this->assertStringContainsString('kein Addon-Release', $resolved['error']);
+        $this->assertStringContainsString('0.4', $resolved['error']);
+        $this->assertStringContainsString('nicht zulässig', $resolved['error']);
+    }
+
+    public function testResolveAutoUpdateRefUsesReleaseTagWhenPresent(): void {
+        $resolved = AddonUpdateService::resolveAutoUpdateRef('v0.4.2', '0.4');
+
+        $this->assertSame('v0.4.2', $resolved['ref']);
+        $this->assertNull($resolved['error']);
     }
 
     // ---- updateAddonFromTarball ---------------------------------------

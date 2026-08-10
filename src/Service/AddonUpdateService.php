@@ -19,10 +19,19 @@ use App\Plugin\PluginManager;
  *     installierten Addons auf den zur ZIEL-Linie passenden Release-Stand
  *     mit. Addon-Fehler brechen das Kern-Update nicht ab (Ergebnisliste).
  *
- * Bezugsquelle ist der beste Release-Tag vX.Y.z zur Kern-Linie
- * (GithubAddonRepository::bestReleaseTagForCoreLine); existiert (noch)
- * keiner, fällt der Bezug auf den konfigurierten Ref/Branch-HEAD zurück -
- * nötig, solange das Addons-Repo keinen Release zur Linie hat.
+ * Bezugsquelle ist AUSSCHLIESSLICH der beste Release-Tag vX.Y.z zur
+ * Kern-Linie (GithubAddonRepository::bestReleaseTagForCoreLine). Existiert
+ * (noch) keiner, wird das Update mit sprechender Meldung VERWEIGERT - der
+ * frühere Fallback auf den konfigurierten Ref/Branch-HEAD hätte bedeutet,
+ * dass ein automatischer Vorgang ungeprüften, jederzeit veränderlichen
+ * main-Code einspielt (#212: ein einziger untergeschobener Commit im
+ * Addons-Repo liefe damit auf jeder Installation, die auf "Aktualisieren"
+ * klickt). Ein bewusster Branch-Bezug bleibt möglich - aber nur als
+ * manuelle Admin-Aktion über den Addon-Store (AddonStoreController), nicht
+ * hier. Nach erfolgreichem Update wird plugins.source auf
+ * "owner/repo@<tag>" gepinnt: Daran erkennt der PluginManager, dass der
+ * neue Stand aus einem Release stammt, und akzeptiert den Versionswechsel
+ * automatisch (sonst Wiederfreigabe-Pflicht).
  *
  * Bewusst NICHT hier: Fremd-Repos (bleiben manuell über den Store -
  * automatisches Einspielen ungeprüften Fremdcodes wäre ein Rückschritt),
@@ -36,6 +45,29 @@ final class AddonUpdateService {
     /** "0.4.2" -> "0.4"; null bei unbrauchbarer Version. */
     public static function coreLine(string $version): ?string {
         return preg_match('/^v?(\d+)\.(\d+)\./', $version, $m) ? $m[1] . '.' . $m[2] : null;
+    }
+
+    /**
+     * Entscheidet, mit welchem Bezugspunkt ein AUTOMATISCHES Update arbeiten
+     * darf (#212): nur mit einem Release-Tag der Kern-Linie. null heißt
+     * "kein Release vorhanden ODER GitHub nicht erreichbar" - beides führt
+     * bewusst zur Verweigerung statt zum Branch-HEAD, denn ein Branch ist
+     * jederzeit veränderlich und ohne Prüfsumme/Signatur nicht von einem
+     * untergeschobenen Stand unterscheidbar. Reine Funktion (kein Netz,
+     * keine DB), damit die Verweigerung isoliert testbar ist.
+     *
+     * @return array{ref: ?string, error: ?string} genau eines von beiden gesetzt
+     */
+    public static function resolveAutoUpdateRef(?string $bestReleaseTag, string $line): array {
+        if ($bestReleaseTag === null) {
+            return [
+                'ref' => null,
+                'error' => "Für die Kern-Linie {$line} existiert (noch) kein Addon-Release oder GitHub ist nicht erreichbar. "
+                    . 'Automatische Updates aus einem Branch-Stand sind nicht zulässig - '
+                    . 'ein bewusster Branch-Bezug bleibt manuell über den Addon-Store möglich.',
+            ];
+        }
+        return ['ref' => $bestReleaseTag, 'error' => null];
     }
 
     /**
@@ -112,11 +144,21 @@ final class AddonUpdateService {
             return $fail('Laufende Kern-Version ist nicht bestimmbar.');
         }
 
-        $ref = \App\Service\GithubAddonRepository::bestReleaseTagForCoreLine(
-            (string)$official['owner'],
-            (string)$official['repo'],
+        // Kein Fallback auf den konfigurierten Ref/Branch-HEAD mehr (#212):
+        // ohne Release-Tag zur Kern-Linie wird verweigert, siehe
+        // resolveAutoUpdateRef() und Klassenkommentar.
+        $resolved = self::resolveAutoUpdateRef(
+            \App\Service\GithubAddonRepository::bestReleaseTagForCoreLine(
+                (string)$official['owner'],
+                (string)$official['repo'],
+                $line
+            ),
             $line
-        ) ?? ($official['ref'] !== null ? (string)$official['ref'] : null);
+        );
+        if ($resolved['error'] !== null) {
+            return $fail($resolved['error']);
+        }
+        $ref = $resolved['ref'];
 
         $tarPath = \App\Service\GithubAddonRepository::downloadTarballFor(
             (string)$official['owner'],
@@ -134,11 +176,13 @@ final class AddonUpdateService {
         }
 
         if ($result['ok']) {
+            self::pinInstalledSource($slug, $official, (string)$ref);
+            self::runInstallHookIfAvailable($slug);
             AuditLogger::log(
                 'Addon aktualisiert',
                 'plugin',
                 "Slug: {$slug}, von " . ($result['from'] ?? '?') . " auf " . ($result['to'] ?? '?')
-                . ", Bezug: " . ($ref ?? 'Standard-Branch')
+                . ", Bezug: {$ref}"
             );
         }
         return $result + ['ref' => $ref];
@@ -164,11 +208,28 @@ final class AddonUpdateService {
             return ['ref' => null, 'results' => []];
         }
 
-        $ref = \App\Service\GithubAddonRepository::bestReleaseTagForCoreLine(
-            (string)$official['owner'],
-            (string)$official['repo'],
+        // Wie in updateAddon(): ohne Release-Tag zur ZIEL-Linie wird die
+        // gesamte Addon-Phase verweigert (#212) - gerade der unbeaufsichtigte
+        // Lauf nach einem Kern-Update darf nie auf einen Branch-HEAD
+        // zurückfallen. Die Verweigerung erscheint je Addon in der
+        // Ergebnisliste, damit sie im Update-Protokoll sichtbar ist.
+        $resolved = self::resolveAutoUpdateRef(
+            \App\Service\GithubAddonRepository::bestReleaseTagForCoreLine(
+                (string)$official['owner'],
+                (string)$official['repo'],
+                $line
+            ),
             $line
-        ) ?? ($official['ref'] !== null ? (string)$official['ref'] : null);
+        );
+        if ($resolved['error'] !== null) {
+            $results = array_map(static fn(string $slug): array => [
+                'slug' => $slug, 'ok' => false,
+                'error' => $resolved['error'],
+                'from' => null, 'to' => null,
+            ], $slugs);
+            return ['ref' => null, 'results' => $results];
+        }
+        $ref = $resolved['ref'];
 
         $tarPath = \App\Service\GithubAddonRepository::downloadTarballFor(
             (string)$official['owner'],
@@ -188,12 +249,16 @@ final class AddonUpdateService {
         try {
             foreach ($slugs as $slug) {
                 $one = self::updateAddonFromTarball($slug, $tarPath, self::pluginsDir(), $newCoreVersion);
+                if ($one['ok']) {
+                    self::pinInstalledSource($slug, $official, (string)$ref);
+                    self::runInstallHookIfAvailable($slug);
+                }
                 $results[] = ['slug' => $slug] + $one;
                 AuditLogger::log(
                     $one['ok'] ? 'Addon nach Kern-Update mitgezogen' : 'Addon-Update nach Kern-Update fehlgeschlagen',
                     'plugin',
                     "Slug: {$slug}, " . ($one['ok']
-                        ? 'von ' . ($one['from'] ?? '?') . ' auf ' . ($one['to'] ?? '?')
+                        ? 'von ' . ($one['from'] ?? '?') . ' auf ' . ($one['to'] ?? '?') . ", Bezug: {$ref}"
                         : (string)$one['error'])
                 );
             }
@@ -208,6 +273,41 @@ final class AddonUpdateService {
 
     private static function pluginsDir(): string {
         return __DIR__ . '/../../plugins';
+    }
+
+    /**
+     * Pinnt die Herkunft des soeben installierten Stands auf
+     * "owner/repo@<tag>" (#212): plugins.source dokumentiert damit nicht nur
+     * das Repo, sondern den EXAKTEN, unveränderlichen Release-Bezug. Der
+     * PluginManager nutzt genau dieses Muster als Grundlage der
+     * Auto-Accept-Regel bei Versionswechseln - ein Stand ohne @tag-Pin
+     * (Branch-Bezug, manuelle Kopie) bleibt wiederfreigabepflichtig.
+     * Fehler hier brechen das Update nicht ab: Der Code liegt bereits
+     * korrekt auf der Platte, schlimmstenfalls fehlt die Freigabe-Abkürzung.
+     *
+     * @param array<string, mixed> $official
+     */
+    private static function pinInstalledSource(string $slug, array $official, string $ref): void {
+        try {
+            $stmt = Database::getInstance()->prepare("UPDATE plugins SET source = ? WHERE slug = ?");
+            $stmt->execute([$official['owner'] . '/' . $official['repo'] . '@' . $ref, $slug]);
+        } catch (\Throwable $e) {
+            // bewusst geschluckt, siehe PHPDoc
+        }
+    }
+
+    /**
+     * Ruft nach erfolgreichem Update den Install-Hook des Plugins auf
+     * (Migrationen u. Ä. laufen so direkt beim Update, nicht erst beim
+     * nächsten manuellen Aktivieren). Der method_exists-Guard überbrückt
+     * die Übergangszeit, in der PluginManager::runInstallHook() noch nicht
+     * gemergt ist - danach ist er wirkungslos und kann entfallen.
+     */
+    private static function runInstallHookIfAvailable(string $slug): void {
+        $manager = PluginManager::getInstance();
+        if (method_exists($manager, 'runInstallHook')) {
+            $manager->runInstallHook($slug);
+        }
     }
 
     /** @return array<string, mixed>|null */

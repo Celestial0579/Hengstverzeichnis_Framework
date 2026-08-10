@@ -70,14 +70,39 @@ class AddonStoreController extends BaseController {
             }
         }
 
-        // Offizielles Repo ohne festen Ref (#197, Stufe 3): Katalog vom besten
-        // Release-Tag der laufenden Kern-Linie lesen statt vom Branch-HEAD -
-        // ein halb fertiger main-Stand kann so nie auf einer Produktivinstanz
-        // landen. Solange (noch) kein passender Release existiert, bleibt der
-        // bisherige Branch-Bezug als Fallback. Fremd-Repos: unverändert der
-        // konfigurierte Ref bzw. Standard-Branch.
-        $ref = $repoRow['ref'];
-        if ((int)$repoRow['is_official'] === 1 && ($ref === null || $ref === '')) {
+        $result = GithubAddonRepository::fetchCatalog(
+            (string)$repoRow['owner'],
+            (string)$repoRow['repo'],
+            $this->effectiveRef($repoRow)
+        );
+
+        if ($result['ok']) {
+            $stmt = $db->prepare("UPDATE addon_repos SET cached_catalog_json = ?, cached_at = NOW() WHERE id = ?");
+            $stmt->execute([json_encode($result['plugins']), $repoRow['id']]);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Effektiver Bezugspunkt eines Repos für Katalog UND Install. Für das
+     * OFFIZIELLE Repo ohne festen Ref (#197 Stufe 3, #212): der beste
+     * Release-Tag der laufenden Kern-Linie statt des Branch-HEAD - ein halb
+     * fertiger main-Stand kann so nie unbemerkt auf einer Produktivinstanz
+     * landen. Existiert (noch) kein passender Release, bleibt hier - anders
+     * als beim AUTOMATISCHEN Update im AddonUpdateService, das dann
+     * verweigert - der Branch-Bezug als Fallback erlaubt: Der Store-Install
+     * ist eine bewusste Einzel-Aktion eines Admins, der die Quelle sieht und
+     * die Vertrauensentscheidung selbst trifft (dasselbe Modell wie bei
+     * Fremd-Repos); genau dieser Unterschied auto vs. manuell ist der Kern
+     * von #212. Fremd-Repos: unverändert der konfigurierte Ref bzw.
+     * Standard-Branch.
+     *
+     * @param array<string, mixed> $repoRow
+     */
+    private function effectiveRef(array $repoRow): ?string {
+        $ref = $repoRow['ref'] !== null && $repoRow['ref'] !== '' ? (string)$repoRow['ref'] : null;
+        if ($ref === null && (int)$repoRow['is_official'] === 1) {
             $line = \App\Service\AddonUpdateService::coreLine(defined('CORE_VERSION') ? CORE_VERSION : '');
             if ($line !== null) {
                 $ref = GithubAddonRepository::bestReleaseTagForCoreLine(
@@ -87,15 +112,7 @@ class AddonStoreController extends BaseController {
                 );
             }
         }
-
-        $result = GithubAddonRepository::fetchCatalog((string)$repoRow['owner'], (string)$repoRow['repo'], $ref);
-
-        if ($result['ok']) {
-            $stmt = $db->prepare("UPDATE addon_repos SET cached_catalog_json = ?, cached_at = NOW() WHERE id = ?");
-            $stmt->execute([json_encode($result['plugins']), $repoRow['id']]);
-        }
-
-        return $result;
+        return $ref;
     }
 
     public function addRepo(): void {
@@ -178,11 +195,20 @@ class AddonStoreController extends BaseController {
             exit;
         }
 
+        // Install vom selben Bezugspunkt wie der Katalog (#212): für das
+        // offizielle Repo ohne festen Ref wird der beste Release-Tag der
+        // laufenden Kern-Linie aufgelöst - der Admin installiert also genau
+        // den Stand, den ihm der Katalog angezeigt hat, nicht einen
+        // womöglich inzwischen weitergewanderten Branch-HEAD. Ohne Release
+        // fällt NUR dieser manuelle Weg auf den Branch zurück, siehe
+        // effectiveRef().
+        $ref = $this->effectiveRef($repoRow);
+
         $pluginsDir = __DIR__ . '/../../plugins';
         $result = GithubAddonRepository::installPlugin(
             (string)$repoRow['owner'],
             (string)$repoRow['repo'],
-            $repoRow['ref'],
+            $ref,
             $slug,
             $pluginsDir,
             $overwrite
@@ -198,13 +224,17 @@ class AddonStoreController extends BaseController {
         // zur Herkunftsanzeige unter /admin/plugins - PluginManager::setEnabled()
         // überschreibt bei der eigentlichen Aktivierung ohnehin installed_version/
         // content_hash frisch vom dann aktuellen Code, lässt `source` aber unangetastet.
+        // Mit aufgelöstem Release-Tag entsteht dabei der "@vX.Y.z"-Pin, den die
+        // Auto-Accept-Regel des PluginManagers als verifizierten Release-Bezug wertet;
+        // ein Branch-Install bleibt ohne Pin und damit wiederfreigabepflichtig.
         $stmt = $db->prepare("INSERT INTO plugins (slug, source) VALUES (?, ?) ON DUPLICATE KEY UPDATE source = VALUES(source)");
-        $stmt->execute([$slug, "{$repoRow['owner']}/{$repoRow['repo']}" . ($repoRow['ref'] ? "@{$repoRow['ref']}" : '')]);
+        $stmt->execute([$slug, "{$repoRow['owner']}/{$repoRow['repo']}" . ($ref !== null ? "@{$ref}" : '')]);
 
         AuditLogger::log(
             "Plugin über Addon-Store installiert",
             "plugin",
             "Slug: {$slug}, Version: {$result['version']}, Quelle: {$repoRow['owner']}/{$repoRow['repo']}"
+            . ($ref !== null ? "@{$ref}" : " (Standard-Branch)")
         );
 
         header("Location: /admin/plugins/store?success=installed&slug=" . urlencode($slug));

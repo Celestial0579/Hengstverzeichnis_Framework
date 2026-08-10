@@ -23,6 +23,7 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
 
     private const APP_PORT = 8771;
     private const FIXTURE = 'releases-fixture-addon-overview.json';
+    private const ADDON_FIXTURE = 'releases-fixture-addon-overview-addon-releases.json';
     private const SLUG = 'update-overview-testaddon';
 
     private static ?AuxiliaryServer $app = null;
@@ -41,6 +42,11 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
                 // die während eines Requests ihre eigene URL abruft, blockiert
                 // sich selbst (beobachtet als 10s-Timeout).
                 'UPDATE_RELEASES_URL' => \Tests\Support\PhpBuiltInServer::baseUrl() . '/' . self::FIXTURE,
+                // Addon-Releases-Liste ebenfalls als Fixture vom geteilten
+                // Server - der Verweigerungsfall (#212) braucht eine leere,
+                // aber ERREICHBARE Liste, damit gezielt "kein Release zur
+                // Linie" geprüft wird und nicht ein Netzfehler.
+                'ADDON_RELEASES_URL' => \Tests\Support\PhpBuiltInServer::baseUrl() . '/' . self::ADDON_FIXTURE,
             ]
         );
         self::$app->start();
@@ -57,6 +63,7 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         // Katalog-Cache wirken sonst in andere Tests hinein.
         $this->removePluginDir();
         @unlink(__DIR__ . '/../../public/' . self::FIXTURE);
+        @unlink(__DIR__ . '/../../public/' . self::ADDON_FIXTURE);
         try {
             $db = Database::getInstance();
             $db->prepare("DELETE FROM plugins WHERE slug = ?")->execute([self::SLUG]);
@@ -143,6 +150,46 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $location = (string)$response->location();
         $this->assertStringStartsWith('/admin/updates?addon_error=', $location);
         $this->assertStringContainsString('offiziellen', urldecode($location));
+    }
+
+    /**
+     * Verweigerungsfall aus #212: Ein offizielles Addon MIT source-Pin, aber
+     * die Releases-Liste der Kern-Linie ist leer - das Update muss mit einer
+     * sprechenden Meldung abgelehnt werden, statt (wie früher) auf den
+     * veränderlichen Branch-HEAD des Addons-Repos zurückzufallen. Läuft
+     * gegen die Fixture-Instanz, deren ADDON_RELEASES_URL eine leere, aber
+     * erreichbare Liste liefert - so ist sichergestellt, dass wirklich der
+     * "kein Release"-Zweig greift und kein Netz-/GitHub-Zugriff passiert.
+     */
+    public function testAddonUpdateRefusesWhenNoReleaseForCoreLineExists(): void {
+        $this->createPluginDir([]);
+
+        // source auf das offizielle Repo pinnen (wie es der Store beim
+        // Installieren täte) - erst damit ist das Addon überhaupt
+        // update-berechtigt und der Release-Check wird erreicht.
+        $db = Database::getInstance();
+        $official = $db->query("SELECT owner, repo FROM addon_repos WHERE is_official = 1 LIMIT 1")->fetch();
+        $this->assertNotFalse($official, 'Seed des offiziellen Addon-Repos muss vorhanden sein');
+        $stmt = $db->prepare(
+            "INSERT INTO plugins (slug, source) VALUES (?, ?) ON DUPLICATE KEY UPDATE source = VALUES(source)"
+        );
+        $stmt->execute([self::SLUG, "{$official['owner']}/{$official['repo']}"]);
+
+        // Leere, gültige Releases-Liste: kein Release zu KEINER Linie.
+        file_put_contents(__DIR__ . '/../../public/' . self::ADDON_FIXTURE, '[]');
+
+        $admin = $this->fixtureInstanceAdmin();
+        $response = $admin->post('/admin/updates/addon', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::SLUG,
+        ]);
+
+        $location = (string)$response->location();
+        $this->assertStringStartsWith('/admin/updates?addon_error=', $location);
+        $this->assertStringContainsString('kein Addon-Release', urldecode($location));
+        // Und der installierte Stand ist unangetastet geblieben.
+        $manifest = json_decode((string)file_get_contents($this->pluginDir() . '/plugin.json'), true);
+        $this->assertSame('1.0.0', $manifest['version']);
     }
 
     // ---- Helfer --------------------------------------------------------

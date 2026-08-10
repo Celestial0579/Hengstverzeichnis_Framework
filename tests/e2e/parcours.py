@@ -120,6 +120,46 @@ _DARK_AUDIT = r"""() => {
   return out;
 }"""
 
+# Absoluter Kontrast-Audit (#196), Gegenstück zum Regressions-Audit oben: Der
+# sieht Farben, die in BEIDEN Themes gleich (schlecht) sind, konstruktionsbedingt
+# nie - genau so blieben Footer-Links und Admin-Button unbemerkt. Hier werden
+# die Stellen mit admin-konfigurierbarer Markenfläche gegen absolute
+# WCAG-Schwellen geprüft (Text >= 4.5, Komponenten-Abgrenzung >= 3.0), im
+# jeweils AKTUELL gesetzten Theme (der Aufrufer togglet und ruft zweimal auf).
+_ABS_AUDIT = r"""() => {
+  const parse = c => { const m=(c||'').match(/rgba?\(([^)]+)\)/); if(!m) return null;
+    const p=m[1].split(',').map(x=>parseFloat(x)); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}; };
+  const lum = ({r,g,b}) => { const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};
+    return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
+  const ratio = (a,b) => { const L1=lum(a),L2=lum(b); return (Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05); };
+  const effBg = el => { let e=el; while(e){ const c=parse(getComputedStyle(e).backgroundColor); if(c&&c.a>0.5) return c; e=e.parentElement; } return {r:255,g:255,b:255,a:1}; };
+  const out=[];
+  const check=(fg,bg,min,label)=>{ if(!fg||!bg) return; const r=ratio(fg,bg);
+    if(r<min) out.push({label, ratio: Math.round(r*100)/100, min}); };
+  const footer=document.querySelector('footer');
+  if(footer){
+    const fbg=(()=>{const c=parse(getComputedStyle(footer).backgroundColor); return (c&&c.a>0.5)?c:effBg(footer);})();
+    check(parse(getComputedStyle(footer).color), fbg, 4.5, 'footer-text');
+    footer.querySelectorAll('a').forEach(a=>{
+      check(parse(getComputedStyle(a).color), effBg(a), 4.5,
+            'footer-link:'+a.textContent.trim().slice(0,25));
+    });
+  }
+  document.querySelectorAll('.btn-nav').forEach(btn=>{
+    const st=getComputedStyle(btn);
+    const bbg=parse(st.backgroundColor);
+    const surface=(bbg&&bbg.a>0.5)?bbg:effBg(btn);
+    check(parse(st.color), surface, 4.5, 'btn-nav-text');
+    // Abgrenzung vom Header: Rahmen ODER Fläche muss >= 3:1 erreichen.
+    const headerBg=effBg(btn.parentElement||btn);
+    const border=parse(st.borderTopColor);
+    const sep=Math.max(border&&border.a>0.5?ratio(border,headerBg):1,
+                       bbg&&bbg.a>0.5?ratio(bbg,headerBg):1);
+    if(sep<3.0) out.push({label:'btn-nav-abgrenzung', ratio: Math.round(sep*100)/100, min:3.0});
+  });
+  return out;
+}"""
+
 def audit_clickable(page, slug):
     """Prüft alle interaktiven Bedienelemente der aktuellen Seite auf echte
     Klickbarkeit und protokolliert Auffälligkeiten mit ihrem zugänglichen
@@ -940,6 +980,30 @@ def run():
                     status = (f"FEHLER: {len(funde)} Kontrast-Fund(e) <3.0 im Dark-Mode "
                               f"(z. B. '{bsp['text']}' ratio {bsp['ratio']})")
                 index.append((n, fn, url, f"Dark-Mode: {slug}", status))
+                log(f"{n} {slug}: {status}")
+
+            # Absoluter Kontrast (#196): Footer und Nav-Buttons müssen die
+            # WCAG-Schwellen in BEIDEN Themes erreichen - der Regressions-Audit
+            # oben vergleicht nur dunkel gegen hell und ist für Farben blind,
+            # die in beiden Themes identisch sind.
+            for slug, url in (("kontrast-start", "/"), ("kontrast-admin", "/admin")):
+                counter[0] += 1; n = f"{counter[0]:03d}"; status = "ok"
+                funde_abs = []
+                try:
+                    page.goto(BASE + url, wait_until="load", timeout=30000)
+                    for theme in ("dark", "light"):
+                        page.evaluate(f"() => document.documentElement.setAttribute('data-theme','{theme}')")
+                        page.wait_for_timeout(200)
+                        for f in page.evaluate(_ABS_AUDIT):
+                            f["theme"] = theme
+                            funde_abs.append(f)
+                except Exception as e:
+                    status = f"FEHLER: {type(e).__name__}: {str(e)[:100]}"
+                if funde_abs and not status.startswith("FEHLER"):
+                    b = funde_abs[0]
+                    status = (f"FEHLER: {len(funde_abs)} absolute(r) Kontrast-Fund(e) "
+                              f"(z. B. {b['label']} im Theme {b['theme']}: {b['ratio']} < {b['min']})")
+                index.append((n, "(kein Screenshot)", url, f"Kontrast absolut: {slug}", status))
                 log(f"{n} {slug}: {status}")
 
         # ---- Ablauf --------------------------------------------------------

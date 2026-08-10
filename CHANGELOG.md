@@ -18,6 +18,32 @@ Breaking Changes sind jederzeit möglich).
   docs/plugin-development.md (inkl. Marker-Konvention für bewusste
   Ausnahmen wie Druckansichten); statischer Lint-Test verhindert den
   Rückfall des Demo-Plugins in eigenständige Dokumente (Addons#66)
+- `App\Helper\ColorContrast`: WCAG-Kontrastrechnung (Hex-Parsing, Ratio,
+  `readableTextOn()`) für die admin-konfigurierbaren Markenfarben; von
+  `layout.php` zur Laufzeit genutzt und per Unit-Test abgesichert, dass die
+  gelieferte Textfarbe für jede Fläche ≥ 4,5:1 erreicht (#196)
+- Kontrast-Gates: neuer Unit-Test rechnet die Theme-Defaults aus
+  `style.css` nach (inkl. erzwungener Wortgleichheit der beiden
+  Darkmode-Zwillingsblöcke), und der E2E-Parcours prüft Footer und
+  Nav-Buttons zusätzlich gegen absolute WCAG-Schwellen in beiden Themes -
+  der bisherige Dark-Audit war regressions-gescoped und für Farben blind,
+  die in beiden Themes gleich sind; die `darkmode`-Phase läuft jetzt auch
+  im E2E-Nachtlauf (#196)
+
+### Behoben
+
+- Footer-Kontraste: Text-/Linkfarbe des Footers werden nicht mehr aus den
+  beiden frei wählbaren Markenfarben kombiniert (im Extremfall 1,59:1),
+  sondern aus abgeleiteten, kontrastsicheren Variablen - im hellen Theme aus
+  der neu berechneten Textfarbe `--on-primary` (Weiß oder Schwarz, je nach
+  Luminanz der Primärfarbe, garantiert ≥ 4,5:1), im Darkmode aus den
+  Theme-Flächenfarben; Footer-Links sind zur Unterscheidung durchgängig
+  unterstrichen (#196)
+- Admin-Portal-Button: Insel-Stile (`.nav-btn-admin-*` inline in
+  `layout.php`) entfernt und auf die gemeinsamen Button-Klassen
+  (`.btn`/`.btn-secondary` plus neuer Modifier `.btn-nav`) zurückgeführt;
+  Textfarbe kommt aus `--on-primary` statt hartem Weiß, der Rahmen hebt die
+  Fläche im Darkmode ≥ 3:1 von der Kopfzeile ab (#196)
 
 ## [0.3.0] – 2026-08-09
 

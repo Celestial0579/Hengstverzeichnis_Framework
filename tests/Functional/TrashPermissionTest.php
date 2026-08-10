@@ -15,8 +15,37 @@ use App\Database;
  *  - Ohne <modul>.delete gibt es für den jeweiligen Typ ein 403.
  *  - Nicht-Admins dürfen erst nach Ablauf der 30-Tage-Aufbewahrung endgültig löschen.
  *  - Ein manipulierter type-Wert ist ein No-Op (Redirect zurück zum Papierkorb).
+ *
+ * Zusätzlich (#222): Das Papierkorb-Leeren löscht Pferde chargenweise über
+ * EIN DELETE ... WHERE id IN (...) - der Test unten stellt sicher, dass dabei
+ * trotzdem je Pferd horse.before_delete und horse.deleted feuern und am Ende
+ * wirklich alle selektierten Pferde weg sind.
  */
 class TrashPermissionTest extends FunctionalTestCase {
+
+    /**
+     * Zur Testlaufzeit generiertes Recorder-Plugin für den Batch-Test (#222),
+     * Muster wie HorseDeleteHooksTest - eigener Slug und eigene Logdatei, damit
+     * sich beide Testklassen in einem Suite-Lauf nicht gegenseitig die Fixtures
+     * unter den Füßen wegräumen.
+     */
+    private const PLUGIN_DEST = __DIR__ . '/../../plugins/trash-batch-recorder';
+
+    protected function tearDown(): void {
+        self::removePluginDir();
+        @unlink(self::recordFile());
+        parent::tearDown();
+    }
+
+    /**
+     * Die Aufzeichnung liegt bewusst AUSSERHALB des Plugin-Verzeichnisses: Die
+     * Code-Integritätsprüfung des PluginManagers würde das Plugin sonst nach
+     * dem ersten Schreiben in das eigene Verzeichnis abschalten (siehe
+     * HorseDeleteHooksTest::recordFile()).
+     */
+    private static function recordFile(): string {
+        return sys_get_temp_dir() . '/hv-trash-batch-recorder.jsonl';
+    }
 
     private function db(): \PDO {
         return Database::getInstance();
@@ -174,5 +203,160 @@ class TrashPermissionTest extends FunctionalTestCase {
 
         // Aufräumen, damit der Test-Datensatz nachfolgende Klassen nicht stört.
         $db->prepare("DELETE FROM horses WHERE id = ?")->execute([$horseId]);
+    }
+
+    /**
+     * Batch-Kontrakt des Papierkorb-Leerens (#222): Mehrere Pferde liegen im
+     * Papierkorb, ein Admin leert ihn - gelöscht wird chargenweise per
+     * DELETE ... WHERE id IN (...), aber die Lösch-Hooks (#164) müssen
+     * weiterhin JE Pferd feuern (before_delete mit permanent=true vor dem
+     * Löschen, deleted danach, jeweils mit dem vollen Datensatz), und am Ende
+     * ist keines der Pferde mehr in der Datenbank.
+     */
+    public function testEmptyTrashDeletesAllHorsesInBatchAndFiresHooksPerHorse(): void {
+        $admin = $this->authenticatedClient();
+        self::installPluginFixture();
+
+        $toggleResponse = $admin->post('/admin/plugins/toggle', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => 'trash-batch-recorder',
+            'enable' => '1',
+        ]);
+        $this->assertSame('/admin/plugins?success=1', $toggleResponse->location());
+
+        try {
+            $unique = uniqid();
+            $db = $this->db();
+
+            // Mehrere Pferde direkt als Papierkorb-Einträge anlegen - der Weg
+            // über die Oberfläche ist hier nicht Testgegenstand, das Leeren ist es.
+            $horseIds = [];
+            $insert = $db->prepare("INSERT INTO horses (name, deleted_at) VALUES (?, NOW())");
+            for ($i = 1; $i <= 3; $i++) {
+                $insert->execute(["Batch-Pferd {$i} {$unique}"]);
+                $horseIds[(int)$db->lastInsertId()] = "Batch-Pferd {$i} {$unique}";
+            }
+
+            $response = $admin->post('/admin/trash/empty', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+            ]);
+            $this->assertSame('/admin/trash?success=emptied', $response->location());
+
+            // Alle Pferde sind endgültig weg - das Batch-DELETE hat die gesamte
+            // selektierte ID-Menge erwischt, nicht nur die erste.
+            $placeholders = implode(',', array_fill(0, count($horseIds), '?'));
+            $stmt = $db->prepare("SELECT COUNT(*) FROM horses WHERE id IN ({$placeholders})");
+            $stmt->execute(array_keys($horseIds));
+            $this->assertSame(0, (int)$stmt->fetchColumn(), 'Nach dem Leeren darf keines der Pferde mehr existieren');
+
+            // Je Pferd exakt before_delete (permanent=true) gefolgt von deleted,
+            // jeweils mit dem vollen Datensatz in der Payload. Gefiltert auf die
+            // eigenen IDs, da die geteilte Testdatenbank beim Leeren auch
+            // Alt-Pferde anderer Testklassen treffen kann.
+            foreach ($horseIds as $horseId => $horseName) {
+                $events = $this->recordedEventsFor($horseId);
+                $this->assertSame(
+                    [['before_delete', true], ['deleted', null]],
+                    array_map(fn($e) => [$e['hook'], $e['permanent']], $events),
+                    "Pferd {$horseId}: Hooks müssen trotz Batch-DELETE je Pferd feuern"
+                );
+                foreach ($events as $event) {
+                    $this->assertSame($horseName, $event['name'], "Hook {$event['hook']} muss den vollen Datensatz erhalten");
+                }
+            }
+        } finally {
+            $admin->post('/admin/plugins/toggle', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'slug' => 'trash-batch-recorder',
+                'enable' => '0',
+            ]);
+        }
+    }
+
+    /**
+     * Liest die vom Recorder-Plugin geschriebenen JSON-Zeilen, gefiltert auf
+     * eine Pferde-ID (Muster wie HorseDeleteHooksTest::recordedEventsFor()).
+     *
+     * @return array<int, array{hook:string, id:int, name:?string, permanent:?bool}>
+     */
+    private function recordedEventsFor(int $horseId): array {
+        $this->assertFileExists(self::recordFile(), 'Recorder-Plugin hat keine Hook-Aufrufe aufgezeichnet');
+        $events = [];
+        foreach (file(self::recordFile(), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            $event = json_decode($line, true);
+            if (is_array($event) && (int)$event['id'] === $horseId) {
+                $events[] = $event;
+            }
+        }
+        return $events;
+    }
+
+    private static function installPluginFixture(): void {
+        self::removePluginDir();
+        @unlink(self::recordFile());
+        mkdir(self::PLUGIN_DEST, 0777, true);
+
+        file_put_contents(self::PLUGIN_DEST . '/plugin.json', json_encode([
+            'slug' => 'trash-batch-recorder',
+            'name' => 'Trash-Batch-Recorder (Test-Fixture)',
+            'version' => '1.0.0',
+            'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '9.9',
+            'description' => 'Zeichnet die Lösch-Hooks beim Papierkorb-Leeren (#222) für den Batch-Kontrakt-Test auf.',
+            'author' => 'tests/Functional/TrashPermissionTest',
+            'hooks' => ['horse.before_delete', 'horse.deleted'],
+            'entry' => 'Plugin.php',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        file_put_contents(self::PLUGIN_DEST . '/Plugin.php', <<<'PHP'
+<?php
+// Test-Fixture: zeichnet horse.before_delete/horse.deleted beim Papierkorb-Leeren
+// (#222) als JSON-Zeilen auf.
+
+namespace Plugin\TrashBatchRecorder;
+
+use App\Plugin\HookManager;
+
+class Plugin {
+
+    public function register(HookManager $hooks): void {
+        $hooks->addAction('horse.before_delete', [$this, 'onBeforeDelete']);
+        $hooks->addAction('horse.deleted', [$this, 'onDeleted']);
+    }
+
+    public function onBeforeDelete(int $horseId, array $horse, bool $permanent): void {
+        $this->record('before_delete', $horseId, $horse, $permanent);
+    }
+
+    public function onDeleted(int $horseId, array $horse): void {
+        $this->record('deleted', $horseId, $horse);
+    }
+
+    private function record(string $hook, int $horseId, array $horse, ?bool $permanent = null): void {
+        // Ausserhalb des Plugin-Verzeichnisses, sonst schaltet die
+        // Integritätsprüfung des PluginManagers den Recorder selbst ab.
+        file_put_contents(sys_get_temp_dir() . '/hv-trash-batch-recorder.jsonl', json_encode([
+            'hook' => $hook,
+            'id' => $horseId,
+            'name' => $horse['name'] ?? null,
+            'permanent' => $permanent,
+        ]) . "\n", FILE_APPEND | LOCK_EX);
+    }
+}
+PHP);
+    }
+
+    private static function removePluginDir(): void {
+        if (!is_dir(self::PLUGIN_DEST)) {
+            return;
+        }
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator(self::PLUGIN_DEST, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $item) {
+            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+        }
+        rmdir(self::PLUGIN_DEST);
     }
 }

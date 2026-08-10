@@ -5,6 +5,7 @@ namespace Tests\Integration;
 
 use App\Database;
 use PDO;
+use PHPUnit\Framework\Attributes\Depends;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -32,6 +33,15 @@ class DatabaseTest extends TestCase {
             self::markTestSkipped('Keine Test-Datenbank konfiguriert (DB_HOST fehlt) - siehe tests/bootstrap.php.');
         }
 
+        // Ein eventuell von einem früheren Test im selben PHPUnit-Prozess
+        // erzeugter Database-Singleton würde unten in
+        // testEnsureSchemaUpToDateMigratesLegacySchema() wiederverwendet -
+        // getInstance() liefe dann OHNE ensureSchemaUpToDate() gegen das gerade
+        // frisch angelegte Alt-Schema. Der Reset stellt sicher, dass diese
+        // Klasse immer mit einem echten Verbindungsaufbau (inkl. Migration)
+        // testet, unabhängig davon, was vorher im Prozess passiert ist.
+        self::resetDatabaseSingleton();
+
         self::$setupPdo = new PDO(
             "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4",
             DB_USER,
@@ -51,6 +61,20 @@ class DatabaseTest extends TestCase {
         // Reduziertes Alt-Schema: nur die absolut nötigen Basistabellen/-spalten,
         // wie sie vor den in ensureSchemaUpToDate() nachgezogenen Änderungen
         // ausgesehen hätten.
+        //
+        // `settings` gehört mit ins Alt-Schema: Die Tabelle existiert seit der
+        // allerersten Fassung von database/schema.sql in JEDER Installation und
+        // ist zugleich die Ablage des versionierten Migrationsstands (#213,
+        // settings.schema_version) - ohne sie könnte ensureSchemaUpToDate() den
+        // Stand nicht persistieren und der Kurzschluss-Test unten liefe ins Leere.
+        self::$setupPdo->exec("
+            CREATE TABLE `settings` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `setting_key` VARCHAR(50) NOT NULL UNIQUE,
+                `setting_value` TEXT,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
         self::$setupPdo->exec("
             CREATE TABLE `users` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -186,6 +210,20 @@ class DatabaseTest extends TestCase {
         $this->assertTableExists($pdo, 'user_groups');
         $this->assertTableExists($pdo, 'group_permissions');
 
+        // Katalog-Filter-Indizes (#221) und die neuen Spalten für den
+        // Plugin-Verzeichnis-Stempel (#224) bzw. die API-Schlüssel-Kopplung
+        // an session_version (#217)
+        $this->assertIndexExists($pdo, 'horses', 'idx_horses_color');
+        $this->assertIndexExists($pdo, 'horses', 'idx_horses_breed');
+        $this->assertColumnExists($pdo, 'plugins', 'dir_stamp');
+        $this->assertColumnExists($pdo, 'api_keys', 'issued_session_version');
+
+        // Versionierter Migrationsstand (#213): Nach dem ersten getInstance()
+        // muss der aktuelle Stand in settings.schema_version persistiert sein -
+        // er ist der Kurzschluss, der alle folgenden Requests auf eine einzige
+        // Abfrage reduziert (siehe die beiden Tests unten).
+        $this->assertSame(Database::SCHEMA_VERSION, $this->storedSchemaVersion());
+
         // Rollensystem entfernt: users.role muss weg sein, und die vorher per
         // role='admin'/'editor' angelegten Bestandsbenutzer (siehe
         // setUpBeforeClass()) müssen die passende user_groups-Zeile bekommen
@@ -202,6 +240,70 @@ class DatabaseTest extends TestCase {
 
     public function testGetInstanceReturnsSameSingletonAcrossCalls(): void {
         $this->assertSame(Database::getInstance(), Database::getInstance());
+    }
+
+    /**
+     * Beweist den Kurzschluss (#213): Ist settings.schema_version aktuell, führt
+     * ein neuer Verbindungsaufbau die Migrationsschritte NICHT mehr aus. Dazu
+     * wird eine von der Migration angelegte Spalte absichtlich gedroppt - bliebe
+     * die Migration ungegatet (wie früher), würde der nächste getInstance() sie
+     * sofort wieder anlegen und dieser Test schlüge fehl.
+     */
+    #[Depends('testEnsureSchemaUpToDateMigratesLegacySchema')]
+    public function testCurrentSchemaVersionShortCircuitsMigrationOnNewConnection(): void {
+        self::$setupPdo->exec("ALTER TABLE `persons` DROP COLUMN `membership_status`");
+
+        self::resetDatabaseSingleton();
+        $pdo = Database::getInstance();
+
+        $stmt = $pdo->query("SHOW COLUMNS FROM `persons` LIKE 'membership_status'");
+        $this->assertSame(
+            0,
+            $stmt->rowCount(),
+            'persons.membership_status wurde trotz aktuellem schema_version-Stand neu angelegt - der Kurzschluss in ensureSchemaUpToDate() greift nicht'
+        );
+    }
+
+    /**
+     * Gegenprobe zum Kurzschluss-Test: Ein zurückgesetzter Stand (wie ihn ein
+     * Update mit erhöhter SCHEMA_VERSION erzeugt - dort ist es die Konstante,
+     * die dem gespeicherten Stand davonläuft) lässt die Migration beim nächsten
+     * Verbindungsaufbau wieder vollständig laufen und den Stand neu persistieren.
+     */
+    #[Depends('testCurrentSchemaVersionShortCircuitsMigrationOnNewConnection')]
+    public function testOutdatedSchemaVersionRerunsMigrationsOnNewConnection(): void {
+        self::$setupPdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
+
+        self::resetDatabaseSingleton();
+        $pdo = Database::getInstance();
+
+        // Die im Kurzschluss-Test gedroppte Spalte muss wieder da sein ...
+        $this->assertColumnExists($pdo, 'persons', 'membership_status');
+        // ... und der Stand erneut auf der aktuellen SCHEMA_VERSION stehen.
+        $this->assertSame(Database::SCHEMA_VERSION, $this->storedSchemaVersion());
+    }
+
+    /**
+     * Setzt den Database-Singleton zurück, um einen frischen Verbindungsaufbau
+     * (= den Bootstrap eines neuen Requests, PHP ist share-nothing) im selben
+     * PHP-Prozess zu simulieren - nur so ist der request-übergreifende
+     * Kurzschluss über settings.schema_version überhaupt testbar.
+     */
+    private static function resetDatabaseSingleton(): void {
+        $property = new \ReflectionProperty(Database::class, 'instance');
+        $property->setValue(null, null);
+    }
+
+    private function storedSchemaVersion(): int {
+        return (int)self::$setupPdo
+            ->query("SELECT setting_value FROM `settings` WHERE setting_key = 'schema_version'")
+            ->fetchColumn();
+    }
+
+    private function assertIndexExists(PDO $pdo, string $table, string $indexName): void {
+        $stmt = $pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
+        $stmt->execute([$indexName]);
+        $this->assertGreaterThan(0, $stmt->rowCount(), "Erwarteter Index {$table}.{$indexName} fehlt nach ensureSchemaUpToDate()");
     }
 
     private function assertColumnExists(PDO $pdo, string $table, string $column): void {

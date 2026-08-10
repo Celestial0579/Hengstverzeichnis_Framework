@@ -349,6 +349,85 @@ class GithubAddonRepositoryTest extends TestCase {
         $this->assertTrue($second['ok'], $second['error'] ?? '');
         $this->assertSame('2.0.0', $second['version']);
         $this->assertStringContainsString('v2', (string)file_get_contents($pluginsDir . '/demo-addon/Plugin.php'));
+
+        // Der atomare Ablauf (#219) darf nach Erfolg keine Staging-/Backup-
+        // Reste ("demo-addon.new-…"/"demo-addon.bak-…") zurücklassen.
+        $this->assertSame(
+            ['demo-addon'],
+            array_values(array_diff(scandir($pluginsDir) ?: [], ['.', '..'])),
+            'Nach erfolgreichem Overwrite dürfen keine .new-/.bak-Verzeichnisse übrig bleiben'
+        );
+    }
+
+    /**
+     * Kern von #219: Schlägt das Kopieren des NEUEN Stands fehl, muss der
+     * installierte Stand vollständig erhalten bleiben - der frühere Ablauf
+     * löschte ihn VOR dem Kopieren und ließ bei vollem Datenträger/fehlenden
+     * Rechten ein leeres Loch zurück, das der unbeaufsichtigte
+     * overwrite=true-Lauf nach einem Kern-Update sogar als Erfolg meldete.
+     *
+     * Fehlerinjektion: Die Tests laufen in dieser Umgebung als root, damit
+     * greifen Rechte-Tricks (chmod 0555 auf das Zielverzeichnis, unlesbare
+     * Quelle) NICHT - root ignoriert Permission-Bits. Stattdessen wird das
+     * Plugins-Verzeichnis so tief verschachtelt, dass der Zielpfad
+     * plugins/<slug> (hier 4087 Zeichen) noch unter Linux' PATH_MAX von
+     * 4096 (inkl. NUL, also max. 4095 Zeichen) liegt, der 13 Zeichen
+     * längere Staging-Pfad "<slug>.new-xxxxxxxx" ihn aber überschreitet:
+     * mkdir() scheitert deterministisch mit ENAMETOOLONG - für
+     * copyDirRecursive() derselbe Rückgabewert false wie bei ENOSPC/EACCES,
+     * nur eben auch als root reproduzierbar.
+     */
+    public function testInstallFromTarballFileKeepsInstalledStateWhenCopyFails(): void {
+        $tarPath = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
+                'slug' => 'demo-addon', 'name' => 'Demo Addon', 'version' => '2.0.0', 'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
+            ]),
+            'testrepo-main/plugins/demo-addon/Plugin.php' => "<?php\n// v2\n",
+        ]);
+
+        // Tiefes Plugins-Verzeichnis: strlen($targetDir) exakt 4087, damit
+        // Marker-Datei "$targetDir/x" (4089) noch anlegbar ist, der
+        // Staging-Pfad (4100) aber an PATH_MAX scheitert.
+        $base = sys_get_temp_dir() . '/hengst_addon_test_deep_' . bin2hex(random_bytes(8));
+        $this->cleanupPaths[] = $base;
+        $pluginsDir = $this->makeDeepDir($base, 4087 - strlen('/demo-addon'));
+        $targetDir = $pluginsDir . '/demo-addon';
+        $this->assertSame(4087, strlen($targetDir), 'Pfadlänge muss exakt stimmen, sonst prüft der Test das Falsche');
+        $this->assertTrue(mkdir($targetDir, 0755), 'Alter Stand (Zielverzeichnis) muss anlegbar sein');
+        $this->assertNotFalse(file_put_contents($targetDir . '/x', 'alter Stand'), 'Marker-Datei des alten Stands muss anlegbar sein');
+
+        $result = GithubAddonRepository::installFromTarballFile($tarPath, 'demo-addon', $pluginsDir, true);
+
+        $this->assertFalse($result['ok'], 'Install muss am Staging-Kopieren scheitern');
+        $this->assertStringContainsString('Kopieren nach plugins/ fehlgeschlagen', (string)$result['error']);
+        // Der alte Stand ist unangetastet ...
+        $this->assertDirectoryExists($targetDir, 'Der installierte Stand darf bei Kopier-Fehlschlag nicht gelöscht werden');
+        $this->assertSame('alter Stand', file_get_contents($targetDir . '/x'));
+        // ... und es bleiben keine Staging-/Backup-Reste zurück.
+        $this->assertSame(
+            ['demo-addon'],
+            array_values(array_diff(scandir($pluginsDir) ?: [], ['.', '..'])),
+            'Nach dem Fehlschlag dürfen keine .new-/.bak-Verzeichnisse übrig bleiben'
+        );
+    }
+
+    /**
+     * Baut unterhalb von $base eine Verzeichniskette, deren Gesamtpfad exakt
+     * $targetLength Zeichen lang ist (Segmente à max. 200 Zeichen, Rest wird
+     * mit einem passgenauen Schlusssegment aufgefüllt).
+     */
+    private function makeDeepDir(string $base, int $targetLength): string {
+        mkdir($base, 0755, true);
+        $path = $base;
+        while ($targetLength - strlen($path) > 201) {
+            $path .= '/' . str_repeat('d', 200);
+        }
+        $rest = $targetLength - strlen($path) - 1;
+        $this->assertGreaterThan(0, $rest, 'Basisverzeichnis ist bereits zu lang für die gewünschte Pfadlänge');
+        $path .= '/' . str_repeat('e', $rest);
+        mkdir($path, 0755, true);
+        return $path;
     }
 
     // ---- Test-Tarball-Konstruktion -------------------------------------

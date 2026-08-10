@@ -109,12 +109,21 @@ Ein Plugin wird nicht allein über seinen Verzeichnisnamen (Slug) identifiziert
 - bei Aktivierung speichert `App\Plugin\PluginManager` zusätzlich die
 Manifest-`version` und einen SHA-256-Fingerabdruck über den **gesamten**
 Plugin-Ordner (`installed_version`/`content_hash` in der Tabelle `plugins`).
-Bei jedem folgenden Request wird beides neu berechnet und verglichen:
+Bei jedem folgenden Request wird das verglichen:
 
-- **Neue Versionsnummer im Manifest** → reguläres Update, wird automatisch
-  akzeptiert (Freigabe wandert auf die neue Version/den neuen
-  Fingerabdruck) - ein normales Plugin-Update verliert dadurch **nie** seine
-  Aktivierung, auch nicht durch eine erneute manuelle Freigabe.
+- **Neue Versionsnummer im Manifest** → wird **nur dann** automatisch als
+  reguläres Update akzeptiert (Freigabe wandert auf die neue Version/den
+  neuen Fingerabdruck), wenn die gespeicherte Herkunft des Plugins
+  (`plugins.source`) auf einen **unveränderlichen Release-Tag** zeigt -
+  Muster `owner/repo@vX.Y.z` (Framework-Issue #212). Das ist der Normalfall
+  für Plugins, die über den Addon-Store bzw. das Addon-Update aus einem
+  Release eingespielt wurden; deren Updates verlieren dadurch **nie** ihre
+  Aktivierung. Für **manuell kopierte** Plugins (`source` leer) und Stände
+  aus einem **Branch** (`owner/repo@main` oder ohne Ref) gilt ein
+  Versionswechsel dagegen fail-closed als freigabepflichtig: Das Plugin wird
+  nicht geladen, bis ein Admin die neue Version unter `/admin/plugins`
+  bestätigt - sonst wäre das bloße Erhöhen der Manifest-Version ein
+  trivialer Umweg um die gesamte Fingerabdruck-Kette.
 - **Gleiche Versionsnummer, aber abweichender Code** → wird als verdächtig
   behandelt (Code wurde unter demselben Slug ausgetauscht, ohne ein
   reguläres Update mit neuer Versionsnummer zu sein). Das Plugin wird für
@@ -124,7 +133,17 @@ Bei jedem folgenden Request wird beides neu berechnet und verglichen:
 **Deshalb: Bei jeder inhaltlichen Änderung am Plugin-Code die `version` im
 Manifest erhöhen** - sonst zeigt `/admin/plugins` nach dem nächsten Request
 fälschlich "Code geändert - erneute Freigabe nötig" an, obwohl es sich um
-ein gewolltes Update handelt.
+ein gewolltes Update handelt. Und: Plugins über Releases (Tags `vX.Y.z`)
+ausliefern, nicht über Branch-Stände - nur dann laufen Updates ohne erneuten
+Freigabe-Klick durch.
+
+**Performance-Detail** (Framework-Issue #224, für Plugin-Entwickler ohne
+Handlungsbedarf): Der SHA-256 über alle Dateien wird nicht mehr bei jedem
+Request berechnet. Beim Freigeben wird zusätzlich ein billiger
+Verzeichnis-Stempel (`plugins.dir_stamp`: höchste `filemtime`, Dateianzahl,
+Gesamtgröße) gespeichert; stimmt er beim Bootstrap überein, entfällt das
+Hashen komplett. Jede Abweichung führt weiterhin zum vollen
+Fingerabdruck-Vergleich - an den Freigabe-Regeln oben ändert das nichts.
 
 **Nicht-destruktive Garantie:** Die Erkennung einer verdächtigen Änderung
 verändert oder löscht nie die bestehende `plugins`-Zeile, zugewiesene
@@ -168,6 +187,53 @@ Ein Fehler beim Laden (fehlende Datei, fehlende Klasse, Exception in
 (Kategorie `plugin`) und verhindert **nicht** den Bootstrap der übrigen
 Anwendung — betrifft aber ausschließlich dieses eine Plugin für den
 gesamten Request (kein partieller Erfolg innerhalb eines Plugins).
+
+## Installation & Migrationen: `install()`
+
+Braucht ein Plugin einmalige Einrichtungsarbeiten — typischerweise das
+Anlegen eigener Tabellen — implementiert es dafür eine öffentliche
+`install()`-Methode (Addons-Issue #75):
+
+```php
+public function install(): void {
+    \App\Database::getInstance()->exec("CREATE TABLE IF NOT EXISTS `plugin_demo_notes` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `note` TEXT NOT NULL,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+```
+
+Der Kern ruft `install()` auf:
+
+- bei jeder **(Re-)Aktivierung** über `/admin/plugins`
+  (`PluginManager::setEnabled(..., true)`), und
+- nach jedem eingespielten **Addon-Update**
+  (`AddonUpdateService` → `PluginManager::runInstallHook()`).
+
+Daraus folgt der Vertrag:
+
+- **`install()` muss idempotent sein.** Der Hook garantiert "mindestens
+  einmal nach Installation/Update", nicht "genau einmal" —
+  `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN` hinter einer
+  `SHOW COLUMNS`-Prüfung usw. sind das richtige Muster (analog zu
+  `Database::runMigrations()` im Kern).
+- **Fehler brechen die Admin-Aktion nicht ab.** Eine Exception in
+  `install()` wird abgefangen und im Audit-Log (Kategorie `plugin`)
+  protokolliert; Aktivierung bzw. Update bleiben bestehen.
+- **`register()` führt kein DDL mehr aus.** `register()` läuft im Bootstrap
+  **jedes** Requests — ein `CREATE TABLE IF NOT EXISTS` dort ist ein echtes
+  DDL-Statement gegen den Datenbank-Server bei jeder Anfrage, inklusive
+  kurzem Schema-Lock (Addons-Issue #75 hat das quantifiziert: sechs Plugins
+  × jeder Katalog-AJAX-Request). Schema-Arbeit gehört in `install()`.
+- **Bestands-Plugins** von vor diesem Hook dürfen übergangsweise ihren
+  marker-geführten Fallback behalten (Marker-Datei im Plugin-Verzeichnis,
+  `is_file()`-Prüfung vor dem DDL in `register()`) — er kostet nur noch
+  einen `stat()`-Aufruf pro Request. Neue Plugins implementieren direkt
+  `install()`.
+
+Wie alle Plugin-Methoden ist `install()` optional — ein Plugin ohne eigene
+Datenhaltung braucht sie nicht.
 
 ## Verfügbare Hooks (Phase 1)
 
@@ -648,10 +714,8 @@ Kontrollpunkt, nicht eine technische Sandbox danach. Die Admin-UI
 
 ## Datenhaltung eigener Plugin-Tabellen
 
-Phase 1 bietet keinen eigenen Hook für Plugin-Schema-Migrationen. Ein
-Plugin, das eigene Tabellen benötigt, kann diese in `register()` bei Bedarf
-selbst anlegen (`CREATE TABLE IF NOT EXISTS ...` über
-`App\Database::getInstance()`), analog zum
-`Database::ensureSchemaUpToDate()`-Muster des Kerns. Ein dedizierter
-Plugin-Migrations-Hook ist für eine spätere Ausbaustufe vorgesehen (siehe
-[plugin-system-plan.md](plugin-system-plan.md)).
+Eigene Tabellen legt ein Plugin im `install()`-Hook an — siehe den
+Abschnitt [Installation & Migrationen: `install()`](#installation--migrationen-install)
+oben. Der frühere Weg (`CREATE TABLE IF NOT EXISTS` direkt in `register()`)
+ist überholt: Er führte das DDL bei **jedem** Request aus (Addons-Issue #75)
+und soll in neuen Plugins nicht mehr verwendet werden.

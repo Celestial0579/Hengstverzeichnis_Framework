@@ -13,8 +13,25 @@ use PDOException;
  * Gewährleistet, dass während der gesamten Anfrage-Laufzeit nur eine einzige
  * Datenbank-Verbindung aufgebaut wird, injiziert SSL/TLS-Optionen und prüft
  * automatisch beim Verbindungsaufbau, ob alle Tabellen & Spalten vorhanden sind.
+ * Die Prüfung ist über settings.schema_version versioniert (#213): Ist der
+ * persistierte Stand gleich SCHEMA_VERSION, kostet sie nur eine einzige Abfrage -
+ * die eigentlichen Migrationsschritte (runMigrations()) laufen ausschließlich
+ * nach einem Update mit erhöhter SCHEMA_VERSION (bzw. beim Setup) genau einmal.
  */
 class Database {
+    /**
+     * Version des von runMigrations() hergestellten Schemas.
+     *
+     * DISZIPLIN (verbindlich): JEDE Schemaänderung in runMigrations() - neue
+     * Spalte, neuer Index, neue Tabelle, geänderter Spaltentyp, neuer Seed -
+     * erhöht diese Konstante um 1. Sonst sehen Bestandsinstallationen die
+     * Änderung nie: ensureSchemaUpToDate() überspringt die komplette Migration,
+     * sobald der in settings.schema_version persistierte Stand aktuell ist
+     * (#213). Jeder Migrationsschritt ist idempotent, ein Erhöhen der Version
+     * lässt also gefahrlos alle Schritte erneut laufen.
+     */
+    public const SCHEMA_VERSION = 1;
+
     /**
      * Statische Instanz des PDO-Datenbankverbindungsobjekts.
      * @var PDO|null
@@ -107,14 +124,77 @@ class Database {
      * Stellt sicher, dass alle erforderlichen Tabellen und Spalten in der Datenbank existieren.
      * Ermöglicht reibungslose Updates ohne manuelle SQL-Migrationsskripte.
      *
+     * Versionierter Kurzschluss (#213): Der zuletzt vollständig migrierte Stand
+     * wird in settings.schema_version persistiert und hier als Erstes verglichen.
+     * Ist er aktuell, kostet der gesamte Mechanismus pro Request genau EINE
+     * Abfrage - vorher liefen bei JEDEM Request ca. 78 Metadaten-Statements
+     * (43x SHOW COLUMNS, 12x CREATE TABLE IF NOT EXISTS, 8x SHOW INDEX, ...)
+     * und drei ungegatete ALTER TABLE inklusive exklusiver Metadata-Locks auf
+     * horses/horse_persons (MDL-Konvoi-Gefahr bei parallelen Katalog-SELECTs).
+     *
+     * Setup-Fall: Existiert die settings-Tabelle noch nicht (frische Datenbank,
+     * bevor der SetupController database/schema.sql importiert hat), schlägt die
+     * Stands-Abfrage fehl -> Stand 0 -> die vollständig idempotente Migration
+     * läuft. Das anschließende Persistieren des Stands schlägt dann ebenfalls
+     * still fehl und wird bei jedem weiteren Verbindungsaufbau wiederholt, bis
+     * das Setup die Tabelle angelegt hat - danach greift der Kurzschluss.
+     *
+     * Kein request-lokaler static-Guard mehr nötig: getInstance() ruft diese
+     * Methode nur beim Verbindungsaufbau auf (einmal pro Request), und der
+     * persistierte Stand ist der eigentliche, request-übergreifende Schutz.
+     * Nebeneffekt: Der Mechanismus ist damit im Integrationstest über einen
+     * zurückgesetzten Singleton nachprüfbar (siehe tests/Integration/DatabaseTest.php).
+     *
      * @param PDO $pdo Aktive Datenbankverbindung
      */
     private static function ensureSchemaUpToDate(PDO $pdo): void {
-        static $checked = false;
-        if ($checked) return;
-        $checked = true;
+        try {
+            $current = (int)$pdo->query(
+                "SELECT setting_value FROM settings WHERE setting_key = 'schema_version'"
+            )->fetchColumn();
+        } catch (\Throwable $e) {
+            // Setup-Fall (siehe Methoden-PHPDoc): settings existiert noch nicht.
+            $current = 0;
+        }
+
+        if ($current >= self::SCHEMA_VERSION) {
+            return; // Normalfall: Schema aktuell, eine einzige Abfrage - fertig.
+        }
 
         try {
+            self::runMigrations($pdo);
+
+            // Stand erst NACH vollständig durchgelaufener Migration persistieren:
+            // Wirft ein Migrationsschritt doch einmal (oder fehlt settings noch,
+            // Setup-Fall), bleibt der alte Stand stehen und der nächste
+            // Verbindungsaufbau versucht die - idempotente - Migration erneut.
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES ('schema_version', ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([(string)self::SCHEMA_VERSION]);
+        } catch (\Throwable $e) {
+            // Kein harter Fehler: Die App bleibt mit dem vorhandenen Schema
+            // lauffähig, die Migration wird beim nächsten Verbindungsaufbau wiederholt.
+        }
+    }
+
+    /**
+     * Führt sämtliche Schema-Migrationsschritte aus - der komplette frühere
+     * ensureSchemaUpToDate()-Body. Läuft NUR noch, wenn settings.schema_version
+     * hinter SCHEMA_VERSION zurückliegt (siehe ensureSchemaUpToDate()); auch die
+     * früher ungegateten ALTER TABLE (horse_persons.person_id, users.
+     * must_change_password, horses.birth_year) laufen damit ausschließlich
+     * innerhalb dieser versionierten Migration.
+     *
+     * Jeder Schritt ist für sich idempotent und einzeln per try/catch
+     * abgesichert (Tabelle existiert ggf. noch nicht, z. B. im Setup-Fall).
+     *
+     * DISZIPLIN: Jede Schemaänderung hier erhöht zwingend SCHEMA_VERSION -
+     * siehe den Kommentar an der Konstante.
+     *
+     * @param PDO $pdo Aktive Datenbankverbindung
+     */
+    private static function runMigrations(PDO $pdo): void {
         // Helper-Funktion zum schrittweisen Hinzufügen fehlender Spalten
         $addColumn = function($table, $column, $definition) use ($pdo) {
             try {
@@ -279,10 +359,10 @@ class Database {
         $addColumn('breeding_stations', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
         $addColumn('users', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
 
-        // 9. Passwortänderungs-Zwang für neue/zurückgesetzte Benutzer
-        try {
-            $pdo->exec("ALTER TABLE `users` ADD COLUMN `must_change_password` TINYINT(1) NOT NULL DEFAULT 0");
-        } catch (\Throwable $e) {}
+        // 9. Passwortänderungs-Zwang für neue/zurückgesetzte Benutzer. Früher ein
+        // ungegatetes ALTER TABLE, das bei jedem Lauf einen (verschluckten)
+        // Duplicate-Column-Fehler warf - jetzt regulär über den SHOW-COLUMNS-Guard.
+        $addColumn('users', 'must_change_password', 'TINYINT(1) NOT NULL DEFAULT 0');
 
         // 10. Historische Geburtsjahre vor 1901 unterstützen (SMALLINT statt YEAR)
         try {
@@ -609,8 +689,39 @@ class Database {
         $addColumn('persons', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
         $addColumn('persons', 'email', 'VARCHAR(100) NULL DEFAULT NULL AFTER `country`');
         $addColumn('persons', 'membership_status', 'VARCHAR(100) NULL DEFAULT NULL AFTER `email`');
-        } catch (\Exception $e) {
-            // Falls Tabellen noch nicht initialisiert wurden
-        }
+
+        // 23. Indizes für die Katalog-Filteroptionen (#221): SELECT DISTINCT
+        // color/breed ... WHERE deleted_at IS NULL lief mangels Index als Full
+        // Table Scan mit temporärer Tabelle + Filesort über die größte Tabelle.
+        // Mit (color|breed, deleted_at) werden daraus Index-Only-Scans.
+        $addIndex('horses', 'idx_horses_color', '`color`, `deleted_at`');
+        $addIndex('horses', 'idx_horses_breed', '`breed`, `deleted_at`');
+
+        // 24. Billiger Verzeichnis-Stempel je Plugin (#224, siehe
+        // PluginManager::computeDirStamp()): max(filemtime), Dateianzahl und
+        // Gesamtgröße des Plugin-Ordners zum Zeitpunkt der Freigabe. Stimmt der
+        // gespeicherte Stempel beim Bootstrap überein, entfällt der teure
+        // SHA-256-Fingerabdruck über alle Plugin-Dateien komplett; jede
+        // Abweichung erzwingt weiterhin den vollen Hash-Vergleich (fail-closed).
+        $addColumn('plugins', 'dir_stamp', "VARCHAR(64) NULL DEFAULT NULL AFTER `content_hash`");
+
+        // 25. API-Schlüssel an die session_version ihres Besitzers koppeln
+        // (#217): Beim Anlegen wird der aktuelle Stand mitgeschrieben; die
+        // Authentifizierung akzeptiert nur Schlüssel mit übereinstimmendem
+        // Stand. Ein Passwort-Reset (erhöht users.session_version) entzieht
+        // damit auch allen zuvor ausgestellten API-Schlüsseln die Gültigkeit -
+        // dieselbe Incident-Response-Kette wie bei Sessions (siehe
+        // App\Security\ApiKey und BaseController::checkAuth()). DEFAULT 1
+        // entspricht dem session_version-Startwert, Bestandsschlüssel von
+        // Benutzern ohne zwischenzeitliche Passwortänderung bleiben gültig.
+        $addColumn('api_keys', 'issued_session_version', 'INT NOT NULL DEFAULT 1');
+
+        // 26. Indizes für den Blutlinien-Vorfilter (#215): der MatchSuggestion-
+        // Finder holt Kandidaten jetzt gezielt über (deleted_at, sire_id) bzw.
+        // (deleted_at, dam_id) statt per Kreuzprodukt über den Gesamtbestand;
+        // ohne diese Indizes fiele die Kandidatensuche auf einen Full Scan
+        // der horses-Tabelle je Lauf zurück.
+        $addIndex('horses', 'idx_horses_sire_unlinked', '`deleted_at`, `sire_id`');
+        $addIndex('horses', 'idx_horses_dam_unlinked', '`deleted_at`, `dam_id`');
     }
 }

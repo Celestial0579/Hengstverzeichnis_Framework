@@ -99,7 +99,15 @@ final class DigestService {
     }
 
     private static function countOpenMatchSuggestions(): int {
-        return count(MatchSuggestionFinder::findAll());
+        // Reiner SQL-Vorfilter-COUNT statt count(findAll()) (#215): vorher lief
+        // hier bei jedem Digest-Lauf das komplette similar_text()-Scoring über
+        // das Kreuzprodukt aller Pferde - nur um die Liste sofort wieder zu
+        // verwerfen. Der Digest braucht die Größenordnung, nicht die bewerteten
+        // Vorschläge; countOpen() ist eine dokumentierte Obermenge (einzelne
+        // gezählte Platzhalter können unter der Anzeigeschwelle von
+        // /admin/matches bleiben), zählt aber exakt die Grundmenge, über die
+        // /admin/matches paginiert.
+        return MatchSuggestionFinder::countOpen();
     }
 
     private static function countExpiringTrashItems(): int {

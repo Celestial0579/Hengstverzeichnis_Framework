@@ -49,15 +49,37 @@ use PDO;
  *   ist damit keine ausreichende Identität mehr, um eine einmal erteilte
  *   Freigabe zu behalten:
  *   - Hebt das Manifest beim nächsten Request eine NEUE Versionsnummer
- *     aus (normales Plugin-Update), wird das automatisch akzeptiert und
- *     die Freigabe auf die neue Version/den neuen Fingerabdruck
- *     aktualisiert - ein reguläres Update verliert dadurch nie seine
- *     Aktivierung.
+ *     aus (normales Plugin-Update), wird das NUR DANN automatisch
+ *     akzeptiert, wenn die gespeicherte Herkunft (`plugins.source`) auf
+ *     einen unveränderlichen Release-Tag zeigt (`owner/repo@vX.Y.z`, siehe
+ *     isReleaseTagSource()) - also der über Store/AddonUpdateService aus
+ *     einem Release eingespielte Normalfall (#212). Manuell kopierte oder
+ *     aus einem Branch-Stand installierte Plugins werden bei einem
+ *     Versionswechsel dagegen fail-closed NICHT geladen, bis ein Admin die
+ *     neue Version über /admin/plugins ausdrücklich freigibt - sonst wäre
+ *     "Versionsnummer im Manifest erhöhen" ein trivialer Umweg um die
+ *     gesamte Fingerabdruck-Kette.
  *   - Bleibt die Versionsnummer GLEICH, weicht aber der Fingerabdruck vom
  *     zuletzt freigegebenen ab (Code wurde ausgetauscht, ohne die Version
  *     zu erhöhen - untypisch für ein reguläres Update), wird das Plugin
  *     NICHT geladen, bis ein Admin es über /admin/plugins erneut freigibt.
  *   Siehe computeFingerprint()/needsReapproval().
+ * - Performance des Fingerabdrucks (#224): Der SHA-256 über alle Dateien wird
+ *   nicht mehr bei jedem Request für jedes Plugin berechnet, sondern lazy
+ *   (fingerprintOf()) und nur, wenn der billige Verzeichnis-Stempel
+ *   (computeDirStamp(): max(filemtime), Dateianzahl, Gesamtgröße - reine
+ *   stat()-Aufrufe) vom bei der Freigabe gespeicherten `plugins.dir_stamp`
+ *   abweicht. Der Stempel ist ausschließlich eine Abkürzung für den Fall
+ *   "nachweislich nichts angefasst": Jede Abweichung - auch eine fehlende
+ *   Bestandszeile ohne Stempel - führt unverändert zum vollen
+ *   Hash-Vergleich, die Fail-Closed-Garantien bleiben vollständig bestehen.
+ * - Installations-Hook (Addons#75): Definiert ein Plugin eine öffentliche
+ *   install()-Methode, ruft setEnabled(..., true) sie bei jeder
+ *   (Re-)Aktivierung auf; der AddonUpdateService ruft sie über
+ *   runInstallHook() nach einem eingespielten Update erneut auf. install()
+ *   ist damit der Ort für DDL/Migrationen eines Plugins (idempotent,
+ *   z. B. CREATE TABLE IF NOT EXISTS) - register() läuft bei JEDEM Request
+ *   und soll kein DDL mehr ausführen (siehe docs/plugin-development.md).
  * - Nicht-destruktive Fail-Closed-Garantie: Wird ein Plugin als "muss erneut
  *   freigegeben werden" markiert (needsReapproval()), wird dafür NIE die
  *   `plugins`-Zeile verändert oder gelöscht - nur eine reine Laufzeit-Markierung
@@ -75,7 +97,7 @@ final class PluginManager {
 
     private HookManager $hooks;
 
-    /** @var array<string, array{slug:string, dir:string, manifest:array, error:?string, compatible:bool}> */
+    /** @var array<string, array{slug:string, dir:string, manifest:array, error:?string, compatible:bool, incompatible_reason:?string, fingerprint:?string, dir_stamp:?string}> */
     private array $discovered = [];
 
     /** @var array<int, string> */
@@ -86,6 +108,12 @@ final class PluginManager {
 
     /** @var array<string, string|null> slug => zuletzt freigegebener content_hash */
     private array $approvedHashes = [];
+
+    /** @var array<string, string|null> slug => bei der Freigabe gespeicherter Verzeichnis-Stempel (plugins.dir_stamp, #224) */
+    private array $approvedDirStamps = [];
+
+    /** @var array<string, string|null> slug => Herkunft (plugins.source, z. B. 'owner/repo@v1.2.3'; null = manuell kopiert) */
+    private array $sources = [];
 
     /** @var array<string, bool> slug => true, wenn der aktuelle Code vom freigegebenen Fingerabdruck abweicht */
     private array $needsReapproval = [];
@@ -181,9 +209,14 @@ final class PluginManager {
                 // Der Skip in loadEnabledPlugins() war bisher stumm - die
                 // Begründung macht ihn in Admin-Übersichten erklärbar.
                 'incompatible_reason' => $incompatibleReason,
-                // Eindeutiger Inhalts-Fingerabdruck dieser Plugin-Version (siehe Klassen-PHPDoc) -
-                // nur für Manifest-valide Plugins relevant, sonst wird ohnehin nie geladen.
-                'fingerprint' => $error === null ? $this->computeFingerprint($pluginDir) : null,
+                // Inhalts-Fingerabdruck und Verzeichnis-Stempel werden LAZY über
+                // fingerprintOf()/dirStampOf() berechnet und hier memoisiert (#224):
+                // discoverPlugins() läuft im Bootstrap JEDES Requests auch für
+                // deaktivierte Plugins - der SHA-256 über sämtliche Dateien aller
+                // Plugins wäre an dieser Stelle reiner Overhead (gemessen 15-40 ms
+                // pro Request auf Netzwerk-Storage).
+                'fingerprint' => null,
+                'dir_stamp' => null,
             ];
         }
 
@@ -226,6 +259,101 @@ final class PluginManager {
         }
 
         return hash('sha256', $summary);
+    }
+
+    /**
+     * Liefert den SHA-256-Fingerabdruck eines entdeckten Plugins - lazy und pro
+     * Request memoisiert (#224). Berechnet wird erst (und nur), wenn eine Stelle
+     * ihn wirklich braucht: loadEnabledPlugins() bei abweichendem
+     * Verzeichnis-Stempel bzw. bei einem Versionswechsel und setEnabled() bei
+     * der Freigabe. Für Plugins mit Manifest-Fehler bleibt er wie bisher null -
+     * sie werden ohnehin nie geladen (Verhalten identisch zur früheren eager
+     * Berechnung in discoverPlugins()).
+     */
+    private function fingerprintOf(string $slug): ?string {
+        $info = $this->discovered[$slug] ?? null;
+        if ($info === null || $info['error'] !== null) {
+            return null;
+        }
+        if ($info['fingerprint'] === null) {
+            $this->discovered[$slug]['fingerprint'] = $this->computeFingerprint($info['dir']);
+        }
+        return $this->discovered[$slug]['fingerprint'];
+    }
+
+    /**
+     * Liefert den billigen Verzeichnis-Stempel eines entdeckten Plugins - lazy
+     * und pro Request memoisiert, analog zu fingerprintOf() (#224). Auch der
+     * Stempel wird nur für Plugins berechnet, die ihn brauchen (aktivierte bzw.
+     * gerade freizugebende) - deaktivierte Plugins kosten damit im Bootstrap
+     * gar keine Dateisystem-Zugriffe über den Manifest-Read hinaus.
+     */
+    private function dirStampOf(string $slug): ?string {
+        $info = $this->discovered[$slug] ?? null;
+        if ($info === null || $info['error'] !== null) {
+            return null;
+        }
+        if ($info['dir_stamp'] === null) {
+            $this->discovered[$slug]['dir_stamp'] = $this->computeDirStamp($info['dir']);
+        }
+        return $this->discovered[$slug]['dir_stamp'];
+    }
+
+    /**
+     * Billiger Verzeichnis-Stempel als Vorfilter für den SHA-256-Fingerabdruck
+     * (#224): "max(filemtime):Dateianzahl:Summe(filesize)" über alle Dateien
+     * rekursiv - reine stat()-Aufrufe, kein Öffnen/Lesen/Hashen von Inhalten.
+     *
+     * Sicherheits-Einordnung: Der Stempel ist ausschließlich eine Abkürzung für
+     * "nachweislich nichts angefasst". Nur ein EXAKT übereinstimmender Stempel
+     * erspart den vollen Hash; jede Abweichung (andere mtime, andere Anzahl,
+     * andere Gesamtgröße, fehlender Bestandswert) führt unverändert zum
+     * SHA-256-Vergleich. Ein Angreifer, der mtimes zurückdatieren und die
+     * Gesamtgröße konstant halten kann, hat bereits Schreibzugriff auf plugins/
+     * und könnte damit ohnehin beliebigen Code direkt einspielen - die
+     * Fingerabdruck-Kette schützt vor unbemerkt ausgetauschten Ständen, nicht
+     * vor einem kompromittierten Dateisystem (siehe docs/plugin-development.md,
+     * "Sicherheitsgrenzen").
+     */
+    private function computeDirStamp(string $dir): string {
+        $maxMtime = 0;
+        $count = 0;
+        $bytes = 0;
+
+        try {
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                if (!$file->isFile()) {
+                    continue;
+                }
+                $maxMtime = max($maxMtime, (int)$file->getMTime());
+                $count++;
+                $bytes += (int)$file->getSize();
+            }
+        } catch (\Throwable $e) {
+            // Verzeichnis nicht lesbar o. Ä. - der Stempel über die bis dahin
+            // erfasste (ggf. leere) Liste weicht beim Vergleich zuverlässig ab
+            // und erzwingt den vollen Hash-Vergleich (fail-closed).
+        }
+
+        return $maxMtime . ':' . $count . ':' . $bytes;
+    }
+
+    /**
+     * True, wenn eine gespeicherte Plugin-Herkunft (plugins.source) auf einen
+     * unveränderlichen Release-Tag zeigt: 'owner/repo@vX.Y.z'. Nur solche
+     * Stände dürfen einen Versionswechsel automatisch akzeptiert bekommen
+     * (#212) - Branch-Refs ('owner/repo@main'), Herkunft ohne Ref
+     * ('owner/repo' = Default-Branch-HEAD) und manuell kopierte Plugins
+     * (source NULL) sind mutabel bzw. unbelegt und brauchen die
+     * Admin-Freigabe. Public static, damit AddonUpdateService und Tests
+     * dieselbe Definition verwenden können.
+     */
+    public static function isReleaseTagSource(?string $source): bool {
+        return is_string($source)
+            && preg_match('#^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*@v\d+\.\d+\.\d+$#', $source) === 1;
     }
 
     /**
@@ -335,12 +463,19 @@ final class PluginManager {
     private function loadEnabledStates(): void {
         try {
             $db = Database::getInstance();
-            $stmt = $db->query("SELECT slug, installed_version, content_hash FROM plugins WHERE enabled = 1");
+            // dir_stamp (#224) und source (#212) gehören mit zur Freigabe-Baseline:
+            // der Stempel entscheidet, ob der SHA-256 überhaupt berechnet werden
+            // muss, die Herkunft, ob ein Versionswechsel automatisch akzeptiert
+            // werden darf. Beide Spalten legt die versionierte Migration an
+            // (Database::runMigrations()), die vor jeder Query dieser Verbindung läuft.
+            $stmt = $db->query("SELECT slug, installed_version, content_hash, dir_stamp, source FROM plugins WHERE enabled = 1");
             $rows = $stmt->fetchAll();
             $this->enabledSlugs = array_column($rows, 'slug');
             foreach ($rows as $row) {
                 $this->approvedVersions[$row['slug']] = $row['installed_version'];
                 $this->approvedHashes[$row['slug']] = $row['content_hash'];
+                $this->approvedDirStamps[$row['slug']] = $row['dir_stamp'];
+                $this->sources[$row['slug']] = $row['source'];
             }
         } catch (\Throwable $e) {
             // Fail-closed: Ohne DB-Zugriff bleiben alle Plugins deaktiviert (Ausfallsicherheit
@@ -348,18 +483,23 @@ final class PluginManager {
             $this->enabledSlugs = [];
             $this->approvedVersions = [];
             $this->approvedHashes = [];
+            $this->approvedDirStamps = [];
+            $this->sources = [];
         }
     }
 
     /**
      * Lädt und registriert nur Plugins, die aktiviert UND kompatibel UND fehlerfrei
-     * validiert sind. Unterscheidet dabei zwei Fälle bei abweichendem Code
+     * validiert sind. Unterscheidet dabei die Fälle bei abweichendem Code
      * (siehe Klassen-PHPDoc, "eindeutige Kennung pro Plugin-Version"):
-     * regulläres Update (neue Manifest-Version -> automatisch akzeptiert) vs.
-     * unverändert deklarierte Version mit abweichendem Fingerabdruck (fail-closed,
-     * erneute Admin-Freigabe nötig). Jedes Plugin wird einzeln in try/catch
-     * isoliert geladen, damit ein defektes Plugin nicht den gesamten
-     * Bootstrap-Vorgang verhindert.
+     * reguläres Update aus einem Release-Tag (neue Manifest-Version + Herkunft
+     * `owner/repo@vX.Y.z` -> automatisch akzeptiert, #212) vs. Versionswechsel
+     * ohne belegte Release-Herkunft bzw. unverändert deklarierte Version mit
+     * abweichendem Fingerabdruck (beides fail-closed, erneute Admin-Freigabe
+     * nötig). Der teure SHA-256-Vergleich läuft dabei nur noch, wenn der
+     * billige Verzeichnis-Stempel von der Freigabe-Baseline abweicht (#224).
+     * Jedes Plugin wird einzeln in try/catch isoliert geladen, damit ein
+     * defektes Plugin nicht den gesamten Bootstrap-Vorgang verhindert.
      */
     private function loadEnabledPlugins(): void {
         foreach ($this->discovered as $slug => $info) {
@@ -375,28 +515,64 @@ final class PluginManager {
             $approvedHash = $this->approvedHashes[$slug] ?? null;
 
             if ($approvedVersion !== null && $currentVersion !== '' && $currentVersion !== $approvedVersion) {
-                // Manifest weist eine neue Versionsnummer aus - reguläres Update, wird
-                // automatisch akzeptiert, damit ein normales Plugin-Update nie die
-                // Aktivierung verliert. Freigabe-Fingerabdruck wandert auf die neue Version.
-                $this->acceptPluginUpdate($slug, $currentVersion, $info['fingerprint']);
-                AuditLogger::log(
-                    "Plugin automatisch aktualisiert",
-                    "plugin",
-                    "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} (Versionsnummer im Manifest erhöht, automatisch akzeptiert)."
-                );
-            } elseif ($approvedHash === null || $approvedHash !== $info['fingerprint']) {
-                // Versionsnummer unverändert (oder Freigabe noch nie mit Fingerabdruck
-                // erfolgt), aber der Code weicht ab - untypisch für ein reguläres Update,
-                // typisch für einen unter demselben Slug ausgetauschten Plugin-Ordner.
-                // Fail-closed: NICHT laden, bis ein Admin die aktuelle Version explizit
-                // erneut freigibt (siehe setEnabled()).
-                $this->needsReapproval[$slug] = true;
-                AuditLogger::log(
-                    "Plugin-Code seit Aktivierung geändert",
-                    "plugin",
-                    "Slug: {$slug} - gleiche Version ({$currentVersion}), aber abweichender Code. Wurde für diesen Request nicht geladen. Erneute Freigabe über /admin/plugins erforderlich."
-                );
-                continue;
+                // Manifest weist eine neue Versionsnummer aus. Automatisch akzeptiert
+                // wird das nur, wenn der Stand nachweislich aus einem unveränderlichen
+                // Release-Tag stammt (#212) - sonst wäre das Erhöhen der Manifest-
+                // Version ein trivialer Umweg um die Fingerabdruck-Kette.
+                if (self::isReleaseTagSource($this->sources[$slug] ?? null)) {
+                    $this->acceptPluginUpdate($slug, $currentVersion, $this->fingerprintOf($slug), $this->dirStampOf($slug));
+                    AuditLogger::log(
+                        "Plugin automatisch aktualisiert",
+                        "plugin",
+                        "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} (Versionsnummer im Manifest erhöht, Herkunft "
+                        . ($this->sources[$slug] ?? '?') . " ist ein Release-Tag, automatisch akzeptiert)."
+                    );
+                } else {
+                    // Fail-closed: manuell kopierte oder aus einem Branch-Stand
+                    // installierte Plugins brauchen für einen Versionswechsel die
+                    // ausdrückliche Freigabe eines Admins (siehe setEnabled()).
+                    $this->needsReapproval[$slug] = true;
+                    AuditLogger::log(
+                        "Plugin-Update ohne Release-Herkunft",
+                        "plugin",
+                        "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} - Herkunft '"
+                        . ($this->sources[$slug] ?? 'manuell/unbekannt')
+                        . "' ist kein Release-Tag (owner/repo@vX.Y.z). Wurde für diesen Request nicht geladen. Erneute Freigabe über /admin/plugins erforderlich."
+                    );
+                    continue;
+                }
+            } else {
+                // Versionsnummer unverändert: Stimmt der billige Verzeichnis-Stempel
+                // mit der Freigabe-Baseline überein, gilt der Code als unverändert und
+                // der SHA-256 über alle Dateien entfällt komplett (#224). Der Stempel
+                // ist nur zusammen mit einem vorhandenen content_hash belastbar - eine
+                // Zeile ohne Hash bleibt fail-closed im Hash-Zweig.
+                $currentStamp = $this->dirStampOf($slug);
+                $approvedStamp = $this->approvedDirStamps[$slug] ?? null;
+                $stampMatches = $approvedHash !== null && $approvedStamp !== null && $approvedStamp === $currentStamp;
+
+                if (!$stampMatches) {
+                    if ($approvedHash === null || $approvedHash !== $this->fingerprintOf($slug)) {
+                        // Freigabe noch nie mit Fingerabdruck erfolgt oder der Code
+                        // weicht ab - untypisch für ein reguläres Update, typisch für
+                        // einen unter demselben Slug ausgetauschten Plugin-Ordner.
+                        // Fail-closed: NICHT laden, bis ein Admin die aktuelle Version
+                        // explizit erneut freigibt (siehe setEnabled()).
+                        $this->needsReapproval[$slug] = true;
+                        AuditLogger::log(
+                            "Plugin-Code seit Aktivierung geändert",
+                            "plugin",
+                            "Slug: {$slug} - gleiche Version ({$currentVersion}), aber abweichender Code. Wurde für diesen Request nicht geladen. Erneute Freigabe über /admin/plugins erforderlich."
+                        );
+                        continue;
+                    }
+
+                    // Inhalt per vollem Hash nachweislich unverändert, nur der Stempel
+                    // fehlt (Bestandszeile von vor dir_stamp) oder weicht ab (z. B.
+                    // Deployment mit frischen mtimes bei identischem Inhalt): Stempel
+                    // mitschreiben, damit der nächste Request wieder ohne SHA-256 auskommt.
+                    $this->persistDirStamp($slug, $currentStamp);
+                }
             }
 
             try {
@@ -408,20 +584,40 @@ final class PluginManager {
     }
 
     /**
-     * Akzeptiert ein reguläres Plugin-Update (neue Manifest-Version) automatisch,
-     * ohne dass ein Admin erneut aktiv werden muss - siehe loadEnabledPlugins().
+     * Akzeptiert ein reguläres Plugin-Update (neue Manifest-Version aus einem
+     * Release-Tag, siehe loadEnabledPlugins()) automatisch, ohne dass ein Admin
+     * erneut aktiv werden muss.
      */
-    private function acceptPluginUpdate(string $slug, string $version, ?string $fingerprint): void {
+    private function acceptPluginUpdate(string $slug, string $version, ?string $fingerprint, ?string $dirStamp): void {
         $this->approvedVersions[$slug] = $version;
         $this->approvedHashes[$slug] = $fingerprint;
+        $this->approvedDirStamps[$slug] = $dirStamp;
 
         try {
             $db = Database::getInstance();
-            $stmt = $db->prepare("UPDATE plugins SET installed_version = ?, content_hash = ? WHERE slug = ?");
-            $stmt->execute([$version, $fingerprint, $slug]);
+            $stmt = $db->prepare("UPDATE plugins SET installed_version = ?, content_hash = ?, dir_stamp = ? WHERE slug = ?");
+            $stmt->execute([$version, $fingerprint, $dirStamp, $slug]);
         } catch (\Throwable $e) {
             // Schreibfehler blockiert das Laden für DIESEN Request nicht - beim nächsten
             // Request wird die Aktualisierung erneut versucht (idempotent).
+        }
+    }
+
+    /**
+     * Schreibt den aktuellen Verzeichnis-Stempel als neue Baseline (#224) -
+     * ausschließlich, nachdem der volle SHA-256-Vergleich den Inhalt als
+     * unverändert bestätigt hat (siehe loadEnabledPlugins()).
+     */
+    private function persistDirStamp(string $slug, ?string $dirStamp): void {
+        $this->approvedDirStamps[$slug] = $dirStamp;
+
+        try {
+            $db = Database::getInstance();
+            $stmt = $db->prepare("UPDATE plugins SET dir_stamp = ? WHERE slug = ?");
+            $stmt->execute([$dirStamp, $slug]);
+        } catch (\Throwable $e) {
+            // Schreibfehler ist unkritisch: Der nächste Request rechnet dann eben
+            // erneut den vollen Hash - nur Performance, keine Sicherheitsfrage.
         }
     }
 
@@ -436,9 +632,15 @@ final class PluginManager {
     }
 
     /**
-     * @param array{slug:string, dir:string, manifest:array, error:?string, compatible:bool} $info
+     * Lädt die Einstiegsdatei eines Plugins (entry-Whitelist, Datei-Existenz,
+     * Klassen-Konvention - siehe Kommentare unten) und liefert eine frische
+     * Instanz der Plugin-Klasse. Gemeinsame Grundlage für loadPlugin() und
+     * runInstallHook(); null (mit Audit-Log-Eintrag), wenn Einstiegspunkt oder
+     * Klasse fehlen bzw. unzulässig sind.
+     *
+     * @param array{slug:string, dir:string, manifest:array, error:?string, compatible:bool, incompatible_reason:?string, fingerprint:?string, dir_stamp:?string} $info
      */
-    private function loadPlugin(string $slug, array $info): void {
+    private function instantiatePlugin(string $slug, array $info): ?object {
         // Der optionale Manifest-Eintrag `entry` wird gleich per require_once
         // geladen - daher strikt auf einen einfachen Dateinamen im Plugin-Ordner
         // begrenzen (keine Pfadtrenner, kein "..") . Ein aktiviertes Plugin ist
@@ -447,16 +649,34 @@ final class PluginManager {
         $entry = (string)($info['manifest']['entry'] ?? 'Plugin.php');
         if (!preg_match('/^[A-Za-z0-9._-]+\.php$/', $entry)) {
             AuditLogger::log("Plugin-Einstiegspunkt ungültig: {$slug}", "plugin", "Unzulässiger entry-Wert im Manifest: {$entry}");
-            return;
+            return null;
         }
 
         $entryFile = rtrim($info['dir'], '/') . '/' . $entry;
         if (!file_exists($entryFile)) {
             AuditLogger::log("Plugin-Einstiegspunkt fehlt: {$slug}", "plugin", "Erwartet: {$entryFile}");
-            return;
+            return null;
         }
 
         require_once $entryFile;
+
+        $className = $this->resolvePluginClassName($slug);
+        if (!class_exists($className)) {
+            AuditLogger::log("Plugin-Klasse nicht gefunden: {$slug}", "plugin", "Erwartet: {$className}");
+            return null;
+        }
+
+        return new $className();
+    }
+
+    /**
+     * @param array{slug:string, dir:string, manifest:array, error:?string, compatible:bool, incompatible_reason:?string, fingerprint:?string, dir_stamp:?string} $info
+     */
+    private function loadPlugin(string $slug, array $info): void {
+        $instance = $this->instantiatePlugin($slug, $info);
+        if ($instance === null) {
+            return;
+        }
 
         // Mehrsprachigkeit (#48, #56): Konvention statt Manifest-Pflicht, analog
         // zum Default-Entry "Plugin.php" - ein optionales lang/-Verzeichnis im
@@ -466,14 +686,6 @@ final class PluginManager {
         if (is_dir($langDir)) {
             \App\I18n\Translator::registerDomain($slug, $langDir);
         }
-
-        $className = $this->resolvePluginClassName($slug);
-        if (!class_exists($className)) {
-            AuditLogger::log("Plugin-Klasse nicht gefunden: {$slug}", "plugin", "Erwartet: {$className}");
-            return;
-        }
-
-        $instance = new $className();
 
         if (method_exists($instance, 'register')) {
             $instance->register($this->hooks);
@@ -588,8 +800,10 @@ final class PluginManager {
 
     /**
      * Alle gefundenen Plugins (unabhängig vom Aktivierungsstatus) für die Admin-Übersicht.
+     * fingerprint/dir_stamp sind hier null, solange sie in diesem Request noch
+     * nicht gebraucht wurden (lazy, #224 - siehe fingerprintOf()/dirStampOf()).
      *
-     * @return array<string, array{slug:string, dir:string, manifest:array, error:?string, compatible:bool}>
+     * @return array<string, array{slug:string, dir:string, manifest:array, error:?string, compatible:bool, incompatible_reason:?string, fingerprint:?string, dir_stamp:?string}>
      */
     public function getDiscoveredPlugins(): array {
         return $this->discovered;
@@ -601,7 +815,9 @@ final class PluginManager {
 
     /**
      * Aktiviert/deaktiviert ein Plugin. Wirkt erst ab dem nächsten Request
-     * (kein Hot-Reload nötig, PHP lädt ohnehin pro Request neu).
+     * (kein Hot-Reload nötig, PHP lädt ohnehin pro Request neu). Bei
+     * Aktivierung wird zusätzlich der optionale install()-Hook des Plugins
+     * aufgerufen (Addons#75, siehe runInstallHook()).
      */
     public function setEnabled(string $slug, bool $enabled): void {
         if (!isset($this->discovered[$slug])) {
@@ -611,15 +827,62 @@ final class PluginManager {
         $db = Database::getInstance();
         $version = (string)($this->discovered[$slug]['manifest']['version'] ?? '0.0.0');
         // Bei (erneuter) Aktivierung wird die aktuell vorgefundene Version + ihr
-        // Fingerabdruck als neue Freigabe-Baseline gespeichert (siehe Klassen-PHPDoc)
-        // - deckt sowohl die Erstaktivierung als auch eine bewusste manuelle
-        // Re-Freigabe nach einer als verdächtig erkannten Änderung ab.
-        $hash = $enabled ? ($this->discovered[$slug]['fingerprint'] ?? null) : null;
+        // Fingerabdruck + der Verzeichnis-Stempel (#224) als neue Freigabe-Baseline
+        // gespeichert (siehe Klassen-PHPDoc) - deckt sowohl die Erstaktivierung
+        // als auch eine bewusste manuelle Re-Freigabe nach einer als verdächtig
+        // erkannten Änderung ab. `source` bleibt bewusst unangetastet - die
+        // Herkunft schreibt ausschließlich der Store/AddonUpdateService.
+        $hash = $enabled ? $this->fingerprintOf($slug) : null;
+        $dirStamp = $enabled ? $this->dirStampOf($slug) : null;
 
         $stmt = $db->prepare(
-            "INSERT INTO plugins (slug, enabled, installed_version, content_hash, activated_at) VALUES (?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), installed_version = VALUES(installed_version), content_hash = VALUES(content_hash), activated_at = VALUES(activated_at)"
+            "INSERT INTO plugins (slug, enabled, installed_version, content_hash, dir_stamp, activated_at) VALUES (?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), installed_version = VALUES(installed_version), content_hash = VALUES(content_hash), dir_stamp = VALUES(dir_stamp), activated_at = VALUES(activated_at)"
         );
-        $stmt->execute([$slug, $enabled ? 1 : 0, $version, $hash, $enabled ? date('Y-m-d H:i:s') : null]);
+        $stmt->execute([$slug, $enabled ? 1 : 0, $version, $hash, $dirStamp, $enabled ? date('Y-m-d H:i:s') : null]);
+
+        // Installations-Hook (Addons#75): läuft bewusst NACH dem Persistieren
+        // der Freigabe - ein fehlschlagender Hook nimmt dem Admin nicht die
+        // gerade erteilte Aktivierung wieder weg (Fehler landet im Audit-Log).
+        if ($enabled) {
+            $this->runInstallHook($slug);
+        }
+    }
+
+    /**
+     * Ruft den optionalen install()-Hook eines Plugins auf (Addons#75): der
+     * vorgesehene Ort für einmalige Einrichtungsarbeiten wie das Anlegen
+     * eigener Tabellen - statt DDL in register(), das bei JEDEM Request liefe
+     * (siehe docs/plugin-development.md, "Installation & Migrationen").
+     *
+     * Aufrufer: setEnabled(..., true) bei jeder (Re-)Aktivierung und der
+     * AddonUpdateService nach einem eingespielten Addon-Update. install() muss
+     * deshalb idempotent sein (z. B. CREATE TABLE IF NOT EXISTS) - der Hook
+     * garantiert "mindestens einmal nach Installation/Update", nicht "genau
+     * einmal". Plugins ohne install()-Methode sind unverändert gültig (No-Op).
+     *
+     * Fehler im Hook werden abgefangen und im Audit-Log protokolliert - sie
+     * verhindern weder die Aktivierung noch das Update; das Plugin meldet
+     * Folgefehler dann bei der ersten Nutzung, statt die Admin-Aktion
+     * kommentarlos abzubrechen.
+     */
+    public function runInstallHook(string $slug): void {
+        $info = $this->discovered[$slug] ?? null;
+        if ($info === null || $info['error'] !== null) {
+            return;
+        }
+
+        try {
+            $instance = $this->instantiatePlugin($slug, $info);
+            if ($instance !== null && method_exists($instance, 'install')) {
+                $instance->install();
+            }
+        } catch (\Throwable $e) {
+            AuditLogger::log(
+                "Plugin-install()-Hook fehlgeschlagen: {$slug}",
+                "plugin",
+                $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()
+            );
+        }
     }
 }

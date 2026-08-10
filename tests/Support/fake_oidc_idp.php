@@ -16,7 +16,14 @@
 //   FAKE_OIDC_ISSUER    Issuer-URL, die das Discovery-Dokument ausweist
 //   FAKE_OIDC_BASE      Basis-URL dieses Servers (für die Endpunkte)
 //   FAKE_OIDC_CLIENT_ID aud-Claim des ausgestellten Tokens
-//   FAKE_OIDC_EMAIL     email-Claim des ausgestellten Tokens
+//   FAKE_OIDC_EMAIL     email-Claim des ausgestellten Tokens (Standardfall)
+//
+// Die E-Mail lässt sich zusätzlich PRO ANFRAGE steuern: Ein Autorisierungscode
+// der Form "email:<adresse>" stellt genau diese Adresse im Token aus. Damit
+// können die Abweisungsfälle des SSO-Logins (unbekannte Identität,
+// unverifiziertes oder soft-gelöschtes Konto, siehe #216) unterschiedliche
+// Identitäten gegen DIESELBE IdP-Instanz durchspielen - ohne je Testfall
+// einen eigenen Server mit anderem FAKE_OIDC_EMAIL starten zu müssen.
 
 declare(strict_types=1);
 
@@ -54,13 +61,18 @@ if ($path === '/application/o/token/' && ($_SERVER['REQUEST_METHOD'] ?? '') === 
         return true;
     }
 
+    // E-Mail pro Anfrage aus dem Code ableiten (Konvention "email:<adresse>",
+    // siehe Kopfkommentar) - alle anderen Codes erhalten FAKE_OIDC_EMAIL.
+    $code = (string)$_POST['code'];
+    $tokenEmail = str_starts_with($code, 'email:') ? substr($code, strlen('email:')) : $email;
+
     $header = $b64url(json_encode(['alg' => 'none', 'typ' => 'JWT']));
     $payload = $b64url(json_encode([
         'iss' => $issuer,
         'aud' => $clientId,
         'exp' => time() + 300,
         'iat' => time(),
-        'email' => $email,
+        'email' => $tokenEmail,
     ]));
 
     header('Content-Type: application/json');

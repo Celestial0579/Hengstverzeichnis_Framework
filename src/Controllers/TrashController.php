@@ -298,11 +298,35 @@ class TrashController extends BaseController {
     }
 
     /**
+     * Obergrenze je Lösch-Charge in deleteHorsesWithHooks() (#222): deckelt
+     * sowohl die Placeholder-Anzahl des IN(...)-DELETEs als auch die Dauer der
+     * zugehörigen Transaktion (Sperrfenster auf `horses` inkl. FK-Cascades).
+     */
+    private const DELETE_BATCH_SIZE = 500;
+
+    /**
      * Endgültiges Löschen von Pferden inkl. der Lösch-Hooks (#164). Der frühere
      * pauschale Bulk-DELETE lieferte keine Datensätze für die Hook-Payload -
-     * deshalb erst SELECT *, dann je Pferd horse.before_delete, ein DELETE über
-     * dieselbe WHERE-Bedingung, danach je Pferd horse.deleted. $condition ist
-     * eine feste, hier im Controller definierte Bedingung, kein Benutzereingang.
+     * deshalb erst SELECT *, dann je Pferd horse.before_delete, ein einziges
+     * DELETE ... WHERE id IN (...) je Charge, danach je Pferd horse.deleted
+     * (#222 - vorher ein DELETE pro Pferd, bei großen Papierkörben über
+     * tausend Queries in einem Request). $condition ist eine feste, hier im
+     * Controller definierte Bedingung, kein Benutzereingang.
+     *
+     * Gelöscht wird dabei exakt die selektierte ID-Menge - nicht erneut über
+     * die Bedingung. Das löst die Race-Condition zwischen SELECT und DELETE:
+     * Ein Pferd, das ZWISCHEN beiden frisch in den Papierkorb wandert, ist in
+     * der ID-Liste nicht enthalten und stirbt daher nicht ohne
+     * before_delete-Hook; es bleibt schlicht bis zum nächsten Leeren liegen.
+     *
+     * Jede Charge (max. DELETE_BATCH_SIZE IDs) läuft in einer eigenen
+     * Transaktion: Das DELETE ist damit je Charge atomar (kein halb geleerter
+     * Zustand innerhalb einer Charge, etwa bei einem FK-Fehler mitten im
+     * Statement), ohne bei sehr großen Papierkörben eine minutenlange
+     * Riesen-Transaktion aufzuspannen. Die Hooks feuern bewusst AUSSERHALB der
+     * Transaktion - Plugin-Handler (Audit-Log-INSERTs, eigene Queries) sollen
+     * das Sperrfenster nicht verlängern und ein werfender Handler kein bereits
+     * committetes Löschen "zurückrollen" können.
      */
     private function deleteHorsesWithHooks(\PDO $db, string $condition): void {
         $horses = $db->query("SELECT * FROM horses WHERE {$condition}")->fetchAll();
@@ -310,20 +334,25 @@ class TrashController extends BaseController {
             return;
         }
 
-        foreach ($horses as $horse) {
-            $this->hooks()->doAction('horse.before_delete', (int)$horse['id'], $horse, true);
-        }
+        foreach (array_chunk($horses, self::DELETE_BATCH_SIZE) as $batch) {
+            foreach ($batch as $horse) {
+                $this->hooks()->doAction('horse.before_delete', (int)$horse['id'], $horse, true);
+            }
 
-        // Gelöscht wird exakt die selektierte ID-Menge - nicht erneut über die
-        // Bedingung, damit ein ZWISCHEN SELECT und DELETE frisch in den
-        // Papierkorb gewandertes Pferd nicht ohne before_delete-Hook stirbt.
-        $deleteStmt = $db->prepare("DELETE FROM horses WHERE id = ?");
-        foreach ($horses as $horse) {
-            $deleteStmt->execute([(int)$horse['id']]);
-        }
+            $ids = array_map(static fn(array $horse): int => (int)$horse['id'], $batch);
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $db->beginTransaction();
+            try {
+                $db->prepare("DELETE FROM horses WHERE id IN ({$placeholders})")->execute($ids);
+                $db->commit();
+            } catch (\Throwable $e) {
+                $db->rollBack();
+                throw $e;
+            }
 
-        foreach ($horses as $horse) {
-            $this->hooks()->doAction('horse.deleted', (int)$horse['id'], $horse);
+            foreach ($batch as $horse) {
+                $this->hooks()->doAction('horse.deleted', (int)$horse['id'], $horse);
+            }
         }
     }
 }

@@ -34,6 +34,17 @@ use PDO;
  * kein vom Menschen gewähltes Passwort - er ist nicht erratbar, weshalb ein
  * absichtlich langsames Hash-Verfahren hier keinen Schutz hinzufügt, aber
  * jeden API-Request spürbar verlangsamen würde.
+ *
+ * Lebensdauer (#217): Jeder Schlüssel ist an die `users.session_version` seines
+ * Besitzers zum Ausstellungszeitpunkt gekoppelt (`issued_session_version`).
+ * Eine Passwortänderung erhöht die session_version (siehe
+ * BaseController::checkAuth() für Sessions) und entzieht damit implizit auch
+ * ALLEN zuvor ausgestellten Schlüsseln die Gültigkeit - ein Schlüssel darf die
+ * Incident-Response-Kette "Passwort zurücksetzen -> alle Zugänge tot" nicht
+ * als zweites, dauerhaftes Credential überleben. Zusätzlich widerrufen die
+ * Passwort-Pfade (AuthController, UserController) die Schlüssel ausdrücklich
+ * über revokeAllForUser(), damit der Zustand auch in der Verwaltungsansicht
+ * sichtbar und dauerhaft ist (`revoked_at`).
  */
 final class ApiKey {
 
@@ -109,17 +120,28 @@ final class ApiKey {
         $token = self::generateToken();
 
         try {
+            // INSERT ... SELECT statt "erst session_version lesen, dann
+            // einfügen": Der Stand des Besitzers wird atomar im selben
+            // Statement übernommen (#217). Damit kann sich zwischen Lesen und
+            // Schreiben keine Passwortänderung schieben, die dem Schlüssel
+            // eine bereits veraltete issued_session_version mitgäbe - und für
+            // einen gelöschten Benutzer entsteht gar kein Schlüssel.
             $stmt = Database::getInstance()->prepare(
-                "INSERT INTO api_keys (user_id, label, token_hash, token_prefix, scope_permissions)
-                 VALUES (?, ?, ?, ?, ?)"
+                "INSERT INTO api_keys (user_id, label, token_hash, token_prefix, scope_permissions, issued_session_version)
+                 SELECT u.id, ?, ?, ?, ?, u.session_version
+                 FROM users u
+                 WHERE u.id = ? AND u.deleted_at IS NULL"
             );
             $stmt->execute([
-                $userId,
                 $label,
                 self::hashToken($token),
                 substr($token, 0, self::DISPLAY_PREFIX_LENGTH),
                 $scope === null ? null : json_encode(array_values($scope)),
+                $userId,
             ]);
+            if ($stmt->rowCount() === 0) {
+                return ['ok' => false, 'error' => 'db_error'];
+            }
         } catch (\Throwable $e) {
             return ['ok' => false, 'error' => 'db_error'];
         }
@@ -145,11 +167,17 @@ final class ApiKey {
         }
 
         try {
+            // issued_session_version = u.session_version (#217): Ein Schlüssel
+            // ist nur gültig, solange sein Besitzer seit der Ausstellung das
+            // Passwort nicht geändert hat - jede Passwortänderung erhöht die
+            // session_version und macht damit alle älteren Schlüssel ungültig,
+            // genau wie die Sessions (BaseController::checkAuth()).
             $stmt = Database::getInstance()->prepare(
                 "SELECT k.id, k.user_id, k.scope_permissions
                  FROM api_keys k
                  JOIN users u ON u.id = k.user_id AND u.deleted_at IS NULL
                  WHERE k.token_hash = ? AND k.revoked_at IS NULL
+                   AND k.issued_session_version = u.session_version
                  LIMIT 1"
             );
             $stmt->execute([self::hashToken($token)]);
@@ -247,6 +275,34 @@ final class ApiKey {
             return $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
             return false;
+        }
+    }
+
+    /**
+     * Widerruft ALLE aktiven Schlüssel eines Benutzers auf einmal (#217) - für
+     * die Passwort-Pfade (Reset, erzwungener Wechsel, Admin-Neusetzung) und
+     * die Admin-Aktion "Alle widerrufen" unter /admin/users/edit. Die
+     * session_version-Kopplung in authenticate() würde die Schlüssel nach
+     * einer Passwortänderung ohnehin ablehnen; der ausdrückliche Widerruf
+     * macht den Zustand zusätzlich dauerhaft und in jeder Übersicht sichtbar
+     * (`revoked_at`, gleicher Soft-Widerruf wie revoke()).
+     *
+     * Fail-open wäre hier falsch, ist aber unkritisch: Liefert die Datenbank
+     * einen Fehler (Rückgabe 0), bleibt die implizite Invalidierung über die
+     * session_version als zweite, unabhängige Schranke bestehen.
+     *
+     * @return int Anzahl der tatsächlich widerrufenen Schlüssel (für das Audit-Log)
+     */
+    public static function revokeAllForUser(int $userId): int {
+        try {
+            $stmt = Database::getInstance()->prepare(
+                "UPDATE api_keys SET revoked_at = NOW()
+                 WHERE user_id = ? AND revoked_at IS NULL"
+            );
+            $stmt->execute([$userId]);
+            return $stmt->rowCount();
+        } catch (\Throwable $e) {
+            return 0;
         }
     }
 

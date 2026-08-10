@@ -336,6 +336,191 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         $this->assertSame(200, $usersPage->statusCode);
     }
 
+    /**
+     * #218: "Berechtigungen kopieren von Administrator" auf die Gast-Gruppe war der
+     * Ein-Klick-Weg, Anonymen sämtliche Verwaltungsrechte (inkl. aller
+     * Plugin-Aktionen) zu verschaffen - checkAuth() schützt nur Kern-Controller,
+     * Plugin-Routen prüfen teils allein hasPermission(). Das Kopieren-Formular ist
+     * für `public` inzwischen ausgeblendet; dieser Test POSTet deshalb DIREKT auf
+     * den weiterhin existierenden Endpunkt und verifiziert die serverseitige
+     * Filterung (GroupController::restrictForGuest()): Nach dem Kopieren dürfen
+     * ausschließlich view-Zeilen übrig sein.
+     */
+    public function testCopyingAdminPermissionsToGuestGroupKeepsOnlyViewRows(): void {
+        $admin = $this->authenticatedClient();
+
+        $publicGroupId = $this->findBuiltinGroupId($admin, 'Gast');
+        $adminGroupId = $this->findBuiltinGroupId($admin, 'Administrator');
+
+        $copyResponse = $admin->post('/admin/groups/copy-permissions', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'source_group_id' => (string)$adminGroupId,
+            'target_group_id' => (string)$publicGroupId,
+        ]);
+        // Der Vorgang selbst bleibt erlaubt (die Gast-Gruppe ist editierbar) -
+        // gefiltert wird der INHALT, nicht der Aufruf.
+        $this->assertSame(
+            "/admin/groups?group={$publicGroupId}&success=copied",
+            $copyResponse->location(),
+            "Kopieren auf die Gast-Gruppe fehlgeschlagen, Body: {$copyResponse->body}"
+        );
+
+        $checked = $this->checkedPermissionPairs($admin, $publicGroupId);
+        $this->assertNotEmpty(
+            $checked,
+            'Von Admin kopiert muss die Gast-Gruppe zumindest die view-Rechte erhalten haben'
+        );
+        foreach ($checked as [$module, $action]) {
+            $this->assertSame(
+                'view',
+                $action,
+                "Gast-Gruppe darf nach dem Kopieren von Admin nur view-Zeilen haben, gefunden: {$module}/{$action}"
+            );
+        }
+
+        // Die UI darf den Weg gar nicht erst anbieten: Kopieren-Formular für die
+        // Gast-Gruppe ausgeblendet, Nicht-view-Checkboxen deaktiviert, und die
+        // frühere (falsche) Zusicherung "Backend-Zugriff bleibt ausgeschlossen"
+        // ist durch den erklärenden Hinweis ersetzt.
+        $publicPage = $admin->get('/admin/groups?group=' . $publicGroupId);
+        $this->assertStringNotContainsString(
+            'Berechtigungen kopieren von',
+            $publicPage->body,
+            'Das Kopieren-Formular darf für die Gast-Gruppe nicht angeboten werden'
+        );
+        $this->assertStringContainsString(
+            'ausschließlich',
+            $publicPage->body,
+            'Für die Gast-Gruppe muss der erklärende Hinweis zur Lese-Rechte-Beschränkung erscheinen'
+        );
+        $this->assertStringNotContainsString(
+            'Backend-Zugriff bleibt ausgeschlossen',
+            $publicPage->body,
+            'Die frühere, für Plugin-Routen falsche Zusicherung darf nicht mehr gerendert werden'
+        );
+
+        // Standard-Lese-Rechte der Gast-Gruppe wiederherstellen, damit nachfolgende
+        // Tests (z. B. testGuestGroupPermissionsCanBeModified) unbeeinflusst bleiben.
+        $this->setGroupPermissions($admin, $publicGroupId, [
+            'horses' => ['view'],
+            'breeding_stations' => ['view'],
+        ]);
+    }
+
+    /**
+     * #218, zweiter Angriffsweg: ein direkt manipulierter POST auf
+     * /admin/groups/permissions mit Verwaltungs-Paaren für die Gast-Gruppe (die
+     * View rendert diese Checkboxen deaktiviert, ein Angreifer schickt sie
+     * trotzdem). Der Server muss alle Nicht-view-Aktionen verwerfen, die
+     * view-Aktionen aber normal speichern.
+     */
+    public function testDirectPostWithManagePairsForGuestGroupIsFiltered(): void {
+        $admin = $this->authenticatedClient();
+
+        $publicGroupId = $this->findBuiltinGroupId($admin, 'Gast');
+
+        $response = $admin->post('/admin/groups/permissions', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'group_id' => (string)$publicGroupId,
+            'permissions' => [
+                'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
+                'breeding_stations' => ['view', 'edit'],
+                'users' => ['view', 'manage'],
+            ],
+        ]);
+        $this->assertSame(
+            "/admin/groups?group={$publicGroupId}&success=permissions_updated",
+            $response->location(),
+            "Speichern der Gast-Berechtigungen fehlgeschlagen, Body: {$response->body}"
+        );
+
+        $checked = $this->checkedPermissionPairs($admin, $publicGroupId);
+        $checkedModulesWithView = [];
+        foreach ($checked as [$module, $action]) {
+            $this->assertSame(
+                'view',
+                $action,
+                "Manipulierter POST: Nicht-view-Aktion hätte serverseitig verworfen werden müssen, gefunden: {$module}/{$action}"
+            );
+            $checkedModulesWithView[] = $module;
+        }
+        // Die legitimen view-Anteile derselben Anfrage müssen erhalten bleiben -
+        // die Filterung entfernt Aktionen, nicht die ganze Anfrage.
+        $this->assertContains('horses', $checkedModulesWithView);
+        $this->assertContains('breeding_stations', $checkedModulesWithView);
+
+        // Standard-Lese-Rechte der Gast-Gruppe wiederherstellen.
+        $this->setGroupPermissions($admin, $publicGroupId, [
+            'horses' => ['view'],
+            'breeding_stations' => ['view'],
+        ]);
+    }
+
+    /**
+     * Gegenprobe zu #218: Die Gast-Beschränkung darf ausschließlich für `public`
+     * greifen - eine beliebige andere (eigene) Gruppe erhält beim Kopieren von
+     * Admin weiterhin die VOLLE Rechtemenge inklusive der Verwaltungsaktionen.
+     */
+    public function testNonPublicGroupPermissionsRemainUnrestricted(): void {
+        $admin = $this->authenticatedClient();
+
+        $groupsPage = $admin->get('/admin/groups');
+        $createResponse = $admin->post('/admin/groups/create', [
+            'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
+            'name' => 'Volle Rechte ' . uniqid(),
+            'description' => 'Gegenprobe: Gast-Filter darf hier nicht greifen',
+        ]);
+        preg_match('/group=(\d+)/', (string)$createResponse->location(), $matches);
+        $this->assertNotEmpty($matches, "Gruppe anlegen fehlgeschlagen, Body: {$createResponse->body}");
+        $targetGroupId = (int)$matches[1];
+
+        $adminGroupId = $this->findBuiltinGroupId($admin, 'Administrator');
+        $copyResponse = $admin->post('/admin/groups/copy-permissions', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'source_group_id' => (string)$adminGroupId,
+            'target_group_id' => (string)$targetGroupId,
+        ]);
+        $this->assertSame(
+            "/admin/groups?group={$targetGroupId}&success=copied",
+            $copyResponse->location(),
+            "Kopieren von Admin auf eigene Gruppe fehlgeschlagen, Body: {$copyResponse->body}"
+        );
+
+        $checked = $this->checkedPermissionPairs($admin, $targetGroupId);
+        $checkedActions = array_map(static fn(array $pair): string => $pair[1], $checked);
+        // Von Admin kopiert = kompletter PermissionRegistry-Katalog, also müssen
+        // auch Schreib-/Verwaltungsaktionen ankommen, nicht nur view.
+        $this->assertContains(
+            'create',
+            $checkedActions,
+            'Eigene Gruppe muss beim Kopieren von Admin auch Nicht-view-Aktionen erhalten'
+        );
+        $this->assertContains('view', $checkedActions);
+    }
+
+    /**
+     * Liest aus der Berechtigungsmatrix von /admin/groups?group=<id> alle
+     * AKTIVIERTEN Checkboxen als [Modul, Aktion]-Paare. Bewusst über die
+     * gerenderte Seite statt per DB-Zugriff: geprüft wird derselbe Weg, den ein
+     * Admin sieht, und der Test bleibt vom Schema unabhängig.
+     *
+     * @return array<int, array{0:string, 1:string}>
+     */
+    private function checkedPermissionPairs(\Tests\Support\HttpClient $admin, int $groupId): array {
+        $body = $admin->get('/admin/groups?group=' . $groupId)->body;
+        preg_match_all(
+            '/name="permissions\[([^\]]+)\]\[\]"\s+value="([^"]+)"[^>]*\bchecked\b/',
+            $body,
+            $matches,
+            PREG_SET_ORDER
+        );
+        $pairs = [];
+        foreach ($matches as $match) {
+            $pairs[] = [$match[1], $match[2]];
+        }
+        return $pairs;
+    }
+
     public function testGroupMutationsRequireCsrfToken(): void {
         $admin = $this->authenticatedClient();
 

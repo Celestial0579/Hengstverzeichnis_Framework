@@ -9,20 +9,87 @@ use App\Database;
  * Class MatchSuggestionFinder
  *
  * Blutlinien-Match-/Merge-Vorschlagslogik, aus `HorseController::matches()`/
- * `calculateSuggestions()` extrahiert (#52) - unverändertes Verhalten,
- * reine Verschiebung. Ermöglicht der Wiederverwendung außerhalb der
- * Admin-Match-Seite selbst, z. B. für den E-Mail-Digest
+ * `calculateSuggestions()` extrahiert (#52). Ermöglicht die Wiederverwendung
+ * außerhalb der Admin-Match-Seite selbst, z. B. für den E-Mail-Digest
  * (App\Service\DigestService), der nur die Anzahl offener Vorschläge
- * braucht, aber exakt dieselbe Bewertungslogik/Schwellenwerte verwenden
- * muss, um nicht von der tatsächlichen Anzeige unter /admin/matches
- * abzuweichen.
+ * braucht, aber dieselbe Vorauswahl verwenden muss, um nicht grundlos von
+ * der tatsächlichen Anzeige unter /admin/matches abzuweichen.
+ *
+ * Seit #215 werden die Kandidatenpaare SQL-seitig vorgefiltert, statt in PHP
+ * das Kreuzprodukt "jeder Platzhalter × alle Pferde" zu bilden: Bei 2.000
+ * Pferden mit je 1.000 unaufgelösten Vater-/Mutter-Angaben liefen vorher
+ * ~4.000.000 Scoring-Durchläufe (inkl. similar_text()) pro Aufruf - real
+ * 15-25 s CPU-Zeit, nur um am Ende je Platzhalter maximal 5 Vorschläge zu
+ * behalten. Die eigentliche Bewertung (calculateSuggestions()) ist fachlich
+ * unverändert - sie läuft nur noch auf der typischerweise um Größenordnungen
+ * kleineren Paarmenge des Vorfilters.
  */
 final class MatchSuggestionFinder {
 
     /**
-     * Ermittelt alle offenen Match-/Merge-Vorschläge für unaufgelöste
-     * Vater-/Mutter-Angaben (nur `sire_name`/`sire_ueln` bzw.
-     * `dam_name`/`dam_ueln` gesetzt, keine FK-Verknüpfung).
+     * SQL-Vorfilter für Kandidatenpaare (#215), als korrelierte Bedingung
+     * zwischen dem Kind-Alias `c` und dem Kandidaten-Alias `p`. Der Filter
+     * ist bewusst WEITER gefasst als die eigentliche Bewertung - er muss nur
+     * alle Paare enthalten, die calculateSuggestions() aufnehmen würde:
+     *
+     * - UELN-Gleichheit deckt den 45-Punkte-UELN-Zweig ab (hasUelnMatch;
+     *   Haupt- wie ausländische UELN, Groß-/Kleinschreibung übernimmt die
+     *   CI-Collation der Spalten).
+     * - Ohne UELN-Treffer erreicht ein Paar die 45-%-Schwelle nur über die
+     *   Namens-Ähnlichkeit: Alter/Deckstation/Farbe liefern zusammen maximal
+     *   12+4+4 = 20 Punkte, die fehlenden >= 25 Punkte müssen aus den 35
+     *   Namens-Punkten kommen (similar_text >= ~71 %) - bzw. >= 90 % für den
+     *   hasStrongNameMatch-Bypass. So ähnliche Namen teilen praktisch immer
+     *   den SOUNDEX-Code oder die ersten drei Buchstaben; das Präfix wird in
+     *   beide Richtungen geprüft, damit auch ein kurzer Name gegen einen
+     *   längeren gefunden wird.
+     *
+     * Theoretisch konstruierbare Ausnahmen (ähnliche Namen mit komplett
+     * anderem Anfang UND anderem Klangbild, z. B. "Quantum"/"Kwantum")
+     * fallen durch den Vorfilter - dieser Kompromiss ist die Kernidee des
+     * Lösungsvorschlags in #215 und dort so dokumentiert.
+     *
+     * sprintf-Platzhalter: %1$s = Eltern-Rolle ('sire'/'dam'), %2$s = das
+     * einzige zur Rolle passende Geschlecht ('stallion'/'mare'; NULL =
+     * unbekannt bleibt wie bisher zugelassen, #167). Beides sind
+     * ausschließlich interne Literale aus ROLES, keine Benutzereingaben.
+     */
+    private const PAIR_PREFILTER_SQL = <<<'SQL'
+        p.deleted_at IS NULL
+        AND p.id <> c.id
+        AND (p.sex IS NULL OR p.sex = '%2$s')
+        AND (
+            (c.%1$s_ueln IS NOT NULL AND c.%1$s_ueln <> ''
+                AND (p.ueln = c.%1$s_ueln OR p.foreign_ueln = c.%1$s_ueln))
+            OR (c.%1$s_name IS NOT NULL AND c.%1$s_name <> ''
+                AND (SOUNDEX(p.name) = SOUNDEX(c.%1$s_name)
+                    OR p.name LIKE CONCAT(LEFT(c.%1$s_name, 3), '%%')
+                    OR c.%1$s_name LIKE CONCAT(LEFT(p.name, 3), '%%')))
+        )
+        SQL;
+
+    /**
+     * Eltern-Rollen mit dem jeweils einzig zulässigen Kandidaten-Geschlecht
+     * (#167) und einem Sortierschlüssel, der die bisherige Blockreihenfolge
+     * der Ausgabe (erst alle Vater-, dann alle Mutter-Platzhalter) erhält.
+     */
+    private const ROLES = [
+        ['role' => 'sire', 'sex' => 'stallion', 'order' => 0, 'label' => 'Vater'],
+        ['role' => 'dam', 'sex' => 'mare', 'order' => 1, 'label' => 'Mutter'],
+    ];
+
+    /**
+     * Ermittelt offene Match-/Merge-Vorschläge für unaufgelöste Vater-/
+     * Mutter-Angaben (nur `sire_name`/`sire_ueln` bzw. `dam_name`/`dam_ueln`
+     * gesetzt, keine FK-Verknüpfung).
+     *
+     * Optional paginiert (#215, /admin/matches): $limit/$offset zählen
+     * PLATZHALTER (Kind/Rolle-Kombinationen mit mindestens einem
+     * Vorfilter-Kandidaten), deterministisch sortiert nach Rolle (erst
+     * Väter, dann Mütter), Kind-Name, Kind-ID. Eine Seite kann WENIGER
+     * Einträge liefern als Platzhalter angefragt wurden: Platzhalter, deren
+     * sämtliche Vorfilter-Kandidaten unter der Anzeigeschwelle bleiben,
+     * werden - wie schon immer - nicht ausgegeben.
      *
      * @return array<int, array{
      *     child_id: int, child_name: string, parent_type: 'sire'|'dam',
@@ -30,65 +97,148 @@ final class MatchSuggestionFinder {
      *     placeholder_ueln: ?string, suggestions: array
      * }>
      */
-    public static function findAll(): array {
+    public static function findAll(?int $limit = null, int $offset = 0): array {
         $db = Database::getInstance();
 
-        // Get all unlinked sire placeholders
-        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station, sire_name, sire_ueln FROM horses WHERE deleted_at IS NULL AND sire_id IS NULL AND (sire_name IS NOT NULL OR sire_ueln IS NOT NULL)");
-        $sirePlaceholders = $stmt->fetchAll();
+        // Schritt 1: Platzhalter-Menge (ggf. die angefragte Seite) bestimmen.
+        // Nur Kind/Rolle-Kombinationen, für die der Vorfilter mindestens
+        // einen Kandidaten kennt - alle anderen könnten ohnehin keinen
+        // Vorschlag ergeben und würden nur leere Bewertungsläufe erzeugen.
+        $parts = [];
+        foreach (self::ROLES as $r) {
+            $parts[] = "SELECT {$r['order']} AS role_order, '{$r['role']}' AS parent_type,
+                               c.id, c.name, c.birth_year, c.color,
+                               c.breeding_station_id, c.breeding_station,
+                               c.{$r['role']}_name AS placeholder_name,
+                               c.{$r['role']}_ueln AS placeholder_ueln
+                        FROM horses c
+                        WHERE " . self::placeholderCondition($r['role']) . "
+                          AND EXISTS (SELECT 1 FROM horses p WHERE " . self::prefilterCondition($r) . ")";
+        }
 
-        // Get all unlinked dam placeholders
-        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, breeding_station_id, breeding_station, dam_name, dam_ueln FROM horses WHERE deleted_at IS NULL AND dam_id IS NULL AND (dam_name IS NOT NULL OR dam_ueln IS NOT NULL)");
-        $damPlaceholders = $stmt->fetchAll();
+        $sql = "SELECT * FROM (" . implode(" UNION ALL ", $parts) . ") plat
+                ORDER BY plat.role_order, plat.name, plat.id";
+        $params = [];
+        if ($limit !== null) {
+            $sql .= " LIMIT ? OFFSET ?";
+            $params = [max(0, $limit), max(0, $offset)];
+        }
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $placeholders = $stmt->fetchAll();
 
-        // Fetch all existing active horses for matching (inkl. sire_id/dam_id,
-        // um direkte Nachkommen des Kindes als Eltern-Kandidaten auszuschließen, #131)
-        $stmt = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, sex, breeding_station_id, breeding_station, sire_id, dam_id FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allHorses = $stmt->fetchAll();
+        if (empty($placeholders)) {
+            return [];
+        }
 
-        // Kandidaten je Eltern-Rolle nach Geschlecht einschränken (#167): als
-        // Vater kommen nur Hengste in Frage, als Mutter nur Stuten; Pferde ohne
-        // Geschlechtsangabe (NULL, Altbestand) bleiben in beiden Listen.
-        $sireCandidates = array_values(array_filter($allHorses,
-            fn($h) => !in_array($h['sex'] ?? null, ['mare', 'gelding'], true)));
-        $damCandidates = array_values(array_filter($allHorses,
-            fn($h) => !in_array($h['sex'] ?? null, ['stallion', 'gelding'], true)));
+        // Schritt 2: Kandidatenpaare NUR für diese Platzhalter laden - eine
+        // Abfrage je Rolle, IN-Liste als generierte ?-Platzhalter (gleiches
+        // Muster wie DigestService::loadRecipients()). Die Kandidaten-Spalten
+        // entsprechen exakt der früheren Vollmengen-Abfrage (inkl.
+        // sire_id/dam_id für den Nachkommen-Ausschluss, #131), die Sortierung
+        // nach Kandidaten-Name erhält die bisherige Reihenfolge bei
+        // Punktgleichheit (stabile usort in calculateSuggestions()).
+        $childIdsByRole = ['sire' => [], 'dam' => []];
+        foreach ($placeholders as $row) {
+            $childIdsByRole[$row['parent_type']][] = (int)$row['id'];
+        }
 
-        $unlinkedMatches = [];
-
-        // Calculate matches for Sires
-        foreach ($sirePlaceholders as $sp) {
-            $suggestions = self::calculateSuggestions($sp['sire_name'], $sp['sire_ueln'], $sp, $sireCandidates);
-            if (!empty($suggestions)) {
-                $unlinkedMatches[] = [
-                    'child_id' => $sp['id'],
-                    'child_name' => $sp['name'],
-                    'parent_type' => 'sire',
-                    'parent_type_label' => 'Vater',
-                    'placeholder_name' => $sp['sire_name'],
-                    'placeholder_ueln' => $sp['sire_ueln'],
-                    'suggestions' => $suggestions
-                ];
+        $candidatesByChild = ['sire' => [], 'dam' => []];
+        foreach (self::ROLES as $r) {
+            $childIds = $childIdsByRole[$r['role']];
+            if (empty($childIds)) {
+                continue;
+            }
+            $inList = implode(',', array_fill(0, count($childIds), '?'));
+            $stmt = $db->prepare(
+                "SELECT c.id AS child_id,
+                        p.id, p.name, p.ueln, p.foreign_ueln, p.birth_year, p.color, p.sex,
+                        p.breeding_station_id, p.breeding_station, p.sire_id, p.dam_id
+                 FROM horses c
+                 JOIN horses p ON " . self::prefilterCondition($r) . "
+                 WHERE c.id IN ({$inList})
+                 ORDER BY p.name ASC"
+            );
+            $stmt->execute($childIds);
+            foreach ($stmt->fetchAll() as $pair) {
+                $childId = (int)$pair['child_id'];
+                // child_id ist nur der Gruppierschlüssel - entfernen, damit
+                // die Kandidaten-Arrays feldgleich zum bisherigen Verhalten
+                // (und damit zur View/API) bleiben.
+                unset($pair['child_id']);
+                $candidatesByChild[$r['role']][$childId][] = $pair;
             }
         }
 
-        // Calculate matches for Dams
-        foreach ($damPlaceholders as $dp) {
-            $suggestions = self::calculateSuggestions($dp['dam_name'], $dp['dam_ueln'], $dp, $damCandidates);
+        // Schritt 3: unveränderte Bewertung, jetzt je Platzhalter nur noch
+        // auf dessen vorgefilterten Kandidaten.
+        $unlinkedMatches = [];
+        foreach ($placeholders as $row) {
+            $role = $row['parent_type'];
+            $suggestions = self::calculateSuggestions(
+                $row['placeholder_name'],
+                $row['placeholder_ueln'],
+                $row,
+                $candidatesByChild[$role][(int)$row['id']] ?? []
+            );
             if (!empty($suggestions)) {
                 $unlinkedMatches[] = [
-                    'child_id' => $dp['id'],
-                    'child_name' => $dp['name'],
-                    'parent_type' => 'dam',
-                    'parent_type_label' => 'Mutter',
-                    'placeholder_name' => $dp['dam_name'],
-                    'placeholder_ueln' => $dp['dam_ueln'],
+                    'child_id' => $row['id'],
+                    'child_name' => $row['name'],
+                    'parent_type' => $role,
+                    'parent_type_label' => $role === 'sire' ? 'Vater' : 'Mutter',
+                    'placeholder_name' => $row['placeholder_name'],
+                    'placeholder_ueln' => $row['placeholder_ueln'],
                     'suggestions' => $suggestions
                 ];
             }
         }
 
         return $unlinkedMatches;
+    }
+
+    /**
+     * Anzahl offener Platzhalter mit mindestens einem Vorfilter-Kandidaten -
+     * als reiner SQL-COUNT ohne jede Bewertung (#215). Gedacht für Aufrufer,
+     * die nur die Größenordnung brauchen (E-Mail-Digest, Pagination von
+     * /admin/matches): vorher lief für die eine Zahl im Digest das komplette
+     * similar_text()-Scoring über das Kreuzprodukt.
+     *
+     * Bewusst eine OBERMENGE von count(findAll()): einzelne gezählte
+     * Platzhalter können nach der Bewertung unter der Anzeigeschwelle
+     * bleiben und tauchen dann in der Liste nicht auf.
+     */
+    public static function countOpen(): int {
+        $db = Database::getInstance();
+
+        $total = 0;
+        foreach (self::ROLES as $r) {
+            $total += (int)$db->query(
+                "SELECT COUNT(*) FROM horses c
+                 WHERE " . self::placeholderCondition($r['role']) . "
+                   AND EXISTS (SELECT 1 FROM horses p WHERE " . self::prefilterCondition($r) . ")"
+            )->fetchColumn();
+        }
+        return $total;
+    }
+
+    /**
+     * Platzhalter-Bedingung einer Eltern-Rolle - identisch zu den früheren
+     * Vollmengen-Abfragen: aktives Pferd, keine FK-Verknüpfung, aber
+     * Name und/oder UELN des Elternteils als Freitext vorhanden.
+     *
+     * @param 'sire'|'dam' $role Internes Literal aus ROLES, nie Benutzereingabe.
+     */
+    private static function placeholderCondition(string $role): string {
+        return "c.deleted_at IS NULL AND c.{$role}_id IS NULL
+                AND (c.{$role}_name IS NOT NULL OR c.{$role}_ueln IS NOT NULL)";
+    }
+
+    /**
+     * @param array{role: string, sex: string} $r Eintrag aus ROLES.
+     */
+    private static function prefilterCondition(array $r): string {
+        return sprintf(self::PAIR_PREFILTER_SQL, $r['role'], $r['sex']);
     }
 
     /**

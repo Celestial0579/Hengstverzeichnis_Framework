@@ -32,6 +32,11 @@ foreach ($groups as $g) {
 }
 $selected = $groupsById[$selectedGroupId] ?? null;
 $isProtected = $selected && in_array($selected['slug'], ['admin'], true);
+// Gast-Gruppe: darf ausschließlich Lese-Rechte erhalten (#218) - Nicht-view-Checkboxen
+// werden deaktiviert gerendert und das Kopieren-Formular ausgeblendet. Die eigentliche
+// Durchsetzung sitzt serverseitig in GroupController::restrictForGuest(); die View
+// spiegelt die Regel nur, damit die UI nichts anbietet, was der Server verwirft.
+$isGuest = $selected && $selected['slug'] === 'public';
 $selectedPermissions = $selected ? ($permissions[(int)$selected['id']] ?? []) : [];
 
 /**
@@ -75,9 +80,11 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             Gruppe im Benutzer-Formular bewusst zugewiesen werden.
             <strong>Gast (Öffentlich)</strong> gilt automatisch für nicht angemeldete
             Besucher: über ihre Lese-Rechte steuern Sie, welche Bereiche im öffentlichen
-            Teil der Website sichtbar sind. Backend-Zugriff bleibt für Gäste stets
-            ausgeschlossen (durch den Login-Zwang), Bearbeiten/Löschen/Veröffentlichen
-            wirken für sie nicht - nur Lese-Rechte haben eine Wirkung.
+            Teil der Website sichtbar sind. Diese Gruppe kann ausschließlich Lese-Rechte
+            erhalten - alle anderen Aktionen (z. B. Bearbeiten, Löschen, Veröffentlichen
+            oder von Plugins registrierte Verwaltungsaktionen) sind für sie gesperrt und
+            werden auch serverseitig verworfen, da einzelne Routen (insbesondere von
+            Plugins) ihre Rechte direkt prüfen.
         </p>
 
         <form action="/admin/groups" method="GET" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
@@ -218,8 +225,8 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             <?php if ($selected['slug'] === 'admin'): ?>
                 <p style="color: var(--text-muted); font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
                 <p style="color: var(--text-muted); font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar.</p>
-            <?php elseif ($selected['slug'] === 'public'): ?>
-                <p style="color: var(--text-muted); font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Nur Lese-Rechte steuern die öffentliche Sichtbarkeit; Backend-Zugriff bleibt ausgeschlossen.</p>
+            <?php elseif ($isGuest): ?>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Diese Gruppe kann ausschließlich <strong>Lese-Rechte</strong> erhalten - sie steuern die öffentliche Sichtbarkeit der einzelnen Bereiche. Alle übrigen Aktionen sind für Gäste dauerhaft gesperrt (deshalb deaktiviert) und werden auch serverseitig verworfen; ebenso steht das Kopieren fremder Berechtigungen für diese Gruppe nicht zur Verfügung. Hintergrund: Einzelne Routen - insbesondere von Plugins - prüfen Rechte direkt, eine Verwaltungs-Berechtigung der Gast-Gruppe würde sie für jeden anonymen Besucher öffnen.</p>
             <?php else: ?>
                 <!-- 2FA-Pflicht pro Gruppe (#84): greift beim nächsten Login der
                      Mitglieder (kein Bestandsschutz); ein Benutzer braucht 2FA,
@@ -245,8 +252,12 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                 </div>
             <?php endif; ?>
 
-            <?php if (!$isProtected && count($groups) > 1): ?>
-                <!-- Berechtigungen von einer anderen Gruppe kopieren -->
+            <?php if (!$isProtected && !$isGuest && count($groups) > 1): ?>
+                <!-- Berechtigungen von einer anderen Gruppe kopieren. Für die Gast-Gruppe
+                     bewusst ausgeblendet (#218): "von Administrator kopieren" würde dort
+                     Verwaltungsrechte anbieten, die der Server ohnehin verwirft
+                     (GroupController::restrictForGuest()) - die UI soll diesen
+                     scheinbar harmlosen Ein-Klick-Weg gar nicht erst eröffnen. -->
                 <form action="/admin/groups/copy-permissions" method="POST" onsubmit="return confirm('Berechtigungen der ausgewählten Quell-Gruppe übernehmen? Die aktuellen Berechtigungen von \'<?= htmlspecialchars(addslashes($selected['name'])) ?>\' werden dabei vollständig überschrieben.');" style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                     <input type="hidden" name="target_group_id" value="<?= (int)$selected['id'] ?>">
@@ -274,15 +285,22 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                             <strong style="font-size: 0.9rem;"><?= htmlspecialchars($moduleDef['label']) ?></strong>
                             <div style="margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.3rem;">
                                 <?php foreach ($moduleDef['actions'] as $actionKey => $actionLabel): ?>
-                                    <?php $isChecked = !empty($selectedPermissions[$moduleKey][$actionKey]) || ($selected['slug'] === 'admin'); ?>
-                                    <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: normal; <?= $isProtected ? 'opacity: 0.6;' : 'cursor: pointer;' ?>">
+                                    <?php
+                                    $isChecked = !empty($selectedPermissions[$moduleKey][$actionKey]) || ($selected['slug'] === 'admin');
+                                    // Gast-Gruppe: nur die erlaubten Lese-Aktionen bleiben bedienbar,
+                                    // alles andere ist deaktiviert (#218) - deckungsgleich mit der
+                                    // serverseitigen Filterung in GroupController::restrictForGuest().
+                                    $isDisabled = $isProtected
+                                        || ($isGuest && !in_array($actionKey, \App\Controllers\GroupController::GUEST_ALLOWED_ACTIONS, true));
+                                    ?>
+                                    <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: normal; <?= $isDisabled ? 'opacity: 0.6;' : 'cursor: pointer;' ?>">
                                         <input
                                             type="checkbox"
                                             name="permissions[<?= htmlspecialchars($moduleKey) ?>][]"
                                             value="<?= htmlspecialchars($actionKey) ?>"
                                             style="width: auto;"
                                             <?= $isChecked ? 'checked' : '' ?>
-                                            <?= $isProtected ? 'disabled' : '' ?>
+                                            <?= $isDisabled ? 'disabled' : '' ?>
                                         >
                                         <?= htmlspecialchars($actionLabel) ?>
                                     </label>

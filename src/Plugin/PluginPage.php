@@ -27,10 +27,13 @@ use App\I18n\Translator;
  * Werte mit htmlspecialchars() zu escapen. Der Titel wird vom Layout
  * escaped.
  *
- * Settings-/Locale-Laden ist bewusst eine kleine, dokumentierte Kopie von
- * BaseController::loadSettings()/initLocale() (private Instanzmethoden) -
- * beide Seiten verweisen aufeinander; wer hier etwas ändert, zieht dort
- * nach.
+ * Settings-Laden ist bewusst eine kleine, dokumentierte Kopie von
+ * BaseController::loadSettings() (private Instanzmethode) - beide Seiten
+ * verweisen aufeinander; wer hier etwas ändert, zieht dort nach. Die
+ * Locale-Auswahl dagegen ist NICHT kopiert, sondern zentral in
+ * Translator::resolveRequestLocale(): Die frühere Kopie kannte die
+ * active_locales-Prüfung (#198) nicht und machte deaktivierte Sprachen
+ * über Plugin-Seiten dauerhaft erreichbar (#220).
  */
 final class PluginPage {
 
@@ -69,21 +72,14 @@ final class PluginPage {
     }
 
     /**
-     * Wie BaseController::initLocale(): ?lang=xx übernimmt in die Session,
-     * sonst gilt Session-Wahl vor Admin-Standardsprache; ungültige Werte
-     * bildet Translator::init() selbst sicher ab.
+     * Wie BaseController::initLocale(): dieselbe zentrale Auswahlregel
+     * (Translator::resolveRequestLocale, nur aktivierte Sprachen wählbar,
+     * veraltete Session-Wahl wird bereinigt - #220); ungültige Werte bildet
+     * Translator::init() zusätzlich selbst sicher ab.
      *
      * @param array<string, string> $settings
      */
     private static function initLocale(array $settings): void {
-        $available = Translator::getAvailableLocales();
-
-        $requested = $_GET['lang'] ?? null;
-        if (is_string($requested) && isset($available[$requested])) {
-            $_SESSION['locale'] = $requested;
-        }
-
-        $locale = $_SESSION['locale'] ?? ($settings['language'] ?? 'de');
-        Translator::init((string)$locale);
+        Translator::init(Translator::resolveRequestLocale($settings));
     }
 }

@@ -22,14 +22,17 @@ use PDO;
  *   editierbaren Berechtigungs-Zeilen, und die Gruppe ist nie über
  *   `user_groups` zuweisbar (siehe PROTECTED_PERMISSION_SLUGS,
  *   UserController::syncUserGroups()).
- * - `public` (nicht angemeldete Besucher) erhält NIE irgendeine Berechtigung
- *   und damit nie Zugriff auf das Backend - sowohl in der View (deaktivierte
- *   Checkboxen) als auch hier serverseitig (harte Ablehnung) durchgesetzt.
- *   Unabhängig davon ist der Backend-Zugriff für Gäste ohnehin bereits durch
- *   BaseController::checkAuth() versperrt (siehe dortiger Hinweis) - dieses
- *   Modul verhindert zusätzlich, dass die Gruppe `public` überhaupt jemals
- *   eine Berechtigungs-Zeile erhalten oder einem echten Benutzer zugewiesen
- *   werden könnte.
+ * - `public` (nicht angemeldete Besucher) erhält NIE etwas anderes als
+ *   Lese-Rechte (siehe GUEST_ALLOWED_ACTIONS/restrictForGuest()) - sowohl in
+ *   der View (deaktivierte Nicht-view-Checkboxen, kein Kopieren-Formular) als
+ *   auch hier serverseitig (Filterung jeder Schreib-Anfrage) durchgesetzt.
+ *   Der Login-Zwang (BaseController::checkAuth()) schützt zwar die
+ *   Kern-Controller, aber NICHT jede Route: Plugin-Routen sind laut
+ *   Dokumentation selbst für ihren Schutz zuständig und prüfen teils
+ *   ausschließlich hasPermission() - eine versehentlich an `public` vergebene
+ *   Verwaltungs-Berechtigung würde solche Routen für Anonyme öffnen (#218).
+ *   Deshalb wird die Beschränkung hier hart serverseitig erzwungen und die
+ *   Gruppe ist zusätzlich nie einem echten Benutzer zuweisbar.
  * - `admin` und `public` sind damit die EINZIGEN beiden Sonderfälle im
  *   gesamten Gruppensystem. Jede andere Gruppe - auch die eingebaute `editor` -
  *   verhält sich identisch zu einer eigenen Gruppe: frei editierbare
@@ -47,10 +50,13 @@ class GroupController extends BaseController {
      * (siehe updatePermissions()/copyPermissions()) - `admin` hat systemseitig
      * immer implizit alle Rechte und braucht daher nie eigene
      * group_permissions-Zeilen. Die Gast-Gruppe `public` ist hier bewusst NICHT
-     * (mehr) enthalten: ihre Rechte steuern, was nicht angemeldete Besucher
-     * öffentlich sehen dürfen, und müssen daher normal editierbar sein ("wie bei
-     * anderen Gruppen auch"). Backend-Zugriff bleibt für Gäste dennoch
-     * ausgeschlossen, da checkAuth() jeden ohne Session auf /login umleitet.
+     * (mehr) enthalten: ihre Lese-Rechte steuern, was nicht angemeldete Besucher
+     * öffentlich sehen dürfen, und müssen daher editierbar bleiben. Editierbar
+     * heißt aber NICHT uneingeschränkt: alles jenseits von GUEST_ALLOWED_ACTIONS
+     * wird für `public` serverseitig verworfen (restrictForGuest(), #218), denn
+     * checkAuth() schützt nur die Kern-Controller - Plugin-Routen prüfen teils
+     * allein hasPermission() und stünden mit einer Verwaltungs-Zeile für
+     * `public` jedem Anonymen offen.
      * Betrifft NICHT die Zuweisbarkeit einer Gruppe zu Benutzern (siehe
      * NON_ASSIGNABLE_SLUGS) - `admin` MUSS Benutzern zuweisbar sein, sonst
      * könnte nie ein Administrator angelegt werden.
@@ -67,6 +73,20 @@ class GroupController extends BaseController {
      * einen Administrator anzulegen.
      */
     public const NON_ASSIGNABLE_SLUGS = ['public'];
+
+    /**
+     * Aktionen, die die Gast-Gruppe `public` maximal erhalten darf (#218).
+     * Ihre Rechte steuern ausschließlich, was nicht angemeldete Besucher im
+     * öffentlichen Teil SEHEN - Schreib- und Verwaltungsaktionen dürfen dort
+     * niemals landen: Der Login-Zwang (checkAuth()) deckt nur die
+     * Kern-Controller ab, Plugin-Routen prüfen teils allein hasPermission()
+     * und wären mit einer solchen Zeile für JEDEN anonymen Besucher offen
+     * (konkret ausgenutzt gedacht über "Berechtigungen kopieren von
+     * Administrator" auf die Gast-Gruppe). Wird in updatePermissions() UND
+     * copyPermissions() über restrictForGuest() durchgesetzt; die View
+     * (admin_groups.php) spiegelt dieselbe Regel nur zusätzlich wider.
+     */
+    public const GUEST_ALLOWED_ACTIONS = ['view'];
 
     public function __construct() {
         parent::__construct();
@@ -218,7 +238,11 @@ class GroupController extends BaseController {
 
         /** @var array<string, array<int, string>> $selected */
         $selected = $_POST['permissions'] ?? [];
-        $this->replacePermissions($db, $groupId, $this->flattenSelectedPermissions($selected));
+        // Für die Gast-Gruppe werden Nicht-Lese-Aktionen serverseitig verworfen -
+        // die deaktivierten Checkboxen der View reichen nicht, eine manipulierte
+        // Anfrage darf `public` keine Schreibrechte unterschieben (#218).
+        $pairs = $this->restrictForGuest($group, $this->flattenSelectedPermissions($selected));
+        $this->replacePermissions($db, $groupId, $pairs);
 
         AuditLogger::log("Berechtigungen aktualisiert", "groups", "Gruppe: {$group['name']}");
 
@@ -316,7 +340,10 @@ class GroupController extends BaseController {
             $pairs = $stmt->fetchAll();
         }
 
-        $this->replacePermissions($db, $targetGroupId, $pairs);
+        // Auch beim Kopieren gilt die Gast-Beschränkung: "von Administrator auf
+        // die Gast-Gruppe kopieren" würde sonst per Ein-Klick sämtliche
+        // Verwaltungsrechte (inkl. aller Plugin-Aktionen) an Anonyme vergeben (#218).
+        $this->replacePermissions($db, $targetGroupId, $this->restrictForGuest($target, $pairs));
 
         AuditLogger::log(
             "Berechtigungen kopiert",
@@ -326,6 +353,26 @@ class GroupController extends BaseController {
 
         header("Location: /admin/groups?group={$targetGroupId}&success=copied");
         exit;
+    }
+
+    /**
+     * Filtert für die Gast-Gruppe `public` alle Aktionen heraus, die nicht in
+     * GUEST_ALLOWED_ACTIONS stehen (siehe dortige Begründung, #218). Für jede
+     * andere Gruppe werden die Paare unverändert zurückgegeben - die
+     * Beschränkung gilt ausschließlich für Gäste.
+     *
+     * @param array{slug:string} $group Gruppen-Zeile mit mindestens dem Slug
+     * @param array<int, array{module:string, action:string}> $pairs
+     * @return array<int, array{module:string, action:string}>
+     */
+    private function restrictForGuest(array $group, array $pairs): array {
+        if ($group['slug'] !== 'public') {
+            return $pairs;
+        }
+        return array_values(array_filter(
+            $pairs,
+            fn(array $p): bool => in_array($p['action'], self::GUEST_ALLOWED_ACTIONS, true)
+        ));
     }
 
     /**

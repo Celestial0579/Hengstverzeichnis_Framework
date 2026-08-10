@@ -110,6 +110,46 @@ final class Translator {
     }
 
     /**
+     * Löst die für den aktuellen Request gültige Locale auf - die EINE Stelle
+     * für die Auswahlregel, die vorher als Kopie in
+     * BaseController::initLocale() und PluginPage::initLocale() lebte und
+     * dort auseinandergelaufen ist (#220: die PluginPage-Kopie kannte die
+     * active_locales-Prüfung aus #198 nicht, deaktivierte Sprachen blieben
+     * über Plugin-Seiten dauerhaft erreichbar).
+     *
+     * Regel: `?lang=xx` wird nur übernommen (und in der Session persistiert),
+     * wenn die Sprache vom Betreiber AKTIVIERT ist. Danach gilt Session-Wahl
+     * vor Admin-Standardsprache. Ist die so bestimmte Locale inaktiv (z. B.
+     * eine Session-Wahl, deren Sprache der Betreiber inzwischen deaktiviert
+     * hat), fällt sie auf die Standardsprache zurück - und die veraltete
+     * Session-Wahl wird ENTFERNT, damit sie nicht auf jeder Folgeseite
+     * erneut geprüft und verworfen werden muss und der Besucher nach einer
+     * Re-Aktivierung der Sprache nicht überraschend wieder dort landet.
+     *
+     * Setzt nur den Session-Eintrag, nicht die aktive Locale - der Aufrufer
+     * gibt den Rückgabewert an init() weiter (dort greift zusätzlich das
+     * Sicherheitsnetz gegen gänzlich unbekannte Codes).
+     *
+     * @param array<string, mixed> $settings
+     * @return string Die aufgelöste, aktive Locale.
+     */
+    public static function resolveRequestLocale(array $settings): string {
+        $active = self::activeLocales($settings);
+
+        $requested = $_GET['lang'] ?? null;
+        if (is_string($requested) && isset($active[$requested])) {
+            $_SESSION['locale'] = $requested;
+        }
+
+        $locale = (string)($_SESSION['locale'] ?? ($settings['language'] ?? self::$fallbackLocale));
+        if (!isset($active[$locale])) {
+            unset($_SESSION['locale']);
+            $locale = (string)($settings['language'] ?? self::$fallbackLocale);
+        }
+        return $locale;
+    }
+
+    /**
      * Registriert ein zusätzliches Sprachdatei-Verzeichnis unter einer eigenen
      * Domain (z. B. ein Plugin-Slug). "Wer zuerst registriert, gewinnt" gegen
      * versehentliches Überschreiben - analog zu

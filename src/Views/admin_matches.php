@@ -1,11 +1,17 @@
 <?php
 // src/Views/admin_matches.php
 /**
- * @var array $unlinkedMatches
+ * @var array $unlinkedMatches Platzhalter der aktuellen Seite (#215, 50 je Seite)
  * @var array $allHorses
  * @var array $sexMismatches Bestehende Eltern-Verknüpfungen mit unpassendem Geschlecht (#166)
+ * @var int $matchPage Aktuelle Seite (1-basiert)
+ * @var int $matchTotalPages Gesamtzahl Seiten
+ * @var int $matchTotal Offene Platzhalter mit Vorfilter-Kandidaten insgesamt
  */
 $sexMismatches = $sexMismatches ?? [];
+$matchPage = (int)($matchPage ?? 1);
+$matchTotalPages = (int)($matchTotalPages ?? 1);
+$matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
@@ -60,10 +66,17 @@ $sexMismatches = $sexMismatches ?? [];
         </div>
     <?php endif; ?>
 
-    <?php if (empty($unlinkedMatches)): ?>
+    <?php if ($matchTotal === 0): ?>
         <div style="text-align: center; padding: 3rem 1rem; background: var(--surface-muted); border-radius: 8px; border: 1px dashed var(--border-color);">
             <h3 style="color: var(--success-fg); margin-bottom: 0.5rem;">🎉 Keine unvollständigen Eltern-Einträge gefunden!</h3>
             <p style="color: var(--text-muted);">Alle eingetragenen Väter und Mütter sind bereits perfekt mit echten Pferdeprofilen verknüpft.</p>
+        </div>
+    <?php elseif (empty($unlinkedMatches)): ?>
+        <!-- Seltener Randfall (#215): Die Seite enthält zwar offene Platzhalter,
+             aber keiner ihrer Vorfilter-Kandidaten erreicht die Anzeigeschwelle
+             der Bewertung - solche Einträge wurden noch nie angezeigt. -->
+        <div style="text-align: center; padding: 3rem 1rem; background: var(--surface-muted); border-radius: 8px; border: 1px dashed var(--border-color);">
+            <p style="color: var(--text-muted); margin: 0;">Auf dieser Seite gibt es keine Vorschläge oberhalb der Wahrscheinlichkeits-Schwelle.</p>
         </div>
     <?php else: ?>
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -166,6 +179,19 @@ $sexMismatches = $sexMismatches ?? [];
                     </div>
                 </div>
             <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($matchTotalPages > 1): ?>
+        <!-- Blätter-Navigation (#215), Markup analog zu admin_gdpr.php. -->
+        <div style="display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.5rem;">
+            <?php if ($matchPage > 1): ?>
+                <a href="/admin/matches?page=<?= $matchPage - 1 ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.9rem;">&laquo; Zurück</a>
+            <?php endif; ?>
+            <span style="font-size: 0.9rem; color: var(--text-muted);">Seite <?= $matchPage ?> von <?= $matchTotalPages ?> (<?= $matchTotal ?> offene Platzhalter)</span>
+            <?php if ($matchPage < $matchTotalPages): ?>
+                <a href="/admin/matches?page=<?= $matchPage + 1 ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.9rem;">Weiter &raquo;</a>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 </div>

@@ -220,14 +220,45 @@ final class GithubAddonRepository {
                 return ['ok' => false, 'error' => 'already_installed', 'version' => null];
             }
 
-            if (is_dir($targetDir)) {
-                self::deleteDirRecursive($targetDir);
+            // Atomares Ersetzen statt "löschen, dann kopieren" (#219): Der
+            // frühere Ablauf löschte den installierten Stand VOR dem Kopieren -
+            // schlug das Kopieren fehl (volle Platte, Quota, Rechte), war das
+            // Addon unwiederbringlich weg, und gerade der unbeaufsichtigte
+            // overwrite=true-Lauf nach einem Kern-Update meldete trotzdem
+            // Erfolg. Deshalb: erst vollständig in ein Staging-Verzeichnis
+            // kopieren, dann den alten Stand per rename() beiseitelegen, das
+            // Staging per rename() aktivieren und erst zum Schluss das Backup
+            // löschen - jeder Fehlschlag davor lässt den alten Stand intakt
+            // bzw. rollt ihn zurück. Die Namen "<slug>.new-…"/"<slug>.bak-…"
+            // sind bewusst gewählt: Der Punkt verletzt das Slug-Muster
+            // ^[a-z0-9][a-z0-9-]*$ von PluginManager::validateManifest(),
+            // solche Verzeichnisse können also nie als Plugin entdeckt oder
+            // geladen werden, selbst wenn ein Absturz sie liegen lässt. Der
+            // Zufallsanteil verhindert Kollisionen mit Resten früherer Läufe.
+            $stagingDir = $targetDir . '.new-' . bin2hex(random_bytes(4));
+            $backupDir = $targetDir . '.bak-' . bin2hex(random_bytes(4));
+
+            if (!self::copyDirRecursive($sourceDir, $stagingDir)) {
+                self::deleteDirRecursive($stagingDir);
+                return ['ok' => false, 'error' => 'Kopieren nach plugins/ fehlgeschlagen (Dateisystem-Rechte/Speicherplatz prüfen) - der installierte Stand bleibt unangetastet.', 'version' => null];
             }
 
-            if (!self::copyDirRecursive($sourceDir, $targetDir)) {
-                self::deleteDirRecursive($targetDir);
-                return ['ok' => false, 'error' => 'Kopieren nach plugins/ fehlgeschlagen (Dateisystem-Rechte prüfen).', 'version' => null];
+            if (is_dir($targetDir) && !@rename($targetDir, $backupDir)) {
+                self::deleteDirRecursive($stagingDir);
+                return ['ok' => false, 'error' => 'Alter Addon-Stand konnte nicht beiseitegelegt werden - Update abgebrochen, der installierte Stand bleibt unangetastet.', 'version' => null];
             }
+
+            if (!@rename($stagingDir, $targetDir)) {
+                // Rollback: Der alte Stand liegt noch vollständig im Backup -
+                // zurückschieben, bevor der Fehler gemeldet wird.
+                if (is_dir($backupDir)) {
+                    @rename($backupDir, $targetDir);
+                }
+                self::deleteDirRecursive($stagingDir);
+                return ['ok' => false, 'error' => 'Neuer Addon-Stand konnte nicht aktiviert werden - der bisherige Stand wurde wiederhergestellt.', 'version' => null];
+            }
+
+            self::deleteDirRecursive($backupDir);
 
             return ['ok' => true, 'error' => null, 'version' => $manifest['version']];
         } finally {
@@ -308,9 +339,12 @@ final class GithubAddonRepository {
     /**
      * Bestes Release-Tag des Repos zur Kern-Linie - genau eine
      * GitHub-Abfrage. null, wenn (noch) kein passendes Release existiert
-     * oder GitHub nicht erreichbar ist: Der Aufrufer fällt dann bewusst auf
-     * den Branch-Stand zurück (wichtig, solange das offizielle Addons-Repo
-     * noch keinen Release zur laufenden Linie hat).
+     * oder GitHub nicht erreichbar ist. Was der Aufrufer daraus macht,
+     * hängt vom Kontext ab (#212): AUTOMATISCHE Updates
+     * (AddonUpdateService) verweigern bei null, statt auf einen
+     * veränderlichen Branch-HEAD zurückzufallen; nur der Store-Install
+     * (AddonStoreController, bewusste Admin-Aktion) darf den Branch-Stand
+     * als Fallback verwenden.
      */
     public static function bestReleaseTagForCoreLine(string $owner, string $repo, string $coreLine): ?string {
         if (!self::isValidOwnerOrRepo($owner) || !self::isValidOwnerOrRepo($repo)) {

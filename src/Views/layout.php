@@ -9,6 +9,11 @@
 // Default settings if not loaded
 $primaryColor = htmlspecialchars($settings['primary_color'] ?? '#2c3e50');
 $secondaryColor = htmlspecialchars($settings['secondary_color'] ?? '#18bc9c');
+// Lesbare Textfarbe auf der Primärfarbfläche (#196): Die Markenfarbe ist im
+// Admin frei wählbar, ein hartkodiertes Weiß (bisher color: white) wird auf
+// hellen Primärfarben unlesbar. Berechnet aus dem Roh-Settingwert; der Helfer
+// validiert selbst und fällt bei Unbrauchbarem auf Weiß zurück.
+$onPrimary = \App\Helper\ColorContrast::readableTextOn((string)($settings['primary_color'] ?? '#2c3e50'));
 $siteName = htmlspecialchars($settings['site_name'] ?? 'Hengstverzeichnis');
 $copyrightHolder = htmlspecialchars($settings['copyright_holder'] ?? '');
 $displayCopyright = !empty($copyrightHolder) ? $copyrightHolder : $siteName;
@@ -99,6 +104,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         :root {
             --primary-color: <?= $primaryColor ?>;
             --secondary-color: <?= $secondaryColor ?>;
+            --on-primary: <?= htmlspecialchars($onPrimary) ?>;
         }
 
         /* Menu alignment matching Admin Login aesthetic */
@@ -141,43 +147,12 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             font-weight: 700;
         }
 
-        .nav-btn-admin {
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.5rem 1.1rem;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            font-weight: 600;
-            text-decoration: none;
-            /* Explizite Liste statt "all", siehe Kommentar bei nav a.nav-link (#181). */
-            transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .nav-btn-admin-login {
-            background: transparent;
-            color: var(--primary-fg);
-            border: 2px solid var(--primary-fg);
-        }
-
-        .nav-btn-admin-login:hover {
-            background: var(--primary-color);
-            color: #ffffff;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .nav-btn-admin-dashboard {
-            background: var(--primary-color);
-            color: #ffffff;
-            border: 2px solid var(--primary-fg);
-        }
-
-        .nav-btn-admin-dashboard:hover {
-            /* --secondary-btn-bg statt der Markenfarbe: weißer Text braucht >= 4,5:1 (#169) */
-            background: var(--secondary-btn-bg);
-            border-color: var(--secondary-btn-bg);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        }
+        <?php
+            // Die frueheren Admin-Button-Sonderstile (Insel-Duplikat von
+            // .btn/.btn-secondary mit eigenen Metriken und hartem Weiss) sind
+            // entfernt (#196) - die Admin-Buttons nutzen jetzt die gemeinsamen
+            // Button-Klassen aus style.css plus den .btn-nav-Modifier.
+        ?>
     </style>
 
     <?php if (!empty($settings['tracking_code'])): ?>
@@ -208,11 +183,11 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
                 </li>
                 <li style="margin-left: 0.5rem;">
                     <?php if ($isLoggedIn): ?>
-                        <a href="/admin" class="nav-btn-admin nav-btn-admin-dashboard">
+                        <a href="/admin" class="btn btn-nav">
                             🔒 <?= htmlspecialchars($t('nav.admin_portal')) ?>
                         </a>
                     <?php else: ?>
-                        <a href="/login" class="nav-btn-admin nav-btn-admin-login">
+                        <a href="/login" class="btn btn-secondary btn-nav">
                             🔑 <?= htmlspecialchars($t('nav.admin_login')) ?>
                         </a>
                     <?php endif; ?>

@@ -7,11 +7,13 @@
  * @var string $title
  * @var array $assignableGroups Alle zuweisbaren Gruppen (jede außer public), siehe #66
  * @var array $userGroupIds IDs der aktuell zugewiesenen Gruppen
+ * @var array $apiKeys Aktive API-Schlüssel des Kontos (nur im Bearbeiten-Modus, #217)
  */
 $isEdit = !empty($user);
 $actionUrl = $isEdit ? '/admin/users/update' : '/admin/users/store';
 $assignableGroups = $assignableGroups ?? [];
 $userGroupIds = $userGroupIds ?? [];
+$apiKeys = $apiKeys ?? [];
 ?>
 <div class="card" style="max-width: 600px;">
     <h2><?= htmlspecialchars($title) ?></h2>
@@ -88,3 +90,57 @@ $userGroupIds = $userGroupIds ?? [];
         </div>
     </form>
 </div>
+
+<?php if ($isEdit): ?>
+    <!-- Aktive API-Schlüssel des Kontos (#217): Bei einem Kompromittierungs-
+         verdacht muss ein Admin sehen können, welche Schlüssel ein Konto
+         besitzt, und sie hier widerrufen können - direkt neben der Passwort-
+         Neusetzung, deren Incident-Response die Aktion ergänzt. Angezeigt
+         werden nur Metadaten; der Schlüsselwert selbst existiert nur als Hash
+         und ist auch für Admins nicht einsehbar. -->
+    <div class="card" style="max-width: 600px; margin-top: 1.5rem;">
+        <h3 style="margin-top: 0;">🔑 Aktive API-Schlüssel dieses Kontos</h3>
+
+        <?php if (($_GET['success'] ?? '') === 'api_keys_revoked'): ?>
+            <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                Alle API-Schlüssel dieses Kontos wurden widerrufen und sind sofort ungültig.
+            </div>
+        <?php endif; ?>
+
+        <?php if (empty($apiKeys)): ?>
+            <p style="color: var(--text-subtle); margin-bottom: 0;">Dieses Konto besitzt keine aktiven API-Schlüssel.</p>
+        <?php else: ?>
+            <p style="color: var(--text-subtle); font-size: 0.85rem; margin: 0.3rem 0 0.8rem 0;">
+                Ein Schlüssel gewährt Zugriff auf die JSON-API mit höchstens den Rechten des Kontos.
+                Eine Passwortänderung widerruft automatisch alle Schlüssel; hier geht es auch ohne, z. B. bei einem geleakten Schlüssel.
+            </p>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
+                <thead>
+                    <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                        <th style="padding: 0.5rem;">Bezeichnung</th>
+                        <th style="padding: 0.5rem;">Schlüssel</th>
+                        <th style="padding: 0.5rem;">Erstellt</th>
+                        <th style="padding: 0.5rem;">Zuletzt benutzt</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($apiKeys as $key): ?>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$key['label']) ?></td>
+                            <td style="padding: 0.5rem;"><code><?= htmlspecialchars((string)$key['token_prefix']) ?>…</code></td>
+                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$key['created_at']) ?></td>
+                            <td style="padding: 0.5rem;">
+                                <?= $key['last_used_at'] !== null ? htmlspecialchars((string)$key['last_used_at']) : '<span style="color: var(--text-subtle);">nie</span>' ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <form action="/admin/users/revoke-api-keys" method="POST" onsubmit="return confirm('Wirklich ALLE aktiven API-Schlüssel dieses Kontos widerrufen? Angebundene Systeme verlieren sofort den Zugriff; der Benutzer kann sich anschließend neue Schlüssel anlegen.');">
+                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
+                <button type="submit" class="btn" style="background-color: #c62a38;">Alle widerrufen</button>
+            </form>
+        <?php endif; ?>
+    </div>
+<?php endif; ?>

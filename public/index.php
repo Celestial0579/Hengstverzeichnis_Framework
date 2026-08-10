@@ -144,6 +144,7 @@ $router->get('/admin/users/edit', [App\Controllers\UserController::class, 'edit'
 $router->post('/admin/users/update', [App\Controllers\UserController::class, 'update']);
 $router->post('/admin/users/delete', [App\Controllers\UserController::class, 'delete']);
 $router->post('/admin/users/reset-2fa', [App\Controllers\UserController::class, 'reset2fa']);
+$router->post('/admin/users/revoke-api-keys', [App\Controllers\UserController::class, 'revokeApiKeys']);
 
 // Admin Person Management Routes (Persons, Breeders, Owners)
 $router->get('/admin/persons', [App\Controllers\PersonController::class, 'index']);

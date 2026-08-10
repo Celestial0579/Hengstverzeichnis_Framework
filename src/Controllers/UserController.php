@@ -153,7 +153,13 @@ class UserController extends BaseController {
             'title' => 'Benutzer bearbeiten',
             'user' => $user,
             'assignableGroups' => $assignableGroups,
-            'userGroupIds' => $userGroupIds
+            'userGroupIds' => $userGroupIds,
+            // Aktive API-Schlüssel des Kontos (#217): Ein Admin muss bei einem
+            // Kompromittierungsverdacht sehen können, welche Schlüssel ein
+            // Konto besitzt, und sie widerrufen können - forUser() liefert nur
+            // Metadaten (Bezeichnung, Anzeige-Präfix, Zeitstempel), nie den
+            // Schlüsselwert selbst (der existiert ohnehin nur als Hash).
+            'apiKeys' => \App\Security\ApiKey::forUser((int)$user['id']),
         ]);
     }
 
@@ -207,6 +213,24 @@ class UserController extends BaseController {
             // BaseController::checkAuth()).
             $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ?, session_version = session_version + 1 WHERE id = ?");
             $stmt->execute([$username, $email, $passwordHash, $id]);
+
+            // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen
+            // (#217): Das Neusetzen des Passworts durch einen Admin ist die
+            // typische Incident-Response - neben den Sessions (session_version,
+            // oben) dürfen auch zuvor angelegte Schlüssel den Reset nicht als
+            // zweites Credential überleben. Die session_version-Kopplung in
+            // ApiKey::authenticate() lehnt sie bereits implizit ab; der
+            // Widerruf macht das dauerhaft und sichtbar (revoked_at). Gilt
+            // bewusst auch für das eigene Admin-Konto - nur die Session bleibt
+            // erhalten (siehe unten), Schlüssel sind neu anzulegen.
+            $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$id);
+            if ($revokedKeys > 0) {
+                \App\Service\AuditLogger::log(
+                    "API-Schlüssel widerrufen (Passwort neu gesetzt)",
+                    "security",
+                    "{$revokedKeys} aktive(r) API-Schlüssel von Benutzer ID {$id} nach Passwort-Neusetzung durch Admin widerrufen"
+                );
+            }
 
             // Ändert der Admin das eigene Passwort, übernimmt seine gerade
             // aktive Session den neuen Stand und bleibt angemeldet.
@@ -287,6 +311,45 @@ class UserController extends BaseController {
         }
 
         header("Location: /admin/users?success=2fa_reset");
+        exit;
+    }
+
+    /**
+     * Widerruft alle aktiven API-Schlüssel eines Kontos auf einen Schlag
+     * (POST /admin/users/revoke-api-keys, #217). Bewusst HIER und nicht im
+     * ApiKeyController: Der ist reiner Selfservice für die EIGENEN Schlüssel -
+     * die fremdverwaltende Aktion gehört in den admin-geschützten
+     * Benutzer-Kontext (checkAuth() + requireAdmin() im Konstruktor), direkt
+     * neben die Passwort-Neusetzung, deren Incident-Response sie ergänzt.
+     * Kein Einzel-Widerruf: Bei einem Kompromittierungsverdacht ist "alle weg,
+     * der Benutzer legt sich neue an" der sichere und erklärbare Zustand.
+     */
+    public function revokeApiKeys(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            header("Location: /admin/users");
+            exit;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT username FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        $targetUsername = $stmt->fetchColumn() ?: "ID {$id}";
+
+        $revokedKeys = \App\Security\ApiKey::revokeAllForUser($id);
+        // Auch "0 widerrufen" wird protokolliert: Die Aktion ist eine bewusste
+        // Sicherheitsmaßnahme, ihr Ergebnis gehört nachvollziehbar ins Log.
+        \App\Service\AuditLogger::log(
+            "API-Schlüssel widerrufen (Admin)",
+            "security",
+            "{$revokedKeys} aktive(r) API-Schlüssel von Benutzer {$targetUsername} (ID: {$id}) durch Admin widerrufen"
+        );
+
+        header("Location: /admin/users/edit?id={$id}&success=api_keys_revoked");
         exit;
     }
 

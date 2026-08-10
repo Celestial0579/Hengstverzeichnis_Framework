@@ -603,6 +603,31 @@ class AuthController extends BaseController {
         $stmt = $db->prepare("UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE email = ?");
         $stmt->execute([$newPasswordHash, $reset['email']]);
 
+        // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen (#217):
+        // Die session_version-Kopplung in ApiKey::authenticate() lehnt ältere
+        // Schlüssel nach der Erhöhung oben bereits ab - der Widerruf macht das
+        // zusätzlich dauerhaft und in der Schlüsselverwaltung sichtbar. Ein
+        // Schlüssel darf den Passwort-Reset (die typische Reaktion auf einen
+        // Kompromittierungsverdacht) nicht als zweites Credential überleben.
+        $stmt = $db->prepare("SELECT id, username FROM users WHERE email = ?");
+        $stmt->execute([$reset['email']]);
+        $account = $stmt->fetch();
+        if ($account) {
+            $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$account['id']);
+            if ($revokedKeys > 0) {
+                // Benutzer-Kontext explizit übergeben: Beim Reset per E-Mail-
+                // Link existiert keine angemeldete Session, aus der der
+                // AuditLogger ihn ableiten könnte.
+                \App\Service\AuditLogger::log(
+                    "API-Schlüssel widerrufen (Passwort-Reset)",
+                    "security",
+                    "{$revokedKeys} aktive(r) API-Schlüssel nach Passwort-Reset widerrufen",
+                    (int)$account['id'],
+                    (string)$account['username']
+                );
+            }
+        }
+
         // Consume reset token
         $stmt = $db->prepare("DELETE FROM password_resets WHERE email = ?");
         $stmt->execute([$reset['email']]);
@@ -660,6 +685,19 @@ class AuthController extends BaseController {
         // übernimmt den neuen Stand direkt und bleibt angemeldet.
         $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1 WHERE id = ?");
         $stmt->execute([$hash, $userId]);
+
+        // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen (#217) -
+        // dieselbe Begründung wie in updatePassword(): Die session_version-
+        // Kopplung invalidiert sie bereits implizit, der Widerruf macht es
+        // dauerhaft und sichtbar (revoked_at).
+        $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$userId);
+        if ($revokedKeys > 0) {
+            \App\Service\AuditLogger::log(
+                "API-Schlüssel widerrufen (Passwortänderung)",
+                "security",
+                "{$revokedKeys} aktive(r) API-Schlüssel nach Passwortwechsel widerrufen"
+            );
+        }
 
         $stmt = $db->prepare("SELECT session_version FROM users WHERE id = ?");
         $stmt->execute([$userId]);

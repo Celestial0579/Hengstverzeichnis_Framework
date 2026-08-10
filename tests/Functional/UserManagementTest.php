@@ -374,13 +374,16 @@ class UserManagementTest extends FunctionalTestCase {
         $this->assertStringNotContainsString('/admin/users/delete', $selfRow->body, 'Für das eigene Konto darf kein Lösch-Button angeboten werden.');
 
         // Serverseitiger Schutz unabhängig von der Oberfläche: Ein direkter
-        // Selbstlösch-POST wird still ignoriert. Ist-Verhalten des Controllers:
-        // Der Redirect meldet trotzdem success=deleted - gelöscht wird nichts.
+        // Selbstlösch-POST wird abgewiesen und sagt das auch (#228) - vorher
+        // meldete der Redirect fälschlich success=deleted.
         $selfDelete = $admin->post('/admin/users/delete', [
             'csrf_token' => $this->currentCsrfToken($admin),
             'id' => (string)$selfId,
         ]);
-        $this->assertSame('/admin/users?success=deleted', $selfDelete->location());
+        $this->assertSame('/admin/users?error=self_delete', $selfDelete->location());
+        $errorPage = $admin->get('/admin/users?error=self_delete');
+        $this->assertStringContainsString('Das eigene Konto kann nicht gelöscht werden.', $errorPage->body);
+        $this->assertStringNotContainsString('Aktion erfolgreich ausgeführt.', $errorPage->body);
 
         // Konto und Sitzung leben unverändert weiter.
         $this->assertSame(200, $admin->get('/admin/users')->statusCode, 'Die eigene Sitzung muss den Selbstlösch-Versuch überleben.');

@@ -23,6 +23,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['error'] ?? '') === 'self_delete'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Das eigene Konto kann nicht gelöscht werden.
+        </div>
+    <?php endif; ?>
+
     <form action="/admin/users" method="GET" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
         <div class="form-group" style="margin: 0; flex: 1; min-width: 160px;">
             <label for="user-search" style="font-size: 0.85rem; font-weight: normal;">🔍 Suche (Benutzername/E-Mail)</label>

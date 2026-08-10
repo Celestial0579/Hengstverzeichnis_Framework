@@ -274,9 +274,16 @@ class UserController extends BaseController {
         }
 
         $id = $_POST['id'] ?? null;
-        
-        // Prevent deleting oneself
-        if ($id && $id != $_SESSION['user_id']) {
+
+        // Selbstlöschung wird nicht ausgeführt - und sagt das jetzt auch
+        // (#228): Vorher lief der Versuch still in den success=deleted-
+        // Redirect, der Admin sah "erfolgreich", obwohl nichts geschah.
+        if ($id && $id == $_SESSION['user_id']) {
+            header("Location: /admin/users?error=self_delete");
+            exit;
+        }
+
+        if ($id) {
             $db = Database::getInstance();
             $stmt = $db->prepare("SELECT username FROM users WHERE id = ?");
             $stmt->execute([$id]);

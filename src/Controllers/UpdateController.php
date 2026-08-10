@@ -109,7 +109,38 @@ class UpdateController extends BaseController {
             exit;
         }
 
-        header("Location: /admin/updates?success=1&from=" . urlencode($result['from']) . "&to=" . urlencode($result['to']));
+        // Ergebnis der Addon-Phase (#197, Stufe 2) mit in die Erfolgsmeldung
+        // nehmen - Details stehen im Audit-Log und in der Addon-Tabelle.
+        $addonResults = is_array($result['addons'] ?? null) ? $result['addons'] : [];
+        $addonsOk = count(array_filter($addonResults, static fn(array $r): bool => (bool)$r['ok']));
+        $addonsFail = count($addonResults) - $addonsOk;
+
+        header("Location: /admin/updates?success=1&from=" . urlencode($result['from']) . "&to=" . urlencode($result['to'])
+            . "&addons_ok=" . $addonsOk . "&addons_fail=" . $addonsFail);
+        exit;
+    }
+
+    /**
+     * Manuelles Update eines einzelnen Addons aus dem offiziellen Repo,
+     * innerhalb der laufenden Kern-Linie (#197, Stufe 2). Fremd-Repos und
+     * manuell kopierte Addons lehnt der AddonUpdateService serverseitig ab.
+     */
+    public function updateAddon(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $slug = (string)($_POST['slug'] ?? '');
+        $result = \App\Service\AddonUpdateService::updateAddon($slug);
+
+        if (!$result['ok']) {
+            header("Location: /admin/updates?addon_error=" . urlencode((string)$result['error']) . "&slug=" . urlencode($slug));
+            exit;
+        }
+
+        header("Location: /admin/updates?addon_success=1&slug=" . urlencode($slug)
+            . "&from=" . urlencode((string)($result['from'] ?? ''))
+            . "&to=" . urlencode((string)($result['to'] ?? '')));
         exit;
     }
 }

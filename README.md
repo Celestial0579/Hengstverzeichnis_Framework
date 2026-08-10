@@ -163,3 +163,12 @@ Betrifft: Client-IP in `AuditLogger`/`RateLimiter` (Login-Rate-Limiting, Audit-L
 ### Priorität & Rotation
 
 Ist sowohl eine Umgebungsvariable als auch `config/db_config.php` vorhanden, gewinnt die Umgebungsvariable pro Einzelwert. Beim Rotieren von `DB_PASS` oder `APP_KEY`: Anwendung danach neu starten, damit die neuen Werte geladen werden. Ein neuer `APP_KEY` macht bereits verschlüsselte Werte (SMTP-Passwort, TOTP-Secrets) unlesbar — diese müssen anschließend neu gesetzt bzw. neu eingerichtet werden.
+
+## Lizenz & Copyright
+
+Copyright © 2026 Tim Heyne — lizenziert unter der [AGPL-3.0](LICENSE).
+
+Die Anwendung zeigt im Footer neben dem Copyright des jeweiligen Betreibers
+(Inhalte/Daten der Installation) den Autorenvermerk des Frameworks an. Dieser
+Vermerk ist Teil der „Appropriate Legal Notices" im Sinne von § 5(d) AGPL-3.0
+und bleibt in abgeleiteten Installationen erhalten.

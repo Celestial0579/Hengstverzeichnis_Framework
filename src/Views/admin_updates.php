@@ -66,6 +66,30 @@ $addonTargetWarnings = array_values(array_filter(
             ✓ Update von <strong><?= htmlspecialchars($_GET['from'] ?? '') ?></strong> auf
             <strong><?= htmlspecialchars($_GET['to'] ?? '') ?></strong> angewendet.
             Datenbank-Migrationen laufen automatisch beim nächsten Seitenaufruf.
+            <?php if (isset($_GET['addons_ok']) || isset($_GET['addons_fail'])): ?>
+                <br>Addon-Phase: <?= (int)($_GET['addons_ok'] ?? 0) ?> mitgezogen<?php
+                    ?><?php if ((int)($_GET['addons_fail'] ?? 0) > 0): ?>,
+                    <strong><?= (int)$_GET['addons_fail'] ?> fehlgeschlagen</strong>
+                    (Details im <a href="/admin/logs">Audit-Log</a> und in der Tabelle unten)<?php endif; ?>.
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (isset($_GET['addon_success'])): ?>
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            ✓ Addon <code><?= htmlspecialchars($_GET['slug'] ?? '') ?></code> von
+            <strong><?= htmlspecialchars($_GET['from'] ?? '?') ?></strong> auf
+            <strong><?= htmlspecialchars($_GET['to'] ?? '?') ?></strong> aktualisiert.
+            War das Addon aktiv, greift wie gewohnt die Freigabe-Logik unter
+            <a href="/admin/plugins">Plugins verwalten</a> (neue Manifest-Version wird
+            automatisch übernommen).
+        </div>
+    <?php endif; ?>
+
+    <?php if (isset($_GET['addon_error'])): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Addon-Update<?= isset($_GET['slug']) ? ' für <code>' . htmlspecialchars($_GET['slug']) . '</code>' : '' ?> fehlgeschlagen:
+            <?= htmlspecialchars($_GET['addon_error']) ?>
         </div>
     <?php endif; ?>
 
@@ -176,6 +200,15 @@ $addonTargetWarnings = array_values(array_filter(
                             <?php elseif ($row['hasUpdate']): ?>
                                 <strong><?= htmlspecialchars($row['availableVersion']) ?></strong>
                                 <span style="padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; background: var(--info-soft-bg);">Update</span>
+                                <!-- Manuelles Addon-Update innerhalb der laufenden Kern-Linie
+                                     (#197, Stufe 2) - nur offizielles Repo, Fremd-Quellen lehnt
+                                     der Server ab. -->
+                                <form action="/admin/updates/addon" method="POST" style="display: inline; margin-left: 0.3rem;"
+                                      onsubmit="return confirm('Addon <?= htmlspecialchars(addslashes($row['slug'])) ?> jetzt auf <?= htmlspecialchars(addslashes($row['availableVersion'])) ?> aktualisieren?');">
+                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                    <input type="hidden" name="slug" value="<?= htmlspecialchars($row['slug']) ?>">
+                                    <button type="submit" class="btn btn-secondary" style="padding: 0.15rem 0.6rem; font-size: 0.8rem;">⬆️ Aktualisieren</button>
+                                </form>
                             <?php else: ?>
                                 <?= htmlspecialchars($row['availableVersion']) ?>
                             <?php endif; ?>

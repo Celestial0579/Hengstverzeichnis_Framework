@@ -216,6 +216,7 @@ $router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
 $router->get('/admin/updates', [App\Controllers\UpdateController::class, 'index']);
 $router->post('/admin/updates/run', [App\Controllers\UpdateController::class, 'run']);
 $router->post('/admin/updates/channel', [App\Controllers\UpdateController::class, 'saveChannel']);
+$router->post('/admin/updates/addon', [App\Controllers\UpdateController::class, 'updateAddon']);
 
 $router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);
 $router->post('/admin/backups', [App\Controllers\AdminController::class, 'updateBackupSettings']);

@@ -19,6 +19,9 @@ return [
     'footer.discussions' => 'Diskussionen',
     'footer.report_bug' => 'Fehler melden',
     'footer.license' => 'Lizenz',
+    // Wortlaut des Framework-Autorenvermerks (#199); in de/en identisch,
+    // als Schlüssel geführt, damit weitere Sprachen ihn übersetzen können.
+    'footer.framework_copyright' => 'Framework',
 
     'meta.description_suffix' => 'Pferdezucht Verzeichnis',
 
@@ -145,7 +148,9 @@ return [
     // Impressum / Datenschutz / DSGVO (statische Platzhaltertexte)
     'legal.impressum_title' => 'Impressum',
     'legal.impressum_placeholder_note' => '(Hinweis: Diese Seite dient als Platzhalter im Framework und sollte in den Branding-Einstellungen unter `/admin/settings` angepasst werden.)',
-    'legal.impressum_section_tmg' => 'Angaben gemäß § 5 TMG',
+    // Das TMG ist zum 14.05.2024 durch das Digitale-Dienste-Gesetz (DDG)
+    // ersetzt worden; die Impressumspflicht steht seither in § 5 DDG (#200).
+    'legal.impressum_section_ddg' => 'Angaben gemäß § 5 DDG',
     'legal.sample_address' => 'Musterstraße 1',
     'legal.sample_city' => '12345 Musterstadt',
     'legal.represented_by' => 'Vertreten durch:',

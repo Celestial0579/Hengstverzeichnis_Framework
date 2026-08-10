@@ -70,7 +70,25 @@ class AddonStoreController extends BaseController {
             }
         }
 
-        $result = GithubAddonRepository::fetchCatalog((string)$repoRow['owner'], (string)$repoRow['repo'], $repoRow['ref']);
+        // Offizielles Repo ohne festen Ref (#197, Stufe 3): Katalog vom besten
+        // Release-Tag der laufenden Kern-Linie lesen statt vom Branch-HEAD -
+        // ein halb fertiger main-Stand kann so nie auf einer Produktivinstanz
+        // landen. Solange (noch) kein passender Release existiert, bleibt der
+        // bisherige Branch-Bezug als Fallback. Fremd-Repos: unverändert der
+        // konfigurierte Ref bzw. Standard-Branch.
+        $ref = $repoRow['ref'];
+        if ((int)$repoRow['is_official'] === 1 && ($ref === null || $ref === '')) {
+            $line = \App\Service\AddonUpdateService::coreLine(defined('CORE_VERSION') ? CORE_VERSION : '');
+            if ($line !== null) {
+                $ref = GithubAddonRepository::bestReleaseTagForCoreLine(
+                    (string)$repoRow['owner'],
+                    (string)$repoRow['repo'],
+                    $line
+                );
+            }
+        }
+
+        $result = GithubAddonRepository::fetchCatalog((string)$repoRow['owner'], (string)$repoRow['repo'], $ref);
 
         if ($result['ok']) {
             $stmt = $db->prepare("UPDATE addon_repos SET cached_catalog_json = ?, cached_at = NOW() WHERE id = ?");

@@ -142,7 +142,7 @@ return [
     // Legal Notice / Privacy Policy / GDPR (static placeholder texts)
     'legal.impressum_title' => 'Legal Notice',
     'legal.impressum_placeholder_note' => '(Note: This page is a framework placeholder and should be customized under Branding Settings at `/admin/settings`.)',
-    'legal.impressum_section_tmg' => 'Provider Information (§ 5 TMG - German Telemedia Act)',
+    'legal.impressum_section_ddg' => 'Provider Information (§ 5 DDG - German Digital Services Act)',
     'legal.sample_address' => '1 Example Street',
     'legal.sample_city' => '12345 Example City',
     'legal.represented_by' => 'Represented by:',

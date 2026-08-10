@@ -75,4 +75,34 @@ class AdminDashboardI18nTest extends FunctionalTestCase {
         // Aktive Locale (de als Default) ist vorausgewählt.
         $this->assertStringContainsString('<option value="de" selected>', $page->body);
     }
+
+    /**
+     * Deaktivierte Sprachen (#198, Settings-Schlüssel `active_locales`)
+     * verschwinden aus dem Umschalter und werden bei ?lang= nicht
+     * angenommen; die Quellsprache de bleibt immer aktiv.
+     */
+    public function testDeactivatedLocaleDisappearsFromSwitcherAndLangParameter(): void {
+        $db = \App\Database::getInstance();
+        $db->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('active_locales', 'en') ON DUPLICATE KEY UPDATE setting_value = 'en'");
+
+        try {
+            $client = $this->newClient();
+
+            $page = $client->get('/');
+            $this->assertSame(
+                2,
+                substr_count($page->body, '<option value="'),
+                'Nur de (immer aktiv) und en dürfen angeboten werden'
+            );
+            $this->assertStringNotContainsString('>Français</option>', $page->body);
+
+            // Eine deaktivierte Sprache per ?lang= wird verworfen - die Seite
+            // bleibt in der Standardsprache.
+            $french = $client->get('/?lang=fr');
+            $this->assertStringContainsString('lang="de"', $french->body);
+            $this->assertStringNotContainsString('lang="fr"', $french->body);
+        } finally {
+            $db->exec("UPDATE settings SET setting_value = '' WHERE setting_key = 'active_locales'");
+        }
+    }
 }

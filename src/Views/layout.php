@@ -252,7 +252,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         <form method="get" action="<?= htmlspecialchars($currentPath) ?>" class="footer-lang-form">
             <label for="footer-lang-select"><?= htmlspecialchars($t('footer.language_label')) ?>:</label>
             <select id="footer-lang-select" name="lang" class="footer-lang-select" onchange="this.form.submit()">
-                <?php foreach (\App\I18n\Translator::getAvailableLocales() as $code => $label): ?>
+                <?php foreach (\App\I18n\Translator::activeLocales($settings) as $code => $label): ?>
                     <option value="<?= htmlspecialchars($code) ?>"<?= $code === $locale ? ' selected' : '' ?>><?= htmlspecialchars($label) ?></option>
                 <?php endforeach; ?>
             </select>

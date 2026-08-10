@@ -24,6 +24,11 @@ Breaking Changes sind jederzeit möglich).
   Platzhaltermengen müssen übereinstimmen, `format.date` muss brauchbar
   sein, maschinelle Übersetzungen müssen gekennzeichnet sein; `lang/` und
   Registrierung dürfen nicht auseinanderlaufen (#198)
+- Aktive Sprachen wählbar: In den Systemeinstellungen lässt sich je Sprache
+  abschalten, ob sie im Sprachumschalter angeboten und per `?lang=`
+  angenommen wird (Standard: alle; Deutsch als Quellsprache und die
+  Standardsprache sind immer aktiv; die Sprachdateien bleiben
+  installiert) (#198)
 - Update-Seite denkt Addons mit (#197, Stufe 1): `/admin/updates` zeigt je
   installiertem Addon die Katalog-Version des offiziellen Repos (aus dem
   Store-Cache, netzwerkfrei) und die Kompatibilität - geprüft gegen die

@@ -74,6 +74,35 @@
         </div>
 
         <div class="form-group" style="margin-top: 1.5rem;">
+            <label>🌐 Aktive Sprachen</label>
+            <?php
+                // Aktive Sprachen (#198): abgewählte erscheinen nicht im
+                // Sprachumschalter und werden bei ?lang= nicht angenommen.
+                // Deutsch (Quell-/Fallback-Sprache) und die Standardsprache
+                // sind immer aktiv - die Checkboxen dafür sind gesperrt
+                // (disabled-Felder senden nicht mit; Translator::activeLocales()
+                // erzwingt beide serverseitig ohnehin).
+                $activeLocaleSet = \App\I18n\Translator::activeLocales($settings);
+                $defaultLanguage = $settings['language'] ?? 'de';
+            ?>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem;">
+                <?php foreach ($availableLocales as $code => $label): ?>
+                    <?php $locked = $code === 'de' || $code === $defaultLanguage; ?>
+                    <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 400;">
+                        <input type="checkbox" name="active_locales[]" value="<?= htmlspecialchars($code) ?>"
+                            <?= isset($activeLocaleSet[$code]) ? 'checked' : '' ?>
+                            <?= $locked ? 'disabled' : '' ?>>
+                        <?= htmlspecialchars($label) ?><?= $locked ? ' 🔒' : '' ?>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                Abgewählte Sprachen erscheinen nicht im Sprachumschalter; die Sprachdateien bleiben installiert.
+                Deutsch und die Standardsprache sind immer aktiv.
+            </small>
+        </div>
+
+        <div class="form-group" style="margin-top: 1.5rem;">
             <label>📝 Selfservice-Registrierung</label>
             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal;">
                 <input type="checkbox" name="registration_enabled" value="1" <?= ($settings['registration_enabled'] ?? '0') === '1' ? 'checked' : '' ?> style="width: 16px; height: 16px;">

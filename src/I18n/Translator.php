@@ -75,6 +75,41 @@ final class Translator {
     }
 
     /**
+     * Vom Betreiber AKTIVIERTE Locales (#198): Teilmenge der verfügbaren,
+     * gesteuert über den Settings-Schlüssel `active_locales`
+     * (kommagetrennte Codes; leer/nicht gesetzt = alle verfügbaren aktiv,
+     * damit neu hinzukommende Sprachen nicht still deaktiviert starten).
+     * Die Quellsprache (de, Fallback) und die konfigurierte Standardsprache
+     * sind IMMER aktiv - sonst könnte sich ein Betreiber die Oberfläche
+     * sprachlos schalten. Konsumenten: Sprachumschalter im Footer und die
+     * ?lang=-Validierung; die Sprachdateien selbst bleiben vollständig an
+     * Bord (LocaleCompletenessTest prüft weiterhin ALLE verfügbaren).
+     *
+     * @param array<string, mixed> $settings
+     * @return array<string, string> locale-code => Anzeigename
+     */
+    public static function activeLocales(array $settings): array {
+        $available = self::getAvailableLocales();
+        $raw = trim((string)($settings['active_locales'] ?? ''));
+        if ($raw === '') {
+            return $available;
+        }
+
+        $activeCodes = array_filter(array_map('trim', explode(',', $raw)));
+        $defaultLanguage = (string)($settings['language'] ?? self::$fallbackLocale);
+
+        $active = [];
+        foreach ($available as $code => $label) {
+            if ($code === self::$fallbackLocale
+                || $code === $defaultLanguage
+                || in_array($code, $activeCodes, true)) {
+                $active[$code] = $label;
+            }
+        }
+        return $active;
+    }
+
+    /**
      * Registriert ein zusätzliches Sprachdatei-Verzeichnis unter einer eigenen
      * Domain (z. B. ein Plugin-Slug). "Wer zuerst registriert, gewinnt" gegen
      * versehentliches Überschreiben - analog zu

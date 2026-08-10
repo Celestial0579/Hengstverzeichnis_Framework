@@ -220,7 +220,16 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
     </main>
 
     <footer>
-        <p>&copy; <?= date('Y') ?> <?= $displayCopyright ?> | <?= htmlspecialchars($t('footer.tagline')) ?></p>
+        <?php
+            // Zweiteilige Copyright-Zeile (#199): Das Betreiber-(c) deckt
+            // Inhalte/Daten der Installation, das Framework-(c) den Code -
+            // sichtbare Namensnennung des Urhebers (§ 13 UrhG) und Teil der
+            // "Appropriate Legal Notices" der AGPL-3.0 (§ 5(d)); Nachnutzer
+            // muessen diesen Vermerk erhalten. 2026 = Jahr des ersten Commits,
+            // ab 2027 automatisch als Spanne.
+            $frameworkYears = '2026' . ((int)date('Y') > 2026 ? '–' . date('Y') : '');
+        ?>
+        <p>&copy; <?= date('Y') ?> <?= $displayCopyright ?> &middot; <?= htmlspecialchars($t('footer.framework_copyright')) ?> &copy; <?= $frameworkYears ?> <a href="https://github.com/Celestial0579" target="_blank" rel="noopener">Tim Heyne</a> | <?= htmlspecialchars($t('footer.tagline')) ?></p>
         <p style="font-size: 0.85rem; margin-top: 0.5rem;">
             <a href="/impressum"><?= htmlspecialchars($t('footer.impressum')) ?></a> | <a href="/datenschutz"><?= htmlspecialchars($t('footer.datenschutz')) ?></a> | <a href="/dsgvo"><?= htmlspecialchars($t('footer.dsgvo')) ?></a>
         </p>

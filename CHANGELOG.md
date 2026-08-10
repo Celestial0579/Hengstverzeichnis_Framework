@@ -29,6 +29,12 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Footer zeigt neben dem Betreiber-Copyright den Autorenvermerk des
+  Frameworks („Framework © 2026 Tim Heyne", verlinkt) - sichtbare
+  Namensnennung nach § 13 UrhG und Teil der „Appropriate Legal Notices"
+  der AGPL-3.0 (§ 5(d)); neuer Sprachschlüssel
+  `footer.framework_copyright`, README um Lizenz-/Copyright-Abschnitt
+  ergänzt (#199)
 - `App\Helper\ColorContrast`: WCAG-Kontrastrechnung (Hex-Parsing, Ratio,
   `readableTextOn()`) für die admin-konfigurierbaren Markenfarben; von
   `layout.php` zur Laufzeit genutzt und per Unit-Test abgesichert, dass die

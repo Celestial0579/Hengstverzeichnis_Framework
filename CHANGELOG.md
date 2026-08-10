@@ -15,6 +15,10 @@ Release-Tags, Pflicht-Obergrenze im Manifest), Plugin-Seiten rendern im
 Haupt-Layout, zehn neue Sprachen samt Dropdown-Umschalter und wählbaren
 aktiven Sprachen, kontrastsichere Footer-/Button-Farben, Framework-
 Autorenvermerk, DDG-Korrektur und wählbare Digest-Empfängergruppen.
+Dazu alle dreizehn Framework-Befunde des wöchentlichen Bug-Scans
+(#212–#224): härteres Addon-Autoupdate, versionierte Schemapflege,
+API-Schlüssel-Entzug beim Passwort-Reset und eine Reihe von Daten- und
+Performance-Korrekturen.
 **Enthält einen Breaking Change** (Pflichtfeld `core_supported_max` in
 Addon-Manifesten, siehe unten) - die offiziellen Addons ziehen mit ihrem
 Release v0.4.0 gleich.
@@ -99,6 +103,21 @@ Release v0.4.0 gleich.
   der AGPL-3.0 (§ 5(d)); neuer Sprachschlüssel
   `footer.framework_copyright`, README um Lizenz-/Copyright-Abschnitt
   ergänzt (#199)
+- Plugin-`install()`-Hook: Der PluginManager ruft eine öffentliche
+  `install()`-Methode des Plugins bei der Aktivierung und nach einem
+  Addon-Update auf - einmalige Einrichtung wie Tabellenanlage läuft damit
+  nicht mehr in jedem Request (Addons#75)
+- API-Schlüssel-Verwaltung im Benutzer-Formular: ausgestellte Schlüssel
+  werden mit Label, Anzeige-Präfix, Ausstellungs- und letztem
+  Nutzungszeitpunkt gelistet und lassen sich gesammelt widerrufen
+  (auditiert) (#217)
+- Functional-Absicherung der Katalog-Sichtbarkeitsgrenzen: Züchter-,
+  Besitzer- und Deckstations-Filter können keine unveröffentlichten
+  Personen/Stationen verraten, unveröffentlichte Pferde erscheinen weder
+  im Katalog noch auf der Detailseite (#223)
+- SSO-Negativtests: unbekannte, unbestätigte und soft-gelöschte Konten
+  werden bei der Anmeldung über den Test-Identitätsanbieter nachweislich
+  abgewiesen (#216)
 
 ### Geändert
 
@@ -108,6 +127,30 @@ Release v0.4.0 gleich.
   bereits installiertes Addon gilt als inkompatibel und wird nicht
   geladen (sichtbar mit Begründung statt still, #197). Die Manifeste des
   offiziellen Addons-Repos werden mit Addons#65 umgestellt
+- **Breaking:** Manuell kopierte oder per Branch installierte Plugins
+  benötigen nach einem Versionswechsel künftig die erneute Admin-Freigabe
+  (bisher galt nur eine Inhaltsänderung bei gleicher Version als
+  freigabepflichtig) (#212)
+- Schemapflege ist versioniert (#213): Der Verbindungsaufbau vergleicht
+  eine persistierte `schema_version` mit dem Code-Stand - stimmen sie
+  überein, kostet das eine einzige Abfrage statt sämtlicher
+  `ALTER`-/Index-Prüfungen je Request; Migrationen laufen nach einem
+  Update genau einmal
+- Blutlinien-Vorschlagssuche mit Vorfilter statt Kreuzprodukt (#215):
+  Kandidaten kommen gezielt über neue Indizes auf `(deleted_at, sire_id)`
+  bzw. `(deleted_at, dam_id)`; ein Test-Orakel belegt identische
+  Vorschläge zur alten O(n²)-Logik
+- Papierkorb-Leerung löscht chargenweise (ein `DELETE … WHERE id IN (…)`
+  je 500er-Charge in einer Transaktion) statt Zeile für Zeile;
+  `before_delete`-Hooks feuern unverändert je Pferd (#222)
+- Katalog: Die vier Filter-Dropdown-Abfragen laufen nur noch beim vollen
+  Seitenaufbau statt bei jedem AJAX-Filterschritt, und die
+  `DISTINCT`-Listen für Farbe/Rasse nutzen neue Indizes statt Full Table
+  Scans (#221)
+- Plugin-Freigabeprüfung je Request über einen billigen
+  Verzeichnis-Stempel (max. Änderungszeit, Dateianzahl, Gesamtgröße); der
+  volle SHA-256-Fingerabdruck läuft nur noch bei Abweichung oder
+  Freigabe - fail-closed wie bisher (#224)
 
 ### Behoben
 
@@ -127,6 +170,33 @@ Release v0.4.0 gleich.
   (`.btn`/`.btn-secondary` plus neuer Modifier `.btn-nav`) zurückgeführt;
   Textfarbe kommt aus `--on-primary` statt hartem Weiß, der Rahmen hebt die
   Fläche im Darkmode ≥ 3:1 von der Kopfzeile ab (#196)
+- Deckstations-Verknüpfung überlebt Personen-Speicherungen: Ein beim
+  Bearbeiten geleerter Personen-Block setzt die verknüpfte Bestandsstation
+  nicht mehr still zurück; entfernt wird sie nur noch ausdrücklich (#214)
+- Plugin-Seiten respektieren die aktiven Sprachen: `?lang=` auf eine
+  deaktivierte Locale wird zentral verworfen (eine Regel für
+  `BaseController` und `PluginPage`) und nicht mehr in die Session
+  übernommen; eine inaktiv gewordene Session-Locale fällt auf die
+  Standardsprache zurück und wird bereinigt (#220)
+- Addon-Überschreiben ist atomar: Die neue Fassung wird vollständig in ein
+  Staging-Verzeichnis entpackt und erst dann per `rename` getauscht
+  (Rollback bei Aktivierungsfehlern) - zuvor konnte ein fehlgeschlagener
+  Kopiervorgang das alte Addon gelöscht zurücklassen (#219)
+
+### Sicherheit
+
+- Addon-Autoupdate installiert ausschließlich von Release-Tags des
+  offiziellen Repos; der stille Fallback auf den Branch-HEAD entfällt
+  (klare Fehlermeldung statt ungeprüftem Zwischenstand), installierte
+  Quellen werden auf `owner/repo@tag` gepinnt (#212)
+- API-Schlüssel verlieren beim Passwort-Reset ihre Gültigkeit: Jeder
+  Schlüssel ist an die `session_version` seines Besitzers gekoppelt -
+  dieselbe Entzugs-Kette, die bei einem Reset bestehende Sessions
+  beendet (#217)
+- Rechte-Kopie auf die öffentliche Gast-Gruppe filtert Schreib- und
+  Verwaltungsrechte konsequent heraus - auch bei direkt manipulierten
+  POSTs; die Oberfläche bietet das Kopieren für die Gast-Gruppe nicht
+  mehr an (#218)
 
 ## [0.3.0] – 2026-08-09
 

@@ -1,6 +1,6 @@
 # Hengstverzeichnis_Framework
 
-**Status: ✅ Stable** — mit [v0.2.0](../../releases/tag/v0.2.0) liegt das erste stabile Release vor (Suite und E2E-Parcours grün, beide Repos auf null offenen Issues). Die Versionierung folgt weiterhin `0.y.z` nach SemVer, Breaking Changes bleiben also jederzeit möglich. Feedback und Fehlermeldungen über [Issues](../../issues) sind ausdrücklich erwünscht. Sicherheitsrelevante Funde bitte **nicht** öffentlich melden, siehe [SECURITY.md](SECURITY.md).
+**Status: ✅ Stable** — stabile Releases seit v0.2.0; das jeweils aktuelle Release samt Änderungsübersicht steht unter [Releases](../../releases) und im [CHANGELOG](CHANGELOG.md). Die Versionierung folgt `0.y.z` nach SemVer, Breaking Changes bleiben also jederzeit möglich. Feedback und Fehlermeldungen über [Issues](../../issues) sind ausdrücklich erwünscht. Sicherheitsrelevante Funde bitte **nicht** öffentlich melden, siehe [SECURITY.md](SECURITY.md).
 
 Es wird versucht ein Open Source Framework für die Nachverfolgung von Blutlinien in der Pferdezucht zu erstellen. Ziel ist es ein Framework bereitzustellen, welches alle Usecases abdeckt, die für das IGF Hengstverzeichnis und vergleichbare Zuchtverzeichnisse nötig sind.
 

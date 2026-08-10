@@ -2,6 +2,9 @@
 // src/Views/admin_dashboard.php
 $isAdmin = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
 $trashCount = \App\Controllers\TrashController::getTrashCount();
+// Offene Addon-Updates (#197): bewusst NUR aus dem Katalog-Cache des Stores
+// (netzwerkfrei, siehe AddonOverview) - ohne Cache zeigt das Badge 0.
+$addonUpdateCount = \App\Service\AddonOverview::openUpdateCount();
 
 // Erster i18n-Schritt im Admin-Bereich (#48): Das Dashboard nutzt den
 // Translator wie die öffentlichen Seiten; die übrigen Admin-Views folgen
@@ -132,8 +135,15 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
                 <a href="/admin/digest" class="btn btn-secondary" style="<?= $tileStyle ?>">
                     📋 <?= htmlspecialchars($t('admin.dashboard.tile_digest')) ?>
                 </a>
-                <a href="/admin/updates" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                <a href="/admin/updates" class="btn btn-secondary" style="<?= $tileStyle ?> position: relative;">
                     🔄 <?= htmlspecialchars($t('admin.dashboard.tile_updates')) ?>
+                    <?php if ($addonUpdateCount > 0): ?>
+                        <!-- Zähler offener ADDON-Updates (#197), gleiche Stelle
+                             wie das Kern-Update - Muster wie beim Papierkorb. -->
+                        <span style="background: #dc3545; color: white; border-radius: 10px; padding: 0.15rem 0.5rem; font-size: 0.8rem; font-weight: bold;">
+                            <?= $addonUpdateCount ?>
+                        </span>
+                    <?php endif; ?>
                 </a>
                 <?php foreach ($pluginTiles ?? [] as $tile): ?>
                     <?php if (empty($tile['url']) || empty($tile['label'])) continue; ?>

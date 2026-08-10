@@ -34,6 +34,15 @@ class UpdateController extends BaseController {
             }
         }
 
+        // Addons mitdenken (#197, Stufe 1): Kompatibilität wird gegen die
+        // ZIELversion eines verfügbaren Kern-Updates geprüft, nicht nur gegen
+        // die laufende - die Warnung muss VOR dem Klick auf "Aktualisieren"
+        // stehen, nicht nach dem stillen Verschwinden eines Addons.
+        $targetVersion = (is_array($checkResult) && !empty($checkResult['update_available']))
+            ? (string)$checkResult['latest']
+            : null;
+        $addonCatalog = \App\Service\AddonOverview::officialCatalogFromCache();
+
         $this->render('admin_updates', [
             'title' => 'Updates',
             'currentVersion' => UpdateService::currentVersion(),
@@ -42,6 +51,10 @@ class UpdateController extends BaseController {
             'checkResult' => $checkResult,
             'checkError' => $checkError,
             'inPlaceEnabled' => UPDATE_IN_PLACE,
+            'targetVersion' => $targetVersion,
+            'addonRows' => \App\Service\AddonOverview::rows($targetVersion),
+            'addonCatalogAvailable' => $addonCatalog['available'],
+            'addonCatalogCachedAt' => $addonCatalog['cachedAt'],
         ]);
     }
 

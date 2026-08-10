@@ -85,7 +85,10 @@ $manager = \App\Plugin\PluginManager::getInstance();
                             <?php if ($plugin['error'] !== null): ?>
                                 <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--danger-soft-bg); color: var(--danger-fg); font-weight: 600;" title="<?= htmlspecialchars($plugin['error']) ?>">⚠️ Ungültiges Manifest</span>
                             <?php elseif (!$plugin['compatible']): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;">⚠️ Inkompatibel</span>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;"<?= !empty($plugin['incompatible_reason']) ? ' title="' . htmlspecialchars($plugin['incompatible_reason']) . '"' : '' ?>>⚠️ Inkompatibel</span>
+                                <?php if (!empty($plugin['incompatible_reason'])): ?>
+                                    <br><small style="color: var(--text-subtle);"><?= htmlspecialchars($plugin['incompatible_reason']) ?></small>
+                                <?php endif; ?>
                             <?php elseif ($needsReapproval): ?>
                                 <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;" title="Der Code hat sich seit der letzten Freigabe verändert, ohne dass die Versionsnummer im Manifest erhöht wurde. Das Plugin wird deshalb aktuell NICHT geladen. Die Aktivierung selbst ist NICHT verloren gegangen - ein Klick auf 'Erneut freigeben' reicht.">⚠️ Code geändert - erneute Freigabe nötig</span>
                             <?php elseif ($isEnabled): ?>

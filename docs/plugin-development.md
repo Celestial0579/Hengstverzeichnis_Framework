@@ -55,6 +55,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
     "name": "Demo-Plugin",
     "version": "1.0.0",
     "core_compatibility": ">=0.1.0-beta.1",
+    "core_supported_max": "0.4",
     "description": "Kurzbeschreibung, wird im Admin-Bereich angezeigt.",
     "author": "...",
     "hooks": ["horse.after_save", "horse.detail_sections", "admin.dashboard_tiles"],
@@ -68,7 +69,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 | `name` | ✅ | Anzeigename im Admin-Bereich. |
 | `version` | ✅ | Frei wählbar (z. B. SemVer). Bei jedem Update **muss** sie sich ändern - siehe Abschnitt "Update-Erkennung" unten, sonst wird ein reguläres Update fälschlich als verdächtige Änderung erkannt. |
 | `core_compatibility` | ✅ | Vergleichsausdruck gegen `CORE_VERSION` (siehe unten). |
-| `core_supported_max` | (–)* | Höchste unterstützte Kern-Linie als `"Major.Minor"` (z. B. `"0.4"`). Läuft ein neuerer Kern, gilt das Plugin als inkompatibel (wird nicht geladen); die Update-Seite prüft die Angabe zusätzlich gegen die **Ziel**version eines anstehenden Kern-Updates und warnt vor dem Einspielen (#197). *Aktuell optional; wird mit dem Addon-Autoupdate zur **Pflicht** - Manifeste ohne Angabe werden dann abgewiesen. |
+| `core_supported_max` | ✅ | Höchste unterstützte Kern-Linie als `"Major.Minor"` (z. B. `"0.4"`). **Pflicht** seit dem Addon-Autoupdate (#197): Manifeste ohne (gültige) Angabe werden abgewiesen - Installation und Laden verweigert, fail-closed. Läuft ein neuerer Kern als angegeben, gilt das Plugin als inkompatibel (wird nicht geladen); die Update-Seite prüft die Angabe zusätzlich gegen die **Ziel**version eines anstehenden Kern-Updates und warnt vor dem Einspielen. |
 | `description` | – | Anzeigetext im Admin-Bereich. |
 | `author` | – | Anzeigetext im Admin-Bereich. |
 | `hooks` | – | Rein deklarativ/informativ - zeigt Admins vor der Aktivierung, was das Plugin laut Selbstauskunft tut. Wird **nicht** technisch erzwungen. |
@@ -348,7 +349,7 @@ public function routes(): array {
 }
 
 public function helloPage(): void {
-    echo 'Hallo!';
+    \App\Plugin\PluginPage::render('Mein Addon', '<div class="card"><h1>Hallo!</h1></div>');
 }
 ```
 
@@ -390,6 +391,45 @@ class AdminPage extends BaseController {
     }
 }
 ```
+
+## Theming & Darkmode für Plugin-Seiten (Addons#66)
+
+**Plugin-Seiten rendern im zentralen Haupt-Layout** über
+`App\Plugin\PluginPage::render(string $title, string $contentHtml)`. Der
+Dienst lädt Einstellungen und Locale (Plugin-Routen laufen ohne
+`BaseController`) und bindet `src/Views/layout.php` ein - die Seite bekommt
+damit automatisch:
+
+- Header, Navigation, Footer und den **Theme-Umschalter** (hell/dunkel),
+- die **admin-konfigurierten Markenfarben** (`--primary-color`/
+  `--secondary-color` samt abgeleiteter kontrastsicherer Varianten),
+- Schriftart, zentrale CSS-Variablen und die gemeinsamen Klassen aus
+  `public/css/style.css`.
+
+Regeln für das Inhalts-HTML:
+
+1. **Kein eigenständiges Dokument** ausgeben (kein `<!DOCTYPE>`, `<head>`,
+   `<body>`) - nur das Inhaltsfragment; `$title` landet escaped im
+   `<title>`, dynamische Werte im Fragment escaped das Plugin selbst mit
+   `htmlspecialchars()`.
+2. **Gemeinsame Klassen statt eigener Stile**: `.card` für Inhaltsblöcke,
+   `.btn`/`.btn-secondary` für Schaltflächen, `.form-group`/`.form-control`
+   für Formulare. Eigenes CSS nur für tatsächlich addon-spezifische
+   Geometrie (Raster, Thumbnails o. Ä.).
+3. **Farben ausschließlich über die Theme-Variablen** (`var(--text-color)`,
+   `var(--card-bg)`, `var(--surface-muted)`, `var(--border-radius)`, ...,
+   siehe `:root` in `public/css/style.css`) - nie rohe Hex-Werte, sonst
+   bricht der Darkmode oder die Markenfarbe des Betreibers.
+4. **Dokumentierte Ausnahmen**: Druckansichten dürfen bewusst hell und
+   theme-unabhängig sein (`@media print`), Overlay-Scrims dürfen fest
+   abdunkeln. Solche Stellen tragen einen Marker-Kommentar
+   `/* theming-ausnahme: <grund> */`, damit sie von Prüfwerkzeugen nicht
+   als Verstoß gewertet werden.
+
+Das Referenz-Plugin (`docs/examples/demo-plugin/`) zeigt das Muster auf
+allen drei Seiten. Die früheren eigenständigen HTML-Dokumente der
+Beispielseiten waren die Vorlage der Theming-Drift in den offiziellen
+Addons (Addons#66) - neue Plugins nicht mehr daran orientieren.
 
 ## Berechtigungen (#66)
 

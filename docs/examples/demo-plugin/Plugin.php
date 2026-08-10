@@ -121,12 +121,17 @@ class Plugin {
     }
 
     public function helloPage(): void {
-        echo '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Demo-Plugin</title></head>';
-        echo '<body style="font-family: sans-serif; padding: 2rem;">';
-        echo '<h1>👋 Hallo vom Demo-Plugin!</h1>';
-        echo '<p>Diese Seite wurde über die routes()-Methode des Plugins registriert und läuft unter /plugin/demo-plugin/hello.</p>';
-        echo '<p><a href="/admin/plugins">Zurück zur Plugin-Verwaltung</a></p>';
-        echo '</body></html>';
+        // Plugin-Seiten laufen im zentralen Haupt-Layout (Addons#66, siehe
+        // App\Plugin\PluginPage): Header, Navigation, Footer, Theme-Umschalter
+        // und die admin-konfigurierten Markenfarben kommen vom Framework -
+        // das Plugin liefert nur Titel und Inhalts-HTML (dynamische Werte
+        // selbst mit htmlspecialchars() escapen).
+        $content = '<div class="card">'
+            . '<h1>👋 Hallo vom Demo-Plugin!</h1>'
+            . '<p>Diese Seite wurde über die routes()-Methode des Plugins registriert und läuft unter /plugin/demo-plugin/hello.</p>'
+            . '<p><a href="/admin/plugins" class="btn btn-secondary">Zurück zur Plugin-Verwaltung</a></p>'
+            . '</div>';
+        \App\Plugin\PluginPage::render('Demo-Plugin', $content);
     }
 
     /**
@@ -189,11 +194,11 @@ class PremiumPageController extends \App\Controllers\BaseController {
             $this->renderForbidden('Diese Zusatzfunktion ist Mitgliedern mit entsprechender Leseberechtigung vorbehalten.');
         }
 
-        echo '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Demo-Plugin: Premium-Bereich</title></head>';
-        echo '<body style="font-family: sans-serif; padding: 2rem;">';
-        echo '<h1>✨ Demo-Premium-Bereich</h1>';
-        echo '<p>Diese Zusatzfunktion ist sichtbar, weil sie entweder öffentlich geschaltet ist oder Ihre Gruppe die Leseberechtigung besitzt (#57).</p>';
-        echo '</body></html>';
+        $content = '<div class="card">'
+            . '<h1>✨ Demo-Premium-Bereich</h1>'
+            . '<p>Diese Zusatzfunktion ist sichtbar, weil sie entweder öffentlich geschaltet ist oder Ihre Gruppe die Leseberechtigung besitzt (#57).</p>'
+            . '</div>';
+        \App\Plugin\PluginPage::render('Demo-Plugin: Premium-Bereich', $content);
     }
 }
 
@@ -206,13 +211,13 @@ class ExportPreviewController extends \App\Controllers\BaseController {
     }
 
     public function show(): void {
-        echo '<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Demo-Plugin: Export-Vorschau</title></head>';
-        echo '<body style="font-family: sans-serif; padding: 2rem;">';
-        echo '<h1>📤 Export-Vorschau</h1>';
-        echo '<p>Diese Seite ist nur erreichbar, wenn Ihre Gruppe die Berechtigung <code>horses.export</code> besitzt ';
-        echo '(siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>) - eine vom Demo-Plugin selbst ';
-        echo 'registrierte, zusätzliche Aktion am bestehenden Kern-Modul "Pferde".</p>';
-        echo '<p><a href="/admin/plugins">Zurück zur Plugin-Verwaltung</a></p>';
-        echo '</body></html>';
+        $content = '<div class="card">'
+            . '<h1>📤 Export-Vorschau</h1>'
+            . '<p>Diese Seite ist nur erreichbar, wenn Ihre Gruppe die Berechtigung <code>horses.export</code> besitzt '
+            . '(siehe <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>) - eine vom Demo-Plugin selbst '
+            . 'registrierte, zusätzliche Aktion am bestehenden Kern-Modul "Pferde".</p>'
+            . '<p><a href="/admin/plugins" class="btn btn-secondary">Zurück zur Plugin-Verwaltung</a></p>'
+            . '</div>';
+        \App\Plugin\PluginPage::render('Demo-Plugin: Export-Vorschau', $content);
     }
 }

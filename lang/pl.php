@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'Żądany adres ({path}) nie został znaleziony na serwerze.',
     'errors.500_title' => '500 - Błąd serwera',
     'errors.500_default_message' => 'Nieoczekiwany błąd systemu. Prosimy spróbować ponownie później.',
+    'errors.503_title' => '503 - Tryb konserwacji',
+    'errors.503_default_message' => 'Aplikacja jest obecnie w trakcie konserwacji. Prosimy spróbować ponownie za kilka minut.',
 ];

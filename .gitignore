@@ -20,3 +20,8 @@ plugins/*
 # siehe composer.json und docs/development.md
 vendor/
 .phpunit.cache/
+
+# Laufzeitzustand (z. B. Wartungs-Marker var/wartung.lock, siehe
+# App\Service\Maintenance) - nur die leere Verzeichnisstruktur wird versioniert
+var/*
+!var/.gitkeep

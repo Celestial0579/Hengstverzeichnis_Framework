@@ -302,4 +302,6 @@ return [
     'errors.404_route_not_found' => 'Déi ugefrot Adress ({path}) gouf um Server net fonnt.',
     'errors.500_title' => '500 - Serverfeeler',
     'errors.500_default_message' => 'Onerwaarte Systemfeeler. Probéiert w.e.g. méi spéit nach eng Kéier.',
+    'errors.503_title' => '503 - Wartungsmodus',
+    'errors.503_default_message' => 'D\'Applikatioun gëtt de Moment gewaart. Probéiert w.e.g. an e puer Minutten nach eng Kéier.',
 ];

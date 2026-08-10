@@ -50,6 +50,12 @@ Breaking Changes sind jederzeit möglich).
   der bisherige Dark-Audit war regressions-gescoped und für Farben blind,
   die in beiden Themes gleich sind; die `darkmode`-Phase läuft jetzt auch
   im E2E-Nachtlauf (#196)
+- Footer zeigt neben dem Betreiber-Copyright den Autorenvermerk des
+  Frameworks („Framework © 2026 Tim Heyne", verlinkt) - sichtbare
+  Namensnennung nach § 13 UrhG und Teil der „Appropriate Legal Notices"
+  der AGPL-3.0 (§ 5(d)); neuer Sprachschlüssel
+  `footer.framework_copyright`, README um Lizenz-/Copyright-Abschnitt
+  ergänzt (#199)
 
 ### Geändert
 

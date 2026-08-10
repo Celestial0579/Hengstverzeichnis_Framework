@@ -19,6 +19,9 @@ return [
     'footer.discussions' => 'Diskussionen',
     'footer.report_bug' => 'Fehler melden',
     'footer.license' => 'Lizenz',
+    // Wortlaut des Framework-Autorenvermerks (#199); in de/en identisch,
+    // als Schlüssel geführt, damit weitere Sprachen ihn übersetzen können.
+    'footer.framework_copyright' => 'Framework',
 
     'meta.description_suffix' => 'Pferdezucht Verzeichnis',
 

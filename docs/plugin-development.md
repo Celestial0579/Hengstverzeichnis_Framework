@@ -598,8 +598,9 @@ Verwendung im Plugin-Code:
   Übersetzungen fallen beim Testen sofort optisch auf, statt lautlos zu
   verschwinden.
 - **Verfügbare Locales sind kern-seitig fest** (`Translator::getAvailableLocales()`,
-  aktuell `de`/`en`) - ein Plugin kann bestehende Sprachdateien um weitere
-  Schlüssel ergänzen, aber (Phase 1) keine komplett neue Locale zur
+  seit #198 zwölf Sprachen: `de`, `en`, `da`, `nl`, `fr`, `lb`, `it`, `cs`,
+  `pl`, `nb`, `sv`, `fi`) - ein Plugin kann bestehende Sprachdateien um
+  weitere Schlüssel ergänzen, aber (Phase 1) keine komplett neue Locale zur
   Kern-Auswahl hinzufügen.
 
 Das Referenz-Plugin (`docs/examples/demo-plugin/`) demonstriert dies

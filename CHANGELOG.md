@@ -15,6 +15,25 @@ Breaking Changes sind jederzeit möglich).
   bekommt (Mehrfachauswahl, mindestens eine; Standard bleibt Admin +
   Editor, Bestandsinstallationen verhalten sich unverändert). Der
   „keine Empfänger"-Fehler nennt jetzt die konfigurierten Gruppen
+- Zehn weitere Sprachen für die öffentlichen Seiten: Dänisch, Niederländisch,
+  Französisch, Luxemburgisch, Italienisch, Tschechisch, Polnisch, Norwegisch
+  (Bokmål), Schwedisch und Finnisch - jeweils der vollständige Schlüsselsatz
+  aus `de.php` inkl. `format.date` je Locale; maschinell erstellte
+  Erstübersetzungen, im Kopfkommentar als solche gekennzeichnet (#198)
+- Sprachumschalter im Footer ist jetzt ein beschriftetes Dropdown (zwölf
+  Sprachen mit Eigennamen, aktive Locale vorausgewählt, `<noscript>`-Knopf
+  für Besucher ohne JavaScript); Mechanik unverändert `?lang=xx` +
+  Session-Übernahme (#198)
+- Vollständigkeits-Gate `tests/Unit/I18n/LocaleCompletenessTest.php`: jede
+  registrierte Locale muss den kompletten `de.php`-Schlüsselsatz abdecken,
+  Platzhaltermengen müssen übereinstimmen, `format.date` muss brauchbar
+  sein, maschinelle Übersetzungen müssen gekennzeichnet sein; `lang/` und
+  Registrierung dürfen nicht auseinanderlaufen (#198)
+- Aktive Sprachen wählbar: In den Systemeinstellungen lässt sich je Sprache
+  abschalten, ob sie im Sprachumschalter angeboten und per `?lang=`
+  angenommen wird (Standard: alle; Deutsch als Quellsprache und die
+  Standardsprache sind immer aktiv; die Sprachdateien bleiben
+  installiert) (#198)
 - `App\Plugin\PluginPage::render()`: Plugin-Seiten rendern im zentralen
   Haupt-Layout - mit Header, Navigation, Footer, Theme-Umschalter und den
   admin-konfigurierten Markenfarben, statt als eigenständige, unthemebare

@@ -204,6 +204,30 @@ class AdminController extends BaseController {
         $stmt->execute([$language, $language]);
         \App\Service\AuditLogger::log("Systemeinstellungen aktualisiert", "settings", "Standardsprache: " . $language);
 
+        // Aktive Sprachen (#198): Teilmenge der verfügbaren Locales, die im
+        // Sprachumschalter angeboten wird. Unbekannte Codes werden verworfen;
+        // sind alle Sprachen gewählt, wird leer gespeichert ("alle"), damit
+        // künftig ergänzte Sprachen nicht still deaktiviert starten. de und
+        // die Standardsprache erzwingt Translator::activeLocales() ohnehin.
+        $available = \App\I18n\Translator::getAvailableLocales();
+        $requestedActive = $_POST['active_locales'] ?? [];
+        $activeCodes = [];
+        if (is_array($requestedActive)) {
+            foreach (array_keys($available) as $code) {
+                if (in_array($code, $requestedActive, true)) {
+                    $activeCodes[] = $code;
+                }
+            }
+        }
+        $activeValue = count($activeCodes) >= count($available) ? '' : implode(',', $activeCodes);
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('active_locales', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$activeValue, $activeValue]);
+        \App\Service\AuditLogger::log(
+            "Systemeinstellungen aktualisiert",
+            "settings",
+            "Aktive Sprachen: " . ($activeValue !== '' ? $activeValue : 'alle')
+        );
+
         // Trusted Proxies: nur verarbeiten, wenn nicht bereits per Env-Var vorgegeben
         // (sonst hätte eine Änderung hier ohnehin keine Wirkung, siehe config/config.php).
         $trustedProxiesError = null;

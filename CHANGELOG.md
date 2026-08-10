@@ -10,6 +10,11 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Empfängergruppen des E-Mail-Digests sind wählbar: Auf der
+  Digest-Einstellungsseite lässt sich je Gruppe anhaken, wer den Bericht
+  bekommt (Mehrfachauswahl, mindestens eine; Standard bleibt Admin +
+  Editor, Bestandsinstallationen verhalten sich unverändert). Der
+  „keine Empfänger"-Fehler nennt jetzt die konfigurierten Gruppen
 - Zehn weitere Sprachen für die öffentlichen Seiten: Dänisch, Niederländisch,
   Französisch, Luxemburgisch, Italienisch, Tschechisch, Polnisch, Norwegisch
   (Bokmål), Schwedisch und Finnisch - jeweils der vollständige Schlüsselsatz

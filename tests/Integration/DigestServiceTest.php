@@ -111,6 +111,34 @@ class DigestServiceTest extends TestCase {
         $stmt->execute([$userId, $adminGroupId]);
     }
 
+    /**
+     * Konfigurierte Empfängergruppen (digest_recipient_groups) steuern, wer
+     * den Digest bekommt: Eine Gruppe ohne Mitglieder führt zum sichtbaren
+     * "keine Empfänger"-Fehler, obwohl Admin-Konten existieren - und die
+     * Slug-Auflösung liest die Einstellung statt der festen admin/editor-Liste.
+     */
+    public function testRecipientGroupsComeFromSettings(): void {
+        $this->assertSame(['admin', 'editor'], \App\Service\DigestService::recipientGroupSlugs());
+
+        $stmt = self::$db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('digest_recipient_groups', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute(['zuchtwarte', 'zuchtwarte']);
+        self::$db->exec("INSERT IGNORE INTO `groups` (slug, name, description, is_builtin) VALUES ('zuchtwarte', 'Zuchtwarte', '', 0)");
+        $this->insertAdminUser('digest-nur-admin@example.com');
+        // Etwas Berichtbares erzeugen, damit run() bis zur Empfängerauflösung
+        // kommt: ein Papierkorb-Eintrag im Warnfenster vor der Löschfrist.
+        $this->insertHorse(['name' => 'Empfängergruppen-Testfall', 'deleted_at' => date('Y-m-d H:i:s', strtotime('-26 days'))]);
+
+        try {
+            \App\Service\DigestService::run();
+            $this->fail('run() müsste ohne Mitglieder in der Empfängergruppe fehlschlagen');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('zuchtwarte', $e->getMessage());
+        } finally {
+            self::$db->exec("DELETE FROM settings WHERE setting_key = 'digest_recipient_groups'");
+            self::$db->exec("DELETE FROM `groups` WHERE slug = 'zuchtwarte'");
+        }
+    }
+
     public function testRunWithNothingToReportRecordsOkStatusWithoutSending(): void {
         $this->insertAdminUser('admin@example.com');
 

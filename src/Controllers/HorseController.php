@@ -131,7 +131,12 @@ class HorseController extends BaseController {
         $breed = trim($_POST['breed'] ?? '') ?: null;
         $height_cm = $this->parseHeightCm($_POST['height_cm'] ?? '');
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
-        $breeding_station = trim($_POST['breeding_station'] ?? '');
+        // Freitext-Deckstation nur übernehmen, wenn das Feld überhaupt übermittelt
+        // wurde (#214): das Formular kennt kein name="breeding_station" mehr (nur
+        // persons[N][breeding_station_id]), regulär setzt den Wert der CSV-Import.
+        // NULL bedeutet hier "nicht übermittelt" - beim INSERT bleibt die Spalte
+        // dann leer statt auf '' gesetzt.
+        $breeding_station = array_key_exists('breeding_station', $_POST) ? trim($_POST['breeding_station']) : null;
         $description = trim($_POST['description'] ?? '');
         $status = in_array($_POST['status'] ?? '', self::STATUSES, true) ? $_POST['status'] : 'active';
         // Lebensstatus (#188): ein gesetztes Todesjahr impliziert verstorben.
@@ -271,7 +276,13 @@ class HorseController extends BaseController {
         $breed = trim($_POST['breed'] ?? '') ?: null;
         $height_cm = $this->parseHeightCm($_POST['height_cm'] ?? '');
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
-        $breeding_station = trim($_POST['breeding_station'] ?? '');
+        // Freitext-Deckstation nur überschreiben, wenn das Feld übermittelt wurde
+        // (#214): das Bearbeiten-Formular kennt kein name="breeding_station" mehr,
+        // ein normaler Edit lieferte daher immer '' und löschte damit still den
+        // z. B. per CSV-Import gesetzten Wert. NULL heißt "nicht übermittelt" und
+        // lässt den Bestandswert im UPDATE unten per COALESCE unangetastet; ein
+        // übermittelter Leerstring löscht dagegen weiterhin bewusst.
+        $breeding_station = array_key_exists('breeding_station', $_POST) ? trim($_POST['breeding_station']) : null;
         $description = trim($_POST['description'] ?? '');
         $status = in_array($_POST['status'] ?? '', self::STATUSES, true) ? $_POST['status'] : 'active';
         // Lebensstatus (#188): ein gesetztes Todesjahr impliziert verstorben.
@@ -343,7 +354,9 @@ class HorseController extends BaseController {
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.before_save', (int)$id, $_POST);
 
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = ?, description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
+        // breeding_station = COALESCE(?, breeding_station) (#214): NULL steht für
+        // "Feld nicht übermittelt" (siehe oben) und erhält den Bestandswert.
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
         $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
@@ -556,10 +569,22 @@ class HorseController extends BaseController {
         $this->requirePermission('horses', 'view');
         $this->requirePermission('horses', 'edit');
 
-        $unlinkedMatches = \App\Service\MatchSuggestionFinder::findAll();
+        // SQL-seitige Pagination über die offenen Platzhalter (#215, 50 je
+        // Seite, gleiches Muster wie ApiController::index()): countOpen() ist
+        // ein reiner Vorfilter-COUNT, findAll() bewertet nur noch die
+        // Platzhalter der angefragten Seite.
+        $perPage = 50;
+        $matchTotal = \App\Service\MatchSuggestionFinder::countOpen();
+        $matchTotalPages = max(1, (int)ceil($matchTotal / $perPage));
+        $matchPage = max(1, min($matchTotalPages, (int)($_GET['page'] ?? 1)));
+        $unlinkedMatches = \App\Service\MatchSuggestionFinder::findAll($perPage, ($matchPage - 1) * $perPage);
 
         $db = Database::getInstance();
-        $allHorses = $db->query("SELECT id, name, ueln, foreign_ueln, birth_year, color, sex, breeding_station_id, breeding_station FROM horses WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll();
+        // Nur noch die Felder, die das manuelle Auswahl-Dropdown der View
+        // tatsächlich braucht (#215): die frühere Abfrage lud hier eine zweite
+        // Vollkopie der horses-Tabelle mit allen Match-Spalten, obwohl
+        // findAll() die Kandidaten-Daten bereits selbst ermittelt.
+        $allHorses = $db->query("SELECT id, name, ueln, sex FROM horses WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll();
 
         // Datenqualitäts-Report (#166): bestehende Verknüpfungen, deren Elternteil
         // ein unpassendes Geschlecht trägt - entstanden, bevor es das Geschlechtsfeld
@@ -580,7 +605,10 @@ class HorseController extends BaseController {
             'title' => 'Blutlinien Zusammenführen & Match-Vorschläge',
             'unlinkedMatches' => $unlinkedMatches,
             'allHorses' => $allHorses,
-            'sexMismatches' => $sexMismatches
+            'sexMismatches' => $sexMismatches,
+            'matchPage' => $matchPage,
+            'matchTotalPages' => $matchTotalPages,
+            'matchTotal' => $matchTotal
         ]);
     }
 
@@ -746,8 +774,19 @@ class HorseController extends BaseController {
             }
         }
 
-        // Automatically sync current/latest active breeding station onto the horse's main record
-        $syncStmt = $db->prepare("UPDATE horses SET breeding_station_id = ?, breeding_station = ? WHERE id = ?");
-        $syncStmt->execute([$currentStationId, $currentStationText, $horseId]);
+        // Aktuelle/letzte aktive Deckstation auf den Pferde-Hauptdatensatz
+        // spiegeln - aber NUR, wenn aus den Personenzeilen tatsächlich eine
+        // ermittelt wurde (#214). Vorher lief der Sync bedingungslos und nullte
+        // bei leerem Personen-Block (der Normalfall beim Bearbeiten importierter
+        // Pferde) die per CSV-Import gesetzte Freitext-Station wieder aus.
+        // Kehrseite dieser bewussten Entscheidung: Wer die Station eines Pferds
+        // entfernen will, muss das über eine Personenzeile mit neuer Station
+        // (oder einen Request mit explizit leerem breeding_station-Feld, siehe
+        // COALESCE in update()) tun - ein gelöschter Personen-Block lässt den
+        // Bestandswert stehen.
+        if ($currentStationId !== null || ($currentStationText ?? '') !== '') {
+            $syncStmt = $db->prepare("UPDATE horses SET breeding_station_id = ?, breeding_station = ? WHERE id = ?");
+            $syncStmt->execute([$currentStationId, $currentStationText, $horseId]);
+        }
     }
 }

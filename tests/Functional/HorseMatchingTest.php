@@ -59,6 +59,22 @@ class HorseMatchingTest extends FunctionalTestCase {
             'Kandidat "Quantum" sollte als Vorschlag für "Quantom Junior" auftauchen'
         );
 
+        // Beide Pferde wurden oben mit breeding_station 'Testgestüt' angelegt -
+        // seit #214 kommt dieser Freitext-Wert auch tatsächlich in der DB an
+        // (vorher nullte saveHorsePersons() ihn beim Speichern sofort wieder,
+        // und dieser 4-Punkte-Zweig konnte für UI-angelegte Pferde nie feuern).
+        // Der Grund muss daher jetzt nachweisbar am Vorschlag stehen, statt nur
+        // im Kommentar zur Score-Erwartung behauptet zu werden.
+        $this->assertStringContainsString(
+            'Identische Deckstation (Freitext)',
+            $matchesPage->body,
+            'Der Deckstations-Grund sollte am Vorschlag stehen - der Freitext-Wert muss dafür beim Anlegen erhalten geblieben sein (#214)'
+        );
+
+        // Pagination (#215): Bei nur einem offenen Platzhalter gibt es keine
+        // Blätter-Navigation ("Seite x von y (n offene Platzhalter)").
+        $this->assertStringNotContainsString('offene Platzhalter', $matchesPage->body);
+
         $childId = $matchesPage->formField('child_id');
         $parentType = $matchesPage->formField('parent_type');
         $parentHorseId = $matchesPage->formField('parent_horse_id');

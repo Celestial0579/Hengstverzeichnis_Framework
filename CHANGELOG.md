@@ -48,6 +48,10 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- Impressum-Platzhalter verweist auf § 5 DDG statt auf das zum 14.05.2024
+  außer Kraft getretene TMG; der Sprachschlüssel heißt jetzt
+  `legal.impressum_section_ddg` (ein vom Betreiber gepflegtes
+  `impressum_text` ist nicht berührt) (#200)
 - Footer-Kontraste: Text-/Linkfarbe des Footers werden nicht mehr aus den
   beiden frei wählbaren Markenfarben kombiniert (im Extremfall 1,59:1),
   sondern aus abgeleiteten, kontrastsicheren Variablen - im hellen Theme aus

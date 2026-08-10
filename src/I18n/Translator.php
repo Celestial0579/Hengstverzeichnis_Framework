@@ -18,10 +18,23 @@ namespace App\I18n;
  */
 final class Translator {
 
-    /** @var array<string, string> locale-code => Anzeigename */
+    /** @var array<string, string> locale-code => Anzeigename (Eigenname der Sprache, #198) */
     private static array $availableLocales = [
         'de' => 'Deutsch',
         'en' => 'English',
+        'da' => 'Dansk',
+        'nl' => 'Nederlands',
+        'fr' => 'Français',
+        'lb' => 'Lëtzebuergesch',
+        'it' => 'Italiano',
+        'cs' => 'Čeština',
+        'pl' => 'Polski',
+        // Norwegisch bewusst als Bokmål (nb), die mit Abstand verbreitetste
+        // der beiden norwegischen Schriftsprachen; Nynorsk (nn) kann bei
+        // Bedarf später als eigene Locale ergänzt werden (#198).
+        'nb' => 'Norsk bokmål',
+        'sv' => 'Svenska',
+        'fi' => 'Suomi',
     ];
 
     private static string $fallbackLocale = 'de';

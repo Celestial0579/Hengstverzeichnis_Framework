@@ -69,7 +69,7 @@
             </select>
             <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Standardsprache der öffentlichen Seiten. Besucher können sie über den Sprachumschalter im Footer für ihre eigene Sitzung übersteuern.
-                Weitere Sprachen sowie Übersetzungen im Admin-Bereich folgen schrittweise.
+                Die Übersetzungen jenseits von Deutsch und Englisch sind maschinell erstellt - Korrekturen von Muttersprachlern sind willkommen (siehe Kopfkommentar der jeweiligen Datei unter <code>lang/</code>). Übersetzungen im Admin-Bereich folgen schrittweise.
             </small>
         </div>
 

@@ -22,6 +22,10 @@ return [
     // Wortlaut des Framework-Autorenvermerks (#199); in de/en identisch,
     // als Schlüssel geführt, damit weitere Sprachen ihn übersetzen können.
     'footer.framework_copyright' => 'Framework',
+    // Beschriftung des Sprachumschalters im Footer und des zugehörigen
+    // Absenden-Knopfs für Besucher ohne JavaScript (#198).
+    'footer.language_label' => 'Sprache',
+    'footer.language_apply' => 'Wechseln',
 
     'meta.description_suffix' => 'Pferdezucht Verzeichnis',
 

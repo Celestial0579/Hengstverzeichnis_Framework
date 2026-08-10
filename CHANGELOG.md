@@ -29,6 +29,20 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Zehn weitere Sprachen für die öffentlichen Seiten: Dänisch, Niederländisch,
+  Französisch, Luxemburgisch, Italienisch, Tschechisch, Polnisch, Norwegisch
+  (Bokmål), Schwedisch und Finnisch - jeweils der vollständige Schlüsselsatz
+  aus `de.php` inkl. `format.date` je Locale; maschinell erstellte
+  Erstübersetzungen, im Kopfkommentar als solche gekennzeichnet (#198)
+- Sprachumschalter im Footer ist jetzt ein beschriftetes Dropdown (zwölf
+  Sprachen mit Eigennamen, aktive Locale vorausgewählt, `<noscript>`-Knopf
+  für Besucher ohne JavaScript); Mechanik unverändert `?lang=xx` +
+  Session-Übernahme (#198)
+- Vollständigkeits-Gate `tests/Unit/I18n/LocaleCompletenessTest.php`: jede
+  registrierte Locale muss den kompletten `de.php`-Schlüsselsatz abdecken,
+  Platzhaltermengen müssen übereinstimmen, `format.date` muss brauchbar
+  sein, maschinelle Übersetzungen müssen gekennzeichnet sein; `lang/` und
+  Registrierung dürfen nicht auseinanderlaufen (#198)
 - Footer zeigt neben dem Betreiber-Copyright den Autorenvermerk des
   Frameworks („Framework © 2026 Tim Heyne", verlinkt) - sichtbare
   Namensnennung nach § 13 UrhG und Teil der „Appropriate Legal Notices"

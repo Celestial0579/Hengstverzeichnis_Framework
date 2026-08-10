@@ -30,4 +30,79 @@ class AdminDashboardI18nTest extends FunctionalTestCase {
         $backToGerman = $admin->get('/admin?lang=de');
         $this->assertStringContainsString('Pferde verwalten', $backToGerman->body);
     }
+
+    /**
+     * Stichprobe einer der zehn neuen Sprachen (#198): ?lang=fr übersetzt
+     * die öffentliche Seite, der Mechanismus ist für alle neuen Locales
+     * derselbe (Vollständigkeit je Locale prüft LocaleCompletenessTest).
+     */
+    public function testNewLocaleIsServedViaLangSwitch(): void {
+        $client = $this->newClient();
+
+        $french = $client->get('/?lang=fr');
+        $this->assertSame(200, $french->statusCode);
+        // <html lang="fr"> belegt, dass die Locale wirklich aktiv ist.
+        $this->assertStringContainsString('lang="fr"', $french->body);
+        $this->assertStringContainsString('Mentions légales', $french->body);
+
+        $client->get('/?lang=de');
+    }
+
+    /**
+     * Der Sprachumschalter im Footer ist seit #198 ein Dropdown: beschriftet,
+     * mit allen zwölf Sprachen (Eigennamen), aktiver Locale als selected und
+     * einem <noscript>-Absenden-Knopf für Besucher ohne JavaScript.
+     */
+    public function testFooterLanguageSwitcherIsALabelledDropdown(): void {
+        $client = $this->newClient();
+
+        $page = $client->get('/');
+        $this->assertSame(200, $page->statusCode);
+        $this->assertStringContainsString('<label for="footer-lang-select">', $page->body);
+        $this->assertStringContainsString('<select id="footer-lang-select" name="lang"', $page->body);
+        $this->assertStringContainsString('<noscript><button type="submit"', $page->body);
+
+        $this->assertSame(
+            12,
+            substr_count($page->body, '<option value="'),
+            'Der Umschalter muss alle zwölf Sprachen anbieten'
+        );
+        foreach (['Deutsch', 'English', 'Dansk', 'Nederlands', 'Français', 'Lëtzebuergesch',
+                  'Italiano', 'Čeština', 'Polski', 'Norsk bokmål', 'Svenska', 'Suomi'] as $endonym) {
+            $this->assertStringContainsString('>' . $endonym . '</option>', $page->body);
+        }
+
+        // Aktive Locale (de als Default) ist vorausgewählt.
+        $this->assertStringContainsString('<option value="de" selected>', $page->body);
+    }
+
+    /**
+     * Deaktivierte Sprachen (#198, Settings-Schlüssel `active_locales`)
+     * verschwinden aus dem Umschalter und werden bei ?lang= nicht
+     * angenommen; die Quellsprache de bleibt immer aktiv.
+     */
+    public function testDeactivatedLocaleDisappearsFromSwitcherAndLangParameter(): void {
+        $db = \App\Database::getInstance();
+        $db->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('active_locales', 'en') ON DUPLICATE KEY UPDATE setting_value = 'en'");
+
+        try {
+            $client = $this->newClient();
+
+            $page = $client->get('/');
+            $this->assertSame(
+                2,
+                substr_count($page->body, '<option value="'),
+                'Nur de (immer aktiv) und en dürfen angeboten werden'
+            );
+            $this->assertStringNotContainsString('>Français</option>', $page->body);
+
+            // Eine deaktivierte Sprache per ?lang= wird verworfen - die Seite
+            // bleibt in der Standardsprache.
+            $french = $client->get('/?lang=fr');
+            $this->assertStringContainsString('lang="de"', $french->body);
+            $this->assertStringNotContainsString('lang="fr"', $french->body);
+        } finally {
+            $db->exec("UPDATE settings SET setting_value = '' WHERE setting_key = 'active_locales'");
+        }
+    }
 }

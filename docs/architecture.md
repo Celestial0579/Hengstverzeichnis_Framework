@@ -266,7 +266,11 @@ admin-konfigurierbare, gruppenspezifische Sichtbarkeit (#57).
   fehlendem Eintrag - macht Lücken in der UI sofort sichtbar statt sie
   stillschweigend zu verschlucken.
 - Kern-Sprachdateien liegen unter `lang/<locale>.php` im Projekt-Root
-  (Domain `core`, reserviert), aktuell `de` (Quellsprache) und `en`.
+  (Domain `core`, reserviert): `de` (Quellsprache) und elf weitere
+  (`en`, `da`, `nl`, `fr`, `lb`, `it`, `cs`, `pl`, `nb`, `sv`, `fi`, #198).
+  Jede Datei muss den vollständigen Schlüsselsatz aus `de.php` abdecken -
+  `tests/Unit/I18n/LocaleCompletenessTest.php` erzwingt das für jede
+  registrierte Locale.
 - **Anschluss ans Plugin-System (#56):** Ein Plugin mit eigenem
   `lang/<locale>.php`-Verzeichnis wird beim Laden automatisch unter seinem
   Slug als eigene, kollisionsfreie Übersetzungs-Domain registriert

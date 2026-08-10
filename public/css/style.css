@@ -390,6 +390,43 @@ footer a:hover {
     opacity: 0.85;
 }
 
+/* Sprachumschalter im Footer (#198): eigenes Select statt .form-control
+   (dessen width:100% wäre im zentrierten Footer fehl am Platz). Flächen-/
+   Textfarbe kommen aus den Theme-Variablen, NICHT aus den Markenfarben -
+   das Select bleibt damit in beiden Themes lesbar, egal was der Admin als
+   Primärfarbe wählt (#196). Die Mobile-Regeln unten (16px/44px) greifen
+   für select automatisch. */
+.footer-lang-form {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.footer-lang-form label {
+    color: var(--footer-fg);
+}
+
+.footer-lang-select,
+.footer-lang-submit {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 0.3rem 0.5rem;
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+}
+
+.footer-lang-select:focus,
+.footer-lang-submit:focus {
+    outline: none;
+    border-color: var(--primary-fg);
+    box-shadow: 0 0 0 3px rgba(44, 62, 80, 0.1);
+}
+
 /* Utilities */
 .text-center { text-align: center; }
 .mt-2 { margin-top: 2rem; }

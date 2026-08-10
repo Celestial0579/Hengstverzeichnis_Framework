@@ -82,15 +82,21 @@ abstract class BaseController {
      * sicher auf die Fallback-Sprache abgebildet.
      */
     private function initLocale(): void {
-        $available = \App\I18n\Translator::getAvailableLocales();
+        // Nur vom Betreiber AKTIVIERTE Sprachen sind wählbar (#198,
+        // Translator::activeLocales) - eine deaktivierte Locale in ?lang=
+        // oder aus einer alten Session fällt auf die Standardsprache zurück.
+        $active = \App\I18n\Translator::activeLocales($this->settings);
 
         $requested = $_GET['lang'] ?? null;
-        if (is_string($requested) && isset($available[$requested])) {
+        if (is_string($requested) && isset($active[$requested])) {
             $_SESSION['locale'] = $requested;
         }
 
-        $locale = $_SESSION['locale'] ?? ($this->settings['language'] ?? 'de');
-        \App\I18n\Translator::init((string)$locale);
+        $locale = (string)($_SESSION['locale'] ?? ($this->settings['language'] ?? 'de'));
+        if (!isset($active[$locale])) {
+            $locale = (string)($this->settings['language'] ?? 'de');
+        }
+        \App\I18n\Translator::init($locale);
     }
 
     /**

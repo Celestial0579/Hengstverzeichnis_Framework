@@ -241,15 +241,23 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/wiki" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.manual')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/discussions" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.discussions')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/new" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.report_bug')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/blob/main/LICENSE" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.license')) ?></a>
         </p>
         <?php
-            // Sprachumschalter (#48): setzt ?lang=xx auf dem aktuellen Pfad (ohne
-            // bestehende Query-Parameter mitzuführen, bewusst einfach gehalten) -
-            // BaseController::initLocale() übernimmt den Wert danach in die Session.
+            // Sprachumschalter (#48, #198): Mit zwölf Sprachen sprengt eine
+            // Link-Liste die Leiste - deshalb ein Dropdown. Das GET-Formular
+            // erzeugt exakt das etablierte ?lang=xx auf dem aktuellen Pfad
+            // (ohne bestehende Query-Parameter, bewusst einfach gehalten);
+            // BaseController::initLocale() übernimmt den Wert in die Session.
+            // Ohne JavaScript übernimmt der <noscript>-Knopf das Absenden,
+            // mit JavaScript sendet onchange direkt.
         ?>
-        <p style="font-size: 0.8rem; margin-top: 0.5rem;">
-            <?php $localeIndex = 0; foreach (\App\I18n\Translator::getAvailableLocales() as $code => $label): ?>
-                <?= $localeIndex++ > 0 ? ' | ' : '' ?><a href="<?= htmlspecialchars($currentPath) ?>?lang=<?= urlencode($code) ?>"<?= $code === $locale ? ' style="font-weight:700;"' : '' ?>><?= htmlspecialchars($label) ?></a>
-            <?php endforeach; ?>
-        </p>
+        <form method="get" action="<?= htmlspecialchars($currentPath) ?>" class="footer-lang-form">
+            <label for="footer-lang-select"><?= htmlspecialchars($t('footer.language_label')) ?>:</label>
+            <select id="footer-lang-select" name="lang" class="footer-lang-select" onchange="this.form.submit()">
+                <?php foreach (\App\I18n\Translator::activeLocales($settings) as $code => $label): ?>
+                    <option value="<?= htmlspecialchars($code) ?>"<?= $code === $locale ? ' selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <noscript><button type="submit" class="footer-lang-submit"><?= htmlspecialchars($t('footer.language_apply')) ?></button></noscript>
+        </form>
     </footer>
 
     <script>

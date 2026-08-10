@@ -18,6 +18,8 @@ return [
     'footer.report_bug' => 'Report a bug',
     'footer.license' => 'License',
     'footer.framework_copyright' => 'Framework',
+    'footer.language_label' => 'Language',
+    'footer.language_apply' => 'Switch',
 
     'meta.description_suffix' => 'Horse Breeding Registry',
 

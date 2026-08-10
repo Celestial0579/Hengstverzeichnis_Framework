@@ -23,16 +23,6 @@ Breaking Changes sind jederzeit möglich).
   den Branch, solange kein passender Release existiert) - ein halb
   fertiger `main`-Stand kann nicht mehr auf Produktivinstanzen landen
   (#197, Stufe 3; Release-Prozess im Addons-Repo: Addons#65)
-
-### Geändert
-
-- **Breaking:** `core_supported_max` ist jetzt Pflichtfeld in
-  Addon-Manifesten - Manifeste ohne (gültige) Major.Minor-Angabe werden
-  abgewiesen: Installation über Store und manuellen Weg verweigert, ein
-  bereits installiertes Addon gilt als inkompatibel und wird nicht
-  geladen (sichtbar mit Begründung statt still, #197). Die Manifeste des
-  offiziellen Addons-Repos werden mit Addons#65 umgestellt
-
 - Update-Seite denkt Addons mit (#197, Stufe 1): `/admin/updates` zeigt je
   installiertem Addon die Katalog-Version des offiziellen Repos (aus dem
   Store-Cache, netzwerkfrei) und die Kompatibilität - geprüft gegen die
@@ -49,6 +39,45 @@ Breaking Changes sind jederzeit möglich).
 - Der bisher stumme Kompatibilitäts-Skip beim Plugin-Laden ist erklärbar:
   `/admin/plugins` nennt zum „Inkompatibel"-Badge jetzt die Begründung
   (z. B. „unterstützt höchstens Kern 0.3, geprüft gegen 0.4.0") (#197)
+- `App\Helper\ColorContrast`: WCAG-Kontrastrechnung (Hex-Parsing, Ratio,
+  `readableTextOn()`) für die admin-konfigurierbaren Markenfarben; von
+  `layout.php` zur Laufzeit genutzt und per Unit-Test abgesichert, dass die
+  gelieferte Textfarbe für jede Fläche ≥ 4,5:1 erreicht (#196)
+- Kontrast-Gates: neuer Unit-Test rechnet die Theme-Defaults aus
+  `style.css` nach (inkl. erzwungener Wortgleichheit der beiden
+  Darkmode-Zwillingsblöcke), und der E2E-Parcours prüft Footer und
+  Nav-Buttons zusätzlich gegen absolute WCAG-Schwellen in beiden Themes -
+  der bisherige Dark-Audit war regressions-gescoped und für Farben blind,
+  die in beiden Themes gleich sind; die `darkmode`-Phase läuft jetzt auch
+  im E2E-Nachtlauf (#196)
+
+### Geändert
+
+- **Breaking:** `core_supported_max` ist jetzt Pflichtfeld in
+  Addon-Manifesten - Manifeste ohne (gültige) Major.Minor-Angabe werden
+  abgewiesen: Installation über Store und manuellen Weg verweigert, ein
+  bereits installiertes Addon gilt als inkompatibel und wird nicht
+  geladen (sichtbar mit Begründung statt still, #197). Die Manifeste des
+  offiziellen Addons-Repos werden mit Addons#65 umgestellt
+
+### Behoben
+
+- Impressum-Platzhalter verweist auf § 5 DDG statt auf das zum 14.05.2024
+  außer Kraft getretene TMG; der Sprachschlüssel heißt jetzt
+  `legal.impressum_section_ddg` (ein vom Betreiber gepflegtes
+  `impressum_text` ist nicht berührt) (#200)
+- Footer-Kontraste: Text-/Linkfarbe des Footers werden nicht mehr aus den
+  beiden frei wählbaren Markenfarben kombiniert (im Extremfall 1,59:1),
+  sondern aus abgeleiteten, kontrastsicheren Variablen - im hellen Theme aus
+  der neu berechneten Textfarbe `--on-primary` (Weiß oder Schwarz, je nach
+  Luminanz der Primärfarbe, garantiert ≥ 4,5:1), im Darkmode aus den
+  Theme-Flächenfarben; Footer-Links sind zur Unterscheidung durchgängig
+  unterstrichen (#196)
+- Admin-Portal-Button: Insel-Stile (`.nav-btn-admin-*` inline in
+  `layout.php`) entfernt und auf die gemeinsamen Button-Klassen
+  (`.btn`/`.btn-secondary` plus neuer Modifier `.btn-nav`) zurückgeführt;
+  Textfarbe kommt aus `--on-primary` statt hartem Weiß, der Rahmen hebt die
+  Fläche im Darkmode ≥ 3:1 von der Kopfzeile ab (#196)
 
 ## [0.3.0] – 2026-08-09
 

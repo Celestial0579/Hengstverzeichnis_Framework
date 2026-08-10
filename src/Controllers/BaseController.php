@@ -80,23 +80,15 @@ abstract class BaseController {
      * damit die Wahl über die gesamte weitere Navigation erhalten bleibt.
      * Ungültige/unbekannte Locale-Werte werden von Translator::init() selbst
      * sicher auf die Fallback-Sprache abgebildet.
+     *
+     * Die Auswahlregel selbst (nur AKTIVIERTE Sprachen wählbar, Bereinigung
+     * veralteter Session-Wahlen) lebt zentral in
+     * Translator::resolveRequestLocale() - sie gilt wortgleich auch für
+     * Plugin-Seiten (App\Plugin\PluginPage), eine Kopie hier war die Ursache
+     * von #220.
      */
     private function initLocale(): void {
-        // Nur vom Betreiber AKTIVIERTE Sprachen sind wählbar (#198,
-        // Translator::activeLocales) - eine deaktivierte Locale in ?lang=
-        // oder aus einer alten Session fällt auf die Standardsprache zurück.
-        $active = \App\I18n\Translator::activeLocales($this->settings);
-
-        $requested = $_GET['lang'] ?? null;
-        if (is_string($requested) && isset($active[$requested])) {
-            $_SESSION['locale'] = $requested;
-        }
-
-        $locale = (string)($_SESSION['locale'] ?? ($this->settings['language'] ?? 'de'));
-        if (!isset($active[$locale])) {
-            $locale = (string)($this->settings['language'] ?? 'de');
-        }
-        \App\I18n\Translator::init($locale);
+        \App\I18n\Translator::init(\App\I18n\Translator::resolveRequestLocale($this->settings));
     }
 
     /**

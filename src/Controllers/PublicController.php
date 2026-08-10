@@ -264,14 +264,6 @@ class PublicController extends BaseController {
             'query' => http_build_query($filterParams),
         ];
 
-        // Fetch distinct filter options for dropdowns
-        $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        // Nur veröffentlichte Stationen/Personen als öffentliche Filteroptionen anbieten
-        // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
-        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
-
         // Plugin-Hook (#56, #97): Erweiterungspunkt für zusätzlichen Inhalt je Katalog-Karte
         // (z. B. ein "Merken"-Button), analog zu horse.detail_sections auf der Detailseite.
         // Pro Pferd im Controller vorberechnet (statt in der View aufgerufen), damit Views
@@ -299,6 +291,19 @@ class PublicController extends BaseController {
             ]);
             exit;
         }
+
+        // Distinct-Filteroptionen für die Dropdowns erst NACH der AJAX-Weiche
+        // laden (#221): Die AJAX-Antwort besteht nur aus count/count_text/
+        // cards_html und nutzt sie nie - vor der Weiche liefen die vier
+        // DISTINCT-Scans (u. a. über die gesamte horses-Tabelle) bei jedem
+        // Debounce-Tastendruck der Live-Suche mit und wurden komplett
+        // weggeworfen. Nur der volle Seiten-Render braucht sie.
+        $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        // Nur veröffentlichte Stationen/Personen als öffentliche Filteroptionen anbieten
+        // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
+        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('public_catalog', [
             'title' => \App\I18n\Translator::t('meta.title_catalog') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),

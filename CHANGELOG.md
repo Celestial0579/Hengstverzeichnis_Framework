@@ -8,6 +8,17 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.4.0] – 2026-08-10
+
+Update-System denkt Addons mit (Übersicht, Warnungen, Autoupdate aus
+Release-Tags, Pflicht-Obergrenze im Manifest), Plugin-Seiten rendern im
+Haupt-Layout, zehn neue Sprachen samt Dropdown-Umschalter und wählbaren
+aktiven Sprachen, kontrastsichere Footer-/Button-Farben, Framework-
+Autorenvermerk, DDG-Korrektur und wählbare Digest-Empfängergruppen.
+**Enthält einen Breaking Change** (Pflichtfeld `core_supported_max` in
+Addon-Manifesten, siehe unten) - die offiziellen Addons ziehen mit ihrem
+Release v0.4.0 gleich.
+
 ### Hinzugefügt
 
 - Empfängergruppen des E-Mail-Digests sind wählbar: Auf der

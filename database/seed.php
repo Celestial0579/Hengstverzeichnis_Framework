@@ -6,6 +6,7 @@ if (PHP_SAPI !== 'cli') {
     exit('Dieses Skript darf nur über die CLI ausgeführt werden.');
 }
 
+require_once __DIR__ . '/cli-autoload.php';
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../src/Database.php';
 

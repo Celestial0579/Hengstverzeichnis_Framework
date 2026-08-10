@@ -47,7 +47,7 @@ class PluginManagerStampTest extends TestCase {
         // (DigestServiceTest & Co.) setzen die Test-DB auf database/schema.sql
         // zurück und lassen den Database-Singleton stehen - erst der Reset lässt
         // getInstance() die versionierte Migration wirklich laufen, die
-        // plugins.dir_stamp/source nachzieht (siehe Database::runMigrations();
+        // plugins.dir_stamp/source nachzieht (siehe App\Service\SchemaMigrator;
         // schema.sql seedet bewusst kein schema_version, der Stand ist nach dem
         // Re-Import also 0 und die - idempotente - Migration läuft genau einmal).
         $property = new \ReflectionProperty(Database::class, 'instance');

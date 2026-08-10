@@ -125,10 +125,14 @@ sind bewusst ausführlich gehalten.
 - **Kein klassisches Migrationssystem** (kein `up()`/`down()` pro Version):
   `Database::ensureSchemaUpToDate()` wird bei jedem ersten Verbindungsaufbau pro
   Request ausgeführt und legt fehlende Tabellen/Spalten idempotent per
-  `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN` an. Das hält Deployments auf
-  Shared-Hosting ohne SSH-Zugriff einfach, bedeutet aber: Schema-Änderungen im
-  Code müssen **zusätzlich** in `database/schema.sql` (Ersteinrichtung) UND in
-  `ensureSchemaUpToDate()` (Bestandsinstallationen) nachgezogen werden.
+  `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN` an. Die Schritte selbst leben
+  seit #230 in `App\Service\SchemaMigrator` und sind darüber auch explizit
+  aufrufbar (`SchemaMigrator::run()`, z. B. nach dem Restore eines älteren
+  Dumps — siehe [database.md](database.md#schema-migration-versioniert-idempotent)).
+  Das hält Deployments auf Shared-Hosting ohne SSH-Zugriff einfach, bedeutet
+  aber: Schema-Änderungen im Code müssen **zusätzlich** in
+  `database/schema.sql` (Ersteinrichtung) UND in `SchemaMigrator`
+  (Bestandsinstallationen) nachgezogen werden.
 
 ## Request-Flow im Detail
 

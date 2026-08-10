@@ -8,6 +8,42 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Update-Seite denkt Addons mit (#197, Stufe 1): `/admin/updates` zeigt je
+  installiertem Addon die Katalog-Version des offiziellen Repos (aus dem
+  Store-Cache, netzwerkfrei) und die Kompatibilität - geprüft gegen die
+  laufende UND gegen die Zielversion eines verfügbaren Kern-Updates; vor
+  dem Einspielen warnt die Seite, welche aktiven Addons das Update
+  deaktivieren würde. Das Dashboard zählt offene Addon-Updates an der
+  Update-Kachel
+- Neues optionales Manifestfeld `core_supported_max` ("Major.Minor"):
+  höchste unterstützte Kern-Linie eines Addons. Läuft ein neuerer Kern,
+  gilt das Addon als inkompatibel; die Angabe wird mit dem Addon-Autoupdate
+  zur Pflicht (Formatprüfung greift schon jetzt). `core_compatibility`
+  bleibt bewusst Ein-Operator-Format - Bereichs-Syntax wäre fail-closed
+  inkompatibel (#197)
+- Der bisher stumme Kompatibilitäts-Skip beim Plugin-Laden ist erklärbar:
+  `/admin/plugins` nennt zum „Inkompatibel"-Badge jetzt die Begründung
+  (z. B. „unterstützt höchstens Kern 0.3, geprüft gegen 0.4.0") (#197)
+- `App\Helper\ColorContrast`: WCAG-Kontrastrechnung (Hex-Parsing, Ratio,
+  `readableTextOn()`) für die admin-konfigurierbaren Markenfarben; von
+  `layout.php` zur Laufzeit genutzt und per Unit-Test abgesichert, dass die
+  gelieferte Textfarbe für jede Fläche ≥ 4,5:1 erreicht (#196)
+- Kontrast-Gates: neuer Unit-Test rechnet die Theme-Defaults aus
+  `style.css` nach (inkl. erzwungener Wortgleichheit der beiden
+  Darkmode-Zwillingsblöcke), und der E2E-Parcours prüft Footer und
+  Nav-Buttons zusätzlich gegen absolute WCAG-Schwellen in beiden Themes -
+  der bisherige Dark-Audit war regressions-gescoped und für Farben blind,
+  die in beiden Themes gleich sind; die `darkmode`-Phase läuft jetzt auch
+  im E2E-Nachtlauf (#196)
+- Footer zeigt neben dem Betreiber-Copyright den Autorenvermerk des
+  Frameworks („Framework © 2026 Tim Heyne", verlinkt) - sichtbare
+  Namensnennung nach § 13 UrhG und Teil der „Appropriate Legal Notices"
+  der AGPL-3.0 (§ 5(d)); neuer Sprachschlüssel
+  `footer.framework_copyright`, README um Lizenz-/Copyright-Abschnitt
+  ergänzt (#199)
+
 ### Behoben
 
 - Impressum-Platzhalter verweist auf § 5 DDG statt auf das zum 14.05.2024
@@ -26,26 +62,6 @@ Breaking Changes sind jederzeit möglich).
   (`.btn`/`.btn-secondary` plus neuer Modifier `.btn-nav`) zurückgeführt;
   Textfarbe kommt aus `--on-primary` statt hartem Weiß, der Rahmen hebt die
   Fläche im Darkmode ≥ 3:1 von der Kopfzeile ab (#196)
-
-### Hinzugefügt
-
-- Footer zeigt neben dem Betreiber-Copyright den Autorenvermerk des
-  Frameworks („Framework © 2026 Tim Heyne", verlinkt) - sichtbare
-  Namensnennung nach § 13 UrhG und Teil der „Appropriate Legal Notices"
-  der AGPL-3.0 (§ 5(d)); neuer Sprachschlüssel
-  `footer.framework_copyright`, README um Lizenz-/Copyright-Abschnitt
-  ergänzt (#199)
-- `App\Helper\ColorContrast`: WCAG-Kontrastrechnung (Hex-Parsing, Ratio,
-  `readableTextOn()`) für die admin-konfigurierbaren Markenfarben; von
-  `layout.php` zur Laufzeit genutzt und per Unit-Test abgesichert, dass die
-  gelieferte Textfarbe für jede Fläche ≥ 4,5:1 erreicht (#196)
-- Kontrast-Gates: neuer Unit-Test rechnet die Theme-Defaults aus
-  `style.css` nach (inkl. erzwungener Wortgleichheit der beiden
-  Darkmode-Zwillingsblöcke), und der E2E-Parcours prüft Footer und
-  Nav-Buttons zusätzlich gegen absolute WCAG-Schwellen in beiden Themes -
-  der bisherige Dark-Audit war regressions-gescoped und für Farben blind,
-  die in beiden Themes gleich sind; die `darkmode`-Phase läuft jetzt auch
-  im E2E-Nachtlauf (#196)
 
 ## [0.3.0] – 2026-08-09
 

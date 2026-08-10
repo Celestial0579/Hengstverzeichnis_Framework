@@ -68,6 +68,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 | `name` | ✅ | Anzeigename im Admin-Bereich. |
 | `version` | ✅ | Frei wählbar (z. B. SemVer). Bei jedem Update **muss** sie sich ändern - siehe Abschnitt "Update-Erkennung" unten, sonst wird ein reguläres Update fälschlich als verdächtige Änderung erkannt. |
 | `core_compatibility` | ✅ | Vergleichsausdruck gegen `CORE_VERSION` (siehe unten). |
+| `core_supported_max` | (–)* | Höchste unterstützte Kern-Linie als `"Major.Minor"` (z. B. `"0.4"`). Läuft ein neuerer Kern, gilt das Plugin als inkompatibel (wird nicht geladen); die Update-Seite prüft die Angabe zusätzlich gegen die **Ziel**version eines anstehenden Kern-Updates und warnt vor dem Einspielen (#197). *Aktuell optional; wird mit dem Addon-Autoupdate zur **Pflicht** - Manifeste ohne Angabe werden dann abgewiesen. |
 | `description` | – | Anzeigetext im Admin-Bereich. |
 | `author` | – | Anzeigetext im Admin-Bereich. |
 | `hooks` | – | Rein deklarativ/informativ - zeigt Admins vor der Aktivierung, was das Plugin laut Selbstauskunft tut. Wird **nicht** technisch erzwungen. |
@@ -81,10 +82,19 @@ Versionsnummer, ausgewertet mit PHP `version_compare()` gegen die im Kern
 definierte Konstante `CORE_VERSION` (aktuell `0.2.0`, siehe
 `config/config.php`). Ohne Operator wird exakte Übereinstimmung geprüft.
 
+**Bewusst genau EIN Operator + eine Version** - Bereichs-Syntax wie
+`">=0.3.0, <0.4.0"` ist ungültig und würde fail-closed als inkompatibel
+gewertet. Die Obergrenze ist deshalb das eigene Feld `core_supported_max`
+(siehe Tabelle oben): abwärtskompatibel, ältere Kern-Versionen ignorieren
+es einfach.
+
 Ein Plugin, dessen Manifest fehlerhaft ist oder dessen
-`core_compatibility`-Angabe nicht zur laufenden Kern-Version passt, wird
-beim Scan übersprungen (in `/admin/plugins` sichtbar als "Ungültiges
-Manifest"/"Inkompatibel") und lässt sich nicht aktivieren.
+`core_compatibility`-/`core_supported_max`-Angaben nicht zur laufenden
+Kern-Version passen, wird beim Scan übersprungen (in `/admin/plugins`
+sichtbar als "Ungültiges Manifest"/"Inkompatibel", seit #197 mit
+Begründung) und lässt sich nicht aktivieren. Die Update-Seite
+(`/admin/updates`) zeigt zusätzlich je Addon, ob es zur Zielversion eines
+anstehenden Kern-Updates passt.
 
 **Hinweis zur Beta-Phase:** `version_compare()` behandelt Suffixe wie
 `-beta.1` als Vorabversion (niedriger als die reine Versionsnummer ohne

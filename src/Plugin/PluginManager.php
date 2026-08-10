@@ -167,12 +167,20 @@ final class PluginManager {
             $manifest = $raw !== false ? json_decode($raw, true) : null;
             $error = $this->validateManifest($manifest, $entry);
 
+            $incompatibleReason = $error === null
+                ? self::incompatibilityReason(is_array($manifest) ? $manifest : [], defined('CORE_VERSION') ? CORE_VERSION : '')
+                : null;
+
             $this->discovered[$entry] = [
                 'slug' => $entry,
                 'dir' => $pluginDir,
                 'manifest' => is_array($manifest) ? $manifest : [],
                 'error' => $error,
-                'compatible' => $error === null && $this->isCompatible((string)($manifest['core_compatibility'] ?? '')),
+                'compatible' => $error === null && $incompatibleReason === null,
+                // Warum das Plugin nicht zur laufenden Kern-Version passt (#197):
+                // Der Skip in loadEnabledPlugins() war bisher stumm - die
+                // Begründung macht ihn in Admin-Übersichten erklärbar.
+                'incompatible_reason' => $incompatibleReason,
                 // Eindeutiger Inhalts-Fingerabdruck dieser Plugin-Version (siehe Klassen-PHPDoc) -
                 // nur für Manifest-valide Plugins relevant, sonst wird ohnehin nie geladen.
                 'fingerprint' => $error === null ? $this->computeFingerprint($pluginDir) : null,
@@ -234,6 +242,17 @@ final class PluginManager {
             }
         }
 
+        // Obergrenze der unterstützten Kern-Version (#197): vorerst optional,
+        // damit Bestands-Addons installierbar bleiben, bis die Manifeste im
+        // offiziellen Addons-Repo umgestellt sind - wenn angegeben, muss das
+        // Format stimmen. Wird mit dem Addon-Autoupdate zur Pflicht.
+        if (array_key_exists('core_supported_max', $manifest)) {
+            if (!is_string($manifest['core_supported_max'])
+                || !preg_match('/^\d+\.\d+$/', $manifest['core_supported_max'])) {
+                return "Feld 'core_supported_max' muss eine Major.Minor-Angabe wie \"0.4\" sein.";
+            }
+        }
+
         if (!preg_match('/^[a-z0-9][a-z0-9-]*$/', $dirSlug)) {
             return "Ungültiger Plugin-Verzeichnisname '{$dirSlug}' (erlaubt: Kleinbuchstaben, Ziffern, Bindestrich).";
         }
@@ -249,11 +268,14 @@ final class PluginManager {
     }
 
     /**
-     * Prüft eine Kompatibilitäts-Angabe wie ">=0.1.0-beta.1" gegen CORE_VERSION.
+     * Prüft eine Kompatibilitäts-Angabe wie ">=0.1.0-beta.1" gegen eine
+     * konkrete Kern-Version. Bewusst genau EIN Operator + eine Version -
+     * Bereichs-Syntax wäre fail-closed inkompatibel (#197 dokumentiert das;
+     * die Obergrenze ist deshalb das eigene Feld core_supported_max).
      */
-    private function isCompatible(string $constraint): bool {
+    public static function constraintSatisfied(string $constraint, string $coreVersion): bool {
         $constraint = trim($constraint);
-        if ($constraint === '' || !defined('CORE_VERSION')) {
+        if ($constraint === '' || $coreVersion === '') {
             return false;
         }
 
@@ -264,7 +286,50 @@ final class PluginManager {
         $operator = $m[1] !== '' ? $m[1] : '=';
         $required = $m[2];
 
-        return version_compare(CORE_VERSION, $required, $operator);
+        return version_compare($coreVersion, $required, $operator);
+    }
+
+    /**
+     * Passt das Manifest zu der gegebenen Kern-Version? Prüft die Untergrenze
+     * (core_compatibility, Ein-Operator-Format) und - falls deklariert - die
+     * Obergrenze core_supported_max ("X.Y": höchste unterstützte
+     * Major.Minor-Linie des Kerns). Parametrisiert, damit die Update-Seite
+     * gegen die ZIELversion eines anstehenden Kern-Updates prüfen kann,
+     * nicht nur gegen die laufende (#197).
+     */
+    public static function manifestSupports(array $manifest, string $coreVersion): bool {
+        return self::incompatibilityReason($manifest, $coreVersion) === null;
+    }
+
+    /**
+     * Wie manifestSupports(), liefert aber die Begründung der Ablehnung -
+     * für Admin-Übersichten und die Warnungen vor einem Kern-Update.
+     *
+     * @return string|null null = kompatibel
+     */
+    public static function incompatibilityReason(array $manifest, string $coreVersion): ?string {
+        if ($coreVersion === '') {
+            return 'Kern-Version unbekannt (CORE_VERSION nicht definiert).';
+        }
+
+        $constraint = (string)($manifest['core_compatibility'] ?? '');
+        if (!self::constraintSatisfied($constraint, $coreVersion)) {
+            return "benötigt Kern {$constraint}, geprüft gegen {$coreVersion}";
+        }
+
+        $max = $manifest['core_supported_max'] ?? null;
+        if (is_string($max) && preg_match('/^(\d+)\.(\d+)$/', $max, $m)) {
+            $parts = explode('.', $coreVersion);
+            $coreMajor = (int)($parts[0] ?? 0);
+            $coreMinor = (int)($parts[1] ?? 0);
+            $maxMajor = (int)$m[1];
+            $maxMinor = (int)$m[2];
+            if ($coreMajor > $maxMajor || ($coreMajor === $maxMajor && $coreMinor > $maxMinor)) {
+                return "unterstützt höchstens Kern {$max}, geprüft gegen {$coreVersion}";
+            }
+        }
+
+        return null;
     }
 
     private function loadEnabledStates(): void {

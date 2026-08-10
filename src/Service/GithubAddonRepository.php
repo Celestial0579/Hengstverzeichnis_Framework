@@ -429,6 +429,9 @@ final class GithubAddonRepository {
             'name' => $manifest['name'],
             'version' => $manifest['version'],
             'core_compatibility' => $manifest['core_compatibility'],
+            // Obergrenze der unterstützten Kern-Linie (#197) - muss durch die
+            // Whitelist, sonst sehen Update-Seite/Store das Feld im Katalog nie.
+            'core_supported_max' => is_string($manifest['core_supported_max'] ?? null) ? $manifest['core_supported_max'] : null,
             'description' => is_string($manifest['description'] ?? null) ? $manifest['description'] : '',
             'author' => is_string($manifest['author'] ?? null) ? $manifest['author'] : '',
             'hooks' => is_array($manifest['hooks'] ?? null) ? array_values(array_filter($manifest['hooks'], 'is_string')) : [],

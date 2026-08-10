@@ -10,6 +10,14 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Empfängergruppen des E-Mail-Digests sind wählbar: Auf der
+  Digest-Einstellungsseite lässt sich je Gruppe anhaken, wer den Bericht
+  bekommt (Mehrfachauswahl, mindestens eine; Standard bleibt Admin +
+  Editor, Bestandsinstallationen verhalten sich unverändert). Der
+  „keine Empfänger"-Fehler nennt jetzt die konfigurierten Gruppen
+
+### Hinzugefügt
+
 - Update-Seite denkt Addons mit (#197, Stufe 1): `/admin/updates` zeigt je
   installiertem Addon die Katalog-Version des offiziellen Repos (aus dem
   Store-Cache, netzwerkfrei) und die Kompatibilität - geprüft gegen die

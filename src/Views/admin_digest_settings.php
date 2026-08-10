@@ -35,7 +35,11 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
         </div>
     <?php endif; ?>
 
-    <?php if (!empty($_GET['error'])): ?>
+    <?php if (($_GET['error'] ?? '') === 'no_recipient_groups'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Bitte mindestens eine Empfängergruppe auswählen - ohne Verteiler hätte der Digest keinen Adressaten.
+        </div>
+    <?php elseif (!empty($_GET['error'])): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Digest fehlgeschlagen: <?= htmlspecialchars($_GET['error']) ?>
         </div>
@@ -82,6 +86,27 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
             <input type="number" id="digest_interval_hours" name="digest_interval_hours" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['digest_interval_hours'] ?? '24')) ?>">
         </div>
 
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label>👥 Empfängergruppen</label>
+            <?php
+                // Wählbar sind alle Gruppen; wirksam ist die Auswahl aus
+                // DigestService::recipientGroupSlugs() (Standard: admin+editor,
+                // Bestandsverhalten aus #52).
+            ?>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem;">
+                <?php foreach (($allGroups ?? []) as $group): ?>
+                    <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 400; cursor: pointer;">
+                        <input type="checkbox" name="digest_recipient_groups[]" value="<?= htmlspecialchars($group['slug']) ?>"
+                            <?= in_array($group['slug'], $recipientGroupSlugs ?? [], true) ? 'checked' : '' ?>>
+                        <?= htmlspecialchars($group['name']) ?><?= !empty($group['is_builtin']) ? ' <span style="color: var(--text-subtle); font-size: 0.8rem;">(eingebaut)</span>' : '' ?>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                Der Digest geht an alle Mitglieder der gewählten Gruppen (mindestens eine).
+            </small>
+        </div>
+
         <div style="display: flex; gap: 1rem; margin-top: 2rem;">
             <button type="submit" class="btn">Einstellungen Speichern</button>
             <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>
@@ -91,7 +116,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
     <hr style="margin: 2rem 0; border: none; border-top: 1px solid var(--border-color);">
 
     <h3>🧪 Digest jetzt manuell auslösen</h3>
-    <p style="color: var(--text-muted); font-size: 0.9rem;">Prüft sofort auf offene Punkte und versendet bei Bedarf an alle Admin-/Editor-Konten, unabhängig vom konfigurierten Intervall.</p>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">Prüft sofort auf offene Punkte und versendet bei Bedarf an alle Mitglieder der gewählten Empfängergruppen, unabhängig vom konfigurierten Intervall.</p>
     <form action="/admin/digest/test" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
         <button type="submit" class="btn btn-secondary">📋 Jetzt prüfen &amp; ggf. senden</button>

@@ -47,11 +47,56 @@ class DigestSettingsTest extends FunctionalTestCase {
             'csrf_token' => $formPage->formField('csrf_token') ?? '',
             'digest_enabled' => '1',
             'digest_interval_hours' => '8',
+            'digest_recipient_groups' => ['admin', 'editor'],
         ]);
         $this->assertSame('/admin/digest?success=1', $response->location());
 
         $settingsPage = $admin->get('/admin/digest');
         $this->assertSame('8', $settingsPage->formField('digest_interval_hours'));
+    }
+
+    /**
+     * Empfängergruppen sind wählbar: Die Auswahl wird gespeichert und auf
+     * der Seite als angehakte Checkboxen reflektiert; ohne jede Gruppe wird
+     * das Speichern abgelehnt (ein leerer Verteiler fiele sonst erst beim
+     * nächsten fehlgeschlagenen Lauf auf).
+     */
+    public function testRecipientGroupsAreSelectableAndAtLeastOneIsRequired(): void {
+        $admin = $this->authenticatedClient();
+
+        $formPage = $admin->get('/admin/digest');
+        // Standard (ohne gespeicherte Auswahl): admin + editor angehakt.
+        $this->assertMatchesRegularExpression('/value="admin"\s+checked/', $formPage->body);
+        $this->assertMatchesRegularExpression('/value="editor"\s+checked/', $formPage->body);
+
+        // Nur admin auswählen.
+        $response = $admin->post('/admin/digest', [
+            'csrf_token' => $formPage->formField('csrf_token') ?? '',
+            'digest_enabled' => '0',
+            'digest_interval_hours' => '24',
+            'digest_recipient_groups' => ['admin', 'gibt-es-nicht'],
+        ]);
+        $this->assertSame('/admin/digest?success=1', $response->location());
+
+        $reloaded = $admin->get('/admin/digest');
+        $this->assertMatchesRegularExpression('/value="admin"\s+checked/', $reloaded->body);
+        $this->assertDoesNotMatchRegularExpression('/value="editor"\s+checked/', $reloaded->body);
+
+        // Leere Auswahl wird abgelehnt.
+        $rejected = $admin->post('/admin/digest', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'digest_enabled' => '0',
+            'digest_interval_hours' => '24',
+        ]);
+        $this->assertSame('/admin/digest?error=no_recipient_groups', $rejected->location());
+
+        // Aufräumen: zurück auf Standard, damit Folge-Tests unbeeinflusst sind.
+        $admin->post('/admin/digest', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'digest_enabled' => '0',
+            'digest_interval_hours' => '24',
+            'digest_recipient_groups' => ['admin', 'editor'],
+        ]);
     }
 
     public function testTestDigestRequiresCsrfToken(): void {

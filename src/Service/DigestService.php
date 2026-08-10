@@ -72,7 +72,7 @@ final class DigestService {
 
         $recipients = self::loadRecipients();
         if (empty($recipients)) {
-            $message = 'Keine Admin-/Editor-E-Mail-Adressen gefunden.';
+            $message = 'Keine E-Mail-Adressen in den Empfängergruppen (' . implode(', ', self::recipientGroupSlugs()) . ') gefunden.';
             self::recordStatus('error', $message, 0);
             throw new \RuntimeException($message);
         }
@@ -121,18 +121,44 @@ final class DigestService {
         return $count;
     }
 
+    /** Standard-Empfängergruppen, wenn keine konfiguriert sind (Bestandsverhalten aus #52). */
+    private const DEFAULT_RECIPIENT_GROUPS = ['admin', 'editor'];
+
+    /**
+     * Konfigurierte Empfängergruppen (Slugs) des Digests: Settings-Schlüssel
+     * `digest_recipient_groups` (kommagetrennt), leer/nicht gesetzt =
+     * Standard admin+editor - Bestandsinstallationen verhalten sich damit
+     * unverändert. Öffentlich, weil die Digest-Einstellungsseite die
+     * aktuelle Auswahl anzeigen muss.
+     *
+     * @return array<int, string>
+     */
+    public static function recipientGroupSlugs(): array {
+        $settings = self::loadSettings();
+        $raw = trim((string)($settings['digest_recipient_groups'] ?? ''));
+        if ($raw === '') {
+            return self::DEFAULT_RECIPIENT_GROUPS;
+        }
+        $slugs = array_values(array_filter(array_map('trim', explode(',', $raw))));
+        return $slugs !== [] ? $slugs : self::DEFAULT_RECIPIENT_GROUPS;
+    }
+
     /**
      * @return array<int, string>
      */
     private static function loadRecipients(): array {
+        $slugs = self::recipientGroupSlugs();
+        $placeholders = implode(',', array_fill(0, count($slugs), '?'));
+
         $db = Database::getInstance();
-        $stmt = $db->query("
+        $stmt = $db->prepare("
             SELECT DISTINCT u.email
             FROM users u
             JOIN user_groups ug ON ug.user_id = u.id
             JOIN `groups` g ON g.id = ug.group_id
-            WHERE g.slug IN ('admin', 'editor') AND u.deleted_at IS NULL
+            WHERE g.slug IN ({$placeholders}) AND u.deleted_at IS NULL
         ");
+        $stmt->execute($slugs);
         return array_values(array_filter($stmt->fetchAll(\PDO::FETCH_COLUMN)));
     }
 

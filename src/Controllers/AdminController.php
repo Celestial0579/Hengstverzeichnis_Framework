@@ -671,6 +671,11 @@ class AdminController extends BaseController {
             'title' => 'E-Mail-Digest',
             'settings' => $settings,
             'schedulerTask' => $schedulerTask,
+            // Empfängergruppen wählbar: alle Gruppen zur Auswahl plus die
+            // aktuell wirksame Auswahl (Standard admin+editor, siehe
+            // DigestService::recipientGroupSlugs()).
+            'allGroups' => $db->query("SELECT slug, name, is_builtin FROM `groups` ORDER BY is_builtin DESC, name ASC")->fetchAll(),
+            'recipientGroupSlugs' => \App\Service\DigestService::recipientGroupSlugs(),
         ]);
     }
 
@@ -682,9 +687,25 @@ class AdminController extends BaseController {
 
         $db = Database::getInstance();
 
+        // Empfängergruppen: nur existierende Slugs übernehmen (manipuliertes
+        // Formular fail-safe). Ohne Auswahl wird abgelehnt statt still auf
+        // niemanden zu versenden - ein leerer Digest-Verteiler wäre sonst
+        // erst am nächsten fehlgeschlagenen Lauf aufgefallen.
+        $knownSlugs = array_column(
+            $db->query("SELECT slug FROM `groups`")->fetchAll(),
+            'slug'
+        );
+        $requestedGroups = is_array($_POST['digest_recipient_groups'] ?? null) ? $_POST['digest_recipient_groups'] : [];
+        $recipientGroups = array_values(array_intersect($knownSlugs, $requestedGroups));
+        if ($recipientGroups === []) {
+            header("Location: /admin/digest?error=no_recipient_groups");
+            exit;
+        }
+
         $settings = [
             'digest_enabled' => !empty($_POST['digest_enabled']) ? '1' : '0',
             'digest_interval_hours' => (string)max(1, (int)($_POST['digest_interval_hours'] ?? 24)),
+            'digest_recipient_groups' => implode(',', $recipientGroups),
         ];
 
         foreach ($settings as $key => $value) {
@@ -692,7 +713,7 @@ class AdminController extends BaseController {
             $stmt->execute([$key, $value, $value]);
         }
 
-        \App\Service\AuditLogger::log("Digest-Einstellungen aktualisiert", "settings", "Aktiviert: {$settings['digest_enabled']}, Intervall: {$settings['digest_interval_hours']}h");
+        \App\Service\AuditLogger::log("Digest-Einstellungen aktualisiert", "settings", "Aktiviert: {$settings['digest_enabled']}, Intervall: {$settings['digest_interval_hours']}h, Empfängergruppen: {$settings['digest_recipient_groups']}");
 
         header("Location: /admin/digest?success=1");
         exit;

@@ -8,6 +8,17 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- `App\Plugin\PluginPage::render()`: Plugin-Seiten rendern im zentralen
+  Haupt-Layout - mit Header, Navigation, Footer, Theme-Umschalter und den
+  admin-konfigurierten Markenfarben, statt als eigenständige, unthemebare
+  HTML-Dokumente. Das Referenz-Plugin nutzt den Dienst auf allen drei
+  Seiten; neuer Doku-Abschnitt „Theming & Darkmode für Plugin-Seiten" in
+  docs/plugin-development.md (inkl. Marker-Konvention für bewusste
+  Ausnahmen wie Druckansichten); statischer Lint-Test verhindert den
+  Rückfall des Demo-Plugins in eigenständige Dokumente (Addons#66)
+
 ## [0.3.0] – 2026-08-09
 
 Stammdaten-Ausbau für die IGFjordpferd-Migration (fehlende Felder des alten

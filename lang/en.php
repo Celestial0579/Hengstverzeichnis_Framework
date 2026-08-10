@@ -17,6 +17,7 @@ return [
     'footer.discussions' => 'Discussions',
     'footer.report_bug' => 'Report a bug',
     'footer.license' => 'License',
+    'footer.framework_copyright' => 'Framework',
 
     'meta.description_suffix' => 'Horse Breeding Registry',
 

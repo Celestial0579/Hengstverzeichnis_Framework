@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'Den begärda adressen ({path}) hittades inte på servern.',
     'errors.500_title' => '500 - Serverfel',
     'errors.500_default_message' => 'Ett oväntat systemfel inträffade. Försök igen vid ett senare tillfälle.',
+    'errors.503_title' => '503 - Underhållsläge',
+    'errors.503_default_message' => 'Applikationen underhålls just nu. Försök igen om några minuter.',
 ];

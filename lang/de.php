@@ -301,4 +301,6 @@ return [
     'errors.404_route_not_found' => 'Die angeforderte Adresse ({path}) wurde auf dem Server nicht gefunden.',
     'errors.500_title' => '500 - Serverfehler',
     'errors.500_default_message' => 'Unerwarteter Systemfehler. Bitte versuchen Sie es zu einem späteren Zeitpunkt erneut.',
+    'errors.503_title' => '503 - Wartungsmodus',
+    'errors.503_default_message' => 'Diese Anwendung wird gerade gewartet. Bitte versuchen Sie es in wenigen Minuten erneut.',
 ];

@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'Pyydettyä osoitetta ({path}) ei löytynyt palvelimelta.',
     'errors.500_title' => '500 - Palvelinvirhe',
     'errors.500_default_message' => 'Odottamaton järjestelmävirhe. Yritä myöhemmin uudelleen.',
+    'errors.503_title' => '503 - Huoltotila',
+    'errors.503_default_message' => 'Sovellusta huolletaan parhaillaan. Yritä uudelleen muutaman minuutin kuluttua.',
 ];

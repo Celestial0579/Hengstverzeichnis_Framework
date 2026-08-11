@@ -8,6 +8,16 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Wartungsmodus im Kern (#232): Werkzeuge (z. B. der Datenbank-Import des
+  Addons `datenmigration`) können über `App\Service\Maintenance::enable($grund)`
+  / `disable()` eine Marker-Datei `var/wartung.lock` setzen; ein früher Check
+  im Bootstrap beantwortet dann jeden Request mit HTTP 503 samt `Retry-After`
+  und schlichter, übersetzter Hinweisseite - vor Router und Datenbank, damit
+  die Sperre auch bei halb eingespielter Datenbank greift. Admin-Sessions sind
+  bewusst nicht ausgenommen (Begründung im Code, siehe `Maintenance::guard()`).
+
 ## [0.4.1] – 2026-08-10
 
 ### Behoben

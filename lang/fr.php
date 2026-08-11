@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'L\'adresse demandée ({path}) est introuvable sur le serveur.',
     'errors.500_title' => '500 - Erreur serveur',
     'errors.500_default_message' => 'Erreur système inattendue. Veuillez réessayer ultérieurement.',
+    'errors.503_title' => '503 - Maintenance en cours',
+    'errors.503_default_message' => 'Cette application est actuellement en maintenance. Veuillez réessayer dans quelques minutes.',
 ];

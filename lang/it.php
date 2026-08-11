@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'L\'indirizzo richiesto ({path}) non è stato trovato sul server.',
     'errors.500_title' => '500 - Errore del server',
     'errors.500_default_message' => 'Errore di sistema imprevisto. Riprova più tardi.',
+    'errors.503_title' => '503 - Modalità di manutenzione',
+    'errors.503_default_message' => 'L\'applicazione è attualmente in manutenzione. Riprova tra qualche minuto.',
 ];

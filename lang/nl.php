@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'Het opgevraagde adres ({path}) is niet op de server gevonden.',
     'errors.500_title' => '500 - Serverfout',
     'errors.500_default_message' => 'Onverwachte systeemfout. Probeer het op een later moment opnieuw.',
+    'errors.503_title' => '503 - Onderhoudsmodus',
+    'errors.503_default_message' => 'De applicatie is momenteel in onderhoud. Probeer het over enkele minuten opnieuw.',
 ];

@@ -22,6 +22,16 @@ spl_autoload_register(function ($class) {
 
 require_once __DIR__ . '/../config/config.php';
 
+// Wartungsmodus (#232): Muss unmittelbar nach config.php stehen - also VOR
+// Plugin-Boot, Router-Aufbau und jedem Datenbank-Zugriff. Der Marker
+// (var/wartung.lock) wird von Werkzeugen wie dem Datenmigrations-Import
+// gesetzt, während sie die Datenbank ersetzen; ein Request, der hier
+// vorbeikäme, träfe auf halb aufgebaute Tabellen. Nach config.php deshalb,
+// weil dort Session (für die Sprachwahl der Hinweisseite) und
+// Security-Header gesetzt werden - beides ohne Datenbank. Beendet den
+// Request bei aktivem Marker mit 503 + Retry-After, siehe Maintenance::guard().
+\App\Service\Maintenance::guard();
+
 use App\Router;
 use App\Controllers\SetupController;
 use App\Plugin\PluginManager;

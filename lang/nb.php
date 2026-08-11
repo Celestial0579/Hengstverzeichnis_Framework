@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'Den forespurte adressen ({path}) ble ikke funnet på serveren.',
     'errors.500_title' => '500 - Serverfeil',
     'errors.500_default_message' => 'Uventet systemfeil. Prøv igjen senere.',
+    'errors.503_title' => '503 - Vedlikeholdsmodus',
+    'errors.503_default_message' => 'Applikasjonen er under vedlikehold. Prøv igjen om noen minutter.',
 ];

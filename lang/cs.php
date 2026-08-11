@@ -295,4 +295,6 @@ return [
     'errors.404_route_not_found' => 'Požadovaná adresa ({path}) nebyla na serveru nalezena.',
     'errors.500_title' => '500 - Chyba serveru',
     'errors.500_default_message' => 'Neočekávaná systémová chyba. Zkuste to prosím později znovu.',
+    'errors.503_title' => '503 - Režim údržby',
+    'errors.503_default_message' => 'Aplikace právě prochází údržbou. Zkuste to prosím za několik minut znovu.',
 ];

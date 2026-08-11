@@ -292,4 +292,6 @@ return [
     'errors.404_route_not_found' => 'The requested address ({path}) was not found on the server.',
     'errors.500_title' => '500 - Server Error',
     'errors.500_default_message' => 'An unexpected system error occurred. Please try again later.',
+    'errors.503_title' => '503 - Maintenance Mode',
+    'errors.503_default_message' => 'This application is currently undergoing maintenance. Please try again in a few minutes.',
 ];

@@ -162,5 +162,63 @@ class HorseLifecycleFieldsTest extends FunctionalTestCase {
         $filtered = $guest->get('/katalog?ajax=1&search=' . urlencode($unique) . '&q_status=active');
         $payload = json_decode($filtered->body, true);
         $this->assertSame(2, $payload['count'], 'q_status=active ist der Zuchtstatus und umfasst auch das verstorbene, aktiv geführte Pferd');
+
+        // 7. Kastrationsdatum (#239): beim Wallach wird es gespeichert und
+        // erscheint auf der öffentlichen Detailseite im lokalisierten Format;
+        // ein ungültiger Wert wird (wie beim Geburtsdatum) zu NULL statt zu
+        // einem DB-Fehler. Bewusst NACH den Katalog-Zählungen (Schritt 6),
+        // deren search=$unique die zusätzlichen Pferde sonst mitzählen würde.
+        $geldingName = "Lifecycle Wallach {$unique}kastr";
+        $response = $admin->post('/admin/horses/store', [
+            'csrf_token' => $csrf,
+            'name' => $geldingName,
+            'sex' => 'gelding',
+            'birth_year' => '2005',
+            'castration_date' => '2010-04-02',
+            'status' => 'active',
+            'is_published' => '1',
+        ]);
+        $this->assertSame('/admin/horses?success=created', $response->location());
+        $geldingId = $idByName($geldingName);
+        $castStmt = $db->prepare("SELECT sex, castration_date FROM horses WHERE id = ?");
+        $castStmt->execute([$geldingId]);
+        $row = $castStmt->fetch();
+        $this->assertSame('gelding', $row['sex']);
+        $this->assertSame('2010-04-02', $row['castration_date']);
+
+        $detail = $guest->get('/horse?id=' . $geldingId);
+        $this->assertSame(200, $detail->statusCode);
+        $this->assertStringContainsString('Kastrationsdatum', $detail->body);
+        $this->assertStringContainsString('02.04.2010', $detail->body);
+
+        // Serverseitig tolerant (#239): auch bei anderem Geschlecht wird ein
+        // übermitteltes Datum gespeichert (das Formular blendet das Feld nur
+        // clientseitig aus); ein ungültiges Datum wird zu NULL.
+        $tolerantName = "Lifecycle Tolerant {$unique}kastr";
+        $response = $admin->post('/admin/horses/store', [
+            'csrf_token' => $csrf,
+            'name' => $tolerantName,
+            'sex' => 'mare',
+            'castration_date' => '2012-13-45',
+        ]);
+        $this->assertSame('/admin/horses?success=created', $response->location(), 'Ungültiges Kastrationsdatum darf keinen DB-Fehler auslösen');
+        $castStmt->execute([$idByName($tolerantName)]);
+        $this->assertNull($castStmt->fetch()['castration_date'], 'Ungültiges Kastrationsdatum muss zu NULL werden');
+
+        // Update-Pfad: Datum ändern wirkt, das Pferd bleibt Wallach.
+        $editGelding = $admin->get('/admin/horses/edit?id=' . $geldingId);
+        $response = $admin->post('/admin/horses/update', [
+            'csrf_token' => $editGelding->formField('csrf_token') ?? '',
+            'id' => (string)$geldingId,
+            'name' => $geldingName,
+            'sex' => 'gelding',
+            'birth_year' => '2005',
+            'castration_date' => '2011-05-03',
+            'status' => 'active',
+            'is_published' => '1',
+        ]);
+        $this->assertSame('/admin/horses?success=updated', $response->location());
+        $castStmt->execute([$geldingId]);
+        $this->assertSame('2011-05-03', $castStmt->fetch()['castration_date']);
     }
 }

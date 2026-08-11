@@ -37,6 +37,7 @@ return [
     'field.birth_date' => 'Fødselsdato',
     'field.height' => 'Stangmål',
     'field.death_year' => 'Dødsår',
+    'field.castration_date' => 'Kastrationsdato',
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (primært livsnummer)',
     'field.foreign_ueln_label' => 'Livsnummer (oprindelsesland)',

@@ -37,6 +37,7 @@ return [
     'field.birth_date' => 'Geboortedatum',
     'field.height' => 'Stokmaat',
     'field.death_year' => 'Sterfjaar',
+    'field.castration_date' => 'Castratiedatum',
     'format.date' => 'd-m-Y',
     'field.ueln_full' => 'UELN (hoofd-levensnummer)',
     'field.foreign_ueln_label' => 'Levensnummer land van herkomst',

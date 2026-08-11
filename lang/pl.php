@@ -37,6 +37,7 @@ return [
     'field.birth_date' => 'Data urodzenia',
     'field.height' => 'Wysokość w kłębie',
     'field.death_year' => 'Rok śmierci',
+    'field.castration_date' => 'Data kastracji',
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (główny numer dożywotni)',
     'field.foreign_ueln_label' => 'Numer dożywotni kraju pochodzenia',

@@ -109,6 +109,45 @@ class PersonFieldsTest extends FunctionalTestCase {
         $this->assertStringNotContainsString('2496x', $detail->body, 'PLZ ist Admin-only');
         $this->assertStringNotContainsString("person-{$unique}@example.com", $detail->body, 'E-Mail ist Admin-only');
 
+        // 4b. Länderflagge (#240): eine Person mit country='Dänemark'
+        // erscheint auf der Detailseite mit 🇩🇰 und dem gespeicherten
+        // Freitext als title-Tooltip; der ISO-Code 'NO' der ersten Person
+        // ergibt 🇳🇴. Beide Personen bleiben dafür verknüpft (der Update-Pfad
+        // ersetzt horse_persons komplett).
+        $flagPersonName = "Person Flagge {$unique}";
+        $form = $admin->get('/admin/persons/create');
+        $response = $admin->post('/admin/persons/store', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'name' => $flagPersonName,
+            'country' => 'Dänemark',
+            'is_published' => '1',
+        ]);
+        $this->assertSame('/admin/persons?success=created', $response->location());
+        $stmt = $db->prepare("SELECT id FROM persons WHERE name = ?");
+        $stmt->execute([$flagPersonName]);
+        $flagPersonId = (int)$stmt->fetchColumn();
+        $this->assertGreaterThan(0, $flagPersonId);
+
+        $editHorse = $admin->get('/admin/horses/edit?id=' . $horseId);
+        $response = $admin->post('/admin/horses/update', [
+            'csrf_token' => $editHorse->formField('csrf_token') ?? '',
+            'id' => (string)$horseId,
+            'name' => $horseName,
+            'status' => 'active',
+            'is_published' => '1',
+            'persons[0][person_id]' => (string)$person['id'],
+            'persons[0][role]' => 'breeder',
+            'persons[1][person_id]' => (string)$flagPersonId,
+            'persons[1][role]' => 'owner',
+        ]);
+        $this->assertSame('/admin/horses?success=updated', $response->location());
+
+        $detail = $guest->get('/horse?id=' . $horseId);
+        $this->assertSame(200, $detail->statusCode);
+        $this->assertStringContainsString('🇩🇰', $detail->body, "country='Dänemark' muss als 🇩🇰 erscheinen");
+        $this->assertStringContainsString('title="Dänemark"', $detail->body, 'Der Länder-Freitext muss als title-Tooltip an der Flagge stehen');
+        $this->assertStringContainsString('🇳🇴', $detail->body, "Der direkte ISO-Code 'NO' muss als 🇳🇴 erscheinen");
+
         // 5. Unveröffentlichte Person: auch die neuen Felder verschwinden
         // komplett von der öffentlichen Seite (#121-Zusicherung gilt weiter).
         $db->prepare("UPDATE persons SET is_published = 0 WHERE id = ?")->execute([$person['id']]);

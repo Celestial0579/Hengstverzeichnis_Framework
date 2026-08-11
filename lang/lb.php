@@ -41,6 +41,7 @@ return [
     'field.birth_date' => 'Gebuertsdatum',
     'field.height' => 'Stockmooss',
     'field.death_year' => 'Doudesjoer',
+    'field.castration_date' => 'Kastratiounsdatum',
     // PHP-date()-Format fir voll Datumsugabe vun der jeweileger Locale (#188).
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (Haapt-Liewensnummer)',

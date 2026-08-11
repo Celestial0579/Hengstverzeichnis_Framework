@@ -40,6 +40,7 @@ return [
     'field.birth_date' => 'Geburtsdatum',
     'field.height' => 'Stockmaß',
     'field.death_year' => 'Todesjahr',
+    'field.castration_date' => 'Kastrationsdatum',
     // PHP-date()-Format für volle Datumsangaben der jeweiligen Locale (#188).
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (Haupt-Lebensnummer)',

@@ -34,6 +34,7 @@ return [
     'field.birth_date' => 'Date of Birth',
     'field.height' => 'Height',
     'field.death_year' => 'Year of Death',
+    'field.castration_date' => 'Castration Date',
     'format.date' => 'Y-m-d',
     'field.ueln_full' => 'UELN (Primary Life Number)',
     'field.foreign_ueln_label' => 'Life Number (Country of Origin)',

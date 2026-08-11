@@ -170,7 +170,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
                 <label for="sex">Geschlecht</label>
-                <select id="sex" name="sex" class="form-control">
+                <select id="sex" name="sex" class="form-control" onchange="toggleCastrationDate()">
                     <option value="">-- Unbekannt --</option>
                     <option value="stallion" <?= ($horse['sex'] ?? '') === 'stallion' ? 'selected' : '' ?>>Hengst</option>
                     <option value="mare" <?= ($horse['sex'] ?? '') === 'mare' ? 'selected' : '' ?>>Stute</option>
@@ -183,6 +183,31 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 <input type="text" id="breed" name="breed" class="form-control" value="<?= htmlspecialchars($horse['breed'] ?? '') ?>" placeholder="z. B. Fjordpferd">
             </div>
         </div>
+
+        <?php
+        // Kastrationsdatum (#239): nur bei Wallachen sinnvoll - das Ein-/
+        // Ausblenden ist rein clientseitig (Komfort), der Server speichert
+        // tolerant auch bei anderem Geschlecht (siehe HorseController). Bei
+        // gesetztem Datum bleibt der Block trotz abweichendem Geschlecht
+        // sichtbar, damit ein erfasster Wert nie unsichtbar "festhängt".
+        $showCastration = (($horse['sex'] ?? '') === 'gelding') || !empty($horse['castration_date']);
+        ?>
+        <div class="form-group" id="castration_date_group" style="<?= $showCastration ? '' : 'display: none;' ?>">
+            <label for="castration_date">Kastrationsdatum</label>
+            <input type="date" id="castration_date" name="castration_date" class="form-control" value="<?= htmlspecialchars((string)($horse['castration_date'] ?? '')) ?>">
+            <small style="color: var(--text-muted);">Nur bei Wallachen relevant - dort endet die Deckeinsatz-Historie.</small>
+        </div>
+
+        <script>
+        function toggleCastrationDate() {
+            const sexValue = document.getElementById('sex').value;
+            const group = document.getElementById('castration_date_group');
+            const hasValue = document.getElementById('castration_date').value !== '';
+            // Ein bereits erfasstes Datum bleibt sichtbar, sonst richtet sich
+            // die Anzeige nach dem Geschlecht (nur Wallach).
+            group.style.display = (sexValue === 'gelding' || hasValue) ? '' : 'none';
+        }
+        </script>
 
         <!-- Personen, Besitzer & Deckstationenverlauf -->
         <div class="form-group" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1.5rem;">

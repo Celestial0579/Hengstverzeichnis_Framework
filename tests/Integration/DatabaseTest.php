@@ -169,6 +169,9 @@ class DatabaseTest extends TestCase {
         $this->assertColumnExists($pdo, 'horses', 'is_deceased');
         $this->assertColumnExists($pdo, 'horses', 'death_year');
 
+        // Kastrationsdatum (#239, SCHEMA_VERSION 2)
+        $this->assertColumnExists($pdo, 'horses', 'castration_date');
+
         // Strukturierte Personendaten (#188)
         $this->assertColumnExists($pdo, 'persons', 'street');
         $this->assertColumnExists($pdo, 'persons', 'house_number');

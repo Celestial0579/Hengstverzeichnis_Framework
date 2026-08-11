@@ -118,6 +118,11 @@ CREATE TABLE IF NOT EXISTS `horses` (
     -- Geschlecht (#165): NULL = unbekannt (Altbestand). Werte englisch wie beim
     -- Zuchtstatus `status`; Wallache sind als Vater ausgeschlossen (#166).
     `sex` ENUM('stallion', 'mare', 'gelding') NULL DEFAULT NULL,
+    -- Kastrationsdatum (#239): echtes Sachdatum (die Deckeinsatz-Historie
+    -- endet dort), fachlich nur bei Wallachen (sex='gelding') sinnvoll. Das
+    -- Formular blendet das Feld entsprechend ein/aus, gespeichert wird
+    -- serverseitig tolerant auch bei anderem Geschlecht. NULL = nicht erfasst.
+    `castration_date` DATE NULL DEFAULT NULL,
     -- Rasse (#163): bewusst Freitext, keine normierte Rasseliste.
     `breed` VARCHAR(100) NULL DEFAULT NULL,
     -- Stockmaß in cm (#188), plausibler Bereich 50-250 (Formular + CSV-Import).

@@ -122,12 +122,17 @@ class HorseController extends BaseController {
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         // Geburtsdatum (#188) ist führend: wenn gesetzt, wird birth_year daraus
         // abgeleitet und ein abweichend übermitteltes Jahr ignoriert.
-        $birth_date = $this->parseBirthDate($_POST['birth_date'] ?? '');
+        $birth_date = $this->parseDate($_POST['birth_date'] ?? '');
         if ($birth_date !== null) {
             $birth_year = (int)substr($birth_date, 0, 4);
         }
         $color = trim($_POST['color'] ?? '');
         $sex = in_array($_POST['sex'] ?? '', self::SEXES, true) ? $_POST['sex'] : null;
+        // Kastrationsdatum (#239): fachlich nur bei Wallachen sinnvoll (das
+        // Formular blendet das Feld entsprechend ein/aus), serverseitig aber
+        // tolerant für jedes Geschlecht übernommen - ein späterer Wechsel der
+        // Geschlechtsangabe darf das erfasste Datum nicht still verwerfen.
+        $castration_date = $this->parseDate($_POST['castration_date'] ?? '');
         $breed = trim($_POST['breed'] ?? '') ?: null;
         $height_cm = $this->parseHeightCm($_POST['height_cm'] ?? '');
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
@@ -183,8 +188,8 @@ class HorseController extends BaseController {
         $this->hooks()->doAction('horse.before_save', null, $_POST);
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, birth_date, color, sex, breed, height_cm, breeding_station_id, breeding_station, description, status, is_deceased, death_year, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
+        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, birth_date, color, sex, castration_date, breed, height_cm, breeding_station_id, breeding_station, description, status, is_deceased, death_year, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
         $newHorseId = (int)$db->lastInsertId();
 
         \App\Service\AuditLogger::log("Pferd angelegt", "horses", "Name: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
@@ -267,12 +272,14 @@ class HorseController extends BaseController {
         $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         // Geburtsdatum (#188) ist führend, siehe store().
-        $birth_date = $this->parseBirthDate($_POST['birth_date'] ?? '');
+        $birth_date = $this->parseDate($_POST['birth_date'] ?? '');
         if ($birth_date !== null) {
             $birth_year = (int)substr($birth_date, 0, 4);
         }
         $color = trim($_POST['color'] ?? '');
         $sex = in_array($_POST['sex'] ?? '', self::SEXES, true) ? $_POST['sex'] : null;
+        // Kastrationsdatum (#239): tolerant für jedes Geschlecht, siehe store().
+        $castration_date = $this->parseDate($_POST['castration_date'] ?? '');
         $breed = trim($_POST['breed'] ?? '') ?: null;
         $height_cm = $this->parseHeightCm($_POST['height_cm'] ?? '');
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
@@ -356,8 +363,8 @@ class HorseController extends BaseController {
 
         // breeding_station = COALESCE(?, breeding_station) (#214): NULL steht für
         // "Feld nicht übermittelt" (siehe oben) und erhält den Bestandswert.
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 
@@ -405,13 +412,14 @@ class HorseController extends BaseController {
     }
 
     /**
-     * Geburtsdatum (#188) aus dem Formular: erwartet YYYY-MM-DD (input
-     * type="date"), verlangt ein reales Kalenderdatum und denselben
-     * Jahresbereich wie der CSV-Import (1600 bis Folgejahr). Alles andere
-     * wird zu NULL - das Formular behandelt das Feld als optional, die
-     * strenge Variante mit Zeilenfehlern lebt im HorseCsvImporter.
+     * Datumsangabe (#188 Geburtsdatum, #239 Kastrationsdatum) aus dem
+     * Formular: erwartet YYYY-MM-DD (input type="date"), verlangt ein reales
+     * Kalenderdatum und denselben Jahresbereich wie der CSV-Import (1600 bis
+     * Folgejahr). Alles andere wird zu NULL - das Formular behandelt die
+     * Felder als optional, die strenge Variante mit Zeilenfehlern lebt im
+     * HorseCsvImporter.
      */
-    private function parseBirthDate(string $value): ?string {
+    private function parseDate(string $value): ?string {
         $value = trim($value);
         if ($value === '' || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m)) {
             return null;

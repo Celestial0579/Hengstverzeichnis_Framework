@@ -37,6 +37,7 @@ return [
     'field.birth_date' => 'Syntymäaika',
     'field.height' => 'Säkäkorkeus',
     'field.death_year' => 'Kuolinvuosi',
+    'field.castration_date' => 'Kastraatiopäivä',
     'format.date' => 'j.n.Y',
     'field.ueln_full' => 'UELN (ensisijainen rekisterinumero)',
     'field.foreign_ueln_label' => 'Alkuperämaan rekisterinumero',

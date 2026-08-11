@@ -37,6 +37,7 @@ return [
     'field.birth_date' => 'Datum narození',
     'field.height' => 'Kohoutková výška',
     'field.death_year' => 'Rok úhynu',
+    'field.castration_date' => 'Datum kastrace',
     'format.date' => 'j. n. Y',
     'field.ueln_full' => 'UELN (hlavní životní číslo)',
     'field.foreign_ueln_label' => 'Životní číslo země původu',

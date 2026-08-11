@@ -55,7 +55,17 @@ $publishFormId = 'personPublishForm';
                     <tr style="border-bottom: 1px solid var(--border-color);">
                         <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$p['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$p['id']) ?></td>
-                        <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$p['name']) ?></strong></td>
+                        <td style="padding: 0.5rem;">
+                            <strong><?= htmlspecialchars((string)$p['name']) ?></strong>
+                            <?php
+                            // Länderflagge (#240): Emoji aus persons.country, Tooltip
+                            // trägt den gespeicherten Freitext; unbekannt => keine Flagge.
+                            $countryFlag = App\Helper\CountryFlag::emoji($p['country'] ?? null);
+                            ?>
+                            <?php if ($countryFlag !== null): ?>
+                                <span title="<?= htmlspecialchars((string)$p['country']) ?>"><?= $countryFlag ?></span>
+                            <?php endif; ?>
+                        </td>
                         <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
                             <?php
                                 // Strukturierte Felder (#188) zuerst, Freitext-Rest darunter.

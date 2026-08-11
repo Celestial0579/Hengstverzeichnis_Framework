@@ -142,6 +142,13 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.sex')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(!empty($horse['sex']) ? App\I18n\Translator::t('value.sex.' . $horse['sex']) : App\I18n\Translator::t('field.unknown')) ?></td>
                 </tr>
+                <?php if (!empty($horse['castration_date'])): ?>
+                    <?php // Kastrationsdatum (#239): nur anzeigen, wenn erfasst. ?>
+                    <tr style="border-bottom: 1px solid var(--border-color);">
+                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.castration_date')) ?></th>
+                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['castration_date']))) ?></td>
+                    </tr>
+                <?php endif; ?>
                 <tr style="border-bottom: 1px solid var(--border-color);">
                     <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.breed')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)(($horse['breed'] ?? '') ?: App\I18n\Translator::t('field.unknown'))) ?></td>
@@ -215,6 +222,17 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                     <div>
                                         <?php if (!empty($hp['person_name'])): ?>
                                             <strong><?= htmlspecialchars($hp['person_name']) ?></strong>
+                                            <?php
+                                            // Länderflagge (#240): Emoji aus persons.country der
+                                            // verknüpften Person; unbekanntes Land => keine Flagge.
+                                            // Der title-Tooltip trägt den gespeicherten Freitext
+                                            // (Barrierefreiheit), Einträge ohne Person (reine
+                                            // Stations-/Textzeilen) bekommen keine Flagge.
+                                            $countryFlag = App\Helper\CountryFlag::emoji($hp['country'] ?? null);
+                                            ?>
+                                            <?php if ($countryFlag !== null): ?>
+                                                <span title="<?= htmlspecialchars((string)$hp['country']) ?>"><?= $countryFlag ?></span>
+                                            <?php endif; ?>
                                         <?php else: ?>
                                             <strong>
                                                 <?php if (!empty($hp['station_id'])): ?>

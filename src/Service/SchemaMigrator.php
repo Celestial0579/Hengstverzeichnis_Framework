@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 1;
+    public const SCHEMA_VERSION = 2;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -668,5 +668,13 @@ final class SchemaMigrator {
         // der horses-Tabelle je Lauf zurück.
         $addIndex('horses', 'idx_horses_sire_unlinked', '`deleted_at`, `sire_id`');
         $addIndex('horses', 'idx_horses_dam_unlinked', '`deleted_at`, `dam_id`');
+
+        // 27. Kastrationsdatum (#239, SCHEMA_VERSION 2): echtes Sachdatum -
+        // die Deckeinsatz-Historie eines Wallachs endet dort. Fachlich nur bei
+        // sex='gelding' sinnvoll (das Formular blendet das Feld entsprechend
+        // ein/aus), serverseitig aber tolerant für jedes Geschlecht
+        // gespeichert. NULL = nicht erfasst. Spiegelbildlich zu
+        // database/schema.sql.
+        $addColumn('horses', 'castration_date', 'DATE NULL DEFAULT NULL AFTER `sex`');
     }
 }

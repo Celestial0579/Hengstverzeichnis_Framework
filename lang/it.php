@@ -37,6 +37,7 @@ return [
     'field.birth_date' => 'Data di nascita',
     'field.height' => 'Altezza al garrese',
     'field.death_year' => 'Anno di morte',
+    'field.castration_date' => 'Data di castrazione',
     'format.date' => 'd/m/Y',
     'field.ueln_full' => 'UELN (numero di vita principale)',
     'field.foreign_ueln_label' => 'Numero di vita del paese d\'origine',

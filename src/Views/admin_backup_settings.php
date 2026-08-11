@@ -15,8 +15,9 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
         Automatisierte, periodische Sicherung der Datenbank an ein von drei
         wählbaren externen Zielen - als Kernfunktion, aufbauend auf der
         Cron-/Scheduler-Infrastruktur (siehe
-        <a href="/admin/cron">Automatisierung (Cron)</a>). Enthält aktuell nur die
-        Datenbank, keine hochgeladenen Dateien (Logos/Pferdebilder).
+        <a href="/admin/cron">Automatisierung (Cron)</a>). Sichert die Datenbank
+        und auf Wunsch zusätzlich die hochgeladenen Dateien
+        (Logos/Pferdebilder/Galerie).
     </p>
 
     <?php if (!empty($_GET['success'])): ?>
@@ -62,6 +63,20 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
                 <input type="checkbox" name="backup_enabled" value="1" <?= ($settings['backup_enabled'] ?? '') === '1' ? 'checked' : '' ?>>
                 Automatisierte Backups aktivieren
             </label>
+        </div>
+
+        <div class="form-group">
+            <label style="cursor: pointer; font-weight: 500;">
+                <input type="checkbox" name="backup_include_uploads" value="1" <?= ($settings['backup_include_uploads'] ?? '') === '1' ? 'checked' : '' ?>>
+                Hochgeladene Dateien mitsichern
+            </label>
+            <small style="color: var(--text-muted); display: block; margin-top: 0.2rem;">
+                Sichert zusätzlich zum SQL-Dump ein tar-Archiv des
+                Uploads-Verzeichnisses (Logos, Pferdebilder, Galerie-Dateien) ans
+                selbe Ziel - mit derselben Aufbewahrungsrotation. Je nach
+                Bildbestand kann das Archiv deutlich größer sein als der
+                Datenbank-Dump.
+            </small>
         </div>
 
         <div class="form-group">

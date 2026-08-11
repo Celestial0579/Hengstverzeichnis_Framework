@@ -15,47 +15,90 @@ use PDO;
  * Dockerfile nicht installiert, auf klassischem Webhosting oft nicht
  * verfügbar oder `shell_exec` gesperrt) - passend zur "keine externen
  * Abhängigkeiten"-Philosophie des Kerns.
+ *
+ * Zwei APIs (#231):
+ * - dumpTo(callable $write): streamend, konstanter Speicherbedarf - der Dump
+ *   wird statement-/zeilenweise als Chunks an den Callback übergeben, ohne
+ *   je als Gesamtstring im Speicher zu liegen. Für große Bestände (externe
+ *   Backups, Datenmigrations-Addon) der richtige Weg.
+ * - dump(): string - dünner Wrapper um dumpTo() für Rückwärtskompatibilität;
+ *   sammelt alle Chunks in einem String. Byte-identisch zum bisherigen
+ *   Verhalten.
  */
 final class DatabaseDumper {
 
     /**
      * Erzeugt einen vollständigen SQL-Dump (Schema + Daten) aller Tabellen
-     * der aktuellen Datenbank. Tabellen werden vor dem Neuanlegen gelöscht
-     * (`DROP TABLE IF EXISTS`) und Fremdschlüssel-Prüfungen für die Dauer
-     * des Imports deaktiviert, damit die Wiederherstellungsreihenfolge
-     * unabhängig von Fremdschlüssel-Abhängigkeiten funktioniert.
+     * der aktuellen Datenbank als einen String. Dünner Wrapper um dumpTo() -
+     * für große Bestände die streamende API bevorzugen (#231).
      */
     public static function dump(): string {
+        $buffer = '';
+        self::dumpTo(function (string $chunk) use (&$buffer): void {
+            $buffer .= $chunk;
+        });
+        return $buffer;
+    }
+
+    /**
+     * Streamende Variante (#231): erzeugt denselben Dump wie dump(), übergibt
+     * ihn aber statement-/zeilenweise als Chunks an $write, statt ihn als
+     * Gesamtstring aufzubauen. Die Daten-SELECTs laufen dabei unbuffered
+     * (Pdo\Mysql::ATTR_USE_BUFFERED_QUERY=false), damit auch der MySQL-Client
+     * nicht die komplette Tabelle in den Speicher zieht - der Speicherbedarf
+     * bleibt so unabhängig von der Instanzgröße konstant.
+     *
+     * Tabellen werden vor dem Neuanlegen gelöscht (`DROP TABLE IF EXISTS`)
+     * und Fremdschlüssel-Prüfungen für die Dauer des Imports deaktiviert,
+     * damit die Wiederherstellungsreihenfolge unabhängig von
+     * Fremdschlüssel-Abhängigkeiten funktioniert.
+     *
+     * @param callable(string): void $write Erhält den Dump in Chunks
+     *                                      (typisch: eine SQL-Anweisung samt
+     *                                      abschließendem Zeilenumbruch).
+     */
+    public static function dumpTo(callable $write): void {
         $pdo = Database::getInstance();
         $dbName = $pdo->query('SELECT DATABASE()')->fetchColumn();
 
-        $lines = [];
-        $lines[] = '-- Automatisches Backup (#59) - ' . gmdate('Y-m-d H:i:s') . ' UTC';
-        $lines[] = '-- Datenbank: ' . $dbName;
-        $lines[] = 'SET FOREIGN_KEY_CHECKS=0;';
-        $lines[] = 'SET NAMES utf8mb4;';
-        $lines[] = '';
+        $write('-- Automatisches Backup (#59) - ' . gmdate('Y-m-d H:i:s') . " UTC\n");
+        $write('-- Datenbank: ' . $dbName . "\n");
+        $write("SET FOREIGN_KEY_CHECKS=0;\n");
+        $write("SET NAMES utf8mb4;\n\n");
 
+        // SHOW TABLES vollständig einlesen, BEVOR unten unbuffered gearbeitet
+        // wird - die Tabellenliste ist klein, die Daten sind es nicht.
         $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
-        foreach ($tables as $table) {
-            $lines[] = self::dumpTable($pdo, $table);
+
+        $wasBuffered = $pdo->getAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY);
+        $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, false);
+        try {
+            foreach ($tables as $table) {
+                self::dumpTableTo($pdo, $table, $write);
+            }
+        } finally {
+            // Die Verbindung ist ein App-weites Singleton - den Puffer-Modus
+            // für alle nachfolgenden Nutzer wiederherstellen.
+            $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, (bool)$wasBuffered);
         }
 
-        $lines[] = 'SET FOREIGN_KEY_CHECKS=1;';
-
-        return implode("\n", $lines);
+        $write('SET FOREIGN_KEY_CHECKS=1;');
     }
 
-    private static function dumpTable(PDO $pdo, string $table): string {
+    /**
+     * @param callable(string): void $write
+     */
+    private static function dumpTableTo(PDO $pdo, string $table, callable $write): void {
         $quotedTable = '`' . str_replace('`', '``', $table) . '`';
 
-        $createStmt = $pdo->query("SHOW CREATE TABLE {$quotedTable}")->fetch();
+        $createQuery = $pdo->query("SHOW CREATE TABLE {$quotedTable}");
+        $createStmt = $createQuery->fetch();
+        $createQuery->closeCursor(); // Pflicht im unbuffered Modus vor der nächsten Query
         $createSql = $createStmt['Create Table'] ?? $createStmt[1] ?? '';
 
-        $lines = [];
-        $lines[] = "-- Tabelle: {$table}";
-        $lines[] = "DROP TABLE IF EXISTS {$quotedTable};";
-        $lines[] = "{$createSql};";
+        $write("-- Tabelle: {$table}\n");
+        $write("DROP TABLE IF EXISTS {$quotedTable};\n");
+        $write("{$createSql};\n");
 
         $stmt = $pdo->query("SELECT * FROM {$quotedTable}");
         $columns = null;
@@ -67,10 +110,10 @@ final class DatabaseDumper {
                 fn($value) => $value === null ? 'NULL' : $pdo->quote((string)$value),
                 array_values($row)
             );
-            $lines[] = "INSERT INTO {$quotedTable} (" . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ');';
+            $write("INSERT INTO {$quotedTable} (" . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ");\n");
         }
+        $stmt->closeCursor();
 
-        $lines[] = '';
-        return implode("\n", $lines);
+        $write("\n");
     }
 }

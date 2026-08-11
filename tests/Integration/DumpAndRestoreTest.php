@@ -126,4 +126,81 @@ class DumpAndRestoreTest extends TestCase {
         $this->assertSame('Müller, Anna "die Schnelle"', $restoredPersonName['name']);
         $this->assertSame("Zeile1\nZeile2", $restoredPersonName['contact_info']);
     }
+
+    /**
+     * Die streamende API (#231) muss byte-identisch dasselbe liefern wie
+     * dump() - nur eben in Chunks statt als Gesamtstring. Einzige erlaubte
+     * Abweichung: die Zeitstempel-Kopfzeile, wenn die beiden Aufrufe über
+     * eine Sekundengrenze fallen.
+     */
+    public function testDumpToProducesByteIdenticalOutputToDump(): void {
+        $chunks = [];
+        \App\Service\DatabaseDumper::dumpTo(function (string $chunk) use (&$chunks): void {
+            $chunks[] = $chunk;
+        });
+        $streamed = implode('', $chunks);
+
+        $full = \App\Service\DatabaseDumper::dump();
+
+        $normalize = fn(string $sql) => preg_replace(
+            '/^-- Automatisches Backup \(#59\) - \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC$/m',
+            '-- Automatisches Backup (#59) - <ZEITSTEMPEL> UTC',
+            $sql
+        );
+        $this->assertSame($normalize($full), $normalize($streamed));
+
+        // Wirklich gestreamt, nicht ein einzelner Gesamt-Chunk: mindestens
+        // Kopfzeilen + je Tabelle mehrere Chunks.
+        $this->assertGreaterThan(10, count($chunks));
+
+        // Kein Chunk enthält den kompletten Dump (konstanter Speicher ist das
+        // Ziel der API - ein Riesen-Chunk wäre der alte Zustand mit Umweg).
+        foreach ($chunks as $chunk) {
+            $this->assertLessThan(strlen($streamed), strlen($chunk));
+        }
+    }
+
+    /**
+     * Restore-Rundlauf über die streamende API: die per dumpTo() gelieferten
+     * Chunks - so wie BackupService sie in eine Datei schriebe - gegen eine
+     * frische Datenbank ausführen und die Escaping-kritischen Werte prüfen.
+     */
+    public function testDumpToStreamCanBeFullyRestoredIntoAFreshDatabase(): void {
+        $dumpFile = tempnam(sys_get_temp_dir(), 'hv-dumpto-test-');
+        try {
+            $out = fopen($dumpFile, 'wb');
+            \App\Service\DatabaseDumper::dumpTo(function (string $chunk) use ($out): void {
+                fwrite($out, $chunk);
+            });
+            fclose($out);
+
+            // Frisches Restore-Ziel (unabhängig von der Reihenfolge der Tests
+            // in dieser Klasse).
+            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::TARGET_DB . "`");
+            self::$adminPdo->exec("CREATE DATABASE `" . self::TARGET_DB . "` CHARACTER SET utf8mb4");
+
+            $target = new PDO(
+                "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::TARGET_DB . ";charset=utf8mb4",
+                DB_USER,
+                DB_PASS,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+            $target->exec((string)file_get_contents($dumpFile));
+
+            $sourceTables = self::$source->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+            $targetTables = $target->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+            sort($sourceTables);
+            sort($targetTables);
+            $this->assertSame($sourceTables, $targetTables, 'Nach dem Restore aus dem Stream fehlen oder existieren zusätzliche Tabellen');
+
+            $restoredSiteName = $target->query("SELECT setting_value FROM settings WHERE setting_key = 'site_name'")->fetchColumn();
+            $this->assertSame("Reiter's Verband \"Süd\" \\ Test", $restoredSiteName);
+
+            $restoredPerson = $target->query("SELECT name, contact_info FROM persons LIMIT 1")->fetch();
+            $this->assertSame('Müller, Anna "die Schnelle"', $restoredPerson['name']);
+            $this->assertSame("Zeile1\nZeile2", $restoredPerson['contact_info']);
+        } finally {
+            @unlink($dumpFile);
+        }
+    }
 }

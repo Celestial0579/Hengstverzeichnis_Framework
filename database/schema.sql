@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `totp_secret` VARCHAR(255) NULL,
     `totp_enabled` TINYINT(1) DEFAULT 0,
     `backup_codes` TEXT NULL,
+    `passkeys` TEXT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
     `session_version` INT NOT NULL DEFAULT 1,
     `last_totp_timeslice` BIGINT NULL DEFAULT NULL,
@@ -150,7 +151,14 @@ CREATE TABLE IF NOT EXISTS `horses` (
     INDEX `idx_horses_published_name` (`is_published`, `deleted_at`, `name`),
     INDEX `idx_horses_deleted_name` (`deleted_at`, `name`),
     INDEX `idx_horses_name` (`name`),
-    INDEX `idx_horses_foreign_ueln` (`foreign_ueln`)
+    INDEX `idx_horses_foreign_ueln` (`foreign_ueln`),
+    -- Katalog-Filteroptionen (#221): SELECT DISTINCT color/breed als
+    -- Index-Only-Scan statt Full Table Scan
+    INDEX `idx_horses_color` (`color`, `deleted_at`),
+    INDEX `idx_horses_breed` (`breed`, `deleted_at`),
+    -- Blutlinien-Vorfilter des MatchSuggestionFinder (#215)
+    INDEX `idx_horses_sire_unlinked` (`deleted_at`, `sire_id`),
+    INDEX `idx_horses_dam_unlinked` (`deleted_at`, `dam_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Horse Persons Relation (Ownership History & Roles)
@@ -198,18 +206,23 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
 -- Plugins (Aktivierungsstatus, siehe src/Plugin/PluginManager.php, #56)
 -- content_hash: Inhalts-Fingerabdruck der bei Aktivierung freigegebenen Version,
 -- verhindert stillschweigendes Weiterlaufen nachträglich ausgetauschten Codes.
+-- dir_stamp (#224): billiger Verzeichnis-Stempel, spart den SHA-256-Vergleich
+-- beim Bootstrap, solange sich der Plugin-Ordner nicht geändert hat.
+-- source (#212): Store-Herkunft ('owner/repo@ref'), NULL bei manueller Installation.
 CREATE TABLE IF NOT EXISTS `plugins` (
     `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
     `enabled` TINYINT(1) NOT NULL DEFAULT 0,
     `installed_version` VARCHAR(20) NOT NULL DEFAULT '0.0.0',
     `content_hash` VARCHAR(64) NULL DEFAULT NULL,
+    `dir_stamp` VARCHAR(64) NULL DEFAULT NULL,
+    `source` VARCHAR(150) NULL DEFAULT NULL,
     `activated_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Addon-Store-Quellen (GitHub-Repos, aus denen /admin/plugins/store Addons
--- anbietet) samt Katalog-Cache. Das offizielle Repo wird von
--- Database::ensureSchemaUpToDate() per INSERT IGNORE eingetragen.
+-- anbietet) samt Katalog-Cache. Das offizielle Repo wird von der
+-- Schema-Migration (App\Service\SchemaMigrator) per INSERT IGNORE eingetragen.
 CREATE TABLE IF NOT EXISTS `addon_repos` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `owner` VARCHAR(100) NOT NULL,
@@ -226,7 +239,7 @@ CREATE TABLE IF NOT EXISTS `addon_repos` (
 -- Gruppen-/Berechtigungssystem (#66, siehe docs/user-groups-plan.md und
 -- BaseController::hasPermission()) - EINZIGES Rechtesystem der App (das
 -- frühere users.role wurde vollständig entfernt, siehe
--- Database::ensureSchemaUpToDate()). Security-by-Design: Für angemeldete
+-- App\Service\SchemaMigrator). Security-by-Design: Für angemeldete
 -- Benutzer ist Mitgliedschaft ausschließlich explizit über `user_groups`;
 -- einzig nicht angemeldete Besucher gehören automatisch der Gast-Gruppe
 -- `public` an (GroupMembership::groupIds(null)). `admin` hat systemseitig
@@ -342,6 +355,10 @@ CREATE TABLE IF NOT EXISTS `api_keys` (
     `token_hash` CHAR(64) NOT NULL UNIQUE,
     `token_prefix` VARCHAR(20) NOT NULL,
     `scope_permissions` TEXT NULL DEFAULT NULL,
+    -- Kopplung an users.session_version (#217): Ein Passwort-Reset des
+    -- Besitzers entzieht auch allen zuvor ausgestellten Schlüsseln die
+    -- Gültigkeit (siehe App\Security\ApiKey).
+    `issued_session_version` INT NOT NULL DEFAULT 1,
     `last_used_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `revoked_at` DATETIME NULL DEFAULT NULL,

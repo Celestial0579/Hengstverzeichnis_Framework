@@ -2,9 +2,13 @@
 
 MySQL/MariaDB, `InnoDB`, durchgängig `utf8mb4_unicode_ci`. Initiales Schema:
 [`database/schema.sql`](../database/schema.sql). Laufende Schema-Änderungen
-werden zusätzlich idempotent in `Database::ensureSchemaUpToDate()`
-([src/Database.php](../src/Database.php)) nachgezogen (siehe
-[architecture.md](architecture.md#datenbank-zugriff-srcdatabasephp)).
+werden zusätzlich idempotent in `App\Service\SchemaMigrator`
+([src/Service/SchemaMigrator.php](../src/Service/SchemaMigrator.php))
+nachgezogen — automatisch beim Verbindungsaufbau über
+`Database::ensureSchemaUpToDate()` oder explizit per
+`SchemaMigrator::run()`, siehe
+[Schema-Migration](#schema-migration-versioniert-idempotent) und
+[architecture.md](architecture.md#datenbank-zugriff-srcdatabasephp).
 
 ## Entity-Overview
 
@@ -82,7 +86,7 @@ also z. B. mehrere Besitzer über die Zeit hinweg haben. `person_id` ist
 
 Wie alle Schema-Änderungen doppelt gepflegt: im Ersteinrichtungs-Schema
 `database/schema.sql` **und** idempotent in
-`Database::ensureSchemaUpToDate()` für bestehende Installationen.
+`App\Service\SchemaMigrator` für bestehende Installationen.
 
 ### `persons`
 Züchter/Besitzer/Halter. Strukturierte Felder seit #188: `street`,
@@ -153,7 +157,48 @@ sonstige Systemeinstellungen — u. a. `feature_visibility__<key>`
 Backup-/Digest-Konfiguration (Zugangsdaten verschlüsselt), `update_channel`,
 `registration_enabled`/`registration_default_group`, `language`,
 `tracking_code` und `base_url`. Wird bei jedem Request in
-`BaseController::__construct()` komplett geladen.
+`BaseController::__construct()` komplett geladen. Außerdem liegt hier
+`schema_version` — der zuletzt vollständig migrierte Schema-Stand (#213,
+siehe [Schema-Migration](#schema-migration-versioniert-idempotent)).
+
+## Schema-Migration (versioniert, idempotent)
+
+Es gibt **kein klassisches Migrationssystem** (kein `up()`/`down()` pro
+Version). Stattdessen leben alle Migrationsschritte — einzeln idempotent
+per `SHOW COLUMNS`/`SHOW TABLES`/`SHOW INDEX` bzw.
+`CREATE TABLE IF NOT EXISTS` abgesichert — gesammelt in
+`App\Service\SchemaMigrator` (#230). Zwei Aufrufwege, EINE Quelle:
+
+- **Automatisch:** `Database::ensureSchemaUpToDate()` delegiert beim ersten
+  Verbindungsaufbau pro Request an `SchemaMigrator::run()`. Über den in
+  `settings.schema_version` persistierten Stand (#213) kostet das im
+  Normalfall genau eine Abfrage; die Schritte laufen nur nach einem Update
+  mit erhöhter `SchemaMigrator::SCHEMA_VERSION` (bzw. beim Setup) einmal.
+- **Explizit:** `SchemaMigrator::run($pdo): array` für Restore-/Import-Wege
+  (z. B. ein Datenmigrations-Addon), die nach dem Einspielen eines Dumps
+  einer **älteren** Kern-Version das Schema ohne `shell_exec` heben müssen.
+  Rückgabe ist die Liste der tatsächlich durchgeführten Schritte (leer =
+  nichts zu tun), z. B. für ein Import-Protokoll. `storedVersion($pdo)` /
+  `isUpToDate($pdo)` beantworten vorab, ob Migrationen ausstehen.
+  `php database/migrate.php` ist nur ein dünner CLI-Wrapper um diese Klasse.
+
+**Reihenfolge bei Restore/Instanz-Umzug: Restore → Migration → App.** Erst
+den Dump einspielen, dann `SchemaMigrator::run()` (bzw.
+`php database/migrate.php`) laufen lassen, erst danach die App wieder
+bedienen — der eingespielte Dump bringt seinen alten
+`settings.schema_version`-Stand mit, der Lauf hebt das Schema und stempelt
+den neuen Stand. Wer den Schritt auslässt, verliert nichts Dauerhaftes: Der
+nächste Verbindungsaufbau der App holt die Migration automatisch nach — aber
+erst dann, und bis dahin liefe die App gegen das alte Schema.
+
+**Disziplin bei Schema-Änderungen** (siehe Kommentar an
+`SchemaMigrator::SCHEMA_VERSION`): Jede Änderung wird doppelt gepflegt — in
+`database/schema.sql` (Ersteinrichtung) **und** als idempotenter Schritt in
+`SchemaMigrator::migrate()` (Bestandsinstallationen) — und erhöht zwingend
+`SCHEMA_VERSION`, sonst sehen Bestandsinstallationen sie nie.
+`tests/Integration/SchemaMigratorTest.php` prüft die Drift-Freiheit beider
+Quellen: Auf einem frisch importierten `schema.sql` darf ein Lauf nur noch
+den Versionsstempel setzen.
 
 ## Soft-Delete / Papierkorb
 

@@ -73,7 +73,7 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 
 | Skript | Zweck |
 |---|---|
-| `php database/migrate.php` | Führt bekannte Spalten-Migrationen manuell/idempotent aus (Subset von `Database::ensureSchemaUpToDate()` – primär als Debug-/Standalone-Werkzeug relevant, im normalen Betrieb übernimmt das die App automatisch bei jedem Verbindungsaufbau) |
+| `php database/migrate.php` | Dünner CLI-Wrapper um `App\Service\SchemaMigrator::run()` (#230): führt den vollständigen, idempotenten Schema-Migrationslauf aus und listet die durchgeführten Schritte auf. Im normalen Betrieb übernimmt das die App automatisch bei jedem Verbindungsaufbau; explizit relevant nach einem Restore/Import eines älteren Dumps (Reihenfolge Restore → Migration → App, siehe [database.md](database.md#schema-migration-versioniert-idempotent)) |
 | `php database/seed.php` | Legt einen Test-Admin an (`admin@example.com` / `admin123`) oder setzt dessen Passwort zurück – **nur für lokale Entwicklung**, niemals in Produktion |
 | `php database/reset.php` | **Destruktiv:** Leert alle Kern-Tabellen (`TRUNCATE`) und löscht `config/db_config.php`, sodass die App wieder im Setup-Modus startet. Nur für lokales Zurücksetzen des Entwicklungsstands gedacht |
 
@@ -192,8 +192,10 @@ verursacht hat.
   nie rohes HTML durchreichen.
 - **Schema-Änderungen**: Neue Spalten/Tabellen müssen sowohl in
   `database/schema.sql` (Ersteinrichtung) als auch in
-  `Database::ensureSchemaUpToDate()` (Bestandsinstallationen, idempotent per
-  `ADD COLUMN`/`CREATE TABLE IF NOT EXISTS`) ergänzt werden.
+  `App\Service\SchemaMigrator` (Bestandsinstallationen, idempotent per
+  `ADD COLUMN`/`CREATE TABLE IF NOT EXISTS`) ergänzt werden — und
+  `SchemaMigrator::SCHEMA_VERSION` muss erhöht werden, sonst überspringt
+  der versionierte Kurzschluss (#213) den neuen Schritt.
 - **Sicherheitsrelevante/-datenändernde Aktionen** sollten über
   `\App\Service\AuditLogger::log($action, $category, $details)` protokolliert
   werden – siehe [security.md](security.md#audit-log) für bestehende

@@ -467,7 +467,7 @@ final class PluginManager {
             // der Stempel entscheidet, ob der SHA-256 überhaupt berechnet werden
             // muss, die Herkunft, ob ein Versionswechsel automatisch akzeptiert
             // werden darf. Beide Spalten legt die versionierte Migration an
-            // (Database::runMigrations()), die vor jeder Query dieser Verbindung läuft.
+            // (App\Service\SchemaMigrator), die vor jeder Query dieser Verbindung läuft.
             $stmt = $db->query("SELECT slug, installed_version, content_hash, dir_stamp, source FROM plugins WHERE enabled = 1");
             $rows = $stmt->fetchAll();
             $this->enabledSlugs = array_column($rows, 'slug');

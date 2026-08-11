@@ -6,7 +6,7 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [Unreleased]
+## [0.5.0] – 2026-08-11
 
 ### Hinzugefügt
 
@@ -17,6 +17,45 @@ Breaking Changes sind jederzeit möglich).
   und schlichter, übersetzter Hinweisseite - vor Router und Datenbank, damit
   die Sperre auch bei halb eingespielter Datenbank greift. Admin-Sessions sind
   bewusst nicht ausgenommen (Begründung im Code, siehe `Maintenance::guard()`).
+- Schema-Migration als aufrufbare Klasse `App\Service\SchemaMigrator` (#230):
+  `run()` liefert die durchgeführten Schritte, `storedVersion()`/`isUpToDate()`
+  machen den Stand abfragbar; `database/migrate.php` ist nur noch ein dünner
+  CLI-Wrapper. Restore-/Import-Wege können Dumps älterer Kern-Versionen damit
+  ohne `shell_exec` auf den aktuellen Stand heben.
+- Streamender Datenbank-Dump `DatabaseDumper::dumpTo(callable)` (#231) mit
+  konstantem Speicherbedarf; `dump(): string` bleibt als kompatibler Wrapper.
+- Externes Backup kann Uploads mitsichern (#233): Opt-in-Einstellung
+  "Hochgeladene Dateien mitsichern", tar(.gz)-Archiv von `public/uploads`
+  über den neuen streamenden ustar-Schreiber `App\Service\TarArchive`,
+  getrennte Aufbewahrungsrotation für `backup-*`/`uploads-*`.
+- Streamender Datei-Upload in allen drei Backup-Zielen (#237):
+  `BackupTarget::putObjectFromFile()` lädt Dump- und Uploads-Archive direkt
+  aus der Datei (S3 Single-PUT mit `hash_file`-SHA256, FTPS `ftp_fput`,
+  WebDAV über rohen TLS-Socket) - der Speicherbedarf der gesamten
+  Backup-Kette ist damit unabhängig von der Instanzgröße.
+- Kastrationsdatum als eigenes Sachdatum `horses.castration_date` (#239)
+  samt Migrationsschritt, Formularfeld (nur bei Wallach eingeblendet) und
+  Anzeige auf der Detailseite.
+- Länderflaggen (#240): `App\Helper\CountryFlag` mappt Ländernamen
+  (deutsch/englisch, tolerant) und ISO-Codes auf Flaggen-Emoji; Anzeige mit
+  Tooltip neben Züchter/Besitzer/Halter auf der Pferde-Detailseite und in
+  der Personenverwaltung.
+
+### Geändert
+
+- Öffentliche Pferde-Detailseite neu gegliedert (#242): Hero-Karte mit Foto
+  (Platzhalter statt Layout-Sprung), Identitätszeile und zweispaltigem
+  Steckbrief; danach thematische Karten Abstammung, Leistung & Auszeichnungen
+  (Plugin-Sektionen), Zucht & Personen und Beschreibung. Die Deckstation
+  steht im Steckbrief nur noch als Link, die Historie im Personen-Verlauf.
+
+### Behoben
+
+- Die CLI-Skripte `database/migrate.php`/`seed.php`/`reset.php` luden keine
+  App-Klassen mehr (fehlender Autoloader) und waren damit unbenutzbar (#236).
+- Schema-Drift beseitigt: `users.passkeys`, `plugins.dir_stamp`/`source`,
+  `api_keys.issued_session_version` und vier `horses`-Indizes fehlten in
+  `database/schema.sql`; ein neuer Drift-Test verhindert Wiederholung (#236).
 
 ## [0.4.1] – 2026-08-10
 

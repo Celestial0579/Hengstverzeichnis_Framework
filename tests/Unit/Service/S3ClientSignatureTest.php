@@ -91,4 +91,39 @@ class S3ClientSignatureTest extends TestCase {
             $result['canonicalRequest']
         );
     }
+
+    /**
+     * Der streamende Datei-Weg (#237, S3Client::putObjectFromFile()) signiert
+     * mit vorab berechnetem Payload-Hash (hash_file()) statt mit dem Body
+     * selbst - beide Wege müssen für denselben Inhalt dieselbe Signatur
+     * ergeben, sonst wiese das Ziel den streamenden Upload ab.
+     */
+    public function testSignWithPayloadHashMatchesSignForSameBody(): void {
+        $body = 'hello world backup content';
+
+        $viaBody = S3Client::sign(
+            'PUT',
+            '/backups/db-20260805-120000.sql.gz',
+            [],
+            ['Host' => 'test-bucket.s3.eu-central-1.amazonaws.com', 'Content-Type' => 'application/gzip'],
+            $body,
+            'eu-central-1',
+            'AKIDEXAMPLE',
+            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+            '20260805T120000Z'
+        );
+        $viaHash = S3Client::signWithPayloadHash(
+            'PUT',
+            '/backups/db-20260805-120000.sql.gz',
+            [],
+            ['Host' => 'test-bucket.s3.eu-central-1.amazonaws.com', 'Content-Type' => 'application/gzip'],
+            hash('sha256', $body),
+            'eu-central-1',
+            'AKIDEXAMPLE',
+            'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+            '20260805T120000Z'
+        );
+
+        $this->assertSame($viaBody, $viaHash);
+    }
 }

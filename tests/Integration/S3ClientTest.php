@@ -53,6 +53,50 @@ class S3ClientTest extends TestCase {
         $this->assertSame($content, file_get_contents($storedFile));
     }
 
+    /**
+     * Der streamende Datei-Weg (#237) muss byte-identisch zum String-Weg
+     * ankommen - geprüft mit Binärinhalt deutlich über der internen
+     * 8-KiB-Blockgröße von stream_copy_to_stream() (siehe
+     * App\Service\HttpFileUpload), damit der Upload tatsächlich über mehrere
+     * Blöcke läuft.
+     */
+    public function testPutObjectFromFileStoresBodyByteIdenticalToPutObject(): void {
+        $content = random_bytes(200_000);
+        $file = tempnam(sys_get_temp_dir(), 'hv-test-upload-');
+        file_put_contents($file, $content);
+
+        try {
+            $this->client->putObject('backups/string-weg.bin', $content);
+            $this->client->putObjectFromFile('backups/datei-weg.bin', $file);
+        } finally {
+            unlink($file);
+        }
+
+        $viaString = file_get_contents(FakeS3Server::storageDir() . '/test-bucket__backups~string-weg.bin');
+        $viaFile = file_get_contents(FakeS3Server::storageDir() . '/test-bucket__backups~datei-weg.bin');
+        $this->assertSame($content, $viaFile);
+        $this->assertSame($viaString, $viaFile);
+    }
+
+    /**
+     * Fehlerpfad des Datei-Wegs (#237): Ein nicht erreichbares Ziel muss wie
+     * beim String-Weg als RuntimeException enden (BackupService wertet das
+     * als fehlgeschlagenen Lauf), nicht als stilles Nichtstun.
+     */
+    public function testPutObjectFromFileAgainstUnreachableEndpointThrows(): void {
+        $client = new S3Client('127.0.0.1:1', 'us-east-1', 'test-bucket', 'AKIDEXAMPLE', 'test-secret-key', pathStyle: true, useHttps: false);
+        $file = tempnam(sys_get_temp_dir(), 'hv-test-upload-');
+        file_put_contents($file, 'x');
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Verbindung fehlgeschlagen');
+            $client->putObjectFromFile('backups/unerreichbar.bin', $file);
+        } finally {
+            unlink($file);
+        }
+    }
+
     public function testDeleteObjectRemovesItFromListing(): void {
         $this->client->putObject('backups/to-delete.sql', 'x');
         $this->assertContains('backups/to-delete.sql', array_column($this->client->listObjects('backups/'), 'key'));

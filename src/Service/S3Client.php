@@ -42,6 +42,58 @@ final class S3Client implements BackupTarget {
         $this->request('PUT', $key, $body, [], ['Content-Type' => $contentType]);
     }
 
+    /**
+     * Lädt eine Datei streamend als Objekt hoch (#237) - Gegenstück zu
+     * putObject() für Inhalte, die als fertige Datei vorliegen (Backup-
+     * Zwischendateien, siehe App\Service\BackupService): Der Inhalt wird nie
+     * als Gesamtstring in den Speicher geladen. Bewusst als Single-PUT statt
+     * S3-Multipart-Upload: SigV4 braucht vom Body nur dessen SHA256-Hash,
+     * und den liefert hash_file() streamend - Multipart (CreateMultipartUpload/
+     * UploadPart/CompleteMultipartUpload mit je eigener Signatur, Teilnummern-
+     * Buchhaltung und AbortMultipartUpload-Aufräumpfad) würde den Signatur-
+     * und Fehlerbehandlungscode vervielfachen, ohne hier etwas zu gewinnen;
+     * die 5-GiB-Grenze eines Single-PUT liegt weit über realistischen
+     * Backup-Objektgrößen.
+     */
+    public function putObjectFromFile(string $key, string $path, string $contentType = 'application/octet-stream'): void {
+        $payloadHash = @hash_file('sha256', $path);
+        if ($payloadHash === false) {
+            throw new \RuntimeException("Upload-Datei nicht lesbar: {$path}");
+        }
+
+        [$host, $canonicalUri] = $this->hostAndCanonicalUri($key);
+
+        $signed = self::signWithPayloadHash(
+            'PUT',
+            $canonicalUri,
+            [],
+            ['Host' => $host, 'Content-Type' => $contentType],
+            $payloadHash,
+            $this->region,
+            $this->accessKey,
+            $this->secretKey,
+            gmdate('Ymd\THis\Z')
+        );
+
+        $headerLines = [];
+        foreach ($signed['headers'] as $name => $value) {
+            // Anders als beim http-Stream-Wrapper (String-Weg, request())
+            // setzt auf dem rohen Socket niemand den Host-Header automatisch
+            // - er geht hier mit und muss exakt dem signierten Wert
+            // entsprechen.
+            $headerLines[] = "{$name}: {$value}";
+        }
+        $headerLines[] = "Authorization: {$signed['authorizationHeader']}";
+
+        [$hostname, $port] = self::splitHostPort($host, $this->useHttps ? 443 : 80);
+        $response = HttpFileUpload::send('PUT', $hostname, $port, $this->useHttps, $canonicalUri, $headerLines, $path);
+
+        if ($response['status'] === null || $response['status'] >= 300) {
+            $reason = $response['status'] !== null ? $this->extractErrorMessage($response['body']) : 'Verbindung fehlgeschlagen';
+            throw new \RuntimeException("S3-Anfrage (PUT {$canonicalUri}) fehlgeschlagen: HTTP " . ($response['status'] ?? '?') . " - {$reason}");
+        }
+    }
+
     public function deleteObject(string $key): void {
         $this->request('DELETE', $key);
     }
@@ -70,10 +122,7 @@ final class S3Client implements BackupTarget {
      * @param array<string, string> $extraHeaders
      */
     private function request(string $method, string $key, string $body = '', array $query = [], array $extraHeaders = []): string {
-        $host = $this->pathStyle ? $this->endpoint : "{$this->bucket}.{$this->endpoint}";
-        $canonicalUri = $this->pathStyle
-            ? '/' . $this->uriEncodePath($this->bucket) . ($key !== '' ? '/' . $this->uriEncodePath($key) : '')
-            : ($key !== '' ? '/' . $this->uriEncodePath($key) : '/');
+        [$host, $canonicalUri] = $this->hostAndCanonicalUri($key);
 
         $headers = array_merge(['Host' => $host], $extraHeaders);
 
@@ -124,6 +173,36 @@ final class S3Client implements BackupTarget {
     }
 
     /**
+     * Host(-Header) und kanonischer URI-Pfad für einen Objekt-Schlüssel -
+     * je nach Adressierungsart (Path-Style vs. Virtual-Hosted-Style, siehe
+     * Klassendoc), gemeinsam genutzt vom String-Weg (request()) und vom
+     * Datei-Weg (putObjectFromFile()).
+     *
+     * @return array{0: string, 1: string}
+     */
+    private function hostAndCanonicalUri(string $key): array {
+        $host = $this->pathStyle ? $this->endpoint : "{$this->bucket}.{$this->endpoint}";
+        $canonicalUri = $this->pathStyle
+            ? '/' . $this->uriEncodePath($this->bucket) . ($key !== '' ? '/' . $this->uriEncodePath($key) : '')
+            : ($key !== '' ? '/' . $this->uriEncodePath($key) : '/');
+        return [$host, $canonicalUri];
+    }
+
+    /**
+     * Trennt einen ggf. im Endpoint enthaltenen Port ("minio.intern:9000")
+     * vom Hostnamen - der Host-Header behält die kombinierte Form (sie ist
+     * signiert), die Socket-Verbindung braucht beides getrennt.
+     *
+     * @return array{0: string, 1: int}
+     */
+    private static function splitHostPort(string $host, int $defaultPort): array {
+        if (preg_match('/^(.+):(\d+)$/', $host, $matches) === 1) {
+            return [$matches[1], (int)$matches[2]];
+        }
+        return [$host, $defaultPort];
+    }
+
+    /**
      * Reine, zustandslose AWS-SigV4-Signaturberechnung (RFC 3986 URI-Encoding,
      * kanonische Anfrage, String-to-Sign, HMAC-Schlüsselableitung,
      * Signatur) - als eigenständige statische Methode ausgelagert, damit sie
@@ -155,8 +234,40 @@ final class S3Client implements BackupTarget {
         string $secretKey,
         string $amzDate
     ): array {
+        return self::signWithPayloadHash($method, $canonicalUri, $query, $headers, hash('sha256', $body), $region, $accessKey, $secretKey, $amzDate);
+    }
+
+    /**
+     * Wie sign(), aber mit bereits berechnetem SHA256-Hash des Bodys statt
+     * des Bodys selbst - für den streamenden Datei-Upload (#237): In die
+     * SigV4-Signatur geht vom Body ausschließlich sein Hash ein
+     * (X-Amz-Content-Sha256 und letzte Zeile der kanonischen Anfrage), und
+     * hash_file() bildet ihn streamend, ohne die Datei je komplett zu laden.
+     *
+     * @param array<string, string> $query
+     * @param array<string, string> $headers Muss mindestens 'Host' enthalten; X-Amz-Content-Sha256
+     *                                        und X-Amz-Date werden hier automatisch ergänzt.
+     * @return array{
+     *     headers: array<string, string>,
+     *     canonicalQueryString: string,
+     *     canonicalRequest: string,
+     *     stringToSign: string,
+     *     signature: string,
+     *     authorizationHeader: string,
+     * }
+     */
+    public static function signWithPayloadHash(
+        string $method,
+        string $canonicalUri,
+        array $query,
+        array $headers,
+        string $payloadHash,
+        string $region,
+        string $accessKey,
+        string $secretKey,
+        string $amzDate
+    ): array {
         $dateStamp = substr($amzDate, 0, 8);
-        $payloadHash = hash('sha256', $body);
 
         $headers = array_merge($headers, [
             'X-Amz-Content-Sha256' => $payloadHash,

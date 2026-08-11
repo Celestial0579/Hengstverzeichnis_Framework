@@ -19,6 +19,17 @@ interface BackupTarget {
      */
     public function putObject(string $key, string $body, string $contentType = 'application/octet-stream'): void;
 
+    /**
+     * Lädt den Inhalt einer lokalen Datei streamend als Objekt hoch (#237) -
+     * semantisch identisch zu putObject(), aber ohne den Inhalt je als
+     * Gesamtstring in den Speicher zu laden. Für die von
+     * App\Service\BackupService streamend erzeugten Temp-Dateien (SQL-Dump
+     * #231, Uploads-Archiv #233), deren Größe mit dem Bildbestand der
+     * Instanz wächst - erst dieser Weg macht den konstanten Speicherbedarf
+     * der Backup-Kette bis zum Ziel durchgängig.
+     */
+    public function putObjectFromFile(string $key, string $path, string $contentType = 'application/octet-stream'): void;
+
     public function deleteObject(string $key): void;
 
     /**

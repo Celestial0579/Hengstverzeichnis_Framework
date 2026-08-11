@@ -451,6 +451,82 @@ footer a:hover {
     border: 0;
 }
 
+/*
+ * Öffentliche Pferde-Detailseite: Hero-Karte (Foto links, Identität &
+ * Steckbrief rechts). Der Foto-Platzhalter hält dasselbe Seitenverhältnis wie
+ * ein echtes Bild - ohne ihn kollabierte die Bildspalte bei Pferden ohne Foto
+ * und verschob das gesamte Raster. Farben ausschließlich über die zentralen
+ * Theme-Variablen (Darkmode, #91).
+ */
+.horse-hero-grid {
+    display: grid;
+    grid-template-columns: minmax(240px, 340px) 1fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+.horse-hero-photo {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+}
+
+.horse-photo-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 4rem;
+    background: var(--surface-muted);
+    border-style: dashed;
+    box-shadow: none;
+    color: var(--text-subtle);
+}
+
+/* Steckbrief: fest zweispaltiges dt/dd-Raster; unter ~700px einspaltig. */
+.horse-facts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 2rem;
+    margin: 0;
+}
+
+.horse-facts > div {
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.5rem 0;
+}
+
+.horse-facts dt {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.15rem;
+}
+
+.horse-facts dd {
+    margin: 0;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+/* Abschnitte des Plugin-Hooks 'horse.detail_sections' innerhalb der
+   gemeinsamen Karte "Leistung & Auszeichnungen" optisch trennen. */
+.horse-plugin-section + .horse-plugin-section {
+    border-top: 1px solid var(--border-color);
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+}
+
+@media (max-width: 700px) {
+    .horse-hero-grid,
+    .horse-facts {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Responsive & Mobile Touch Optimization */
 @media (max-width: 768px) {
     header {

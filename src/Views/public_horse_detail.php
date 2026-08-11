@@ -1,6 +1,11 @@
 <?php
 // src/Views/public_horse_detail.php
 /**
+ * Öffentliche Pferde-Detailseite. Aufbau in fünf Karten (Reihenfolge bewusst,
+ * angelehnt an gängige Pferde-Portale): 1. Hero (Foto + Identität + Steckbrief),
+ * 2. Abstammung, 3. Leistung & Auszeichnungen (Plugin-Hook), 4. Zucht & Personen,
+ * 5. Beschreibung (nur wenn vorhanden).
+ *
  * @var array $horse
  * @var array|null $pedigree
  */
@@ -80,228 +85,114 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     <a href="/katalog" style="color: var(--primary-fg); text-decoration: none; font-weight: 500;"><?= htmlspecialchars(App\I18n\Translator::t('common.back_to_catalog')) ?></a>
 </div>
 
-<!-- Main Details -->
+<!-- 1. Hero: Foto links, Identität & Steckbrief rechts -->
 <div class="card" style="margin-bottom: 2rem;">
-    <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between;">
-        <span><?= htmlspecialchars((string)$horse['name']) ?></span>
-        <span>
-            <?php // Zuchtstatus-Badge; seit dem Status-Split (#188) zweiwertig. ?>
-            <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
-                <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : 'status.inactive')) ?>
-            </span>
-            <?php if (!empty($horse['is_deceased'])): ?>
-                <?php // Lebensstatus getrennt vom Zuchtstatus (#188). ?>
-                <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color);">
-                    ✝ <?= htmlspecialchars(App\I18n\Translator::t('status.deceased')) ?><?= !empty($horse['death_year']) ? ' ' . (int)$horse['death_year'] : '' ?>
-                </span>
-            <?php endif; ?>
-        </span>
-    </h1>
-
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 2rem;">
-        <?php if (!empty($horse['image_url'])): ?>
-            <div style="text-align: center;">
-                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" style="width: 100%; max-height: 350px; object-fit: cover; border-radius: var(--border-radius); border: 1px solid var(--border-color); box-shadow: var(--shadow-md);">
-            </div>
-        <?php endif; ?>
-
+    <div class="horse-hero-grid">
         <div>
-            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('horse.master_data')) ?></h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['ueln'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
-                </tr>
-                <?php if (!empty($horse['foreign_ueln'])): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-fg);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></td>
-                    </tr>
-                <?php endif; ?>
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <?php // Volles Geburtsdatum (#188) wenn erfasst, sonst nur das Jahr. ?>
-                    <?php if (!empty($horse['birth_date'])): ?>
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_date')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['birth_date']))) ?></td>
-                    <?php else: ?>
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
-                    <?php endif; ?>
-                </tr>
-                <?php if (!empty($horse['death_year'])): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.death_year')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= (int)$horse['death_year'] ?></td>
-                    </tr>
-                <?php endif; ?>
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.color')) ?></th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)($horse['color'] ?: App\I18n\Translator::t('field.unknown'))) ?></td>
-                </tr>
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.sex')) ?></th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(!empty($horse['sex']) ? App\I18n\Translator::t('value.sex.' . $horse['sex']) : App\I18n\Translator::t('field.unknown')) ?></td>
-                </tr>
-                <?php if (!empty($horse['castration_date'])): ?>
-                    <?php // Kastrationsdatum (#239): nur anzeigen, wenn erfasst. ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.castration_date')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['castration_date']))) ?></td>
-                    </tr>
-                <?php endif; ?>
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.breed')) ?></th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)(($horse['breed'] ?? '') ?: App\I18n\Translator::t('field.unknown'))) ?></td>
-                </tr>
-                <?php if (!empty($horse['height_cm'])): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('field.height')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500;"><?= (int)$horse['height_cm'] ?> cm</td>
-                    </tr>
-                <?php endif; ?>
-                <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></th>
-                        <td style="padding: 0.6rem 0; font-weight: 500; color: var(--primary-fg);">
-                            <strong>
-                                <?php if (!empty($horse['station_name']) && !empty($horse['breeding_station_id'])): ?>
-                                    <a href="/station?id=<?= $horse['breeding_station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
-                                <?php else: ?>
-                                    <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?>
-                                <?php endif; ?>
-                            </strong>
-                            <?php if (!empty($horse['breeding_station']) && !empty($horse['station_name']) && $horse['breeding_station'] !== $horse['station_name']): ?>
-                                <br><small style="color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
-                            <?php endif; ?>
-                            <?php if (!empty($horse['station_contact'])): ?>
-                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?>: <?= htmlspecialchars($horse['station_contact']) ?></span>
-                            <?php endif; ?>
-                            <?php if (!empty($horse['station_address'])): ?>
-                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">📍 <?= nl2br(htmlspecialchars($horse['station_address'])) ?></span>
-                            <?php endif; ?>
-                            <?php if (!empty($horse['station_phone'])): ?>
-                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">📞 <?= htmlspecialchars($horse['station_phone']) ?></span>
-                            <?php endif; ?>
-                            <?php if (!empty($horse['station_email'])): ?>
-                                <br><span style="font-size: 0.85rem; color: var(--text-muted); font-weight: normal;">✉️ <a href="mailto:<?= htmlspecialchars($horse['station_email']) ?>"><?= htmlspecialchars($horse['station_email']) ?></a></span>
-                            <?php endif; ?>
-                            <?php if (!empty($horse['station_website'])): ?>
-                                <br><span style="font-size: 0.85rem; font-weight: normal;">🌐 <a href="<?= htmlspecialchars($horse['station_website']) ?>" target="_blank" rel="noopener"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></span>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
-                <?php endif; ?>
-            </table>
-
-            <!-- Züchter, Besitzer & Deckstationenverlauf -->
-            <div style="margin-top: 1.5rem;">
-                <h4 style="font-size: 1.1rem; color: var(--primary-fg); margin-bottom: 0.8rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
-                    <?= htmlspecialchars(App\I18n\Translator::t('horse.history_heading')) ?>
-                </h4>
-
-                <?php if (empty($horsePersons)): ?>
-                    <p style="color: var(--text-subtle); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_persons')) ?></p>
-                <?php else: ?>
-                    <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-                        <?php
-                        $roleLabels = [
-                            'breeder' => [App\I18n\Translator::t('field.breeder'), '#6f42c1'],
-                            'owner' => [App\I18n\Translator::t('field.owner'), '#007bff'],
-                            'keeper' => [App\I18n\Translator::t('field.keeper'), '#fd7e14']
-                        ];
-                        foreach ($horsePersons as $hp):
-                            $roleMeta = $roleLabels[$hp['role']] ?? [App\I18n\Translator::t('field.owner'), '#6c757d'];
-                            $yearsText = '';
-                            if ($hp['role'] !== 'breeder' && ($hp['from_year'] || $hp['until_year'])) {
-                                $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . ($hp['until_year'] ?: App\I18n\Translator::t('horse.years_until_today')) . ')';
-                            }
-                            $stationDisplayName = $hp['station_name'] ?? $hp['breeding_station_text'] ?? '';
-                        ?>
-                            <div style="background: var(--surface-muted); border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.3rem;">
-                                    <div>
-                                        <?php if (!empty($hp['person_name'])): ?>
-                                            <strong><?= htmlspecialchars($hp['person_name']) ?></strong>
-                                            <?php
-                                            // Länderflagge (#240): Emoji aus persons.country der
-                                            // verknüpften Person; unbekanntes Land => keine Flagge.
-                                            // Der title-Tooltip trägt den gespeicherten Freitext
-                                            // (Barrierefreiheit), Einträge ohne Person (reine
-                                            // Stations-/Textzeilen) bekommen keine Flagge.
-                                            $countryFlag = App\Helper\CountryFlag::emoji($hp['country'] ?? null);
-                                            ?>
-                                            <?php if ($countryFlag !== null): ?>
-                                                <span title="<?= htmlspecialchars((string)$hp['country']) ?>"><?= $countryFlag ?></span>
-                                            <?php endif; ?>
-                                        <?php else: ?>
-                                            <strong>
-                                                <?php if (!empty($hp['station_id'])): ?>
-                                                    <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
-                                                        🏠 <?= htmlspecialchars($stationDisplayName) ?>
-                                                    </a>
-                                                <?php else: ?>
-                                                    🏠 <?= htmlspecialchars($stationDisplayName) ?>
-                                                <?php endif; ?>
-                                            </strong>
-                                        <?php endif; ?>
-                                    </div>
-                                    <span style="background: <?= $roleMeta[1] ?>; color: #fff; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">
-                                        <?= $roleMeta[0] ?><?= htmlspecialchars($yearsText) ?>
-                                    </span>
-                                </div>
-
-                                <?php if (!empty($hp['person_name']) && !empty($stationDisplayName)): ?>
-                                    <div style="font-size: 0.85rem; color: var(--primary-fg); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
-                                        <span><?= htmlspecialchars(App\I18n\Translator::t('horse.breeding_station_colon')) ?></span>
-                                        <?php if (!empty($hp['station_id'])): ?>
-                                            <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
-                                                <?= htmlspecialchars($stationDisplayName) ?>
-                                            </a>
-                                        <?php else: ?>
-                                            <span><?= htmlspecialchars($stationDisplayName) ?></span>
-                                        <?php endif; ?>
-                                    </div>
-                                <?php endif; ?>
-
-                                <?php
-                                    // Ort/Land/Mitgliedsstatus (#188) sind die einzigen
-                                    // strukturierten Personenfelder auf der öffentlichen
-                                    // Seite - Adresse/E-Mail bleiben Admin-only (siehe
-                                    // PublicController::horseDetail).
-                                    $placeParts = array_filter([$hp['city'] ?? '', $hp['country'] ?? '']);
-                                ?>
-                                <?php if (!empty($placeParts) || !empty($hp['membership_status'])): ?>
-                                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
-                                        <?= htmlspecialchars(implode(', ', $placeParts)) ?><?php if (!empty($placeParts) && !empty($hp['membership_status'])): ?> · <?php endif; ?><?= htmlspecialchars((string)($hp['membership_status'] ?? '')) ?>
-                                    </div>
-                                <?php endif; ?>
-                                <?php if (!empty($hp['contact_info'])): ?>
-                                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
-                                        <?= nl2br(htmlspecialchars($hp['contact_info'])) ?>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                <?php endif; ?>
-            </div>
+            <?php if (!empty($horse['image_url'])): ?>
+                <img class="horse-hero-photo" src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>">
+            <?php else: ?>
+                <?php // Platzhalter mit festem Seitenverhältnis: ohne ihn kollabierte
+                      // die Bildspalte und das ganze Raster verschob sich. ?>
+                <div class="horse-hero-photo horse-photo-placeholder">
+                    <span aria-hidden="true">🐴</span>
+                    <span class="sr-only"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_image')) ?></span>
+                </div>
+            <?php endif; ?>
         </div>
 
         <div>
-            <h3 style="font-size: 1.2rem; margin-bottom: 1rem; color: var(--text-muted);"><?= htmlspecialchars(App\I18n\Translator::t('horse.description_heading')) ?></h3>
-            <div style="background: var(--surface-muted); padding: 1rem; border-radius: var(--border-radius); border: 1px solid var(--border-color); min-height: 120px;">
-                <?php if (!empty($horse['description'])): ?>
-                    <?= App\Helper\Markdown::parse($horse['description']) ?>
-                <?php else: ?>
-                    <p style="color: var(--text-subtle);"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_description')) ?></p>
+            <h1 style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.4rem;">
+                <span><?= htmlspecialchars((string)$horse['name']) ?></span>
+                <?php // Zuchtstatus-Badge; seit dem Status-Split (#188) zweiwertig. ?>
+                <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
+                    <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : 'status.inactive')) ?>
+                </span>
+                <?php if (!empty($horse['is_deceased'])): ?>
+                    <?php // Lebensstatus getrennt vom Zuchtstatus (#188). ?>
+                    <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color);">
+                        ✝ <?= htmlspecialchars(App\I18n\Translator::t('status.deceased')) ?><?= !empty($horse['death_year']) ? ' ' . (int)$horse['death_year'] : '' ?>
+                    </span>
                 <?php endif; ?>
-            </div>
+            </h1>
+
+            <?php
+            // Kompakte Identitätszeile: Rasse · Geschlecht · Jahrgang · Farbe.
+            // Leere Felder fallen weg, damit keine verwaisten Trennpunkte entstehen.
+            $identityParts = array_filter([
+                (string)($horse['breed'] ?? ''),
+                !empty($horse['sex']) ? App\I18n\Translator::t('value.sex.' . $horse['sex']) : '',
+                !empty($horse['birth_year']) ? (string)$horse['birth_year'] : '',
+                (string)($horse['color'] ?? ''),
+            ], fn($p) => $p !== '');
+            ?>
+            <?php if (!empty($identityParts)): ?>
+                <p style="color: var(--text-muted); font-size: 1.05rem; margin: 0 0 1rem;">
+                    <?= htmlspecialchars(implode(' · ', $identityParts)) ?>
+                </p>
+            <?php endif; ?>
+
+            <dl class="horse-facts">
+                <div>
+                    <dt><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></dt>
+                    <dd><?= htmlspecialchars((string)($horse['ueln'] ?: App\I18n\Translator::t('field.unknown'))) ?></dd>
+                </div>
+                <?php if (!empty($horse['foreign_ueln'])): ?>
+                    <div>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></dt>
+                        <dd style="color: var(--primary-fg);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></dd>
+                    </div>
+                <?php endif; ?>
+                <div>
+                    <?php // Volles Geburtsdatum (#188) wenn erfasst, sonst nur das Jahr. ?>
+                    <?php if (!empty($horse['birth_date'])): ?>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.birth_date')) ?></dt>
+                        <dd><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['birth_date']))) ?></dd>
+                    <?php else: ?>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></dt>
+                        <dd><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></dd>
+                    <?php endif; ?>
+                </div>
+                <?php if (!empty($horse['height_cm'])): ?>
+                    <div>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.height')) ?></dt>
+                        <dd><?= (int)$horse['height_cm'] ?> cm</dd>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($horse['castration_date'])): ?>
+                    <?php // Kastrationsdatum (#239): nur anzeigen, wenn erfasst. ?>
+                    <div>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.castration_date')) ?></dt>
+                        <dd><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['castration_date']))) ?></dd>
+                    </div>
+                <?php endif; ?>
+                <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
+                    <?php // Nur die AKTUELLE Deckstation als kompakter Verweis - die
+                          // Historie (inkl. Kontaktweg über die Stationsseite) steht in
+                          // der Karte "Zucht & Personen", sonst stünde dieselbe Station
+                          // doppelt auf der Seite. Fallback-Logik wie gehabt (#122/#151):
+                          // station_name aus dem gefilterten JOIN, sonst Freitext. ?>
+                    <div>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></dt>
+                        <dd>
+                            <?php if (!empty($horse['station_name']) && !empty($horse['breeding_station_id'])): ?>
+                                <a href="/station?id=<?= (int)$horse['breeding_station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
+                            <?php else: ?>
+                                <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?>
+                            <?php endif; ?>
+                            <?php if (!empty($horse['breeding_station']) && !empty($horse['station_name']) && $horse['breeding_station'] !== $horse['station_name']): ?>
+                                <br><small style="color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
+                            <?php endif; ?>
+                        </dd>
+                    </div>
+                <?php endif; ?>
+            </dl>
         </div>
     </div>
 </div>
 
-<!-- Interaktiver Stammbaum (Pedigree Tree) -->
-<div class="card">
+<!-- 2. Abstammung: Interaktiver Stammbaum (Pedigree Tree) -->
+<div class="card" style="margin-bottom: 2rem;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border-color); padding-bottom: 1rem;">
         <div>
             <h2 style="margin: 0; color: var(--primary-fg);"><?= htmlspecialchars(App\I18n\Translator::t('horse.pedigree_heading')) ?></h2>
@@ -331,9 +222,9 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     <!-- Pedigree Container with Zoom Wrapper -->
     <div class="pedigree-tree-container" style="overflow-x: auto; padding: 1rem 0; width: 100%; text-align: center; -webkit-overflow-scrolling: touch;">
         <div id="pedigreeCanvas" style="transform-origin: top center; transition: transform 0.2s ease, max-height 0.3s ease; display: inline-block; min-width: 800px; text-align: left;">
-            
+
             <div class="pedigree-grid gen-view-3" id="pedigreeTree">
-                
+
                 <!-- Gen 1: Proband (Centrally aligned between Vater and Mutter) -->
                 <div class="pedigree-col gen-1" style="display: flex; flex-direction: column; justify-content: center;">
                     <div class="pedigree-group" style="background: transparent; border-left: none; padding: 0;">
@@ -398,12 +289,122 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 </div>
 
 <?php if (!empty($pluginDetailSections)): ?>
-    <!-- Plugin-Erweiterungspunkt 'horse.detail_sections' (#56) -->
-    <?php foreach ($pluginDetailSections as $section): ?>
-        <div class="card" style="margin-bottom: 2rem;">
-            <?= $section ?>
+    <!-- 3. Leistung & Auszeichnungen: Plugin-Erweiterungspunkt 'horse.detail_sections' (#56).
+         Hook-Signatur und -Position im Controller sind unverändert - hier wird nur die
+         umgebende Struktur vereinheitlicht: EINE Karte mit h2, die Abschnitte der Plugins
+         (die selbst mit h3 einsteigen, siehe docs/examples/demo-plugin) darunter. -->
+    <div class="card" style="margin-bottom: 2rem;">
+        <h2 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--border-color); padding-bottom: 0.8rem; margin-bottom: 1.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.performance_heading')) ?></h2>
+        <?php foreach ($pluginDetailSections as $section): ?>
+            <div class="horse-plugin-section">
+                <?= $section ?>
+            </div>
+        <?php endforeach; ?>
+    </div>
+<?php endif; ?>
+
+<!-- 4. Zucht & Personen: Züchter, Besitzer & Deckstationenverlauf -->
+<div class="card" style="margin-bottom: 2rem;">
+    <h2 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--border-color); padding-bottom: 0.8rem; margin-bottom: 1.5rem;">
+        <?= htmlspecialchars(App\I18n\Translator::t('horse.history_heading')) ?>
+    </h2>
+
+    <?php if (empty($horsePersons)): ?>
+        <p style="color: var(--text-subtle); font-size: 0.9rem;"><?= htmlspecialchars(App\I18n\Translator::t('horse.no_persons')) ?></p>
+    <?php else: ?>
+        <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+            <?php
+            $roleLabels = [
+                'breeder' => [App\I18n\Translator::t('field.breeder'), '#6f42c1'],
+                'owner' => [App\I18n\Translator::t('field.owner'), '#007bff'],
+                'keeper' => [App\I18n\Translator::t('field.keeper'), '#fd7e14']
+            ];
+            foreach ($horsePersons as $hp):
+                $roleMeta = $roleLabels[$hp['role']] ?? [App\I18n\Translator::t('field.owner'), '#6c757d'];
+                $yearsText = '';
+                if ($hp['role'] !== 'breeder' && ($hp['from_year'] || $hp['until_year'])) {
+                    $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . ($hp['until_year'] ?: App\I18n\Translator::t('horse.years_until_today')) . ')';
+                }
+                $stationDisplayName = $hp['station_name'] ?? $hp['breeding_station_text'] ?? '';
+            ?>
+                <div style="background: var(--surface-muted); border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.7rem 0.9rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.3rem;">
+                        <div>
+                            <?php if (!empty($hp['person_name'])): ?>
+                                <strong><?= htmlspecialchars($hp['person_name']) ?></strong>
+                                <?php
+                                // Länderflagge (#240): Emoji aus persons.country der
+                                // verknüpften Person; unbekanntes Land => keine Flagge.
+                                // Der title-Tooltip trägt den gespeicherten Freitext
+                                // (Barrierefreiheit), Einträge ohne Person (reine
+                                // Stations-/Textzeilen) bekommen keine Flagge.
+                                $countryFlag = App\Helper\CountryFlag::emoji($hp['country'] ?? null);
+                                ?>
+                                <?php if ($countryFlag !== null): ?>
+                                    <span title="<?= htmlspecialchars((string)$hp['country']) ?>"><?= $countryFlag ?></span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <strong>
+                                    <?php if (!empty($hp['station_id'])): ?>
+                                        <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
+                                            🏠 <?= htmlspecialchars($stationDisplayName) ?>
+                                        </a>
+                                    <?php else: ?>
+                                        🏠 <?= htmlspecialchars($stationDisplayName) ?>
+                                    <?php endif; ?>
+                                </strong>
+                            <?php endif; ?>
+                        </div>
+                        <span style="background: <?= $roleMeta[1] ?>; color: #fff; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">
+                            <?= $roleMeta[0] ?><?= htmlspecialchars($yearsText) ?>
+                        </span>
+                    </div>
+
+                    <?php if (!empty($hp['person_name']) && !empty($stationDisplayName)): ?>
+                        <div style="font-size: 0.85rem; color: var(--primary-fg); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
+                            <span><?= htmlspecialchars(App\I18n\Translator::t('horse.breeding_station_colon')) ?></span>
+                            <?php if (!empty($hp['station_id'])): ?>
+                                <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
+                                    <?= htmlspecialchars($stationDisplayName) ?>
+                                </a>
+                            <?php else: ?>
+                                <span><?= htmlspecialchars($stationDisplayName) ?></span>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php
+                        // Ort/Land/Mitgliedsstatus (#188) sind die einzigen
+                        // strukturierten Personenfelder auf der öffentlichen
+                        // Seite - Adresse/E-Mail bleiben Admin-only (siehe
+                        // PublicController::horseDetail).
+                        $placeParts = array_filter([$hp['city'] ?? '', $hp['country'] ?? '']);
+                    ?>
+                    <?php if (!empty($placeParts) || !empty($hp['membership_status'])): ?>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
+                            <?= htmlspecialchars(implode(', ', $placeParts)) ?><?php if (!empty($placeParts) && !empty($hp['membership_status'])): ?> · <?php endif; ?><?= htmlspecialchars((string)($hp['membership_status'] ?? '')) ?>
+                        </div>
+                    <?php endif; ?>
+                    <?php if (!empty($hp['contact_info'])): ?>
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
+                            <?= nl2br(htmlspecialchars($hp['contact_info'])) ?>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
         </div>
-    <?php endforeach; ?>
+    <?php endif; ?>
+</div>
+
+<?php if (!empty($horse['description'])): ?>
+    <!-- 5. Beschreibung: nur wenn vorhanden - eine leere Karte mit Leertext
+         trüge nichts zur Seite bei. -->
+    <div class="card" style="margin-bottom: 2rem;">
+        <h2 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--border-color); padding-bottom: 0.8rem; margin-bottom: 1.5rem;">
+            <?= htmlspecialchars(App\I18n\Translator::t('horse.about_heading', ['name' => (string)$horse['name']])) ?>
+        </h2>
+        <?= App\Helper\Markdown::parse($horse['description']) ?>
+    </div>
 <?php endif; ?>
 
 <!-- Pedigree Styling & Interactivity -->

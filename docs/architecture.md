@@ -360,8 +360,13 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   Dateien und trägt Pfade bis 255 Zeichen über das ustar-prefix-Feld.
   Hauptnutzer ist das optionale Uploads-Backup (siehe unten).
 - `App\Service\BackupTarget`: gemeinsame Schnittstelle (`putObject`/
-  `deleteObject`/`listObjects`) für alle drei unterstützten Ziele (#93),
-  damit `BackupService` unabhängig vom konkret gewählten Ziel arbeitet:
+  `putObjectFromFile`/`deleteObject`/`listObjects`) für alle drei
+  unterstützten Ziele (#93), damit `BackupService` unabhängig vom konkret
+  gewählten Ziel arbeitet. `putObjectFromFile` (#237) lädt eine lokale Datei
+  streamend hoch, ohne ihren Inhalt je als Gesamtstring zu laden - bei den
+  HTTP-Zielen über `App\Service\HttpFileUpload` (roher TCP-/TLS-Socket, da
+  der http-Stream-Wrapper keine Stream-Bodys unterstützt und curl bewusst
+  nicht vorausgesetzt wird), bei FTPS über `ftp_fput()` mit Datei-Handle:
   - `App\Service\S3Client`: ein externer, S3-kompatibler Speicher (AWS S3,
     MinIO, Hetzner Object Storage o. Ä.). Signiert Anfragen selbst mit AWS
     Signature Version 4, ohne AWS-SDK/Composer-Laufzeitabhängigkeit. Nutzt
@@ -382,7 +387,9 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
 - `App\Service\BackupService::run()`: Dump per `DatabaseDumper::dumpTo()`
   streamend in eine Temp-Datei schreiben, dabei mit `gzip` komprimieren
   (Fallback auf unkomprimiert, falls die zlib-Extension fehlt), über das
-  konfigurierte `BackupTarget` hochladen, anschließend Aufbewahrungsrotation
+  konfigurierte `BackupTarget` streamend hochladen (`putObjectFromFile`,
+  #237 - damit gilt der konstante Speicherbedarf über die gesamte
+  Backup-Kette bis zum Ziel), anschließend Aufbewahrungsrotation
   anwenden (älteste Backups über dem konfigurierten Zähler löschen - ein
   Rotationsfehler zählt dabei bewusst NICHT als Fehlschlag des gesamten
   Laufs, da das eigentliche Backup zu diesem Zeitpunkt bereits sicher

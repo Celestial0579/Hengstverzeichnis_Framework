@@ -135,17 +135,13 @@ final class BackupService {
             }
 
             try {
-                // Grenze der Ziel-Clients: BackupTarget::putObject() nimmt den
-                // Inhalt als String entgegen (kein Stream-/Datei-Parameter).
-                // Deshalb wird hier je Objekt einmal die fertige (komprimierte)
-                // Temp-Datei in einem Stück geladen - der Speicherbedarf ist
-                // damit auf die größte Einzeldatei begrenzt statt auf den
-                // unkomprimierten Dump plus Archiv. Ein streamender Upload
-                // bräuchte einen API-Umbau aller drei Clients (bewusst nicht
-                // Teil von #231/#233).
-                $client->putObject($dumpKey, file_get_contents($dumpFile), $useGzip ? 'application/gzip' : 'application/sql');
+                // Streamender Upload (#237): Die Ziel-Clients übernehmen die
+                // fertige (komprimierte) Temp-Datei direkt - über die gesamte
+                // Backup-Kette (Dump #231, Archiv #233, Upload #237) wird der
+                // Inhalt damit nie als Gesamtstring in den Speicher geladen.
+                $client->putObjectFromFile($dumpKey, $dumpFile, $useGzip ? 'application/gzip' : 'application/sql');
                 if ($uploadsKey !== null) {
-                    $client->putObject($uploadsKey, file_get_contents($uploadsFile), $useGzip ? 'application/gzip' : 'application/x-tar');
+                    $client->putObjectFromFile($uploadsKey, $uploadsFile, $useGzip ? 'application/gzip' : 'application/x-tar');
                 }
             } catch (\Throwable $e) {
                 self::recordStatus('error', $e->getMessage());

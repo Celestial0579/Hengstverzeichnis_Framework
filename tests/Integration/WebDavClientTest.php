@@ -54,6 +54,30 @@ class WebDavClientTest extends TestCase {
         $this->assertSame($content, file_get_contents(FakeWebDavServer::storageDir() . '/test-target/backups/roundtrip.sql'));
     }
 
+    /**
+     * Der streamende Datei-Weg (#237) muss byte-identisch zum String-Weg
+     * ankommen - geprüft mit Binärinhalt deutlich über der internen
+     * 8-KiB-Blockgröße von stream_copy_to_stream() (siehe
+     * App\Service\HttpFileUpload), damit der Upload tatsächlich über mehrere
+     * Blöcke läuft. Legt den Zielordner wie putObject() selbst per MKCOL an.
+     */
+    public function testPutObjectFromFileStoresBodyByteIdenticalToPutObject(): void {
+        $content = random_bytes(200_000);
+        $file = tempnam(sys_get_temp_dir(), 'hv-test-upload-');
+        file_put_contents($file, $content);
+
+        try {
+            $this->client->putObject('backups/string-weg.bin', $content);
+            $this->client->putObjectFromFile('backups/datei-weg.bin', $file);
+        } finally {
+            unlink($file);
+        }
+
+        $storage = FakeWebDavServer::storageDir() . '/test-target/backups';
+        $this->assertSame($content, file_get_contents($storage . '/datei-weg.bin'));
+        $this->assertSame(file_get_contents($storage . '/string-weg.bin'), file_get_contents($storage . '/datei-weg.bin'));
+    }
+
     public function testListObjectsShowsUploadedFileButNotTheFolderItself(): void {
         $this->client->putObject('backups/listed.sql', 'x');
 

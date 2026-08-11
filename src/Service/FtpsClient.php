@@ -36,12 +36,46 @@ final class FtpsClient implements BackupTarget {
     ) {}
 
     public function putObject(string $key, string $body, string $contentType = 'application/octet-stream'): void {
-        $conn = $this->connect();
+        // ftp_fput() erwartet ein Handle - der String-Weg war hier also schon
+        // immer eine Umkopie in einen Temp-Stream vor demselben Upload-Pfad
+        // wie beim Datei-Weg (putObjectFromFile()).
         $stream = fopen('php://temp', 'r+b');
         try {
             fwrite($stream, $body);
             rewind($stream);
+            $this->uploadStream($key, $stream);
+        } finally {
+            fclose($stream);
+        }
+    }
 
+    /**
+     * Lädt eine Datei streamend hoch (#237) - Gegenstück zu putObject() für
+     * Inhalte, die als fertige Datei vorliegen (Backup-Zwischendateien,
+     * siehe App\Service\BackupService): ftp_fput() liest das Datei-Handle
+     * selbst blockweise, der Inhalt liegt nie als Gesamtstring im Speicher.
+     * $contentType wird bei FTP nicht übertragen (das Protokoll kennt keine
+     * Inhaltstypen) - der Parameter existiert nur für die einheitliche
+     * BackupTarget-Schnittstelle, wie schon bei putObject().
+     */
+    public function putObjectFromFile(string $key, string $path, string $contentType = 'application/octet-stream'): void {
+        $stream = @fopen($path, 'rb');
+        if ($stream === false) {
+            throw new \RuntimeException("Upload-Datei nicht lesbar: {$path}");
+        }
+        try {
+            $this->uploadStream($key, $stream);
+        } finally {
+            fclose($stream);
+        }
+    }
+
+    /**
+     * @param resource $stream Lesbarer Stream, positioniert am Anfang
+     */
+    private function uploadStream(string $key, $stream): void {
+        $conn = $this->connect();
+        try {
             $remotePath = self::joinPath($this->basePath, $key);
             $this->ensureDirectoryExists($conn, (string)dirname($remotePath));
 
@@ -49,7 +83,6 @@ final class FtpsClient implements BackupTarget {
                 throw new \RuntimeException("FTPS-Upload fehlgeschlagen: {$remotePath}");
             }
         } finally {
-            fclose($stream);
             ftp_close($conn);
         }
     }

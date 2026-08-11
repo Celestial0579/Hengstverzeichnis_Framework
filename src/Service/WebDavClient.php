@@ -35,6 +35,40 @@ final class WebDavClient implements BackupTarget {
         $this->request('PUT', $key, $body, ['Content-Type' => $contentType]);
     }
 
+    /**
+     * Lädt eine Datei streamend hoch (#237) - Gegenstück zu putObject() für
+     * Inhalte, die als fertige Datei vorliegen (Backup-Zwischendateien,
+     * siehe App\Service\BackupService): PUT über App\Service\HttpFileUpload
+     * (roher Socket, Begründung dort), der Inhalt wird nie als Gesamtstring
+     * in den Speicher geladen. MKCOL/DELETE/PROPFIND bleiben beim
+     * http-Stream-Wrapper (request()) - deren Bodys sind winzig.
+     */
+    public function putObjectFromFile(string $key, string $path, string $contentType = 'application/octet-stream'): void {
+        $this->ensureParentCollectionExists($key);
+
+        $url = $this->baseUrl . '/' . ltrim($key, '/');
+        $parts = parse_url($url);
+        if ($parts === false || !isset($parts['host'])) {
+            throw new \RuntimeException("WebDAV-Basis-URL nicht auswertbar: {$this->baseUrl}");
+        }
+        // Alles außer ausdrücklichem "http" gilt als TLS - sicherer Default,
+        // konsistent zum Verhalten des String-Wegs bei https-Basis-URLs.
+        $tls = ($parts['scheme'] ?? 'https') !== 'http';
+        $port = $parts['port'] ?? ($tls ? 443 : 80);
+
+        $headerLines = [
+            'Host: ' . $parts['host'] . (isset($parts['port']) ? ":{$parts['port']}" : ''),
+            'Authorization: Basic ' . base64_encode("{$this->username}:{$this->password}"),
+            "Content-Type: {$contentType}",
+        ];
+
+        $response = HttpFileUpload::send('PUT', $parts['host'], $port, $tls, $parts['path'] ?? '/', $headerLines, $path);
+
+        if ($response['status'] === null || $response['status'] >= 300) {
+            throw new \RuntimeException("WebDAV-Anfrage (PUT {$key}) fehlgeschlagen: HTTP " . ($response['status'] ?? '?'));
+        }
+    }
+
     public function deleteObject(string $key): void {
         try {
             $this->request('DELETE', $key);

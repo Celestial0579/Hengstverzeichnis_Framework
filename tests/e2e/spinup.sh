@@ -61,10 +61,21 @@ ADMIN_PASSWORD=$ADMINPW
 EOF
 
 # 6. App bauen + starten (Override: e2e-Netz + Loopback-Port)
-docker compose -p "${NS}-hv" \
-  -f "$REPO_ROOT/docker-compose.yml" -f "$E2E_DIR/app-override.yml" up -d --build
+#
+# Abgeschirmt gegen geerbte DB_*-Variablen: docker compose gibt der
+# Prozessumgebung Vorrang vor der soeben geschriebenen .env. Der nächtliche
+# devhost-tests-Läufer exportiert für die PHP-Suiten DB_HOST/DB_PORT/DB_PASS
+# und DB_USER=root — geerbt würde daraus MARIADB_USER=root, dessen
+# CREATE USER 'root'@'%' die DB-Initialisierung mit ERROR 1396 abbrechen
+# lässt (Issue #244). Maßgeblich soll allein die .env sein.
+compose_app() {
+  env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASS -u DB_ROOT_PASS \
+    docker compose -p "${NS}-hv" \
+    -f "$REPO_ROOT/docker-compose.yml" -f "$E2E_DIR/app-override.yml" "$@"
+}
+compose_app up -d --build
 
-APP_CID="$(docker compose -p "${NS}-hv" -f "$REPO_ROOT/docker-compose.yml" -f "$E2E_DIR/app-override.yml" ps -q app)"
+APP_CID="$(compose_app ps -q app)"
 
 # Für run.sh/teardown.sh festhalten
 cat > "$STATE" <<EOF

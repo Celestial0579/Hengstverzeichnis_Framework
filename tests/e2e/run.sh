@@ -40,12 +40,20 @@ RC=$?
 
 LOG="$OUT/lauf.log"
 if [[ $RC -eq 0 ]]; then
-  echo "[e2e] grün - alle Prüfungen bestanden."
+  # Der Parcours belegt ein erschöpftes Rate-Limit selbst (GITHUB-RATE-LIMIT-
+  # Zeilen in lauf.log) und wertet die betroffenen Prüfungen als ÜBERSPRUNGEN
+  # statt FEHLER - dann ist der Lauf kein volles Grün, sondern "übersprungen
+  # bis auf den GitHub-Teil". Das gehört sichtbar ins Protokoll.
+  if [[ -f "$LOG" ]] && grep -q "GITHUB-RATE-LIMIT" "$LOG"; then
+    echo "[e2e] UMGEBUNG: GitHub-Rate-Limit erschöpft - Store-Vollständigkeit/Update übersprungen, alle übrigen Prüfungen grün."
+  else
+    echo "[e2e] grün - alle Prüfungen bestanden."
+  fi
   exit 0
 fi
 
 # Fehlgeschlagen: nur GitHub-Rate-Limit (403)?
-if [[ -f "$LOG" ]] && grep -qiE "HTTP 403|GitHub nicht erreichbar|Antwort zu groß" "$LOG"; then
+if [[ -f "$LOG" ]] && grep -qiE "HTTP 403|GitHub nicht erreichbar|Antwort zu groß|GITHUB-RATE-LIMIT" "$LOG"; then
   # Probleme AUSSERHALB des GitHub-abhängigen Bereichs (Store/Update/Plugins)?
   rest="$(grep -iE 'FEHLER|abweichend|unvollständig' "$LOG" | grep -viE 'store|update|plugin' || true)"
   if [[ -z "$rest" ]]; then

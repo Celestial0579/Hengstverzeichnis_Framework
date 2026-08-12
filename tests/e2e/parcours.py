@@ -6,7 +6,7 @@
 # Konfiguration per Umgebungsvariablen (siehe unten). Wird für beide Läufe
 # (Docker + nativ) mit unterschiedlicher BASE_URL/OUT_DIR verwendet.
 
-import os, re, time, hmac, hashlib, base64, struct, json, traceback
+import os, re, time, hmac, hashlib, base64, struct, json, traceback, urllib.request
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ["BASE_URL"].rstrip("/")
@@ -348,6 +348,46 @@ def find_id(page, list_path, name):
 def phase_enabled(name):
     return PHASES == "all" or name in PHASES.split(",")
 
+# --- GitHub-Rate-Limit ------------------------------------------------------
+# Store-Installation und Update-Prüfung laden anonym von api.github.com
+# (60 Anfragen/Stunde je IP). Ein erschöpftes Limit ist ein Umgebungs-, kein
+# App-Fehler — aber es ist im Seitenverhalten unsichtbar: Der Install-POST
+# bleibt 2xx, es fehlen hinterher schlicht Addons, und die Update-Prüfung
+# zeigt weder Button noch Aktuell-Meldung. Deshalb wird das Limit direkt
+# abgefragt (/rate_limit zählt selbst nicht gegen das Limit) und als
+# GITHUB-RATE-LIMIT-Zeile ins Log geschrieben; run.sh wertet diese Zeilen als
+# Beleg für "übersprungen". Fehlende Addons OHNE diesen Beleg bleiben FEHLER.
+
+GH_LIMIT_MIN = 20  # unter dieser Reserve ist ein voller Lauf (Katalog + 15 Tarballs + Release-Abfrage) nicht möglich
+_gh_vorab_limitiert = [False]
+
+def github_rate_remaining():
+    """(remaining, limit) des anonymen Core-Limits, None wenn nicht ermittelbar."""
+    try:
+        req = urllib.request.Request("https://api.github.com/rate_limit",
+                                     headers={"User-Agent": "hv-e2e-parcours"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            core = json.load(r)["resources"]["core"]
+        return int(core["remaining"]), int(core["limit"])
+    except Exception as e:
+        log(f"  rate_limit-Abfrage fehlgeschlagen: {str(e)[:80]}")
+        return None
+
+def github_limited(kontext):
+    """Harter Beleg, dass ein Fehlschlag am GitHub-Rate-Limit liegt.
+
+    True nur, wenn das Limit JETZT erschöpft ist (remaining=0) oder schon der
+    Vorab-Check unter der Reserve lag (dann hat dieser Lauf den Rest selbst
+    aufgebraucht). Alles andere bleibt ein echter Fehler."""
+    jetzt = github_rate_remaining()
+    if jetzt is not None and jetzt[0] == 0:
+        log(f"GITHUB-RATE-LIMIT: remaining=0/{jetzt[1]} — {kontext} nicht prüfbar (Umgebung, kein App-Fehler)")
+        return True
+    if _gh_vorab_limitiert[0]:
+        log(f"GITHUB-RATE-LIMIT: Vorab-Check lag unter {GH_LIMIT_MIN} — {kontext} gilt als übersprungen (Umgebung, kein App-Fehler)")
+        return True
+    return False
+
 # ---------------------------------------------------------------------------
 
 def run():
@@ -491,10 +531,23 @@ def run():
             mrepo = re.search(r'name="repo_id"\s+value="(\d+)"', html)
             repo_id = mrepo.group(1) if mrepo else "1"
             log(f"  Store repo_id={repo_id}")
-            # KLICK-NACHWEIS: ein Addon per echtem Store-Button installieren
-            click_submit(page, "/admin/plugins/store/install",
-                         "KLICK-NACHWEIS: Addon per Store-Button installiert", "store-install-klick",
-                         expect="installed")
+            # KLICK-NACHWEIS: ein Addon per echtem Store-Button installieren.
+            # Ohne GitHub-Antwort bleibt der Katalog leer und es GIBT keinen
+            # Install-Button — das ist mit Rate-Limit-Beleg Umgebung, kein
+            # App-Fehler. Fehlt der Button ohne diesen Beleg, bleibt es FEHLER.
+            install_sel = ('form[action*="/admin/plugins/store/install"] button, '
+                           'form[action*="/admin/plugins/store/install"] input[type="submit"]')
+            if page.query_selector(install_sel) is None and github_limited("Store-Katalog"):
+                counter[0] += 1; n = f"{counter[0]:03d}"; fn = f"{n}-store-install-klick.png"
+                page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
+                st = "ÜBERSPRUNGEN: GitHub-Rate-Limit erschöpft, Store-Katalog leer"
+                index.append((n, fn, "Klick: /admin/plugins/store/install",
+                              "KLICK-NACHWEIS: Addon per Store-Button installiert", st))
+                log(f"{n} store-install-klick: {st}")
+            else:
+                click_submit(page, "/admin/plugins/store/install",
+                             "KLICK-NACHWEIS: Addon per Store-Button installiert", "store-install-klick",
+                             expect="installed")
             installed = 0
             for slug in SLUGS:
                 st, _ = post(page, "/admin/plugins/store/install",
@@ -522,7 +575,16 @@ def run():
             real = sum(1 for s in SLUGS if s in plugins_html)
             counter[0] += 1; n = f"{counter[0]:03d}"; fn = f"{n}-plugins-verifiziert.png"
             page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
-            vst = f"{real}/{len(SLUGS)} Addons real installiert" + ("" if real == len(SLUGS) else " — FEHLER: unvollständig")
+            if real == len(SLUGS):
+                vst = f"{real}/{len(SLUGS)} Addons real installiert"
+            elif github_limited("Store-Installation"):
+                # Umgebungsbeleg vorhanden: Tarball-Downloads scheiterten am
+                # Rate-Limit, nicht an der App. Bewusst OHNE die Wörter
+                # "FEHLER"/"unvollständig", die das Exit-Gate rot werten würde.
+                vst = (f"{real}/{len(SLUGS)} Addons real installiert — ÜBERSPRUNGEN: "
+                       "GitHub-Rate-Limit erschöpft, Downloads nicht möglich")
+            else:
+                vst = f"{real}/{len(SLUGS)} Addons real installiert — FEHLER: unvollständig"
             index.append((n, fn, "/admin/plugins", "Verifikation: real installierte Addons", vst))
             log(f"{n} plugins-verifiziert: {vst}")
             shot(page, "plugins-aktiv", "Plugin-Verwaltung: alle 15 Addons aktiv", "/admin/plugins")
@@ -916,8 +978,14 @@ def run():
                 content = page.content()
                 aktuell = ("ist aktuell" in content) or ("neueste" in content)
                 page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
-                st = ("ok · bereits neueste Version, kein Update nötig" if aktuell
-                      else "FEHLER: weder Update-Button noch Aktuell-Meldung")
+                if aktuell:
+                    st = "ok · bereits neueste Version, kein Update nötig"
+                elif github_limited("Update-Prüfung"):
+                    # Ohne GitHub-Antwort kann die App weder Update-Button noch
+                    # Aktuell-Meldung zeigen — Umgebungsbeleg, kein App-Fehler.
+                    st = "ÜBERSPRUNGEN: GitHub-Rate-Limit erschöpft, Release-Abfrage nicht möglich"
+                else:
+                    st = "FEHLER: weder Update-Button noch Aktuell-Meldung"
                 index.append((n, fn, "Update-Status", "Update-Prüfung: Installation ist bereits aktuell", st))
                 log(f"{n} update-run: {st}")
             page.wait_for_timeout(6000)
@@ -1044,6 +1112,20 @@ def run():
                 log(f"{n} {slug}: {status}")
 
         # ---- Ablauf --------------------------------------------------------
+        # Vorab-Check: Reicht das anonyme GitHub-Rate-Limit für die
+        # GitHub-abhängigen Phasen (Store, Update)? Wenn nicht, gelten deren
+        # Vollständigkeits-Prüfungen als übersprungen — die Phasen laufen
+        # trotzdem, damit alles NICHT GitHub-Abhängige weiterhin geprüft wird.
+        if phase_enabled("store") or phase_enabled("update"):
+            vorab = github_rate_remaining()
+            if vorab is not None:
+                log(f"GitHub-Rate-Limit vorab: {vorab[0]}/{vorab[1]}")
+                if vorab[0] < GH_LIMIT_MIN:
+                    _gh_vorab_limitiert[0] = True
+                    log(f"GITHUB-RATE-LIMIT: remaining={vorab[0]}/{vorab[1]} < {GH_LIMIT_MIN} — "
+                        "GitHub-abhängige Prüfungen (Store-Vollständigkeit, Update) gelten als "
+                        "übersprungen (Umgebung, kein App-Fehler)")
+
         phases = [
             ("setup", phase_setup, True),
             ("leer", phase_leer, False),

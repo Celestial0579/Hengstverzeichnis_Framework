@@ -13,7 +13,10 @@ export E2E_NET="${E2E_NET:-${NS}-net}"
 [[ -n "${NS:-}" && -z "${ARBEIT_ID:-}" ]] && export ARBEIT_ID="$NS"
 
 docker rm -f "${NS}-parcours" >/dev/null 2>&1 || true
-docker compose -p "${NS}-hv" \
+# env -u wie in spinup.sh: geerbte DB_*-Variablen (nächtlicher Läufer) sollen
+# die Auswertung der Compose-Dateien nicht beeinflussen (Issue #244).
+env -u DB_HOST -u DB_PORT -u DB_NAME -u DB_USER -u DB_PASS -u DB_ROOT_PASS \
+  docker compose -p "${NS}-hv" \
   -f "$REPO_ROOT/docker-compose.yml" -f "$E2E_DIR/app-override.yml" down -v >/dev/null 2>&1 || true
 docker compose -p "${NS}-helpers" \
   -f "$E2E_DIR/helpers/docker-compose.yml" down -v >/dev/null 2>&1 || true

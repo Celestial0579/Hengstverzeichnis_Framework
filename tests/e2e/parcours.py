@@ -89,8 +89,23 @@ _ACC_JS = r"""el => {
 # ein Brand-Button, der in beiden Modi grenzwertig ist - die gehören nicht ins
 # Dark-Mode-Gate. Das Skript togglet data-theme selbst (dunkel -> hell -> dunkel).
 _DARK_AUDIT = r"""() => {
-  const parse = c => { const m=(c||'').match(/rgba?\(([^)]+)\)/); if(!m) return null;
-    const p=m[1].split(',').map(x=>parseFloat(x)); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}; };
+  // Farb-Parser (#248): getComputedStyle liefert nicht nur rgb()/rgba() -
+  // aus color-mix (--primary-fg) kommen z. B. 'color(srgb ...)' und 'oklab(...)'.
+  // Die frühere reine rgba-Regex sah solche Farben als "nicht vorhanden" und
+  // meldete den hellen btn-nav-Rahmen als fehlende Abgrenzung (1,52 statt real
+  // ~8,6:1). Regex bleibt als schneller Normalfall; alles andere normalisiert
+  // ein 1x1-Canvas - der Browser selbst rechnet die Farbe nach sRGB um.
+  const parse = (() => { const cv=document.createElement('canvas'); cv.width=cv.height=1;
+    const ctx=cv.getContext('2d',{willReadFrequently:true});
+    return c => { if(!c) return null;
+      const m=c.match(/rgba?\(([^)]+)\)/);
+      if(m){ const p=m[1].split(',').map(x=>parseFloat(x)); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}; }
+      ctx.clearRect(0,0,1,1);
+      ctx.fillStyle='#123456'; ctx.fillStyle=c;
+      if(ctx.fillStyle==='#123456'&&c!=='#123456') return null; // ungueltige Angabe
+      ctx.fillRect(0,0,1,1);
+      const d=ctx.getImageData(0,0,1,1).data;
+      return {r:d[0],g:d[1],b:d[2],a:d[3]/255}; }; })();
   const lum = ({r,g,b}) => { const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};
     return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
   const ratio = (a,b) => { const L1=lum(a),L2=lum(b); return (Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05); };
@@ -127,8 +142,23 @@ _DARK_AUDIT = r"""() => {
 # WCAG-Schwellen geprüft (Text >= 4.5, Komponenten-Abgrenzung >= 3.0), im
 # jeweils AKTUELL gesetzten Theme (der Aufrufer togglet und ruft zweimal auf).
 _ABS_AUDIT = r"""() => {
-  const parse = c => { const m=(c||'').match(/rgba?\(([^)]+)\)/); if(!m) return null;
-    const p=m[1].split(',').map(x=>parseFloat(x)); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}; };
+  // Farb-Parser (#248): getComputedStyle liefert nicht nur rgb()/rgba() -
+  // aus color-mix (--primary-fg) kommen z. B. 'color(srgb ...)' und 'oklab(...)'.
+  // Die frühere reine rgba-Regex sah solche Farben als "nicht vorhanden" und
+  // meldete den hellen btn-nav-Rahmen als fehlende Abgrenzung (1,52 statt real
+  // ~8,6:1). Regex bleibt als schneller Normalfall; alles andere normalisiert
+  // ein 1x1-Canvas - der Browser selbst rechnet die Farbe nach sRGB um.
+  const parse = (() => { const cv=document.createElement('canvas'); cv.width=cv.height=1;
+    const ctx=cv.getContext('2d',{willReadFrequently:true});
+    return c => { if(!c) return null;
+      const m=c.match(/rgba?\(([^)]+)\)/);
+      if(m){ const p=m[1].split(',').map(x=>parseFloat(x)); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1}; }
+      ctx.clearRect(0,0,1,1);
+      ctx.fillStyle='#123456'; ctx.fillStyle=c;
+      if(ctx.fillStyle==='#123456'&&c!=='#123456') return null; // ungueltige Angabe
+      ctx.fillRect(0,0,1,1);
+      const d=ctx.getImageData(0,0,1,1).data;
+      return {r:d[0],g:d[1],b:d[2],a:d[3]/255}; }; })();
   const lum = ({r,g,b}) => { const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};
     return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b); };
   const ratio = (a,b) => { const L1=lum(a),L2=lum(b); return (Math.max(L1,L2)+0.05)/(Math.min(L1,L2)+0.05); };
@@ -966,6 +996,11 @@ def run():
                 funde = []
                 try:
                     page.goto(BASE + url, wait_until="load", timeout=30000)
+                    # Transitions aus (#248): Das Theme wechselt mit 0.3s-Übergang,
+                    # gemessen werden soll der ENDzustand - sonst hängt das
+                    # Ergebnis davon ab, wann der Audit in die Animation fällt
+                    # (beobachtet: btn-nav-Text mit 4.36 mitten im Übergang).
+                    page.add_style_tag(content="* { transition: none !important; animation: none !important; }")
                     page.evaluate("() => document.documentElement.setAttribute('data-theme','dark')")
                     page.wait_for_timeout(500)
                     page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
@@ -991,6 +1026,8 @@ def run():
                 funde_abs = []
                 try:
                     page.goto(BASE + url, wait_until="load", timeout=30000)
+                    # Transitions aus - Begründung siehe oben (#248).
+                    page.add_style_tag(content="* { transition: none !important; animation: none !important; }")
                     for theme in ("dark", "light"):
                         page.evaluate(f"() => document.documentElement.setAttribute('data-theme','{theme}')")
                         page.wait_for_timeout(200)

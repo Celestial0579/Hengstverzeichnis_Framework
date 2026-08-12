@@ -6,7 +6,21 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [0.5.0] – 2026-08-11
+## [Unreleased]
+
+### Behoben
+
+- Dark Mode: Kontrastverstöße auf der öffentlichen Oberfläche behoben
+  (Regression seit v0.5.0, #248). `color-scheme` folgt jetzt dem Theme,
+  damit Browser-eigene Bedienelement-Farben (UA-Buttontext) im Darkmode
+  nicht mehr schwarz auf dunklen Theme-Flächen stehen (betraf Plugin-Buttons
+  wie „☆ Merken" mit 1,44:1 und „QR-Code anzeigen" mit 1,26:1). Die
+  Footer-Links nutzen wieder `--footer-link-color` statt der globalen
+  Inhalts-Linkfarbe (Spezifität, im hellen Theme nur 1,8:1 auf der
+  Markenfläche). Der E2E-Kontrast-Audit versteht zusätzlich moderne
+  Farb-Serialisierungen (`color(srgb …)`, `oklab(…)` aus `color-mix`) und
+  misst ohne CSS-Transitions - der gemeldete Wert 1,52 für
+  `btn-nav-abgrenzung` war ein Messfehler des Audits (real ~8,6:1).
 
 ### Hinzugefügt
 

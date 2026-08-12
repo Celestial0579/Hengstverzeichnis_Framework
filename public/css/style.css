@@ -1,6 +1,14 @@
 /* public/css/style.css */
 
 :root {
+    /* Browser-eigene Bedienelemente ans Theme koppeln (#248): Ohne color-scheme
+       rendert der Browser Buttons/Formularfelder ohne eigene Farbangabe immer
+       im hellen Schema - im Darkmode stand so schwarzer UA-Buttontext auf
+       dunklen Theme-Flächen (z. B. Plugin-Buttons, die nur background aus den
+       Theme-Variablen setzen: "☆ Merken" 1,44:1, "QR-Code anzeigen" 1,26:1).
+       Mit color-scheme folgt die UA-Textfarbe dem Theme; die Zwillingsblöcke
+       unten setzen dark. Explizit gesetzte Farben bleiben unberührt. */
+    color-scheme: light;
     /* Fallback variables, normally injected dynamically via PHP */
     --primary-color: #2c3e50;
     --secondary-color: #18bc9c;
@@ -95,6 +103,7 @@
  * Wert geändert, muss er im jeweils anderen Block mitgeändert werden. */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
+        color-scheme: dark;
         --bg-color: #16181c;
         --text-color: #e4e6eb;
         --card-bg: #22252a;
@@ -132,6 +141,7 @@
 
 /* Zwillingsblock zu oben - siehe dortigen Hinweis, Werte synchron halten. */
 :root[data-theme="dark"] {
+    color-scheme: dark;
     --bg-color: #16181c;
     --text-color: #e4e6eb;
     --card-bg: #22252a;
@@ -381,7 +391,13 @@ footer {
     transition: background-color var(--transition-speed), color var(--transition-speed);
 }
 
-footer a {
+/* Selektor bewusst mit den beiden :not() aus der globalen Inhalts-Link-Regel
+   (letzte Regel dieser Datei, #160): Die hat Spezifität (0,2,1) und überschrieb
+   das schlichte `footer a` (0,0,2) - die Footer-Links bekamen so --link-color
+   statt --footer-link-color und erreichten im hellen Theme auf der Markenfläche
+   nur 1,8:1 statt der geforderten 4,5:1 (#248). Mit (0,2,2) gewinnt wieder die
+   Footer-Farbe, ohne !important. */
+footer a:not(.btn):not(.nav-link) {
     color: var(--footer-link-color);
     text-decoration: underline;
 }

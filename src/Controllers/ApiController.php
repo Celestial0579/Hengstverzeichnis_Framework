@@ -272,11 +272,14 @@ class ApiController extends BaseController {
         $where = ["h.deleted_at IS NULL", "h.is_published = 1"];
         $bindings = [];
 
+        // Seit #246 wird überall dort, wo ueln/foreign_ueln durchsucht wird,
+        // auch die Kindtabelle horse_registrations (weitere Lebensnummern)
+        // einbezogen - foreign_ueln bleibt als Kompatibilitäts-Fallback dabei.
         $search = trim((string)($params['search'] ?? ''));
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $where[] = "(h.name LIKE ? OR h.ueln LIKE ? OR h.foreign_ueln LIKE ?)";
-            array_push($bindings, $like, $like, $like);
+            $where[] = "(h.name LIKE ? OR h.ueln LIKE ? OR h.foreign_ueln LIKE ? OR EXISTS (SELECT 1 FROM horse_registrations hreg WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?))";
+            array_push($bindings, $like, $like, $like, $like);
         }
 
         $name = trim((string)($params['name'] ?? ''));
@@ -289,15 +292,15 @@ class ApiController extends BaseController {
         // damit /api/horses/show?ueln=... nie mehrere Treffer liefern kann.
         $uelnExact = trim((string)($params['q_ueln_exact'] ?? ''));
         if ($uelnExact !== '') {
-            $where[] = "(h.ueln = ? OR h.foreign_ueln = ?)";
-            array_push($bindings, $uelnExact, $uelnExact);
+            $where[] = "(h.ueln = ? OR h.foreign_ueln = ? OR EXISTS (SELECT 1 FROM horse_registrations hreg WHERE hreg.horse_id = h.id AND hreg.registration_number = ?))";
+            array_push($bindings, $uelnExact, $uelnExact, $uelnExact);
         }
 
         $ueln = trim((string)($params['ueln'] ?? ''));
         if ($ueln !== '') {
-            $where[] = "(h.ueln LIKE ? OR h.foreign_ueln LIKE ?)";
+            $where[] = "(h.ueln LIKE ? OR h.foreign_ueln LIKE ? OR EXISTS (SELECT 1 FROM horse_registrations hreg WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?))";
             $like = '%' . $ueln . '%';
-            array_push($bindings, $like, $like);
+            array_push($bindings, $like, $like, $like);
         }
 
         $color = trim((string)($params['color'] ?? ''));

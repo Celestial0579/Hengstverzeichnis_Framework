@@ -38,6 +38,7 @@ return [
     'format.date' => 'Y-m-d',
     'field.ueln_full' => 'UELN (Primary Life Number)',
     'field.foreign_ueln_label' => 'Life Number (Country of Origin)',
+    'field.registrations_label' => 'Additional life numbers',
     'field.foreign_ueln_inline' => 'Abroad',
     'field.breeding_station' => 'Breeding Station / Stud',
     'field.breeder' => 'Breeder',

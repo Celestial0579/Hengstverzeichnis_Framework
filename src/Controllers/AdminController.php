@@ -474,6 +474,7 @@ class AdminController extends BaseController {
         // die Installation nach dem Reset dauerhaft unbrauchbar machen (#118).
         $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
         $db->exec("TRUNCATE TABLE horse_persons;");
+        $db->exec("TRUNCATE TABLE horse_registrations;");
         $db->exec("TRUNCATE TABLE breeding_stations;");
         $db->exec("TRUNCATE TABLE password_resets;");
         $db->exec("TRUNCATE TABLE gdpr_requests;");

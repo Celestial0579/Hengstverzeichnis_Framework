@@ -45,6 +45,7 @@ return [
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (Haupt-Lebensnummer)',
     'field.foreign_ueln_label' => 'Lebensnummer Ursprungsland',
+    'field.registrations_label' => 'Weitere Lebensnummern',
     'field.foreign_ueln_inline' => 'Ausland',
     'field.breeding_station' => 'Deckstation / Gestüt',
     'field.breeder' => 'Züchter',

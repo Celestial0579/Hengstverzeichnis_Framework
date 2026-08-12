@@ -108,11 +108,17 @@ class SchemaMigratorTest extends TestCase {
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
+        // foreign_ueln gehört mit ins Alt-Schema (#246): So wird der
+        // Einmal-Backfill der horse_registrations-Migration sichtbar getestet -
+        // die ' / '-Verkettung (teils ohne Leerzeichen, wie sie das
+        // varchar(50)-Limit real hinterlassen hat) muss in Einzelzeilen
+        // zerlegt werden.
         self::$pdo->exec("
             CREATE TABLE `horses` (
                 `id` INT AUTO_INCREMENT PRIMARY KEY,
                 `name` VARCHAR(100) NOT NULL,
                 `ueln` VARCHAR(50) UNIQUE,
+                `foreign_ueln` VARCHAR(50) NULL DEFAULT NULL,
                 `birth_year` YEAR NULL,
                 `color` VARCHAR(50),
                 `description` TEXT,
@@ -122,9 +128,11 @@ class SchemaMigratorTest extends TestCase {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
         self::$pdo->exec("
-            INSERT INTO `horses` (`name`, `status`) VALUES
-            ('Legacy Aktiv', 'active'),
-            ('Legacy Verstorben', 'deceased')
+            INSERT INTO `horses` (`name`, `ueln`, `foreign_ueln`, `status`) VALUES
+            ('Legacy Aktiv', NULL, NULL, 'active'),
+            ('Legacy Verstorben', NULL, NULL, 'deceased'),
+            ('Legacy Mehrfach', 'DK 007', 'NOR 111 / SWE 222 /NOR 111/ DK 007', 'active'),
+            ('Legacy Einzel', NULL, 'FIN 444', 'active')
         ");
 
         $steps = SchemaMigrator::run(self::$pdo);
@@ -140,6 +148,8 @@ class SchemaMigratorTest extends TestCase {
         $this->assertContains('Spalte horses.birth_year von YEAR auf SMALLINT UNSIGNED umgestellt', $steps);
         $this->assertContains("Status-Split: horses.status-Bestand 'deceased' nach is_deceased/death_year überführt, Enum bereinigt", $steps);
         $this->assertContains('Spalte users.role in user_groups-Mitgliedschaften überführt und entfernt', $steps);
+        $this->assertContains('Tabelle horse_registrations angelegt', $steps);
+        $this->assertContains('horse_registrations-Backfill: foreign_ueln von 2 Pferd(en) in Einzelnummern zerlegt', $steps);
         $this->assertContains(
             sprintf('settings.schema_version auf %d gesetzt (vorher 0)', SchemaMigrator::SCHEMA_VERSION),
             $steps
@@ -159,6 +169,25 @@ class SchemaMigratorTest extends TestCase {
         $this->assertSame(0, (int)$byName['Legacy Aktiv']['is_deceased']);
         $this->assertSame('inactive', $byName['Legacy Verstorben']['status']);
         $this->assertSame(1, (int)$byName['Legacy Verstorben']['is_deceased']);
+
+        // Backfill der weiteren Lebensnummern (#246): Die ' / '-Verkettung ist
+        // in Einzelzeilen mit stabiler Reihenfolge zerlegt; Duplikate innerhalb
+        // der Verkettung und die Primärnummer (ueln) werden NICHT übernommen,
+        // und foreign_ueln selbst bleibt als Kompatibilitätsfeld unangetastet.
+        $registrations = self::$pdo->query("
+            SELECT h.name, r.registration_number, r.sort_order
+            FROM horse_registrations r
+            JOIN horses h ON h.id = r.horse_id
+            ORDER BY h.name, r.sort_order
+        ")->fetchAll();
+        $this->assertSame([
+            ['name' => 'Legacy Einzel', 'registration_number' => 'FIN 444', 'sort_order' => 0],
+            ['name' => 'Legacy Mehrfach', 'registration_number' => 'NOR 111', 'sort_order' => 0],
+            ['name' => 'Legacy Mehrfach', 'registration_number' => 'SWE 222', 'sort_order' => 1],
+        ], array_map(fn($r) => ['name' => $r['name'], 'registration_number' => $r['registration_number'], 'sort_order' => (int)$r['sort_order']], $registrations));
+
+        $foreignUeln = self::$pdo->query("SELECT foreign_ueln FROM horses WHERE name = 'Legacy Mehrfach'")->fetchColumn();
+        $this->assertSame('NOR 111 / SWE 222 /NOR 111/ DK 007', $foreignUeln, 'foreign_ueln bleibt als Kompatibilitätsfeld unangetastet');
 
         // Stand persistiert -> ein Folgelauf hat entscheidbar nichts zu tun.
         $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo));
@@ -181,6 +210,25 @@ class SchemaMigratorTest extends TestCase {
 
         $published = self::$pdo->query("SELECT is_published FROM horses WHERE name = 'Legacy Aktiv'")->fetchColumn();
         $this->assertSame(0, (int)$published);
+
+        // Der horse_registrations-Backfill (#246) darf ebenfalls nicht erneut
+        // laufen - sonst würde er die Zeilen aus dem weiterhin befüllten
+        // foreign_ueln-Kompatibilitätsfeld duplizieren.
+        $registrationCount = (int)self::$pdo->query("SELECT COUNT(*) FROM horse_registrations")->fetchColumn();
+        $this->assertSame(3, $registrationCount, 'Ein Folgelauf darf den foreign_ueln-Backfill nicht wiederholen');
+
+        // Gegenprobe über einen ERZWUNGENEN Voll-Lauf (Stand zurückgesetzt, wie
+        // bei einem Update mit erhöhter SCHEMA_VERSION): Alle Migrationsschritte
+        // laufen erneut - der Einmal-Backfill aber nicht, weil die Tabelle
+        // bereits existiert (SHOW TABLES-Gate).
+        self::$pdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
+        $steps = SchemaMigrator::run(self::$pdo);
+        $this->assertNotContains('Tabelle horse_registrations angelegt', $steps);
+        $this->assertSame(
+            3,
+            (int)self::$pdo->query("SELECT COUNT(*) FROM horse_registrations")->fetchColumn(),
+            'Ein erzwungener Voll-Lauf darf den foreign_ueln-Backfill nicht wiederholen'
+        );
     }
 
     /**

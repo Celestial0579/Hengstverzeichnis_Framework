@@ -7,6 +7,7 @@
  * 5. Beschreibung (nur wenn vorhanden).
  *
  * @var array $horse
+ * @var string[] $horseRegistrations Weitere Lebensnummern (#246), sortiert
  * @var array|null $pedigree
  */
 
@@ -137,7 +138,20 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     <dt><?= htmlspecialchars(App\I18n\Translator::t('field.ueln_full')) ?></dt>
                     <dd><?= htmlspecialchars((string)($horse['ueln'] ?: App\I18n\Translator::t('field.unknown'))) ?></dd>
                 </div>
-                <?php if (!empty($horse['foreign_ueln'])): ?>
+                <?php if (!empty($horseRegistrations)): ?>
+                    <?php // Weitere Lebensnummern (#246) aus horse_registrations -
+                          // dezent unterhalb der Haupt-UELN, eine Nummer je Zeile. ?>
+                    <div>
+                        <dt><?= htmlspecialchars(App\I18n\Translator::t('field.registrations_label')) ?></dt>
+                        <dd style="color: var(--primary-fg);">
+                            <?php foreach ($horseRegistrations as $i => $registrationNumber): ?>
+                                <?= $i > 0 ? '<br>' : '' ?><?= htmlspecialchars((string)$registrationNumber) ?>
+                            <?php endforeach; ?>
+                        </dd>
+                    </div>
+                <?php elseif (!empty($horse['foreign_ueln'])): ?>
+                    <?php // Fallback für Bestand ohne Zeilen in der Kindtabelle
+                          // (z. B. per CSV-Import befülltes Kompatibilitätsfeld). ?>
                     <div>
                         <dt><?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_label')) ?></dt>
                         <dd style="color: var(--primary-fg);"><?= htmlspecialchars((string)$horse['foreign_ueln']) ?></dd>

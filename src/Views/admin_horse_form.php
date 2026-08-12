@@ -63,11 +63,57 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 <input type="text" id="ueln" name="ueln" class="form-control" value="<?= htmlspecialchars($horse['ueln'] ?? '') ?>" placeholder="z. B. DE 434340123418">
             </div>
 
+            <?php // Weitere Lebensnummern (#246): beliebig viele Registriernummern
+                  // (Mehrfachregistrierung, Altbestands-Kennungen) in der
+                  // Kindtabelle horse_registrations statt der früheren
+                  // ' / '-Verkettung im 50-Zeichen-Feld foreign_ueln. Der
+                  // versteckte Marker registrations_present lässt den Server
+                  // auch eine komplett geleerte Liste erkennen (siehe
+                  // HorseController::saveRegistrations()). ?>
             <div class="form-group" style="margin-bottom: 0;">
-                <label for="foreign_ueln">Lebensnummer Ursprungsland (Ausländische UELN)</label>
-                <input type="text" id="foreign_ueln" name="foreign_ueln" class="form-control" value="<?= htmlspecialchars($horse['foreign_ueln'] ?? '') ?>" placeholder="z. B. NLD003201801234 / FRA...">
+                <label>Weitere Lebensnummern / Registriernummern</label>
+                <input type="hidden" name="registrations_present" value="1">
+                <div id="registrations_container" style="display: flex; flex-direction: column; gap: 0.4rem;">
+                    <?php foreach (($horseRegistrations ?? []) as $registrationNumber): ?>
+                        <div class="registration-row" style="display: flex; gap: 0.4rem;">
+                            <input type="text" name="registrations[]" class="form-control" maxlength="50" value="<?= htmlspecialchars((string)$registrationNumber) ?>" placeholder="z. B. NLD003201801234">
+                            <button type="button" class="btn" style="background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;" onclick="this.closest('.registration-row').remove();">🗑️</button>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <button type="button" class="btn btn-secondary" style="margin-top: 0.4rem; font-size: 0.85rem;" onclick="addRegistrationRow();">+ Nummer hinzufügen</button>
+                <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">Zuchtbuch-/Registriernummern zusätzlich zur Haupt-UELN, je Nummer eine Zeile (max. 50 Zeichen).</small>
             </div>
         </div>
+
+        <script>
+        function addRegistrationRow(value) {
+            const container = document.getElementById('registrations_container');
+            const div = document.createElement('div');
+            div.className = 'registration-row';
+            div.style = 'display: flex; gap: 0.4rem;';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.name = 'registrations[]';
+            input.className = 'form-control';
+            input.maxLength = 50;
+            input.placeholder = 'z. B. NLD003201801234';
+            if (typeof value === 'string') input.value = value;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn';
+            removeBtn.style = 'background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;';
+            removeBtn.textContent = '🗑️';
+            removeBtn.addEventListener('click', () => div.remove());
+
+            div.appendChild(input);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+            input.focus();
+        }
+        </script>
 
         <!-- Abstammung: Vater (Sire) -->
         <fieldset style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: var(--surface-muted);">

@@ -102,6 +102,7 @@ class HorseController extends BaseController {
             'allPersons' => $allPersons,
             'allBreedingStations' => $allBreedingStations,
             'horsePersons' => [],
+            'horseRegistrations' => [],
             'canPublish' => $this->hasPermission('horses', 'publish')
         ]);
     }
@@ -118,6 +119,9 @@ class HorseController extends BaseController {
         // 23000) - NULL-Werte sind für UNIQUE-Constraints in MySQL/MariaDB dagegen
         // nie doppelt.
         $ueln = trim($_POST['ueln'] ?? '') ?: null;
+        // foreign_ueln wird vom Formular seit #246 nicht mehr übermittelt (die
+        // Nummern leben in horse_registrations); das Feld bleibt aus
+        // Abwärtskompatibilität beschreibbar (z. B. Skript-POSTs), sonst NULL.
         $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         // Geburtsdatum (#188) ist führend: wenn gesetzt, wird birth_year daraus
@@ -197,8 +201,13 @@ class HorseController extends BaseController {
         // Save Person Roles & Ownership History (horse_persons)
         $this->saveHorsePersons($db, $newHorseId, $_POST['persons'] ?? []);
 
+        // Weitere Lebensnummern (#246) speichern; die normalisierte Liste geht
+        // zusätzlich ins Auto-Linking, denn auch diese Nummern identifizieren
+        // das Pferd eindeutig (analog ueln/foreign_ueln).
+        $registrationNumbers = $this->saveRegistrations($db, $newHorseId, $ueln);
+
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
-        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year);
+        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year, $registrationNumbers);
 
         // Plugin-Hook (#56): Erweiterungspunkt NACH dem Anlegen, z. B. für Folgeaktionen
         // in einem Plugin (Benachrichtigung, verknüpfte Zusatzdaten anlegen etc.).
@@ -240,6 +249,18 @@ class HorseController extends BaseController {
         $stmt->execute([$id]);
         $horsePersons = $stmt->fetchAll();
 
+        // Weitere Lebensnummern (#246). Hat ein Bestandspferd noch keine
+        // Zeilen in der Kindtabelle, aber ein befülltes foreign_ueln (z. B.
+        // per CSV-Import nach der Migration entstanden), wird das Feld als
+        // Vorbelegung zerlegt angeboten - beim Speichern wandern die Nummern
+        // dann in die Kindtabelle, foreign_ueln selbst bleibt unangetastet.
+        $stmt = $db->prepare("SELECT registration_number FROM horse_registrations WHERE horse_id = ? ORDER BY sort_order ASC, id ASC");
+        $stmt->execute([$id]);
+        $horseRegistrations = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        if (!$horseRegistrations && !empty($horse['foreign_ueln'])) {
+            $horseRegistrations = array_values(array_filter(array_map('trim', preg_split('~\s*/\s*~', (string)$horse['foreign_ueln']) ?: []), fn($n) => $n !== ''));
+        }
+
         $this->render('admin_horse_form', [
             'title' => 'Pferd bearbeiten',
             'horse' => $horse,
@@ -247,6 +268,7 @@ class HorseController extends BaseController {
             'allPersons' => $allPersons,
             'allBreedingStations' => $allBreedingStations,
             'horsePersons' => $horsePersons,
+            'horseRegistrations' => $horseRegistrations,
             'canPublish' => $this->hasPermission('horses', 'publish')
         ]);
     }
@@ -269,7 +291,14 @@ class HorseController extends BaseController {
         // 23000) - NULL-Werte sind für UNIQUE-Constraints in MySQL/MariaDB dagegen
         // nie doppelt.
         $ueln = trim($_POST['ueln'] ?? '') ?: null;
-        $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
+        // foreign_ueln nur überschreiben, wenn das Feld übermittelt wurde
+        // (#246, gleiches Muster wie breeding_station/#214): Das Formular kennt
+        // kein name="foreign_ueln" mehr - die Nummern leben in
+        // horse_registrations, und das Kompatibilitätsfeld darf durch einen
+        // normalen Edit nicht still genullt werden. NULL heißt "nicht
+        // übermittelt" und lässt den Bestandswert im UPDATE unten (CASE)
+        // unangetastet; ein übermittelter Leerstring löscht weiterhin bewusst.
+        $foreign_ueln = array_key_exists('foreign_ueln', $_POST) ? trim($_POST['foreign_ueln']) : null;
         $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
         // Geburtsdatum (#188) ist führend, siehe store().
         $birth_date = $this->parseDate($_POST['birth_date'] ?? '');
@@ -363,16 +392,22 @@ class HorseController extends BaseController {
 
         // breeding_station = COALESCE(?, breeding_station) (#214): NULL steht für
         // "Feld nicht übermittelt" (siehe oben) und erhält den Bestandswert.
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = ?, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
+        // foreign_ueln analog (#246), aber per CASE statt COALESCE: ein
+        // übermittelter Leerstring soll NULL speichern (wie früher `?: null`),
+        // nicht den Leerstring selbst.
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 
         // Save Person Roles & Ownership History (horse_persons)
         $this->saveHorsePersons($db, (int)$id, $_POST['persons'] ?? []);
 
+        // Weitere Lebensnummern (#246), siehe store().
+        $registrationNumbers = $this->saveRegistrations($db, (int)$id, $ueln);
+
         // Run auto-linking for matches
-        $this->autoLinkMatches((int)$id, $name, $ueln, $foreign_ueln, $birth_year);
+        $this->autoLinkMatches((int)$id, $name, $ueln, ($foreign_ueln !== null && $foreign_ueln !== '') ? $foreign_ueln : null, $birth_year, $registrationNumbers);
 
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.after_save', (int)$id, $_POST, false);
@@ -501,12 +536,73 @@ class HorseController extends BaseController {
     }
 
     /**
-     * Auto-links unlinked placeholders matching $ueln, $foreignUeln or $name to $horseId
+     * Weitere Lebensnummern (#246) aus dem Formular speichern: kompletter
+     * Ersatz der Zeilen dieses Pferds (gleiches Muster wie saveHorsePersons()).
+     *
+     * Der Block gilt nur als übermittelt, wenn registrations[] oder der
+     * Formular-Marker registrations_present im POST steht - ein Request OHNE
+     * beides (z. B. ein Skript-POST, der das Feld nicht kennt) lässt den
+     * Bestand unangetastet, analog zum breeding_station-COALESCE (#214).
+     * Das versteckte registrations_present-Feld ist nötig, weil eine komplett
+     * geleerte Nummernliste sonst gar keinen registrations-Schlüssel sendet
+     * und sich nicht von "nicht übermittelt" unterscheiden ließe.
+     *
+     * Validierung analog der bestehenden Felder (still normalisieren statt
+     * DB-Fehler): trimmen, Leereinträge und Duplikate (case-insensitiv)
+     * verwerfen, Überlängen (> 50 Zeichen, Spaltenbreite) verwerfen, und die
+     * Primärnummer ueln wird nicht dupliziert.
+     *
+     * @return string[] Die gespeicherten (bzw. bei "nicht übermittelt" die
+     *                  bestehenden) Nummern in Reihenfolge - für das Auto-Linking.
      */
-    private function autoLinkMatches(int $horseId, string $name, ?string $ueln, ?string $foreignUeln = null, ?int $birthYear = null): void {
+    private function saveRegistrations(\PDO $db, int $horseId, ?string $primaryUeln): array {
+        if (!array_key_exists('registrations', $_POST) && !array_key_exists('registrations_present', $_POST)) {
+            $stmt = $db->prepare("SELECT registration_number FROM horse_registrations WHERE horse_id = ? ORDER BY sort_order ASC, id ASC");
+            $stmt->execute([$horseId]);
+            return $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        }
+
+        $numbers = [];
+        $seen = [];
+        $primaryKey = mb_strtolower(trim($primaryUeln ?? ''));
+        foreach ((array)($_POST['registrations'] ?? []) as $raw) {
+            if (!is_string($raw)) {
+                continue;
+            }
+            $number = trim($raw);
+            if ($number === '' || mb_strlen($number) > 50) {
+                continue;
+            }
+            $key = mb_strtolower($number);
+            if ($key === $primaryKey || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $numbers[] = $number;
+        }
+
+        $db->prepare("DELETE FROM horse_registrations WHERE horse_id = ?")->execute([$horseId]);
+        $insert = $db->prepare("INSERT INTO horse_registrations (horse_id, registration_number, sort_order) VALUES (?, ?, ?)");
+        foreach ($numbers as $sortOrder => $number) {
+            $insert->execute([$horseId, $number, $sortOrder]);
+        }
+
+        return $numbers;
+    }
+
+    /**
+     * Auto-links unlinked placeholders matching $ueln, $foreignUeln, one of the
+     * horse's registration numbers (#246) or $name to $horseId
+     *
+     * @param string[] $registrationNumbers
+     */
+    private function autoLinkMatches(int $horseId, string $name, ?string $ueln, ?string $foreignUeln = null, ?int $birthYear = null, array $registrationNumbers = []): void {
         $db = Database::getInstance();
 
-        $uelnsToMatch = array_unique(array_filter([trim($ueln ?? ''), trim($foreignUeln ?? '')]));
+        $uelnsToMatch = array_unique(array_filter(array_merge(
+            [trim($ueln ?? ''), trim($foreignUeln ?? '')],
+            array_map('trim', $registrationNumbers)
+        )));
 
         // Alle UPDATEs schließen die eben gespeicherte Zeile selbst aus (AND id != ?):
         // ohne diesen Guard kann sich ein Pferd selbst als Elternteil zugewiesen

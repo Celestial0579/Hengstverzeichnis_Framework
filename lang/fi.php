@@ -41,6 +41,7 @@ return [
     'format.date' => 'j.n.Y',
     'field.ueln_full' => 'UELN (ensisijainen rekisterinumero)',
     'field.foreign_ueln_label' => 'Alkuperämaan rekisterinumero',
+    'field.registrations_label' => 'Muut rekisterinumerot',
     'field.foreign_ueln_inline' => 'Ulkomaat',
     'field.breeding_station' => 'Oriasema / siittola',
     'field.breeder' => 'Kasvattaja',

@@ -213,6 +213,10 @@ class DatabaseTest extends TestCase {
         $this->assertTableExists($pdo, 'user_groups');
         $this->assertTableExists($pdo, 'group_permissions');
 
+        // Weitere Lebensnummern (#246, SCHEMA_VERSION 3)
+        $this->assertTableExists($pdo, 'horse_registrations');
+        $this->assertIndexExists($pdo, 'horse_registrations', 'idx_horse_registrations_number');
+
         // Katalog-Filter-Indizes (#221) und die neuen Spalten für den
         // Plugin-Verzeichnis-Stempel (#224) bzw. die API-Schlüssel-Kopplung
         // an session_version (#217)
@@ -277,6 +281,13 @@ class DatabaseTest extends TestCase {
     public function testOutdatedSchemaVersionRerunsMigrationsOnNewConnection(): void {
         self::$setupPdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
 
+        // Backfill-Gate der weiteren Lebensnummern (#246): foreign_ueln wird
+        // NACH der Erstmigration befüllt - der erneute Voll-Lauf unten darf es
+        // nicht in horse_registrations zerlegen, denn der Einmal-Backfill ist
+        // an das erstmalige Anlegen der Tabelle gekoppelt (sonst würde jeder
+        // Lauf bewusst gepflegte Nummern aus dem veralteten Feld duplizieren).
+        self::$setupPdo->exec("UPDATE `horses` SET `foreign_ueln` = 'NOR 111 / SWE 222' WHERE `name` = 'Legacy Aktiv'");
+
         self::resetDatabaseSingleton();
         $pdo = Database::getInstance();
 
@@ -284,6 +295,12 @@ class DatabaseTest extends TestCase {
         $this->assertColumnExists($pdo, 'persons', 'membership_status');
         // ... und der Stand erneut auf der aktuellen SCHEMA_VERSION stehen.
         $this->assertSame(Database::SCHEMA_VERSION, $this->storedSchemaVersion());
+
+        $this->assertSame(
+            0,
+            (int)$pdo->query("SELECT COUNT(*) FROM horse_registrations")->fetchColumn(),
+            'Der foreign_ueln-Backfill darf bei einem erneuten Migrationslauf nicht wiederholt werden (Einmal-Gate über SHOW TABLES)'
+        );
     }
 
     /**

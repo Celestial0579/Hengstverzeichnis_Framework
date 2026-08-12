@@ -41,6 +41,7 @@ return [
     'format.date' => 'd-m-Y',
     'field.ueln_full' => 'UELN (hoofd-levensnummer)',
     'field.foreign_ueln_label' => 'Levensnummer land van herkomst',
+    'field.registrations_label' => 'Overige levensnummers',
     'field.foreign_ueln_inline' => 'Buitenland',
     'field.breeding_station' => 'Dekstation / Stoeterij',
     'field.breeder' => 'Fokker',

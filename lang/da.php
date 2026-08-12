@@ -41,6 +41,7 @@ return [
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (primært livsnummer)',
     'field.foreign_ueln_label' => 'Livsnummer (oprindelsesland)',
+    'field.registrations_label' => 'Yderligere livsnumre',
     'field.foreign_ueln_inline' => 'Udland',
     'field.breeding_station' => 'Hingstestation / stutteri',
     'field.breeder' => 'Opdrætter',

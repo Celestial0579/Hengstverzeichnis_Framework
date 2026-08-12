@@ -185,6 +185,25 @@ CREATE TABLE IF NOT EXISTS `horse_persons` (
     INDEX `idx_horse_persons_horse_role` (`horse_id`, `role`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Weitere Lebensnummern / Registriernummern je Pferd (#246): Pferde können
+-- durch Doppel-/Mehrfachregistrierung in mehreren Zuchtbüchern (plus
+-- Altbestands-Kennungen) mehr als zwei Nummern tragen - das frühere Verketten
+-- mit ' / ' in horses.foreign_ueln (varchar(50)) schnitt real Daten ab.
+-- horses.ueln bleibt die Primärnummer und wird hier NICHT dupliziert;
+-- horses.foreign_ueln bleibt aus Abwärtskompatibilität bestehen (CSV-Import,
+-- API-Ausgabe, Anzeige-Fallback für Bestand ohne Zeilen hier), wird vom
+-- Admin-Formular aber nicht mehr befüllt.
+CREATE TABLE IF NOT EXISTS `horse_registrations` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `horse_id` INT NOT NULL,
+    `registration_number` VARCHAR(50) NOT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE,
+    INDEX `idx_horse_registrations_horse` (`horse_id`, `sort_order`),
+    INDEX `idx_horse_registrations_number` (`registration_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- GDPR Requests
 CREATE TABLE IF NOT EXISTS `gdpr_requests` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,

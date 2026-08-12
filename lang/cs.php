@@ -41,6 +41,7 @@ return [
     'format.date' => 'j. n. Y',
     'field.ueln_full' => 'UELN (hlavní životní číslo)',
     'field.foreign_ueln_label' => 'Životní číslo země původu',
+    'field.registrations_label' => 'Další životní čísla',
     'field.foreign_ueln_inline' => 'Zahraničí',
     'field.breeding_station' => 'Připouštěcí stanice / hřebčín',
     'field.breeder' => 'Chovatel',

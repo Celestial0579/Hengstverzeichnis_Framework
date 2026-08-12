@@ -17,6 +17,8 @@ horses ──sire_id──┐
    │  ──dam_id─────┤→ horses (Selbstreferenz: Vater/Mutter)
    │  ──breeding_station_id──→ breeding_stations
    │
+   ├──< horse_registrations   (weitere Lebensnummern je Pferd, #246)
+   │
    └──< horse_persons >── persons
                               (m:n über horse_persons, mit Rolle)
 
@@ -41,7 +43,12 @@ audit_logs        (Revisionssicheres Protokoll aller sicherheitsrelevanten Aktio
 Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
 
 - `ueln` – Unique Equine Life Number, eindeutig (deutsche/Haupt-UELN)
-- `foreign_ueln` – UELN im Ursprungsland, falls abweichend
+- `foreign_ueln` – UELN im Ursprungsland, falls abweichend.
+  **Kompatibilitätsfeld seit #246**: weitere Nummern leben in
+  `horse_registrations` (siehe unten); das Admin-Formular befüllt
+  `foreign_ueln` nicht mehr, CSV-Import und API-Ausgabe nutzen es weiterhin,
+  die Anzeige fällt darauf zurück, solange die Kindtabelle für ein Pferd
+  leer ist
 - `sire_id`/`dam_id` – FK auf `horses.id`, `ON DELETE SET NULL`, sobald
   Vater/Mutter als eigener Datensatz existiert und verknüpft ist
 - `sire_name`/`sire_ueln`, `dam_name`/`dam_ueln` – "Platzhalter"-Felder für
@@ -75,6 +82,20 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   geführt sein. Ein gesetztes `death_year` impliziert `is_deceased = 1`
   (serverseitig normalisiert); `death_year < birth_year` wird abgelehnt
 - `deleted_at` – Soft-Delete (Papierkorb), `NULL` = aktiv
+
+### `horse_registrations`
+Weitere Lebensnummern / Registriernummern je Pferd (#246):
+Doppel-/Mehrfachregistrierung in mehreren Zuchtbüchern plus
+Altbestands-Kennungen — mehr als zwei Nummern pro Pferd sind real
+(die frühere `' / '`-Verkettung im 50-Zeichen-Feld `foreign_ueln` hat
+Nummern abgeschnitten). `horse_id` (FK, `ON DELETE CASCADE`),
+`registration_number` (max. 50 Zeichen, indiziert für die Suche),
+`sort_order` für stabile Reihenfolge. `horses.ueln` bleibt die
+Primärnummer und wird hier nicht dupliziert. Die Migration zerlegt
+bestehende `foreign_ueln`-Verkettungen einmalig in Einzelzeilen
+(`foreign_ueln` selbst bleibt unangetastet). Öffentliche Suche, API-Suche
+und die Platzhalter-Auflösung des `PedigreeBuilder` finden Pferde auch
+über diese Nummern.
 
 ### `horse_persons`
 m:n-Verknüpfung zwischen Pferd und Person mit Rolle (`breeder`, `owner`,

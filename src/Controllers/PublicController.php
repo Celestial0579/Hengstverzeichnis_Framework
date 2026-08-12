@@ -59,7 +59,7 @@ class PublicController extends BaseController {
         $where = ["h.deleted_at IS NULL", "h.is_published = 1"];
         $params = [];
 
-        // General search term across horse name, ueln, foreign_ueln, sire, dam, station, breeder, owner.
+        // General search term across horse name, ueln, foreign_ueln, registrations (#246), sire, dam, station, breeder, owner.
         // Personen über EXISTS statt über die früheren p_breeder/p_owner-JOINs
         // (siehe unten, #125) und nur veröffentlichte Personen (#121).
         if (!empty($search)) {
@@ -84,9 +84,13 @@ class PublicController extends BaseController {
                     SELECT 1 FROM horse_persons hps
                     JOIN persons ps ON ps.id = hps.person_id AND ps.deleted_at IS NULL AND ps.is_published = 1
                     WHERE hps.horse_id = h.id AND ps.name LIKE ?
+                ) OR
+                EXISTS (
+                    SELECT 1 FROM horse_registrations hreg
+                    WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?
                 )
             )";
-            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like);
+            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like);
         }
 
         if (!empty($qName)) {
@@ -95,9 +99,12 @@ class PublicController extends BaseController {
         }
 
         if (!empty($qUeln)) {
+            // Seit #246 auch über die weiteren Lebensnummern (horse_registrations)
+            // des Pferds selbst - die foreign_ueln-Spalten bleiben als
+            // Kompatibilitäts-Fallback mit durchsucht.
             $like = '%' . $qUeln . '%';
-            $where[] = "(h.ueln LIKE ? OR h.foreign_ueln LIKE ? OR h.sire_ueln LIKE ? OR h.dam_ueln LIKE ? OR sire.ueln LIKE ? OR sire.foreign_ueln LIKE ? OR dam.ueln LIKE ? OR dam.foreign_ueln LIKE ?)";
-            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like);
+            $where[] = "(h.ueln LIKE ? OR h.foreign_ueln LIKE ? OR h.sire_ueln LIKE ? OR h.dam_ueln LIKE ? OR sire.ueln LIKE ? OR sire.foreign_ueln LIKE ? OR dam.ueln LIKE ? OR dam.foreign_ueln LIKE ? OR EXISTS (SELECT 1 FROM horse_registrations hreg WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?))";
+            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
         }
 
         if ($birthYearFrom !== null) {
@@ -229,6 +236,8 @@ class PublicController extends BaseController {
             $sql = "
                 SELECT
                     h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
+                    (SELECT GROUP_CONCAT(hr.registration_number ORDER BY hr.sort_order ASC, hr.id ASC SEPARATOR ' / ')
+                     FROM horse_registrations hr WHERE hr.horse_id = h.id) AS registration_numbers,
                     CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
                          THEN NULL ELSE h.breeding_station END AS breeding_station,
                     bs.name as station_name,
@@ -396,6 +405,13 @@ class PublicController extends BaseController {
             return !empty($hp['person_name']) || !empty($hp['station_name']) || !empty($hp['breeding_station_text']);
         }));
 
+        // Weitere Lebensnummern (#246): Anzeige aus der Kindtabelle; für
+        // Bestand ohne Zeilen dort fällt die View auf das Kompatibilitätsfeld
+        // horses.foreign_ueln zurück (siehe public_horse_detail.php).
+        $stmt = $db->prepare("SELECT registration_number FROM horse_registrations WHERE horse_id = ? ORDER BY sort_order ASC, id ASC");
+        $stmt->execute([$id]);
+        $horseRegistrations = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
         // Build 6-generation pedigree tree (#53) - die öffentliche Seite selbst
         // zeigt per Default weiterhin 3 Generationen an (JS-Umschalter bis 6),
         // die tieferen Ebenen werden serverseitig mitgeliefert, damit der
@@ -422,6 +438,7 @@ class PublicController extends BaseController {
             'title' => $horse['name'] . ' - ' . \App\I18n\Translator::t('meta.title_horse_detail_suffix'),
             'horse' => $horse,
             'horsePersons' => $horsePersons,
+            'horseRegistrations' => $horseRegistrations,
             'pedigree' => $pedigreeTree,
             'pluginDetailSections' => $pluginDetailSections
         ]);

@@ -41,6 +41,7 @@ return [
     'format.date' => 'Y-m-d',
     'field.ueln_full' => 'UELN (primärt livsnummer)',
     'field.foreign_ueln_label' => 'Livsnummer (ursprungsland)',
+    'field.registrations_label' => 'Ytterligare livsnummer',
     'field.foreign_ueln_inline' => 'Utland',
     'field.breeding_station' => 'Hingststation / Stuteri',
     'field.breeder' => 'Uppfödare',

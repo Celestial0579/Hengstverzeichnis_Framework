@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 2;
+    public const SCHEMA_VERSION = 3;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -676,5 +676,81 @@ final class SchemaMigrator {
         // gespeichert. NULL = nicht erfasst. Spiegelbildlich zu
         // database/schema.sql.
         $addColumn('horses', 'castration_date', 'DATE NULL DEFAULT NULL AFTER `sex`');
+
+        // 28. Weitere Lebensnummern (#246, SCHEMA_VERSION 3): eigene Kindtabelle
+        // horse_registrations statt der ' / '-Verkettung in horses.foreign_ueln
+        // (varchar(50)), die real Nummern abgeschnitten hat. horses.ueln bleibt
+        // die Primärnummer und wird NICHT dupliziert; horses.foreign_ueln bleibt
+        // aus Abwärtskompatibilität bestehen (CSV-Import, API-Ausgabe,
+        // Anzeige-Fallback), wird vom Admin-Formular aber nicht mehr befüllt.
+        //
+        // EINMAL-Backfill, an die SHOW TABLES-Prüfung gekoppelt (analog zum
+        // is_published-Block oben): Bestehende foreign_ueln-Werte werden an
+        // ' / ' bzw. '/' zerlegt und als Einzelzeilen übernommen. Nur beim
+        // erstmaligen Anlegen der Tabelle - sonst würde ein späterer Lauf
+        // (z. B. nach einer bewussten Korrektur der Nummern im Formular) die
+        // Zeilen aus dem inzwischen veralteten foreign_ueln-Feld duplizieren.
+        // foreign_ueln selbst bleibt unangetastet (Abwärtskompatibilität).
+        try {
+            $stmt = $pdo->query("SHOW TABLES LIKE 'horse_registrations'");
+            $registrationsExisted = $stmt && $stmt->rowCount() > 0;
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `horse_registrations` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `horse_id` INT NOT NULL,
+                `registration_number` VARCHAR(50) NOT NULL,
+                `sort_order` INT NOT NULL DEFAULT 0,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE,
+                INDEX `idx_horse_registrations_horse` (`horse_id`, `sort_order`),
+                INDEX `idx_horse_registrations_number` (`registration_number`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+            if (!$registrationsExisted) {
+                $performed[] = 'Tabelle horse_registrations angelegt';
+
+                $insert = $pdo->prepare(
+                    "INSERT INTO horse_registrations (horse_id, registration_number, sort_order) VALUES (?, ?, ?)"
+                );
+                $rows = $pdo->query(
+                    "SELECT id, ueln, foreign_ueln FROM horses WHERE foreign_ueln IS NOT NULL AND foreign_ueln != ''"
+                )->fetchAll(PDO::FETCH_ASSOC);
+
+                $migratedHorses = 0;
+                foreach ($rows as $row) {
+                    $sortOrder = 0;
+                    $seen = [];
+                    // Auch '/' ohne umgebende Leerzeichen zerlegen - durch das
+                    // varchar(50)-Limit abgeschnittene Verkettungen enden teils
+                    // mitten im Trennzeichen.
+                    foreach (preg_split('~\s*/\s*~', (string)$row['foreign_ueln']) ?: [] as $number) {
+                        $number = trim($number);
+                        if ($number === '') {
+                            continue;
+                        }
+                        // ueln bleibt Primärnummer im horses-Feld - nicht duplizieren.
+                        if (mb_strtolower($number) === mb_strtolower(trim((string)($row['ueln'] ?? '')))) {
+                            continue;
+                        }
+                        $key = mb_strtolower($number);
+                        if (isset($seen[$key])) {
+                            continue;
+                        }
+                        $seen[$key] = true;
+                        $insert->execute([(int)$row['id'], $number, $sortOrder++]);
+                    }
+                    if ($sortOrder > 0) {
+                        $migratedHorses++;
+                    }
+                }
+                if ($migratedHorses > 0) {
+                    $performed[] = sprintf(
+                        'horse_registrations-Backfill: foreign_ueln von %d Pferd(en) in Einzelnummern zerlegt',
+                        $migratedHorses
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            // Tabelle horses existiert ggf. noch nicht (Setup-Fall)
+        }
     }
 }

@@ -35,8 +35,12 @@ $catalogPagination = $catalogPagination ?? null;
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.3rem;">
                         <p style="margin:0;">
                             <strong>UELN:</strong> <?= htmlspecialchars((string)($horse['ueln'] ?: '-')) ?>
-                            <?php if (!empty($horse['foreign_ueln'])): ?>
-                                <span style="font-size: 0.8rem; color: var(--text-muted);">(<?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_inline')) ?>: <?= htmlspecialchars($horse['foreign_ueln']) ?>)</span>
+                            <?php // Weitere Lebensnummern (#246) aus horse_registrations,
+                                  // aggregiert im Controller; foreign_ueln bleibt der
+                                  // Fallback für Bestand ohne Zeilen in der Kindtabelle. ?>
+                            <?php $inlineNumbers = $horse['registration_numbers'] ?? null ?: ($horse['foreign_ueln'] ?? null); ?>
+                            <?php if (!empty($inlineNumbers)): ?>
+                                <span style="font-size: 0.8rem; color: var(--text-muted);">(<?= htmlspecialchars(App\I18n\Translator::t('field.foreign_ueln_inline')) ?>: <?= htmlspecialchars($inlineNumbers) ?>)</span>
                             <?php endif; ?>
                         </p>
                         <p style="margin:0;"><strong><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?>:</strong> <?= htmlspecialchars((string)($horse['birth_year'] ?: '-')) ?></p>

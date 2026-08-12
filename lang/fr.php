@@ -41,6 +41,7 @@ return [
     'format.date' => 'd/m/Y',
     'field.ueln_full' => 'UELN (numéro de vie principal)',
     'field.foreign_ueln_label' => 'Numéro de vie du pays d\'origine',
+    'field.registrations_label' => 'Autres numéros de vie',
     'field.foreign_ueln_inline' => 'Étranger',
     'field.breeding_station' => 'Station de monte / Haras',
     'field.breeder' => 'Éleveur',

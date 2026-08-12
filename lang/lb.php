@@ -46,6 +46,7 @@ return [
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (Haapt-Liewensnummer)',
     'field.foreign_ueln_label' => 'Liewensnummer Hierkonftsland',
+    'field.registrations_label' => 'Weider Liewensnummeren',
     'field.foreign_ueln_inline' => 'Ausland',
     'field.breeding_station' => 'Deckstatioun / Gestüt',
     'field.breeder' => 'Ziichter',

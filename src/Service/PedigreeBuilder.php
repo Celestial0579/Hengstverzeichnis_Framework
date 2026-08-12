@@ -177,8 +177,10 @@ class PedigreeBuilder {
         $result = null;
 
         if (!empty($cleanUeln)) {
-            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL{$publishedFilter} AND (ueln = ? OR foreign_ueln = ?) LIMIT 1");
-            $stmt->execute([$cleanUeln, $cleanUeln]);
+            // Seit #246 zählt auch eine weitere Lebensnummer (horse_registrations)
+            // als Treffer; foreign_ueln bleibt als Kompatibilitäts-Fallback dabei.
+            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL{$publishedFilter} AND (ueln = ? OR foreign_ueln = ? OR id IN (SELECT horse_id FROM horse_registrations WHERE registration_number = ?)) LIMIT 1");
+            $stmt->execute([$cleanUeln, $cleanUeln, $cleanUeln]);
             $foundId = $stmt->fetchColumn();
             if ($foundId) $result = (int)$foundId;
         }

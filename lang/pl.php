@@ -41,6 +41,7 @@ return [
     'format.date' => 'd.m.Y',
     'field.ueln_full' => 'UELN (główny numer dożywotni)',
     'field.foreign_ueln_label' => 'Numer dożywotni kraju pochodzenia',
+    'field.registrations_label' => 'Dodatkowe numery dożywotnie',
     'field.foreign_ueln_inline' => 'Zagranica',
     'field.breeding_station' => 'Stacja ogierów / Stadnina',
     'field.breeder' => 'Hodowca',

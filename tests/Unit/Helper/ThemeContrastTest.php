@@ -179,9 +179,34 @@ class ThemeContrastTest extends TestCase {
         $this->assertStringContainsString('var(--footer-fg)', $m[1]);
         $this->assertStringNotContainsString('color: white', $m[1]);
 
-        preg_match('/footer a\s*\{([^}]*)\}/s', self::$css, $m);
-        $this->assertNotEmpty($m, 'footer a-Regel nicht gefunden');
+        // Selektor MIT den beiden :not() (#248): Ein schlichtes `footer a`
+        // (0,0,2) verliert gegen die globale Inhalts-Link-Regel
+        // `a:not(.btn):not(.nav-link)` (0,2,1) - die Footer-Links bekämen
+        // --link-color statt --footer-link-color und fielen im hellen Theme
+        // auf der Markenfläche unter 4,5:1 (real gemessen: 1,8:1).
+        preg_match('/footer a:not\(\.btn\):not\(\.nav-link\)\s*\{([^}]*)\}/s', self::$css, $m);
+        $this->assertNotEmpty($m, 'footer-Link-Regel (footer a:not(.btn):not(.nav-link)) nicht gefunden - '
+            . 'ohne die :not()-Spezifität überschreibt die globale Inhalts-Link-Regel die Footer-Linkfarbe (#248)');
         $this->assertStringContainsString('var(--footer-link-color)', $m[1]);
         $this->assertStringNotContainsString('var(--secondary-color)', $m[1]);
+    }
+
+    public function testColorSchemeFollowsTheme(): void {
+        // color-scheme koppelt die Browser-eigenen Farben (UA-Buttontext von
+        // Bedienelementen ohne eigene Farbangabe) ans Theme (#248): Ohne
+        // 'dark' im Darkmode stand schwarzer UA-Buttontext auf dunklen
+        // Theme-Flächen - real getroffen hat es Plugin-Buttons, die nur
+        // background aus den Theme-Variablen setzen ("☆ Merken" 1,44:1,
+        // "QR-Code anzeigen" 1,26:1; Soll >= 3:1, WCAG 1.4.11). Der
+        // Zwillingsblock-Vergleich oben sieht nur --Variablen, deshalb hier
+        // beide Blöcke einzeln.
+        preg_match('/^:root\s*\{(.*?)\n\}/ms', self::$css, $m);
+        $this->assertStringContainsString('color-scheme: light', $m[1] ?? '', ':root ohne color-scheme: light');
+
+        preg_match('/@media \(prefers-color-scheme: dark\)\s*\{\s*:root:not\(\[data-theme="light"\]\)\s*\{(.*?)\}\s*\}/s', self::$css, $m);
+        $this->assertStringContainsString('color-scheme: dark', $m[1] ?? '', 'Media-Darkmode-Block ohne color-scheme: dark');
+
+        preg_match('/:root\[data-theme="dark"\]\s*\{(.*?)\n\}/s', self::$css, $m);
+        $this->assertStringContainsString('color-scheme: dark', $m[1] ?? '', 'Manueller Darkmode-Block ohne color-scheme: dark');
     }
 }

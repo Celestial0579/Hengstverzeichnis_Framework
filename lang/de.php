@@ -154,7 +154,7 @@ return [
     'dsgvo.heading' => 'Datenschutz-Anfrage (DSGVO)',
     'dsgvo.intro' => 'Hier können Sie Auskunft über Ihre gespeicherten personenbezogenen Daten anfordern oder deren Löschung bzw. Anonymisierung beantragen.',
     'dsgvo.success' => '✓ Ihre Anfrage wurde erfolgreich übermittelt. Wir werden diese gemäß den gesetzlichen Vorgaben bearbeiten.',
-    'dsgvo.rate_limited' => 'Zu viele Anfragen von Ihrer Adresse. Bitte versuchen Sie es in 15 Minuten erneut.',
+    'dsgvo.rate_limited' => 'Zu viele Anfragen von Ihrer Adresse. Bitte versuchen Sie es in einer Stunde erneut. Bei dringenden Anliegen erreichen Sie uns über die im Impressum genannten Kontaktdaten.',
     'dsgvo.name_label' => 'Ihr Name (Betroffene Person)',
     'dsgvo.name_placeholder' => 'z. B. Max Mustermann',
     'dsgvo.email_label' => 'Ihre E-Mail-Adresse *',
@@ -166,7 +166,32 @@ return [
     'dsgvo.message_label' => 'Ihre Nachricht / Details zur Anfrage (optional)',
     'dsgvo.message_placeholder' => 'Geben Sie hier optionale Hinweise an (z. B. Züchter- / Besitzername, betroffene Hengste oder spezifische Wünsche zur Anonymisierung).',
     'dsgvo.submit' => '🛡️ Datenschutz-Anfrage absenden',
+    'dsgvo.captcha_label' => 'Spam-Schutz: Bitte lösen Sie die Rechenaufgabe *',
+    'dsgvo.captcha_hint' => 'Bitte als Ziffer eintragen. Diese Abfrage schützt das Formular vor automatisierten Anfragen - es werden dabei keine Daten an Dritte übertragen.',
+    'dsgvo.captcha_wrong' => 'Die Rechenaufgabe wurde nicht richtig gelöst. Bitte versuchen Sie es mit der neuen Aufgabe erneut.',
+    'dsgvo.captcha_expired' => 'Der Spam-Schutz ist abgelaufen. Bitte lösen Sie die neue Rechenaufgabe und senden Sie das Formular erneut ab.',
+    'dsgvo.captcha_too_fast' => 'Das Formular wurde ungewöhnlich schnell abgeschickt. Bitte lösen Sie die neue Rechenaufgabe und senden Sie es erneut ab.',
+    'dsgvo.honeypot_label' => 'Dieses Feld bitte leer lassen',
+    'dsgvo.email_invalid' => 'Bitte geben Sie eine gültige E-Mail-Adresse an (höchstens 100 Zeichen) - ohne sie können wir Ihre Anfrage nicht bearbeiten.',
+    'dsgvo.request_type_invalid' => 'Bitte wählen Sie eine gültige Art der Anfrage aus.',
+    'dsgvo.name_too_long' => 'Der Name ist zu lang (höchstens 100 Zeichen).',
+    'dsgvo.message_too_long' => 'Ihre Nachricht ist zu lang (höchstens {max} Zeichen).',
     'meta.title_dsgvo' => 'DSGVO Anfrage',
+
+    // Zahlwörter des Spam-Schutzes (siehe App\Security\Captcha): Die Aufgabe
+    // wird bewusst in Worten gestellt, damit sie nicht per Zahlen-Regex aus dem
+    // HTML gelöst werden kann.
+    'captcha.plus' => 'plus',
+    'captcha.minus' => 'minus',
+    'captcha.number_1' => 'eins',
+    'captcha.number_2' => 'zwei',
+    'captcha.number_3' => 'drei',
+    'captcha.number_4' => 'vier',
+    'captcha.number_5' => 'fünf',
+    'captcha.number_6' => 'sechs',
+    'captcha.number_7' => 'sieben',
+    'captcha.number_8' => 'acht',
+    'captcha.number_9' => 'neun',
 
     // Login / 2FA / Passwort vergessen (öffentlich erreichbarer Auth-Flow)
     'auth.password_reset_success' => '✓ Passwort erfolgreich geändert. Bitte melden Sie sich an.',

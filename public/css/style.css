@@ -6,6 +6,11 @@
     --secondary-color: #18bc9c;
     --bg-color: #f8f9fa;
     --text-color: #333333;
+    /* Abgeschwächte Textfarbe für Hinweise/Hilfetexte unter Formularfeldern
+       (siehe .form-hint). Bewusst als Variable statt fest codiertem #666:
+       auf dunklem Kartenhintergrund käme #666 nur auf ~2.7:1 und verfehlt
+       damit die von WCAG AA geforderten 4.5:1. */
+    --text-muted: #666666;
     --card-bg: #ffffff;
     --border-color: #e0e0e0;
     --header-bg: #ffffff;
@@ -37,6 +42,7 @@
     :root:not([data-theme="light"]) {
         --bg-color: #16181c;
         --text-color: #e4e6eb;
+        --text-muted: #a0a6ae;
         --card-bg: #22252a;
         --border-color: #383b40;
         --header-bg: #1c1e22;
@@ -49,6 +55,7 @@
 :root[data-theme="dark"] {
     --bg-color: #16181c;
     --text-color: #e4e6eb;
+    --text-muted: #a0a6ae;
     --card-bg: #22252a;
     --border-color: #383b40;
     --header-bg: #1c1e22;
@@ -234,6 +241,17 @@ h1, h2, h3 {
     background-color: var(--card-bg);
     color: var(--text-color);
     transition: border-color var(--transition-speed), box-shadow var(--transition-speed), background-color var(--transition-speed), color var(--transition-speed);
+}
+
+/*
+ * Hilfetext unter einem Formularfeld. Immer als eigener Block, damit er auch
+ * neben absichtlich schmalen Feldern (z. B. der Spam-Schutz-Eingabe im
+ * DSGVO-Portal) darunter statt daneben landet.
+ */
+.form-hint {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--text-muted);
 }
 
 .form-control:focus {

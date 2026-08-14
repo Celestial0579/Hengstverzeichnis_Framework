@@ -152,7 +152,7 @@ return [
     'dsgvo.heading' => 'Privacy Request (GDPR)',
     'dsgvo.intro' => 'Here you can request information about your stored personal data, or request its deletion or anonymization.',
     'dsgvo.success' => '✓ Your request has been submitted successfully. We will process it in accordance with legal requirements.',
-    'dsgvo.rate_limited' => 'Too many requests from your address. Please try again in 15 minutes.',
+    'dsgvo.rate_limited' => 'Too many requests from your address. Please try again in an hour. For urgent matters, you can reach us via the contact details in the legal notice.',
     'dsgvo.name_label' => 'Your Name (Data Subject)',
     'dsgvo.name_placeholder' => 'e.g. John Doe',
     'dsgvo.email_label' => 'Your Email Address *',
@@ -164,7 +164,32 @@ return [
     'dsgvo.message_label' => 'Your Message / Request Details (optional)',
     'dsgvo.message_placeholder' => 'Add any optional notes here (e.g. breeder / owner name, affected stallions, or specific anonymization requests).',
     'dsgvo.submit' => '🛡️ Submit Privacy Request',
+    'dsgvo.captcha_label' => 'Spam protection: please solve the arithmetic task *',
+    'dsgvo.captcha_hint' => 'Please enter the result as a digit. This check protects the form against automated requests - no data is transmitted to third parties.',
+    'dsgvo.captcha_wrong' => 'The arithmetic task was not solved correctly. Please try again with the new task.',
+    'dsgvo.captcha_expired' => 'The spam protection has expired. Please solve the new arithmetic task and submit the form again.',
+    'dsgvo.captcha_too_fast' => 'The form was submitted unusually fast. Please solve the new arithmetic task and submit it again.',
+    'dsgvo.honeypot_label' => 'Please leave this field empty',
+    'dsgvo.email_invalid' => 'Please provide a valid email address (100 characters maximum) - without it we cannot process your request.',
+    'dsgvo.request_type_invalid' => 'Please select a valid type of request.',
+    'dsgvo.name_too_long' => 'The name is too long (100 characters maximum).',
+    'dsgvo.message_too_long' => 'Your message is too long ({max} characters maximum).',
     'meta.title_dsgvo' => 'GDPR Request',
+
+    // Number words used by the spam protection (see App\Security\Captcha): the
+    // task is deliberately spelled out so it cannot be solved with a trivial
+    // number regex over the HTML.
+    'captcha.plus' => 'plus',
+    'captcha.minus' => 'minus',
+    'captcha.number_1' => 'one',
+    'captcha.number_2' => 'two',
+    'captcha.number_3' => 'three',
+    'captcha.number_4' => 'four',
+    'captcha.number_5' => 'five',
+    'captcha.number_6' => 'six',
+    'captcha.number_7' => 'seven',
+    'captcha.number_8' => 'eight',
+    'captcha.number_9' => 'nine',
 
     // Login / 2FA / Forgot password (publicly reachable auth flow)
     'auth.password_reset_success' => '✓ Password changed successfully. Please sign in.',

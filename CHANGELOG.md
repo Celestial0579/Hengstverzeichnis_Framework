@@ -8,6 +8,50 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- Bot-/Spam-Schutz für das öffentliche DSGVO-Portal (`/dsgvo`) deutlich
+  verstärkt. Der Endpunkt ist ohne Anmeldung erreichbar und löst pro
+  angenommener Anfrage eine Zeile in `gdpr_requests` **und** eine echte
+  Benachrichtigungs-E-Mail an den Admin aus - bisher schützte ihn allein ein
+  IP-Rate-Limit, das bei Datenbankfehlern bewusst fail-open ist. Neu greifen
+  vier voneinander unabhängige Schichten (Details in
+  [docs/security.md](docs/security.md)):
+  - **CAPTCHA** (`App\Security\Captcha`): kleine Rechenaufgabe, deren Lösung
+    ausschließlich serverseitig in der Session liegt, single-use (jede
+    Prüfung verbraucht die Aufgabe), mit Mindest-Ausfüllzeit von 3 Sekunden
+    und 15 Minuten Gültigkeit. Die Aufgabe wird ausgeschrieben gestellt
+    ("sieben plus fünf"), damit sie nicht per Zahlen-Regex aus dem HTML
+    lösbar ist. Bewusst **selbst gehostet statt reCAPTCHA/hCaptcha/Turnstile**:
+    Ausgerechnet auf dem Formular für Betroffenenrechte nach Art. 15/17 DSGVO
+    wäre die Übertragung von IP-Adresse und Browser-Fingerprint an einen
+    Drittanbieter kaum zu rechtfertigen. Es werden keinerlei Daten an Dritte
+    übertragen und es ist keine zusätzliche PHP-Extension nötig.
+  - **Honeypot-Feld**, für Menschen unsichtbar und aus dem Fokus-/Vorlese-Fluss
+    genommen. Befüllte Formulare erhalten die normale Erfolgsmeldung, werden
+    aber weder gespeichert noch gemeldet.
+  - **Zwei getrennte IP-Zähler** statt einem (analog zum Login, #115):
+    `dsgvo_attempt` (20/Stunde) bremst automatisiertes Durchprobieren des
+    CAPTCHAs, `dsgvo_request` (3/Stunde) begrenzt eng die tatsächlich
+    angenommenen Anfragen. So verbraucht ein Tippfehler im CAPTCHA nicht das
+    Kontingent echter Anfragen.
+
+### Behoben
+
+- DSGVO-Portal: Ungültige Eingaben (fehlerhafte E-Mail-Adresse, unbekannter
+  Anfrage-Typ) wurden still verworfen, dem Absender aber trotzdem Erfolg
+  gemeldet - eine echte Betroffenen-Anfrage konnte so unbemerkt verloren
+  gehen. Eingaben werden jetzt serverseitig validiert (inkl. Feldlängen
+  passend zu den Spaltenbreiten) und Fehler im Formular zurückgemeldet, ohne
+  die bereits eingegebenen Werte zu verlieren.
+
+- Hilfetexte unter Formularfeldern im DSGVO-Portal waren im Darkmode nur
+  ~2.7:1 kontrastreich (fest codiertes `#666` auf dunklem Kartenhintergrund,
+  WCAG AA verlangt 4.5:1). Neu gibt es dafür die themefähige Variable
+  `--text-muted` und die Utility-Klasse `.form-hint` (5.7:1 hell / 6.3:1
+  dunkel). Andere Views nutzen weiterhin das alte `#666` - die Umstellung
+  dort ist separat zu machen.
+
 ### Hinzugefügt
 
 - Weitere Backup-Ziele: FTPS und WebDAV (#93):

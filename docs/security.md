@@ -81,10 +81,12 @@ für Nicht-Admins (siehe [database.md](database.md#soft-delete--papierkorb)).
 ## Brute-Force-Schutz (`src/Security/RateLimiter.php`)
 
 Datenbankgestützter Zähler fehlgeschlagener Versuche pro `identifier` + `type`
-(`login`, `login_ip`, `2fa`, `backup`) in einem Zeitfenster (Default: 5
-Versuche / 15 Min). Bei DB-Fehlern **fail-open** (blockiert nicht) – bewusste
+(`login`, `login_ip`, `2fa`, `backup`, `registration`, `dsgvo_attempt`,
+`dsgvo_request`) in einem Zeitfenster (Default: 5 Versuche / 15 Min). Bei
+DB-Fehlern **fail-open** (blockiert nicht) – bewusste
 Ausfallsicherheits-Entscheidung, damit ein DB-Problem nicht versehentlich alle
-Logins sperrt.
+Logins sperrt. Öffentliche Formulare bekommen deshalb zusätzlich eine
+DB-unabhängige Schicht – siehe Abschnitt „DSGVO-Portal“ weiter unten.
 
 Der Login nutzt zwei getrennte Zähler (#115): Der Konto-Zähler ist an die
 Client-IP gekoppelt (`email|ip`, 5 Versuche), damit gezielte Fehlversuche
@@ -236,6 +238,60 @@ nur aktiv, wenn der Admin sie in den Systemeinstellungen einschaltet
   admin/public) oder ganz ohne Gruppe (keinerlei Rechte). Ob für sie
   2FA-Pflicht gilt, steuert die Gruppe (#84); ohne Gruppe greift die
   Fail-safe-Pflicht.
+
+## DSGVO-Portal (öffentlich, `src/Security/Captcha.php`)
+
+Das Formular unter `/dsgvo` ist neben `/register` die zweite
+unauthentifizierte Schreibfläche: Jede angenommene Anfrage legt eine Zeile in
+`gdpr_requests` an **und** löst eine echte Benachrichtigungs-E-Mail an den
+Admin aus. Ohne Schutz wäre das ein bequemer Verstärker für Spam und
+Mailbox-Fluten. Vier voneinander unabhängige Schichten, in dieser Reihenfolge
+geprüft (`PublicController::dsgvoSubmit()`):
+
+1. **CSRF-Token** (wie bei allen POST-Routen).
+2. **Rate-Limiting pro Client-IP** über zwei getrennte Zähler, analog zum
+   Login (#115): `dsgvo_attempt` zählt **jeden** POST (20/Stunde) und bremst
+   automatisiertes Durchprobieren des CAPTCHAs; `dsgvo_request` zählt nur
+   **angenommene** Anfragen (3/Stunde) und begrenzt eng, wie viele echte
+   Admin-Benachrichtigungen ein Client auslösen kann. Getrennt, damit ein
+   Tippfehler im CAPTCHA nicht das kleine Kontingent echter Anfragen
+   aufbraucht.
+3. **Honeypot:** ein für Menschen unsichtbares, aus Fokus- und Vorlese-Fluss
+   genommenes Feld. Ist es befüllt, sieht der Absender die normale
+   Erfolgsmeldung (er erfährt nicht, dass er erkannt wurde), gespeichert und
+   benachrichtigt wird aber nichts.
+4. **CAPTCHA** (`App\Security\Captcha`): eine kleine Rechenaufgabe, deren
+   Lösung ausschließlich serverseitig in der Session liegt.
+   - **Single-Use:** Jede Prüfung verbraucht die Aufgabe (auch bei Erfolg) –
+     eine einmal gelöste Antwort taugt nicht für eine Serie von Submits, jeder
+     weitere Versuch braucht ein neues GET des Formulars.
+   - **Zeitfenster nach oben und unten:** 15 Minuten Gültigkeit, aber
+     mindestens 3 Sekunden zwischen Ausliefern und Absenden – sofort
+     abgeschickte Formulare stammen nicht von Menschen.
+   - **Ausgeschrieben gestellt** („sieben plus fünf“, Zahlwörter je Sprache in
+     `lang/<locale>.php`), damit die Aufgabe nicht per Zahlen-Regex aus dem
+     HTML lösbar ist.
+
+**Bewusst kein Drittanbieter-CAPTCHA** (reCAPTCHA/hCaptcha/Turnstile):
+Ausgerechnet auf dem Formular, mit dem Betroffene ihre Rechte aus Art. 15/17
+DSGVO geltend machen, wäre die Übertragung ihrer IP-Adresse und eines
+Browser-Fingerprints an einen weiteren Empfänger (i. d. R. Drittland) kaum zu
+rechtfertigen und müsste zusätzlich in der Datenschutzerklärung stehen. Ein
+Bild-CAPTCHA scheidet ebenfalls aus, da die App ohne GD-Extension auskommt
+(siehe `Dockerfile`).
+
+Grenzen, bewusst in Kauf genommen: Eine Rechenaufgabe hält keinen gezielt für
+diese Seite geschriebenen Angreifer auf – sie verteuert die üblichen
+generischen Spam-Bots. Der eigentliche Mengenschutz bleibt Schicht 2. Beide
+ergänzen einander gerade deshalb, weil der RateLimiter bei DB-Fehlern
+fail-open ist, CAPTCHA und Honeypot dagegen ohne Datenbank auskommen und in
+genau diesem Fall weiter greifen.
+
+Zusätzlich validiert der Endpunkt jetzt serverseitig E-Mail-Adresse,
+Anfrage-Typ und Feldlängen (100 Zeichen für Name/E-Mail entsprechend
+`gdpr_requests`, 5000 für den Freitext) und meldet Fehler zurück, statt eine
+ungültige Eingabe still zu verwerfen und dem Absender trotzdem Erfolg zu
+melden.
 
 ## Reservierte Benutzernamen
 

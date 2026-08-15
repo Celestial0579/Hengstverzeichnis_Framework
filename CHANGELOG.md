@@ -72,6 +72,18 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- Fußzeile (#257): Betreiber- und Framework-Copyright stehen jetzt in zwei
+  getrennten Blöcken, jedes unmittelbar über den Links, die zu ihm gehören —
+  Betreiber-© über Impressum/Datenschutz/DSGVO (Angaben zur Instanz),
+  Framework-© über Handbuch/Austausch/Fehlermeldung/Lizenz (Angaben zum
+  Projekt). Vorher standen beide Copyrights zusammen in einer Zeile und ihre
+  Links darunter, ohne erkennbare Zuordnung. Die inhaltliche Trennung war als
+  bewusste Entscheidung schon dokumentiert (#199, § 13 UrhG / AGPL-3.0 § 5(d)),
+  nur die Darstellung fasste beides zusammen. Die Tagline hängt am
+  Framework-Block, weil sie das Projekt beschreibt und nicht die Installation.
+  Rein visuell über Blockabstand gelöst, ohne Trennlinie und ohne Spalten —
+  die brächten bei schmalen Viewports nur Umbruchprobleme. Keine neuen
+  Übersetzungsschlüssel, keine Backend-Änderung.
 - Öffentliche Pferde-Detailseite neu gegliedert (#242): Hero-Karte mit Foto
   (Platzhalter statt Layout-Sprung), Identitätszeile und zweispaltigem
   Steckbrief; danach thematische Karten Abstammung, Leistung & Auszeichnungen

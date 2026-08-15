@@ -391,6 +391,24 @@ footer {
     transition: background-color var(--transition-speed), color var(--transition-speed);
 }
 
+/* Fußzeilen-Blöcke (#257): Betreiber- und Framework-Angaben stehen als je ein
+   Block aus Copyright-Zeile + zugehöriger Linkzeile. Der Abstand ZWISCHEN den
+   Blöcken ist deutlich größer als der innerhalb - das ist die ganze optische
+   Trennung, ohne Trennlinie und ohne Spalten (die bei schmalen Viewports nur
+   Umbruchprobleme brächten, siehe Option A des Issues). */
+.footer-group p {
+    margin: 0;
+}
+
+.footer-group + .footer-group {
+    margin-top: 1.25rem;
+}
+
+.footer-group .footer-links {
+    font-size: 0.85rem;
+    margin-top: 0.35rem;
+}
+
 /* Selektor bewusst mit den beiden :not() aus der globalen Inhalts-Link-Regel
    (letzte Regel dieser Datei, #160): Die hat Spezifität (0,2,1) und überschrieb
    das schlichte `footer a` (0,0,2) - die Footer-Links bekamen so --link-color

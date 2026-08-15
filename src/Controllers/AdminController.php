@@ -290,6 +290,20 @@ class AdminController extends BaseController {
             }
         }
 
+        // Spam-Schutz des öffentlichen DSGVO-Formulars (#258): Anbieterauswahl.
+        // Übernommen wird nur ein bekannter Anbieter - 'builtin' aus dem Kern
+        // plus alles, was ein Addon über den Filter captcha.providers meldet.
+        // Ein unbekannter Wert fällt auf 'builtin' zurück, statt gespeichert zu
+        // werden; sonst stünde nach dem Deaktivieren eines Addons ein toter
+        // Anbietername in den Einstellungen.
+        $captchaProvider = trim($_POST['captcha_provider'] ?? '');
+        if (!isset(\App\Security\Captcha::availableProviders()[$captchaProvider])) {
+            $captchaProvider = \App\Security\Captcha::PROVIDER_BUILTIN;
+        }
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('captcha_provider', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$captchaProvider, $captchaProvider]);
+        \App\Service\AuditLogger::log("Spam-Schutz des DSGVO-Formulars geändert", "security", "CAPTCHA-Anbieter: {$captchaProvider}");
+
         // Tracking-Code (Matomo/Google Analytics o. ä.): rohes HTML/JS-Snippet, wird
         // absichtlich unescaped in layout.php ausgegeben - Admin-only vertrauenswürdige
         // Eingabe (requireAdmin() oben), siehe layout.php für die Begründung.

@@ -10,6 +10,14 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige
+  Eingaben (fehlerhafte E-Mail-Adresse, unbekannter Anfrage-Typ) wurden
+  verworfen, dem Absender aber trotzdem `?success=1` gemeldet — eine echte
+  Betroffenen-Anfrage konnte so unbemerkt verlorengehen. Jetzt serverseitige
+  Validierung inklusive Feldlängen, mit Fehlermeldung und **ohne Verlust der
+  bereits eingegebenen Werte**: Eine lange Anfrage nach einem Rechenfehler noch
+  einmal tippen zu müssen, ist der sicherste Weg, dass jemand sein
+  Auskunftsrecht am Ende nicht wahrnimmt.
 - Dark Mode: Kontrastverstöße auf der öffentlichen Oberfläche behoben
   (Regression seit v0.5.0, #248). `color-scheme` folgt jetzt dem Theme,
   damit Browser-eigene Bedienelement-Farben (UA-Buttontext) im Darkmode
@@ -72,6 +80,40 @@ Breaking Changes sind jederzeit möglich).
     prüft nur, was beim Schreiben des Tests bekannt war — genau so wäre `state`
     ungeprüft durchgerutscht, und eine Anonymisierungslücke meldet weiterhin
     Erfolg.
+- Bot-/Spam-Schutz für das öffentliche DSGVO-Portal (#258, baut auf der
+  Vorarbeit aus #254 auf). `POST /dsgvo` ist ohne Anmeldung erreichbar und löst
+  je angenommener Anfrage eine Zeile in `gdpr_requests` **und** eine echte
+  Benachrichtigungs-E-Mail an die Verwaltung aus; abgesichert war der Endpunkt
+  bisher allein durch ein IP-Rate-Limit, das bei DB-Fehlern bewusst fail-open
+  ist. Jetzt vier unabhängige Schichten: CSRF, zwei getrennte IP-Zähler
+  (`dsgvo_attempt` 20/h bremst das Durchprobieren, `dsgvo_request` 3/h begrenzt
+  angenommene Anfragen — getrennt, damit ein Tippfehler nicht das kleine
+  Kontingent echter Anfragen aufbraucht), ein Honeypot-Feld und ein CAPTCHA.
+  Die beiden letzten kommen ohne Datenbank aus und greifen deshalb genau dann
+  weiter, wenn das Rate-Limit ausfällt.
+  - Das CAPTCHA ist eine Rechenaufgabe, deren Lösung ausschließlich
+    serverseitig in der Session liegt. Single-Use (auch ein Fehlversuch
+    verbraucht die Aufgabe), 15 Minuten gültig, mindestens 3 Sekunden
+    Ausfüllzeit, und **in Worten gestellt** („sieben plus fünf"), damit sie
+    nicht per Zahlen-Regex aus dem HTML lösbar ist. Zahlwörter in allen zwölf
+    Sprachen.
+  - **Bewusst kein Drittanbieter als Standard:** Ausgerechnet auf dem Formular,
+    mit dem Betroffene ihre Rechte aus Art. 15/17 DSGVO geltend machen, wäre
+    die Übertragung von IP-Adresse und Browser-Fingerprint an einen weiteren
+    Empfänger kaum zu rechtfertigen. Die eingebaute Aufgabe braucht weder
+    Schlüssel noch Netzzugang noch eine CSP-Lockerung.
+- Neue Erweiterungspunkte `captcha.providers`, `captcha.render` und
+  `captcha.verify` (#258). Damit lässt sich ein Fremdanbieter (Cloudflare
+  Turnstile, hCaptcha) als **Addon** nachrüsten, wenn ein Betreiber ihn
+  ausdrücklich will — die Auswahl trifft der Admin unter Systemeinstellungen.
+  Bisher gab es überhaupt keinen Hook auf einem öffentlichen Formular; ein
+  CAPTCHA-Addon war schlicht nicht andockbar.
+  Antwortet der gewählte Anbieter nicht — Addon deaktiviert, deinstalliert oder
+  abgestürzt —, prüft der Kern wieder mit seiner eigenen Aufgabe. Weder
+  fail-open (Formular ungeschützt) noch hartes Blockieren (Betroffene kämen
+  nicht mehr an ihre Auskunft) wäre hier vertretbar; dass es diesen dritten Weg
+  gibt, ist der Grund, den Standard im Kern zu halten statt ihn selbst zum
+  Addon zu machen.
 - Wartungsmodus im Kern (#232): Werkzeuge (z. B. der Datenbank-Import des
   Addons `datenmigration`) können über `App\Service\Maintenance::enable($grund)`
   / `disable()` eine Marker-Datei `var/wartung.lock` setzen; ein früher Check

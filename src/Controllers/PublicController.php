@@ -518,10 +518,16 @@ class PublicController extends BaseController {
         ]);
     }
 
+    /**
+     * Obergrenze für den Freitext einer DSGVO-Anfrage. Die Spalte selbst ist
+     * TEXT (64 KB); die engere Grenze verhindert, dass ein einzelner Absender
+     * die Tabelle und die Benachrichtigungs-E-Mails mit Megabyte-Eingaben
+     * aufbläht.
+     */
+    private const DSGVO_MESSAGE_MAX_LENGTH = 5000;
+
     public function dsgvoForm(): void {
-        $this->render('public_dsgvo', [
-            'title' => \App\I18n\Translator::t('meta.title_dsgvo') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')
-        ]);
+        $this->renderDsgvoForm();
     }
 
     public function dsgvoSubmit(): void {
@@ -529,33 +535,123 @@ class PublicController extends BaseController {
             $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
-        // Nach Absender-IP begrenzen: Ohne diese Sperre könnte jeder Client unbegrenzt oft
-        // eine echte Benachrichtigungs-E-Mail an den Admin auslösen sowie die
-        // gdpr_requests-Tabelle mit Datenmüll fluten.
+        // Nur echte Zeichenketten übernehmen: Ein manipulierter Request
+        // (name[]=x) darf weder eine "Array to string"-Warnung noch einen
+        // TypeError in den nachgelagerten Prüfungen auslösen.
+        $postString = static fn(string $key, string $default = ''): string
+            => is_string($_POST[$key] ?? null) ? trim($_POST[$key]) : $default;
+
+        $old = [
+            'name' => $postString('name'),
+            'email' => $postString('email'),
+            'request_type' => $postString('request_type', 'info'),
+            'message' => $postString('message')
+        ];
+
+        // Zwei getrennte Zähler pro Client-IP (analog zum Login, #115):
+        // 'dsgvo_attempt' zählt JEDEN POST und bremst damit automatisiertes
+        // Durchprobieren des CAPTCHAs; 'dsgvo_request' zählt nur tatsächlich
+        // angenommene Anfragen und begrenzt eng, wie oft ein Client echte
+        // Admin-Benachrichtigungen auslösen und Zeilen in gdpr_requests anlegen
+        // kann. Die Trennung sorgt dafür, dass ein Tippfehler im CAPTCHA nicht
+        // das kleine Kontingent echter Anfragen aufbraucht.
         $clientIp = \App\Security\ClientIp::resolve();
-        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'dsgvo_request')) {
-            header("Location: /dsgvo?error=rate_limited");
+        if (
+            \App\Security\RateLimiter::tooManyAttempts($clientIp, 'dsgvo_attempt', 20, 3600)
+            || \App\Security\RateLimiter::tooManyAttempts($clientIp, 'dsgvo_request', 3, 3600)
+        ) {
+            $this->renderDsgvoForm(\App\I18n\Translator::t('dsgvo.rate_limited'), $old);
+            return;
+        }
+        \App\Security\RateLimiter::recordAttempt($clientIp, 'dsgvo_attempt');
+
+        // Honeypot: für Menschen unsichtbares Feld, das nur automatische
+        // Formularausfüller befüllen. Bewusst mit der normalen Erfolgsmeldung
+        // beantwortet - der Bot erfährt so nicht, dass er erkannt wurde -,
+        // aber ohne Speicherung und ohne Benachrichtigungs-E-Mail.
+        if (\App\Security\Captcha::honeypotTripped($_POST)) {
+            \App\Security\Captcha::clear();
+            header("Location: /dsgvo?success=1");
             exit;
         }
+
+        $captchaResult = \App\Security\Captcha::verify($this->settings, 'dsgvo', $_POST);
+        if ($captchaResult !== \App\Security\Captcha::OK) {
+            $errorKey = match ($captchaResult) {
+                \App\Security\Captcha::EXPIRED => 'dsgvo.captcha_expired',
+                \App\Security\Captcha::TOO_FAST => 'dsgvo.captcha_too_fast',
+                default => 'dsgvo.captcha_wrong'
+            };
+            $this->renderDsgvoForm(\App\I18n\Translator::t($errorKey), $old);
+            return;
+        }
+
+        // Serverseitige Validierung: Zuvor wurden ungültige Eingaben still
+        // verworfen und dem Absender trotzdem Erfolg gemeldet - eine echte
+        // Anfrage konnte so unbemerkt verloren gehen. Die Längen entsprechen
+        // den Spaltenbreiten in `gdpr_requests` (siehe database/schema.sql).
+        if (
+            $old['email'] === ''
+            || !filter_var($old['email'], FILTER_VALIDATE_EMAIL)
+            || mb_strlen($old['email']) > 100
+        ) {
+            $this->renderDsgvoForm(\App\I18n\Translator::t('dsgvo.email_invalid'), $old);
+            return;
+        }
+        if (!in_array($old['request_type'], ['info', 'deletion'], true)) {
+            $this->renderDsgvoForm(\App\I18n\Translator::t('dsgvo.request_type_invalid'), $old);
+            return;
+        }
+        if (mb_strlen($old['name']) > 100) {
+            $this->renderDsgvoForm(\App\I18n\Translator::t('dsgvo.name_too_long'), $old);
+            return;
+        }
+        if (mb_strlen($old['message']) > self::DSGVO_MESSAGE_MAX_LENGTH) {
+            $this->renderDsgvoForm(
+                \App\I18n\Translator::t('dsgvo.message_too_long', ['max' => self::DSGVO_MESSAGE_MAX_LENGTH]),
+                $old
+            );
+            return;
+        }
+
         \App\Security\RateLimiter::recordAttempt($clientIp, 'dsgvo_request');
 
-        $name = trim($_POST['name'] ?? '');
-        $email = trim($_POST['email'] ?? '');
-        $type = $_POST['request_type'] ?? 'info';
-        $message = trim($_POST['message'] ?? '');
+        $db = Database::getInstance();
+        $stmt = $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message) VALUES (?, ?, ?, ?)");
+        $stmt->execute([
+            $old['name'] ?: null,
+            $old['email'],
+            $old['request_type'],
+            $old['message'] ?: null
+        ]);
 
-        if ($email && filter_var($email, FILTER_VALIDATE_EMAIL) && in_array($type, ['info', 'deletion'])) {
-            $db = Database::getInstance();
-            $stmt = $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$name ?: null, $email, $type, $message ?: null]);
-
-            // Send Email Notification to Admin
-            $mailer = new \App\Service\Mailer();
-            $typeName = $type === 'deletion' ? 'Löschung / Anonymisierung von Daten (Art. 17 DSGVO)' : 'Auskunft über Daten (Art. 15 DSGVO)';
-            $mailer->sendDsgvoNotification($email, $typeName, $message, $name);
-        }
+        // Send Email Notification to Admin
+        $mailer = new \App\Service\Mailer();
+        $typeName = $old['request_type'] === 'deletion'
+            ? 'Löschung / Anonymisierung von Daten (Art. 17 DSGVO)'
+            : 'Auskunft über Daten (Art. 15 DSGVO)';
+        $mailer->sendDsgvoNotification($old['email'], $typeName, $old['message'], $old['name']);
 
         header("Location: /dsgvo?success=1");
         exit;
+    }
+
+    /**
+     * Rendert das DSGVO-Formular - beim ersten Aufruf und nach jedem
+     * Fehlversuch. Bewusst direktes Rendern statt Redirect: So bleiben die
+     * bereits eingegebenen Werte erhalten. Eine lange Betroffenen-Anfrage nach
+     * einem Rechenfehler noch einmal tippen zu müssen, ist der sicherste Weg,
+     * dass jemand sein Auskunftsrecht am Ende nicht wahrnimmt.
+     */
+    private function renderDsgvoForm(?string $error = null, array $old = []): void {
+        $this->render('public_dsgvo', [
+            'title' => \App\I18n\Translator::t('meta.title_dsgvo') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
+            'error' => $error,
+            'old' => $old,
+            // Fertiges Formularfragment des aktiven Anbieters - im selben
+            // Formular, im selben Absendevorgang. Keine vorgeschaltete
+            // Prüfseite, kein zweiter Schritt.
+            'captchaField' => \App\Security\Captcha::renderField($this->settings, 'dsgvo')
+        ]);
     }
 }

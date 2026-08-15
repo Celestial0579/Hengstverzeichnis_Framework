@@ -177,6 +177,38 @@
             </small>
         </div>
 
+        <?php
+            // Spam-Schutz des öffentlichen DSGVO-Formulars (#258). Die Auswahl
+            // enthält immer den im Kern eingebauten Anbieter; weitere kommen
+            // von Addons über den Filter captcha.providers.
+            $captchaProviders = \App\Security\Captcha::availableProviders();
+            $activeCaptcha = \App\Security\Captcha::activeProvider($settings ?? []);
+        ?>
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label for="captcha_provider">🛡️ Spam-Schutz des DSGVO-Formulars</label>
+            <select id="captcha_provider" name="captcha_provider" class="form-control">
+                <?php foreach ($captchaProviders as $slug => $label): ?>
+                    <option value="<?= htmlspecialchars((string)$slug) ?>"<?= $slug === $activeCaptcha ? ' selected' : '' ?>>
+                        <?= htmlspecialchars((string)$label) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <small class="form-hint">
+                Gilt für das öffentliche Formular unter <code>/dsgvo</code>. Unabhängig von der Auswahl greifen
+                dort immer auch das versteckte Fallenfeld und die beiden IP-Zähler.
+                <?php if (count($captchaProviders) === 1): ?>
+                    <br>Die eingebaute Rechenaufgabe braucht keine Schlüssel, keinen Netzzugang und keine
+                    Lockerung der Content-Security-Policy — und überträgt keine Daten an Dritte, was gerade
+                    auf diesem Formular zählt. Weitere Anbieter (z. B. Cloudflare Turnstile oder hCaptcha)
+                    lassen sich als Addon nachrüsten.
+                <?php else: ?>
+                    <br>Antwortet der gewählte Anbieter nicht — etwa weil sein Addon deaktiviert wurde —,
+                    greift automatisch wieder die eingebaute Rechenaufgabe. Das Formular bleibt damit
+                    geschützt und für Betroffene erreichbar.
+                <?php endif; ?>
+            </small>
+        </div>
+
         <div class="form-group" style="margin-top: 1.5rem;">
             <label for="tracking_domains">📊 Tracking-Domains (für Matomo/Google Analytics o. Ä.)</label>
             <input

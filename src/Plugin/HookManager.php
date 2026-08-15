@@ -59,6 +59,19 @@ class HookManager {
     }
 
     /**
+     * Leert die Registry vollständig.
+     *
+     * Gedacht für Tests, die Hook-Verhalten isoliert prüfen: Der PluginManager
+     * ist ein Singleton, ohne diese Möglichkeit trüge ein in Testfall A
+     * registrierter Callback in Testfall B weiter. In der laufenden Anwendung
+     * gibt es keinen Aufrufer - Plugins werden einmal im Bootstrap registriert.
+     */
+    public function reset(): void {
+        $this->actions = [];
+        $this->filters = [];
+    }
+
+    /**
      * Lässt einen Wert durch alle registrierten Filter-Callbacks eines Hooks laufen.
      * Schlägt ein Callback fehl, bleibt der Wert aus dem vorherigen Schritt unverändert
      * erhalten (kein Abbruch der gesamten Filter-Kette).

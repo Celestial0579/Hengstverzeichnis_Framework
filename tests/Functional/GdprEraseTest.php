@@ -15,6 +15,8 @@ use App\Database;
  */
 class GdprEraseTest extends FunctionalTestCase {
 
+    use DsgvoFormHelper;
+
     private function db(): \PDO {
         return Database::getInstance();
     }
@@ -41,14 +43,21 @@ class GdprEraseTest extends FunctionalTestCase {
         $stmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'owner')");
         $stmt->execute([$horseId, $personId]);
 
+        // Das DSGVO-Formular ist seit #258 spam-geschuetzt: Die Rechenaufgabe
+        // wird geloest (nicht umgangen, siehe DsgvoFormHelper), und die beiden
+        // IP-Zaehler werden zurueckgesetzt - alle Tests teilen sich 127.0.0.1.
+        self::resetDsgvoRateLimit();
         $public = $this->newClient();
         $dsgvoPage = $public->get('/dsgvo');
+        $captchaAnswer = (string)$this->solveCaptcha($dsgvoPage);
+        $this->waitForMinimumSolveTime();
         $submitResponse = $public->post('/dsgvo', [
             'csrf_token' => $dsgvoPage->formField('csrf_token') ?? '',
             'name' => $personName,
             'email' => $email,
             'request_type' => 'deletion',
             'message' => 'Bitte alle meine Daten löschen.',
+            'captcha' => $captchaAnswer,
         ]);
         $this->assertSame('/dsgvo?success=1', $submitResponse->location(), "DSGVO-Antrag konnte nicht eingereicht werden, Body: {$submitResponse->body}");
 

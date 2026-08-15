@@ -111,12 +111,14 @@ Wie alle Schema-Änderungen doppelt gepflegt: im Ersteinrichtungs-Schema
 
 ### `persons`
 Züchter/Besitzer/Halter. Strukturierte Felder seit #188: `street`,
-`house_number`, `postal_code`, `city`, `country` (Freitext, auch Kürzel wie
+`house_number`, `postal_code`, `city`, `state` (Bundesland/Kanton, seit #256,
+Freitext), `country` (Freitext, auch Kürzel wie
 `NO`), `email` und `membership_status` (Mitgliedsstatus beim Verband,
 Freitext); `contact_info` bleibt als Freitext-Restfeld (z. B. Telefon).
-**Öffentlich (und im Plugin-Hook-Payload) erscheinen nur `city`, `country`
-und `membership_status`** – Straße, Hausnummer, PLZ und E-Mail sind
-Admin-only. `is_published`
+**Öffentlich (und im Plugin-Hook-Payload) erscheinen nur `city`, `state`,
+`country` und `membership_status`** – Straße, Hausnummer, PLZ und E-Mail sind
+Admin-only. Die Trennlinie ist nicht die Feldanzahl, sondern: zustellbare
+Angaben bleiben intern, grobe geografische Verortung ist öffentlich. `is_published`
 (Default `0` = unveröffentlicht): nur veröffentlichte Personen erscheinen
 auf öffentlichen Seiten, in Filterlisten und in der API. `deleted_at` für
 Soft-Delete. Wird über die DSGVO-Verwaltung ggf. anonymisiert (Name wird
@@ -128,6 +130,15 @@ die `email`-Spalte.
 
 ### `breeding_stations`
 Deckstationen/Gestüte als eigenständige Entität (Name, Kontakt, Adresse).
+Strukturierte Anschrift seit #256: `street`, `house_number`, `postal_code`,
+`city`, `state`, `country`. Das alte Freitextfeld `address` bleibt bestehen und
+wird **nicht** automatisch zerlegt – der Bestand ist real mehrzeilig
+(`"Weideweg 1\n24000 Kiel"`), eine Zerlegung wäre geraten (dieselbe
+Entscheidung wie bei den Personendaten in #188). Angezeigt wird `address`
+deshalb weiterhin, solange die Einzelfelder leer sind; das Admin-Formular hält
+es bearbeitbar, damit Altbestand von Hand übertragen und danach geleert werden
+kann. Anders als bei Personen ist hier die **gesamte** Anschrift öffentlich –
+eine Deckstation ist eine Geschäftsadresse, keine Privatperson.
 `is_published` (Default `0` = unveröffentlicht): unveröffentlichte Stationen
 liefern auf `/station?id=` eine 404, und sämtliche `station_*`-Felder auf
 der Pferde-Detailseite (inkl. der an Plugins übergebenen) sind dann `null`.

@@ -32,6 +32,7 @@ class PersonFieldsTest extends FunctionalTestCase {
             'house_number' => '7x',
             'postal_code' => '2496x',
             'city' => 'Glücksburg',
+            'state' => 'Schleswig-Holstein',
             'country' => 'NO',
             'email' => "person-{$unique}@example.com",
             'membership_status' => 'Nichtmitglied NO',
@@ -48,6 +49,7 @@ class PersonFieldsTest extends FunctionalTestCase {
         $this->assertSame('7x', $person['house_number']);
         $this->assertSame('2496x', $person['postal_code']);
         $this->assertSame('Glücksburg', $person['city']);
+        $this->assertSame('Schleswig-Holstein', $person['state']);
         $this->assertSame('NO', $person['country']);
         $this->assertSame("person-{$unique}@example.com", $person['email']);
         $this->assertSame('Nichtmitglied NO', $person['membership_status']);
@@ -63,6 +65,7 @@ class PersonFieldsTest extends FunctionalTestCase {
             'house_number' => '7x',
             'postal_code' => '2496x',
             'city' => 'Glücksburg',
+            'state' => '',
             'country' => 'NO',
             'email' => '',
             'membership_status' => 'Mitglied',
@@ -70,15 +73,17 @@ class PersonFieldsTest extends FunctionalTestCase {
             'is_published' => '1',
         ]);
         $this->assertSame('/admin/persons?success=updated', $response->location());
-        $stmt = $db->prepare("SELECT street, email, membership_status FROM persons WHERE id = ?");
+        $stmt = $db->prepare("SELECT street, state, email, membership_status FROM persons WHERE id = ?");
         $stmt->execute([$person['id']]);
         $updated = $stmt->fetch();
         $this->assertSame('Fjordallee', $updated['street']);
         $this->assertNull($updated['email'], 'Leeres Formularfeld muss NULL speichern');
+        $this->assertNull($updated['state'], 'Auch Bundesland/Kanton muss beim Leeren NULL werden (#256)');
         $this->assertSame('Mitglied', $updated['membership_status']);
 
-        // E-Mail für die öffentliche Negativ-Prüfung unten wieder setzen.
-        $db->prepare("UPDATE persons SET email = ? WHERE id = ?")
+        // E-Mail für die öffentliche Negativ-Prüfung und das Bundesland für die
+        // Positiv-Prüfung unten wieder setzen.
+        $db->prepare("UPDATE persons SET email = ?, state = 'Schleswig-Holstein' WHERE id = ?")
             ->execute(["person-{$unique}@example.com", $person['id']]);
 
         // 3. Pferd anlegen und die Person als Züchter zuordnen.
@@ -97,12 +102,17 @@ class PersonFieldsTest extends FunctionalTestCase {
         $horseId = (int)$stmt->fetchColumn();
         $this->assertGreaterThan(0, $horseId);
 
-        // 4. Öffentliche Detailseite: Ort/Land/Mitgliedsstatus erscheinen,
-        // Straße/Hausnummer/PLZ/E-Mail dürfen NICHT im HTML stehen.
+        // 4. Öffentliche Detailseite: Ort/Bundesland/Land/Mitgliedsstatus
+        // erscheinen, Straße/Hausnummer/PLZ/E-Mail dürfen NICHT im HTML stehen.
+        //
+        // Bundesland/Kanton (#256) steht bewusst auf der öffentlichen Seite: Die
+        // Trennlinie verläuft nicht bei der Feldanzahl, sondern zwischen
+        // zustellbarer Anschrift (intern) und grober geografischer Verortung
+        // (öffentlich). Ein Bundesland ist gröber als der ohnehin sichtbare Ort.
         $guest = $this->newClient();
         $detail = $guest->get('/horse?id=' . $horseId);
         $this->assertSame(200, $detail->statusCode);
-        $this->assertStringContainsString('Glücksburg, NO', $detail->body);
+        $this->assertStringContainsString('Glücksburg, Schleswig-Holstein, NO', $detail->body);
         $this->assertStringContainsString('Mitglied', $detail->body);
         $this->assertStringNotContainsString('Fjordallee', $detail->body, 'Straße ist Admin-only und darf öffentlich nie erscheinen');
         $this->assertStringNotContainsString('7x', $detail->body, 'Hausnummer ist Admin-only');

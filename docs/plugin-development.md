@@ -297,7 +297,14 @@ darf sie dann auch nicht per eigener Abfrage nachladen und ausgeben.
 
 **`$horse`** enthält alle Spalten von `horses` (siehe `database/schema.sql`) plus
 die Deckstationsfelder `station_name`, `station_contact`, `station_address`,
-`station_phone`, `station_email`, `station_website`. Seit dem Status-Split
+`station_phone`, `station_email`, `station_website` sowie seit #256 die
+strukturierte Anschrift `station_street`, `station_house_number`,
+`station_postal_code`, `station_city`, `station_state`, `station_country`.
+`station_address` bleibt das alte Freitextfeld und wird **nicht** automatisch
+zerlegt — bei Bestandsstationen steht die Anschrift weiterhin dort und die
+Einzelfelder sind leer. Wer die Adresse ausgibt, nimmt deshalb die Einzelfelder
+und fällt auf `station_address` zurück, wenn sie leer sind (so macht es auch
+`src/Views/public_station_detail.php`). Seit dem Status-Split
 (#188) enthält `$horse['status']` nur noch den Zuchtstatus
 (`active`/`inactive`) und nie mehr `deceased` — der Lebensstatus steht in
 `$horse['is_deceased']`/`$horse['death_year']`. Alle sechs `station_*`-Felder
@@ -319,13 +326,22 @@ immer erhalten.
 
 **`$horsePersons`** enthält die Zeilen aus `horse_persons` (`role`, `from_year`,
 `until_year`, `breeding_station_id`, `breeding_station_text`) plus `person_name`,
-`contact_info`, `city`, `country`, `membership_status`, `station_name`,
-`station_id`. Von den strukturierten Personenfeldern (#188) sind das **bewusst
-die einzigen drei** im Payload: `email`, `street`, `house_number` und
-`postal_code` werden nie mitgeliefert — sie sind Admin-only, und ein Plugin darf
-sie auch nicht per eigener Abfrage öffentlich machen. Dabei gilt:
+`contact_info`, `city`, `state`, `country`, `membership_status`, `station_name`,
+`station_id`. Von den strukturierten Personenfeldern (#188, `state` seit #256)
+sind das **bewusst die einzigen vier** im Payload: `email`, `street`,
+`house_number` und `postal_code` werden nie mitgeliefert — sie sind Admin-only,
+und ein Plugin darf sie auch nicht per eigener Abfrage öffentlich machen.
 
-- `person_name`/`contact_info`/`city`/`country`/`membership_status` sind `null`,
+Die Trennlinie ist dabei nicht die Feldanzahl, sondern die Art der Angabe: Was
+eine Sendung zustellbar macht, bleibt intern; die grobe geografische Verortung
+ist öffentlich. Deshalb gehört `state` (Bundesland/Kanton) auf die öffentliche
+Seite — es ist gröber als der ohnehin sichtbare Ort. Bei Deckstationen gilt das
+nicht: Deren Anschrift ist vollständig öffentlich, weil eine Deckstation eine
+Geschäftsadresse ist und keine Privatperson.
+
+Dabei gilt:
+
+- `person_name`/`contact_info`/`city`/`state`/`country`/`membership_status` sind `null`,
   wenn die Person unveröffentlicht oder gelöscht ist (#121);
 - `station_name`/`station_id` sind `null`, wenn die Station unveröffentlicht oder
   gelöscht ist (#122);

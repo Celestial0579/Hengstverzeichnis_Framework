@@ -229,17 +229,35 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
             // ab 2027 automatisch als Spanne.
             $frameworkYears = '2026' . ((int)date('Y') > 2026 ? '–' . date('Y') : '');
         ?>
-        <p>&copy; <?= date('Y') ?> <?= $displayCopyright ?> &middot; <?= htmlspecialchars($t('footer.framework_copyright')) ?> &copy; <?= $frameworkYears ?> <a href="https://github.com/Celestial0579" target="_blank" rel="noopener">Tim Heyne</a> | <?= htmlspecialchars($t('footer.tagline')) ?></p>
-        <p style="font-size: 0.85rem; margin-top: 0.5rem;">
-            <a href="/impressum"><?= htmlspecialchars($t('footer.impressum')) ?></a> | <a href="/datenschutz"><?= htmlspecialchars($t('footer.datenschutz')) ?></a> | <a href="/dsgvo"><?= htmlspecialchars($t('footer.dsgvo')) ?></a>
-        </p>
+        <?php
+            // Zwei Blöcke statt einer gemeinsamen Copyright-Zeile (#257): Jedes
+            // Copyright steht jetzt unmittelbar über den Links, die zu ihm
+            // gehören - Betreiber-(c) über Impressum/Datenschutz/DSGVO (Angaben
+            // zur Instanz), Framework-(c) über Handbuch/Austausch/Fehlermeldung/
+            // Lizenz (Angaben zum Projekt). Vorher standen beide Copyrights
+            // zusammen in Zeile 1 und ihre Links darunter, ohne erkennbare
+            // Zuordnung.
+            //
+            // Die Tagline hängt am Framework-Block, weil sie das Projekt
+            // beschreibt und nicht die Installation - so bleibt es bei zwei
+            // Blöcken statt drei.
+        ?>
+        <div class="footer-group">
+            <p>&copy; <?= date('Y') ?> <?= $displayCopyright ?></p>
+            <p class="footer-links">
+                <a href="/impressum"><?= htmlspecialchars($t('footer.impressum')) ?></a> | <a href="/datenschutz"><?= htmlspecialchars($t('footer.datenschutz')) ?></a> | <a href="/dsgvo"><?= htmlspecialchars($t('footer.dsgvo')) ?></a>
+            </p>
+        </div>
         <?php
             // Projekt-Links (#184-#187): Handbuch/Lizenz/Fehlermeldung/Austausch
             // sind sonst nur über die README auffindbar.
         ?>
-        <p style="font-size: 0.85rem; margin-top: 0.5rem;">
-            <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/wiki" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.manual')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/discussions" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.discussions')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/new" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.report_bug')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/blob/main/LICENSE" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.license')) ?></a>
-        </p>
+        <div class="footer-group">
+            <p><?= htmlspecialchars($t('footer.framework_copyright')) ?> &copy; <?= $frameworkYears ?> <a href="https://github.com/Celestial0579" target="_blank" rel="noopener">Tim Heyne</a> &middot; <?= htmlspecialchars($t('footer.tagline')) ?></p>
+            <p class="footer-links">
+                <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/wiki" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.manual')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/discussions" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.discussions')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/new" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.report_bug')) ?></a> | <a href="https://github.com/Celestial0579/Hengstverzeichnis_Framework/blob/main/LICENSE" target="_blank" rel="noopener"><?= htmlspecialchars($t('footer.license')) ?></a>
+            </p>
+        </div>
         <?php
             // Sprachumschalter (#48, #198): Mit zwölf Sprachen sprengt eine
             // Link-Liste die Leiste - deshalb ein Dropdown. Das GET-Formular

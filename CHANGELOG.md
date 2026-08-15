@@ -24,6 +24,21 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Neuer Filter-Hook `horse.edit_sections` (#255): das Admin-Gegenstück zu
+  `horse.detail_sections`. Addons können damit einen eigenen Abschnitt in das
+  Bearbeitungsformular eines Hengstes hängen und bekommen die `horse_id` aus
+  dem Aufrufkontext — bisher gab es dafür keinen Weg, weshalb Addons eigene
+  Verwaltungsseiten mit einer Auswahl über den gesamten Pferdebestand bauten
+  (Anlass: Addons#87 lud dafür bei jedem Seitenaufruf alle Pferde als
+  `<select>`). Der Hook feuert bewusst nur beim Bearbeiten, nicht beim Anlegen
+  (dort gibt es noch keine ID), und die Abschnitte werden **außerhalb** des
+  Kern-Formulars gerendert: Verschachtelte `<form>` sind ungültiges HTML, und
+  ein Speichern über den Kern-POST liefe nur gegen `horses.edit` statt gegen
+  die Berechtigung des Addons. Der Datenvertrag weicht deshalb bewusst von
+  `horse.detail_sections` ab (roher Datensatz ohne Sichtbarkeitsfilter, ohne
+  `station_*`-Felder, ohne `deleted_at`-Filter) — dokumentiert in
+  `docs/plugin-development.md`, abgesichert durch
+  `tests/Functional/HorseEditSectionsHookTest.php`.
 - Wartungsmodus im Kern (#232): Werkzeuge (z. B. der Datenbank-Import des
   Addons `datenmigration`) können über `App\Service\Maintenance::enable($grund)`
   / `disable()` eine Marker-Datei `var/wartung.lock` setzen; ein früher Check

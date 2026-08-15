@@ -24,6 +24,7 @@ class Plugin {
     public function register(HookManager $hooks): void {
         $hooks->addFilter('admin.dashboard_tiles', [$this, 'addDashboardTile']);
         $hooks->addFilter('horse.detail_sections', [$this, 'addDetailSection']);
+        $hooks->addFilter('horse.edit_sections', [$this, 'addEditSection']);
         $hooks->addAction('horse.after_save', [$this, 'onHorseSaved']);
     }
 
@@ -69,6 +70,37 @@ class Plugin {
         }
 
         $sections[] = $html;
+        return $sections;
+    }
+
+    /**
+     * Filter-Beispiel (#255): fügt dem Admin-Bearbeitungsformular eines Hengstes
+     * einen eigenen Abschnitt hinzu - das Gegenstück zu addDetailSection() für
+     * die Verwaltung. Der Nutzen des Hooks liegt darin, dass die horse_id aus
+     * dem Aufrufkontext kommt: Ein Addon braucht dafür keine eigene
+     * Verwaltungsseite mit Pferdeauswahl mehr.
+     *
+     * Zwei Dinge sind hier anders als bei horse.detail_sections und deshalb
+     * ausdrücklich demonstriert:
+     *
+     * 1. $horse ist der ROHE Datensatz aus "SELECT * FROM horses" - ohne die
+     *    Sichtbarkeitsfilter der öffentlichen Seite und ohne die station_*-Felder.
+     *    Deshalb wird hier bewusst NICHT auf $horse['station_email'] geprüft wie
+     *    oben, sondern nur auf Felder, die es im Admin-Kontext wirklich gibt.
+     * 2. Der Abschnitt wird ausserhalb des Kern-Formulars gerendert. Ein Addon
+     *    darf (und muss) also ein eigenes <form> mit eigener POST-Route und
+     *    eigener Berechtigungsprüfung mitbringen - der Speichern-Knopf des Kerns
+     *    speichert die Plugin-Felder NICHT mit.
+     */
+    public function addEditSection(array $sections, array $horse): array {
+        $sections[] = '<h3 style="margin-top:0;" data-demo-edit="1">'
+            . htmlspecialchars(\App\I18n\Translator::t('edit_heading', [], 'demo-plugin')) . '</h3>'
+            . '<p>' . htmlspecialchars(\App\I18n\Translator::t(
+                'edit_text',
+                ['id' => (string)($horse['id'] ?? '?'), 'name' => (string)($horse['name'] ?? '')],
+                'demo-plugin'
+            )) . '</p>';
+
         return $sections;
     }
 

@@ -8,6 +8,27 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Geändert
+
+- Ladeverhalten von Skripten, Stylesheets und Bildern optimiert (#263):
+  - **Katalogbilder laden `lazy`**, ebenso die Vorschaubilder der
+    Hengstverwaltung. Beide Stellen geben ihre Bildhöhe fest vor, es entsteht
+    also kein Layout-Sprung. Das **Hero-Foto der Detailseite bleibt bewusst
+    eager** und bekommt stattdessen `fetchpriority="high"`: Es ist dort das
+    LCP-Element, `lazy` hätte die wahrgenommene Ladezeit verschlechtert.
+  - **Die drei nicht-kritischen Skripte** (Katalogfilter, Pedigree-Zoom,
+    Darkmode-Umschalter) liegen jetzt unter `public/js/` und werden mit
+    `defer` geladen. Sie standen vorher als Inline-Blöcke im HTML — `defer`
+    daran zu schreiben wäre wirkungslos geblieben, das Attribut gilt laut
+    HTML-Standard nur für Skripte mit `src`. Nebeneffekt: Die Dateien werden
+    jetzt über Seitenaufrufe hinweg vom Browser zwischengespeichert.
+  - **Der Darkmode-FOUC-Fix bleibt unverändert inline und synchron im
+    `<head>`** (#91) — er muss vor dem ersten Rendern laufen.
+  - **Das Schriften-Stylesheet des Fremdhosts blockiert das Rendern nicht
+    mehr** (`media="print"` + `onload`, mit `<noscript>`-Rückfall). `style.css`
+    bleibt bewusst blockierend: asynchron geladen zeigte die Seite garantiert
+    einmal ungestylt.
+
 ### Behoben
 
 - DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige

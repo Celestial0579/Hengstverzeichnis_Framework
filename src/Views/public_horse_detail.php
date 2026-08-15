@@ -91,7 +91,13 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     <div class="horse-hero-grid">
         <div>
             <?php if (!empty($horse['image_url'])): ?>
-                <img class="horse-hero-photo" src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>">
+                <?php // BEWUSST KEIN loading="lazy" (#263): Das Hero-Foto steht über dem
+                      // Falz und ist auf dieser Seite das LCP-Element. Lazy-Loading würde
+                      // seinen Ladestart hinter das Layout verschieben und die
+                      // wahrgenommene Ladezeit damit verschlechtern statt verbessern -
+                      // die Optimierung geht hier in die Gegenrichtung: fetchpriority
+                      // zieht das Bild in der Warteschlange nach vorn. ?>
+                <img class="horse-hero-photo" src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" fetchpriority="high" decoding="async">
             <?php else: ?>
                 <?php // Platzhalter mit festem Seitenverhältnis: ohne ihn kollabierte
                       // die Bildspalte und das ganze Raster verschob sich. ?>
@@ -541,28 +547,6 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 }
 </style>
 
-<script>
-let currentZoom = 1.0;
-
-function zoomPedigree(delta) {
-    currentZoom = Math.min(Math.max(0.5, currentZoom + delta), 2.0);
-    applyZoom();
-}
-
-function resetZoom() {
-    currentZoom = 1.0;
-    applyZoom();
-}
-
-function applyZoom() {
-    const canvas = document.getElementById('pedigreeCanvas');
-    const text = document.getElementById('zoomLevelText');
-    canvas.style.transform = `scale(${currentZoom})`;
-    text.innerText = `${Math.round(currentZoom * 100)}%`;
-}
-
-function setGenerations(levels) {
-    const tree = document.getElementById('pedigreeTree');
-    tree.className = `pedigree-grid gen-view-${levels}`;
-}
-</script>
+<!-- Pedigree-Zoom (#263): ausgelagert und defer geladen. Die Funktionen
+     haengen an onclick-Handlern und stehen bis zum ersten Klick laengst. -->
+<script defer src="/js/pedigree-zoom.js"></script>

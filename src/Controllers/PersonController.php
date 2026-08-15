@@ -120,8 +120,10 @@ class PersonController extends BaseController {
         $isPublished = (!empty($_POST['is_published']) && $this->hasPermission('persons', 'publish')) ? 1 : 0;
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, country, email, membership_status, is_published) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $contact_info, $fields['street'], $fields['house_number'], $fields['postal_code'], $fields['city'], $fields['country'], $fields['email'], $fields['membership_status'], $isPublished]);
+        $structuredColumns = implode(', ', self::STRUCTURED_FIELDS);
+        $structuredPlaceholders = implode(', ', array_fill(0, count(self::STRUCTURED_FIELDS), '?'));
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?)");
+        $stmt->execute([$name, $contact_info, ...array_values($fields), $isPublished]);
         $newPersonId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Person angelegt", "persons", "Person ID {$newPersonId}: {$name}");
@@ -190,8 +192,8 @@ class PersonController extends BaseController {
         // Veröffentlichung nur mit 'persons.publish' änderbar; ohne das Recht bleibt der
         // bisherige Zustand erhalten (ein übermittelter Wunsch wird ignoriert, analog
         // HorseController::update()).
-        $structuredSql = "street = ?, house_number = ?, postal_code = ?, city = ?, country = ?, email = ?, membership_status = ?";
-        $structuredValues = [$fields['street'], $fields['house_number'], $fields['postal_code'], $fields['city'], $fields['country'], $fields['email'], $fields['membership_status']];
+        $structuredSql = implode(', ', array_map(fn($f) => "{$f} = ?", self::STRUCTURED_FIELDS));
+        $structuredValues = array_values($fields);
         $db = Database::getInstance();
         if ($this->hasPermission('persons', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
@@ -209,14 +211,26 @@ class PersonController extends BaseController {
     }
 
     /**
-     * Strukturierte Personenfelder (#188) aus dem POST: Adresse, E-Mail und
-     * Mitgliedsstatus, jeweils leer -> NULL. Bewusst ohne Formatvalidierung
-     * (Freitext-Philosophie wie breed; auch breeding_stations.email wird
-     * nicht validiert).
+     * Die strukturierten Personenfelder (#188, `state` seit #256) in
+     * Spaltenreihenfolge. Einzige Stelle, an der die Liste steht: INSERT,
+     * UPDATE und das Einlesen aus dem POST leiten sich daraus ab. Vorher war
+     * sie dreimal ausgeschrieben - ein neues Feld an nur zwei der drei Stellen
+     * zu ergänzen hätte still funktioniert und beim Speichern Daten verloren.
+     */
+    private const STRUCTURED_FIELDS = [
+        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email', 'membership_status'
+    ];
+
+    /**
+     * Strukturierte Personenfelder aus dem POST, jeweils leer -> NULL. Bewusst
+     * ohne Formatvalidierung (Freitext-Philosophie wie breed; auch
+     * breeding_stations.email wird nicht validiert). Das gilt auch für `state`:
+     * Bundesland- und Kantonsnamen sind in DACH uneinheitlich geschrieben, eine
+     * ISO-3166-2-Prüfung würde mehr korrekte Eingaben ablehnen als falsche.
      */
     private function parseStructuredFields(): array {
         $fields = [];
-        foreach (['street', 'house_number', 'postal_code', 'city', 'country', 'email', 'membership_status'] as $field) {
+        foreach (self::STRUCTURED_FIELDS as $field) {
             $fields[$field] = trim($_POST[$field] ?? '') ?: null;
         }
         return $fields;

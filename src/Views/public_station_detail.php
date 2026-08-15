@@ -28,10 +28,30 @@ $statusLabels = [
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars($station['contact_person']) ?></td>
             </tr>
         <?php endif; ?>
-        <?php if (!empty($station['address'])): ?>
+        <?php
+            // Strukturierte Adresse (#256) mit Rückfall auf das alte
+            // Freitextfeld. Der Rückfall ist kein Übergangsprovisorium: Der
+            // Altbestand wird bewusst nicht automatisch zerlegt, solange also
+            // niemand die Einzelfelder gepflegt hat, ist der Freitext die
+            // einzige vorhandene Angabe.
+            //
+            // Bewusst ohne eigene Beschriftungen je Feld - die Zeile trägt
+            // weiterhin das vorhandene Label 'field.address'. Sechs neue
+            // Übersetzungsschlüssel in allen zwölf Sprachdateien wären für eine
+            // Anschrift, die jeder Leser auch ohne Feldnamen erfasst, reine Last.
+            $addressLines = array_values(array_filter([
+                trim(implode(' ', array_filter([$station['street'] ?? '', $station['house_number'] ?? '']))),
+                trim(implode(' ', array_filter([$station['postal_code'] ?? '', $station['city'] ?? '']))),
+                trim((string)($station['state'] ?? '')),
+                trim((string)($station['country'] ?? '')),
+            ], fn($line) => $line !== ''));
+
+            $addressText = $addressLines !== [] ? implode("\n", $addressLines) : (string)($station['address'] ?? '');
+        ?>
+        <?php if (trim($addressText) !== ''): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;">📍 <?= htmlspecialchars(App\I18n\Translator::t('field.address')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($station['address'])) ?></td>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($addressText)) ?></td>
             </tr>
         <?php endif; ?>
         <?php if (!empty($station['phone'])): ?>

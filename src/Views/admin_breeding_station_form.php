@@ -41,9 +41,60 @@ $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stat
             <input type="text" id="contact_person" name="contact_person" class="form-control" value="<?= htmlspecialchars($old['contact_person'] ?? $station['contact_person'] ?? '') ?>" placeholder="z. B. Max Mustermann">
         </div>
 
+        <?php
+            // Strukturierte Adresse (#256). Vorher gab es hier nur ein einziges
+            // Freitextfeld - damit liessen sich Stationen weder nach Ort noch
+            // nach Bundesland/Kanton einordnen oder filtern.
+        ?>
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 3;">
+                <label for="street">Straße</label>
+                <input type="text" id="street" name="street" class="form-control" value="<?= htmlspecialchars($old['street'] ?? $station['street'] ?? '') ?>" placeholder="z. B. Weideweg">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="house_number">Hausnr.</label>
+                <input type="text" id="house_number" name="house_number" class="form-control" value="<?= htmlspecialchars($old['house_number'] ?? $station['house_number'] ?? '') ?>" placeholder="1">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="postal_code">PLZ</label>
+                <input type="text" id="postal_code" name="postal_code" class="form-control" value="<?= htmlspecialchars($old['postal_code'] ?? $station['postal_code'] ?? '') ?>" placeholder="24000">
+            </div>
+            <div class="form-group" style="flex: 2;">
+                <label for="city">Ort</label>
+                <input type="text" id="city" name="city" class="form-control" value="<?= htmlspecialchars($old['city'] ?? $station['city'] ?? '') ?>" placeholder="Kiel">
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 2;">
+                <label for="state">Bundesland / Kanton</label>
+                <input type="text" id="state" name="state" class="form-control" value="<?= htmlspecialchars($old['state'] ?? $station['state'] ?? '') ?>" placeholder="z. B. Schleswig-Holstein, Bern, Tirol">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="country">Land</label>
+                <input type="text" id="country" name="country" class="form-control" value="<?= htmlspecialchars($old['country'] ?? $station['country'] ?? '') ?>" placeholder="z. B. DE, NO">
+            </div>
+        </div>
+
+        <?php
+            // Das alte Freitextfeld bleibt bestehen und bearbeitbar: Der
+            // Altbestand steht dort mehrzeilig drin und wird bewusst NICHT
+            // automatisch zerlegt (das wäre geraten). Wer die Angaben oben
+            // eingetragen hat, leert es hier von Hand - solange es befüllt ist,
+            // zeigt die öffentliche Seite es weiterhin an.
+            $hasLegacyAddress = trim((string)($old['address'] ?? $station['address'] ?? '')) !== '';
+        ?>
         <div class="form-group">
-            <label for="address">Adresse / Standort</label>
-            <textarea id="address" name="address" class="form-control" rows="2" placeholder="Straße, PLZ, Ort"><?= htmlspecialchars($old['address'] ?? $station['address'] ?? '') ?></textarea>
+            <label for="address">Adresse als Freitext<?= $hasLegacyAddress ? ' (Altbestand)' : '' ?></label>
+            <textarea id="address" name="address" class="form-control" rows="2" placeholder="Nur noch für Altbestand - bitte die Felder oben verwenden"><?= htmlspecialchars($old['address'] ?? $station['address'] ?? '') ?></textarea>
+            <?php if ($hasLegacyAddress): ?>
+                <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                    Diese Angabe stammt aus der Zeit vor den Einzelfeldern. Bitte oben eintragen und dieses Feld danach leeren - solange hier etwas steht, wird es öffentlich angezeigt.
+                </p>
+            <?php endif; ?>
         </div>
 
         <div style="display: flex; gap: 1rem;">

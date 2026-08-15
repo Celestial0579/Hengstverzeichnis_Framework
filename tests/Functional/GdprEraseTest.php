@@ -28,9 +28,9 @@ class GdprEraseTest extends FunctionalTestCase {
     private function createPersonWithHorseAndRequest(string $personName, string $email): array {
         $db = $this->db();
 
-        // Alle strukturierten PII-Felder (#188) befüllen - die Anonymisierung
-        // unten muss jedes einzelne davon nullen.
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, country, email, membership_status, is_published) VALUES (?, 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'DE', ?, 'Mitglied', 1)");
+        // Alle strukturierten PII-Felder (#188, state seit #256) befüllen - die
+        // Anonymisierung unten muss jedes einzelne davon nullen.
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, state, country, email, membership_status, is_published) VALUES (?, 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'Schleswig-Holstein', 'DE', ?, 'Mitglied', 1)");
         $stmt->execute([$personName, $email]);
         $personId = (int)$db->lastInsertId();
 
@@ -145,15 +145,31 @@ class GdprEraseTest extends FunctionalTestCase {
             "Anonymisierung fehlgeschlagen, Body: {$anonResponse->body}"
         );
 
-        $stmt = $db->prepare("SELECT name, contact_info, street, house_number, postal_code, city, country, email, membership_status FROM persons WHERE id = ?");
+        $stmt = $db->prepare("SELECT * FROM persons WHERE id = ?");
         $stmt->execute([$fixture['personId']]);
-        $person = $stmt->fetch();
+        $person = $stmt->fetch(\PDO::FETCH_ASSOC);
         $this->assertSame('Anonymisierte Person (#' . $fixture['personId'] . ')', $person['name']);
-        $this->assertNull($person['contact_info']);
-        // Die Anonymisierung muss ALLE strukturierten PII-Felder (#188) leeren -
-        // ein vergessenes Feld wäre ein stiller DSGVO-Leak.
-        foreach (['street', 'house_number', 'postal_code', 'city', 'country', 'email', 'membership_status'] as $field) {
-            $this->assertNull($person[$field], "persons.{$field} muss nach der Anonymisierung NULL sein");
+
+        // Die Anonymisierung muss ALLE personenbezogenen Felder leeren - ein
+        // vergessenes Feld wäre ein stiller DSGVO-Leak: Die Aktion meldet
+        // weiterhin Erfolg, die Daten stehen aber noch da.
+        //
+        // Die Feldliste wird deshalb aus dem Schema abgeleitet und NICHT
+        // aufgezählt. Eine aufgezählte Liste prüft nur, was jemand beim
+        // Schreiben des Tests kannte; eine neue Spalte in persons wäre
+        // automatisch ungeprüft - genau so wäre `state` (#256) durchgerutscht.
+        // Hier fällt jede künftige Spalte sofort auf, solange sie nicht
+        // ausdrücklich als nicht-personenbezogen ausgenommen wird.
+        $nonPii = ['id', 'name', 'is_published', 'created_at', 'deleted_at'];
+        $piiColumns = array_values(array_diff(array_keys($person), $nonPii));
+        $this->assertNotEmpty($piiColumns, 'Spaltenliste von persons konnte nicht ermittelt werden.');
+        foreach ($piiColumns as $field) {
+            $this->assertNull(
+                $person[$field],
+                "persons.{$field} muss nach der Anonymisierung NULL sein. Ist das Feld nicht "
+                . "personenbezogen, gehört es ausdrücklich in die \$nonPii-Liste dieses Tests - "
+                . "und nicht stillschweigend übergangen."
+            );
         }
 
         // Die Pferd-Verknüpfung bleibt bei der Anonymisierung erhalten.

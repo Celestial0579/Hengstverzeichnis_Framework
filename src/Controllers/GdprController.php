@@ -140,10 +140,16 @@ class GdprController extends BaseController {
             $db = Database::getInstance();
 
             // Anonymize person data while preserving horse relationships in horse_persons.
-            // Alle PII-Felder nullen - auch city/country/membership_status sind
-            // personenbezogen, sobald sie am Namen hängen (#188).
+            // Alle PII-Felder nullen - auch city/state/country/membership_status sind
+            // personenbezogen, sobald sie am Namen hängen (#188, state seit #256).
+            //
+            // Diese Liste ist hartkodiert und muss bei JEDER neuen Spalte in
+            // persons mitgezogen werden. Ein vergessenes Feld fällt nicht auf:
+            // Die Anonymisierung meldet weiterhin Erfolg, und die Lücke bleibt
+            // still bestehen. Der Gegentest dazu steht in
+            // tests/Functional/GdprEraseTest.php und prüft die Felder namentlich.
             $anonName = "Anonymisierte Person (#" . $personId . ")";
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, country = NULL, email = NULL, membership_status = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, email = NULL, membership_status = NULL WHERE id = ?");
             $stmt->execute([$anonName, $personId]);
 
             // Automatically mark GDPR request as processed

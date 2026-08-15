@@ -54,14 +54,20 @@ CREATE TABLE IF NOT EXISTS `persons` (
     `name` VARCHAR(100) NOT NULL,
     -- Freitext-Restfeld (z. B. Telefon); Adresse/E-Mail seit #188 strukturiert.
     `contact_info` TEXT,
-    -- Strukturierte Adresse (#188). Öffentlich (und im Hook-Payload) erscheinen
-    -- NUR city, country und membership_status - street/house_number/postal_code/
-    -- email bleiben Admin-only (siehe PublicController::horseDetail und
-    -- docs/plugin-development.md). Die DSGVO-Anonymisierung nullt alle Felder.
+    -- Strukturierte Adresse (#188, state seit #256). Öffentlich (und im
+    -- Hook-Payload) erscheinen NUR city, state, country und membership_status -
+    -- street/house_number/postal_code/email bleiben Admin-only (siehe
+    -- PublicController::horseDetail und docs/plugin-development.md). Die
+    -- Trennlinie ist nicht "wenige Felder", sondern: zustellbare Angaben sind
+    -- intern, grobe geografische Verortung ist öffentlich.
+    -- Die DSGVO-Anonymisierung nullt alle Felder.
     `street` VARCHAR(150) NULL DEFAULT NULL,
     `house_number` VARCHAR(20) NULL DEFAULT NULL,
     `postal_code` VARCHAR(20) NULL DEFAULT NULL,
     `city` VARCHAR(100) NULL DEFAULT NULL,
+    -- Bundesland/Kanton (#256), Freitext wie country - bewusst ohne
+    -- ISO-3166-2-Validierung und ohne Helfer-Analogon zu CountryFlag.
+    `state` VARCHAR(100) NULL DEFAULT NULL,
     -- Freitext, auch Länderkürzel wie 'NO' (Altsystem-Konvention).
     `country` VARCHAR(100) NULL DEFAULT NULL,
     `email` VARCHAR(100) NULL DEFAULT NULL,
@@ -82,6 +88,21 @@ CREATE TABLE IF NOT EXISTS `breeding_stations` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(150) NOT NULL,
     `contact_person` VARCHAR(100) NULL,
+    -- Strukturierte Adresse (#256), analog persons. Anders als dort ist hier
+    -- ALLES öffentlich: Eine Deckstation ist eine Geschäftsadresse, keine
+    -- Privatperson - ihre Anschrift stand auch vorher schon vollständig im
+    -- Freitextfeld address auf der öffentlichen Stationsseite.
+    `street` VARCHAR(150) NULL DEFAULT NULL,
+    `house_number` VARCHAR(20) NULL DEFAULT NULL,
+    `postal_code` VARCHAR(20) NULL DEFAULT NULL,
+    `city` VARCHAR(100) NULL DEFAULT NULL,
+    `state` VARCHAR(100) NULL DEFAULT NULL,
+    `country` VARCHAR(100) NULL DEFAULT NULL,
+    -- Alte Freitext-Adresse. Bleibt bestehen und wird NICHT automatisch
+    -- zerlegt: Der Bestand ist real mehrzeilig ("Weideweg 1\n24000 Kiel"),
+    -- ein Parse-Backfill wäre geraten - dieselbe Begründung wie bei #188.
+    -- Wird angezeigt, solange die strukturierten Felder leer sind, und bleibt
+    -- als station_address Teil des dokumentierten Plugin-Payloads.
     `address` TEXT NULL,
     `phone` VARCHAR(50) NULL,
     `email` VARCHAR(100) NULL,

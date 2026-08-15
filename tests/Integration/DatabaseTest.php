@@ -172,14 +172,22 @@ class DatabaseTest extends TestCase {
         // Kastrationsdatum (#239, SCHEMA_VERSION 2)
         $this->assertColumnExists($pdo, 'horses', 'castration_date');
 
-        // Strukturierte Personendaten (#188)
+        // Strukturierte Personendaten (#188), Bundesland/Kanton (#256)
         $this->assertColumnExists($pdo, 'persons', 'street');
         $this->assertColumnExists($pdo, 'persons', 'house_number');
         $this->assertColumnExists($pdo, 'persons', 'postal_code');
         $this->assertColumnExists($pdo, 'persons', 'city');
+        $this->assertColumnExists($pdo, 'persons', 'state');
         $this->assertColumnExists($pdo, 'persons', 'country');
         $this->assertColumnExists($pdo, 'persons', 'email');
         $this->assertColumnExists($pdo, 'persons', 'membership_status');
+
+        // Strukturierte Stationsadresse (#256, SCHEMA_VERSION 4). Das alte
+        // Freitextfeld address bleibt bestehen - kein Backfill, siehe
+        // SchemaMigrator Schritt 29.
+        foreach (['street', 'house_number', 'postal_code', 'city', 'state', 'country', 'address'] as $column) {
+            $this->assertColumnExists($pdo, 'breeding_stations', $column);
+        }
 
         // birth_year wird von YEAR auf SMALLINT UNSIGNED umgestellt (historische
         // Geburtsjahre vor 1901, die der YEAR-Typ nicht abbilden kann, siehe #10

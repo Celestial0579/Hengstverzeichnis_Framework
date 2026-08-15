@@ -71,7 +71,10 @@ $publishFormId = 'personPublishForm';
                                 // Strukturierte Felder (#188) zuerst, Freitext-Rest darunter.
                                 $addressLine = trim(implode(' ', array_filter([$p['street'] ?? '', $p['house_number'] ?? ''])));
                                 $placeLine = trim(implode(' ', array_filter([$p['postal_code'] ?? '', $p['city'] ?? ''])));
-                                if (!empty($p['country'])) { $placeLine = trim($placeLine . ($placeLine !== '' ? ', ' : '') . $p['country']); }
+                                // Bundesland/Kanton und Land (#256/#188) kommaseparat hinter den Ort.
+                                foreach ([$p['state'] ?? '', $p['country'] ?? ''] as $region) {
+                                    if (!empty($region)) { $placeLine = trim($placeLine . ($placeLine !== '' ? ', ' : '') . $region); }
+                                }
                                 $lines = array_filter([$addressLine, $placeLine, $p['email'] ?? '', $p['membership_status'] ?? '', $p['contact_info'] ?? '']);
                             ?>
                             <?= !empty($lines) ? nl2br(htmlspecialchars(implode("\n", $lines))) : '<em>Keine Angaben</em>' ?>

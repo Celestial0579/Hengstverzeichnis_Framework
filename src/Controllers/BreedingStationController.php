@@ -92,6 +92,30 @@ class BreedingStationController extends BaseController {
         ]);
     }
 
+    /**
+     * Die strukturierte Stationsadresse (#256) in Spaltenreihenfolge. Einzige
+     * Stelle, an der die Liste steht - INSERT, UPDATE, Fehlerpfad und das
+     * Einlesen aus dem POST leiten sich daraus ab. Vorher stand jedes Feld
+     * dieses Controllers an vier Stellen einzeln ausgeschrieben; bei sechs
+     * neuen Feldern wäre das eine Einladung, eine davon zu vergessen.
+     *
+     * `address` gehört bewusst NICHT dazu: Das ist das alte Freitextfeld, es
+     * bleibt erhalten und wird gesondert behandelt (siehe database/schema.sql).
+     */
+    private const ADDRESS_FIELDS = ['street', 'house_number', 'postal_code', 'city', 'state', 'country'];
+
+    /**
+     * Strukturierte Adressfelder aus dem POST, jeweils leer -> NULL. Bewusst
+     * ohne Formatvalidierung, wie bei den Personendaten (#188).
+     */
+    private function parseAddressFields(): array {
+        $fields = [];
+        foreach (self::ADDRESS_FIELDS as $field) {
+            $fields[$field] = trim($_POST[$field] ?? '') ?: null;
+        }
+        return $fields;
+    }
+
     public function store(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
@@ -100,6 +124,7 @@ class BreedingStationController extends BaseController {
 
         $name = trim($_POST['name'] ?? '');
         $contactPerson = trim($_POST['contact_person'] ?? '');
+        $addressFields = $this->parseAddressFields();
         $address = trim($_POST['address'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $email = trim($_POST['email'] ?? '');
@@ -129,11 +154,13 @@ class BreedingStationController extends BaseController {
         $isPublished = (!empty($_POST['is_published']) && $this->hasPermission('breeding_stations', 'publish')) ? 1 : 0;
 
         $db = Database::getInstance();
+        $addressColumns = implode(', ', self::ADDRESS_FIELDS);
+        $addressPlaceholders = implode(', ', array_fill(0, count(self::ADDRESS_FIELDS), '?'));
         $stmt = $db->prepare("
-            INSERT INTO breeding_stations (name, contact_person, address, phone, email, website, is_published)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO breeding_stations (name, contact_person, {$addressColumns}, address, phone, email, website, is_published)
+            VALUES (?, ?, {$addressPlaceholders}, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $isPublished]);
+        $stmt->execute([$name, $contactPerson, ...array_values($addressFields), $address, $phone, $email, $website, $isPublished]);
         $newStationId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Deckstation angelegt", "breeding_stations", "Deckstation ID {$newStationId}: {$name}");
@@ -172,6 +199,7 @@ class BreedingStationController extends BaseController {
         $id = (int)($_POST['id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         $contactPerson = trim($_POST['contact_person'] ?? '');
+        $addressFields = $this->parseAddressFields();
         $address = trim($_POST['address'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $email = trim($_POST['email'] ?? '');
@@ -188,7 +216,13 @@ class BreedingStationController extends BaseController {
         if (!empty($errors)) {
             $this->render('admin_breeding_station_form', [
                 'title' => 'Deckstation bearbeiten',
-                'station' => ['id' => $id, 'name' => $name, 'contact_person' => $contactPerson, 'address' => $address, 'phone' => $phone, 'email' => $email, 'website' => $website, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                // Fehlerpfad baut den Stations-Datensatz von Hand - die
+                // strukturierten Adressfelder kommen per array_merge dazu, damit
+                // sie beim erneuten Rendern nicht verlorengehen.
+                'station' => array_merge(
+                    ['id' => $id, 'name' => $name, 'contact_person' => $contactPerson, 'address' => $address, 'phone' => $phone, 'email' => $email, 'website' => $website, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                    $addressFields
+                ),
                 'errors' => $errors,
                 'canPublish' => $this->hasPermission('breeding_stations', 'publish')
             ]);
@@ -198,21 +232,23 @@ class BreedingStationController extends BaseController {
         // Veröffentlichung nur mit 'breeding_stations.publish' änderbar; ohne das Recht
         // bleibt der bisherige Zustand erhalten (analog HorseController::update()).
         $db = Database::getInstance();
+        $addressSql = implode(', ', array_map(fn($field) => "{$field} = ?", self::ADDRESS_FIELDS));
+        $addressValues = array_values($addressFields);
         if ($this->hasPermission('breeding_stations', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
             $stmt = $db->prepare("
                 UPDATE breeding_stations
-                SET name = ?, contact_person = ?, address = ?, phone = ?, email = ?, website = ?, is_published = ?
+                SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?, is_published = ?
                 WHERE id = ?
             ");
-            $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $isPublished, $id]);
+            $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $isPublished, $id]);
         } else {
             $stmt = $db->prepare("
                 UPDATE breeding_stations
-                SET name = ?, contact_person = ?, address = ?, phone = ?, email = ?, website = ?
+                SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?
                 WHERE id = ?
             ");
-            $stmt->execute([$name, $contactPerson, $address, $phone, $email, $website, $id]);
+            $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $id]);
         }
 
         \App\Service\AuditLogger::log("Deckstation aktualisiert", "breeding_stations", "Deckstation ID {$id}: {$name}");

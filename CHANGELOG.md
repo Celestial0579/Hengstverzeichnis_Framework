@@ -39,6 +39,39 @@ Breaking Changes sind jederzeit möglich).
   `station_*`-Felder, ohne `deleted_at`-Filter) — dokumentiert in
   `docs/plugin-development.md`, abgesichert durch
   `tests/Functional/HorseEditSectionsHookTest.php`.
+- Bundesland/Kanton und strukturierte Deckstations-Adresse (#256,
+  SCHEMA_VERSION 4). Bei DACH-weiten Zuchtdaten reichen Land und PLZ oft nicht,
+  um Herkunft oder Zuständigkeit (Landesverband) einzuordnen.
+  - `persons.state` als Freitext analog `country` — bewusst ohne
+    ISO-3166-2-Prüfung und ohne Helfer-Analogon zu `CountryFlag`:
+    Bundesland- und Kantonsnamen sind in DACH uneinheitlich geschrieben, eine
+    Validierung würde mehr korrekte Eingaben ablehnen als falsche. Das Feld ist
+    **öffentlich** wie `city`/`country` und damit auch im
+    `horse.detail_sections`-Payload. Die Trennlinie im Datenmodell ist nicht die
+    Feldanzahl, sondern die Art der Angabe: Was eine Sendung zustellbar macht
+    (Straße, Hausnummer, PLZ, E-Mail), bleibt intern; die grobe geografische
+    Verortung ist öffentlich. Ein Bundesland ist gröber als der ohnehin
+    sichtbare Ort. Die DSGVO-Anonymisierung nullt es mit.
+  - `breeding_stations` bekommt erstmals überhaupt eine strukturierte Anschrift
+    (`street`, `house_number`, `postal_code`, `city`, `state`, `country`) —
+    bisher gab es dort nur ein einziges Freitextfeld und nicht einmal ein
+    `country`. Anders als bei Personen ist hier alles öffentlich: eine
+    Deckstation ist eine Geschäftsadresse, keine Privatperson.
+  - Das alte Freitextfeld `breeding_stations.address` **bleibt bestehen** und
+    wird **nicht** automatisch zerlegt. Der Bestand ist real mehrzeilig
+    (`"Weideweg 1\n24000 Kiel"`), eine Zerlegung wäre geraten — dieselbe
+    Entscheidung wie bei den Personendaten in #188. Angezeigt wird der Freitext
+    weiterhin, solange die Einzelfelder leer sind; ohne diesen Rückfall wäre
+    beim Ausrollen die Anschrift jeder Bestandsstation schlagartig von der
+    öffentlichen Seite verschwunden. Das Admin-Formular hält das Feld
+    bearbeitbar, damit Altbestand übertragen und danach geleert werden kann.
+    Die Erweiterung ist damit rein additiv — `station_address` bleibt
+    unverändert Teil des dokumentierten Plugin-Payloads.
+  - Der DSGVO-Test prüft die zu nullenden Felder jetzt anhand der tatsächlichen
+    Spalten von `persons` statt anhand einer aufgezählten Liste. Eine Aufzählung
+    prüft nur, was beim Schreiben des Tests bekannt war — genau so wäre `state`
+    ungeprüft durchgerutscht, und eine Anonymisierungslücke meldet weiterhin
+    Erfolg.
 - Wartungsmodus im Kern (#232): Werkzeuge (z. B. der Datenbank-Import des
   Addons `datenmigration`) können über `App\Service\Maintenance::enable($grund)`
   / `disable()` eine Marker-Datei `var/wartung.lock` setzen; ein früher Check

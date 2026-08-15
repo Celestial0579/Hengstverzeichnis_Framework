@@ -52,6 +52,18 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
                 <label for="city">Ort</label>
                 <input type="text" id="city" name="city" class="form-control" value="<?= htmlspecialchars($old['city'] ?? $person['city'] ?? '') ?>" placeholder="Musterstadt">
             </div>
+        </div>
+
+        <?php
+            // Bundesland/Kanton (#256) in einer eigenen Zeile mit dem Land: Die
+            // Zeile darüber ist ein display:flex OHNE wrap - ein viertes Feld
+            // hätte PLZ und Ort auf schmalen Bildschirmen zusammengequetscht.
+        ?>
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 2;">
+                <label for="state">Bundesland / Kanton</label>
+                <input type="text" id="state" name="state" class="form-control" value="<?= htmlspecialchars($old['state'] ?? $person['state'] ?? '') ?>" placeholder="z. B. Schleswig-Holstein, Bern, Tirol">
+            </div>
             <div class="form-group" style="flex: 1;">
                 <label for="country">Land</label>
                 <input type="text" id="country" name="country" class="form-control" value="<?= htmlspecialchars($old['country'] ?? $person['country'] ?? '') ?>" placeholder="z. B. DE, NO">
@@ -69,7 +81,7 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
             </div>
         </div>
         <p style="color: var(--text-subtle); font-size: 0.8rem; margin: -0.3rem 0 1rem 0;">
-            Öffentlich sichtbar sind nur Ort, Land und Mitgliedsstatus - Straße, Hausnummer, PLZ und E-Mail bleiben intern.
+            Öffentlich sichtbar sind nur Ort, Bundesland/Kanton, Land und Mitgliedsstatus - Straße, Hausnummer, PLZ und E-Mail bleiben intern.
         </p>
 
         <div class="form-group">

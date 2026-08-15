@@ -388,11 +388,11 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     <?php endif; ?>
 
                     <?php
-                        // Ort/Land/Mitgliedsstatus (#188) sind die einzigen
-                        // strukturierten Personenfelder auf der öffentlichen
-                        // Seite - Adresse/E-Mail bleiben Admin-only (siehe
-                        // PublicController::horseDetail).
-                        $placeParts = array_filter([$hp['city'] ?? '', $hp['country'] ?? '']);
+                        // Ort/Bundesland/Land/Mitgliedsstatus (#188, state seit
+                        // #256) sind die einzigen strukturierten Personenfelder
+                        // auf der öffentlichen Seite - Adresse/E-Mail bleiben
+                        // Admin-only (siehe PublicController::horseDetail).
+                        $placeParts = array_filter([$hp['city'] ?? '', $hp['state'] ?? '', $hp['country'] ?? '']);
                     ?>
                     <?php if (!empty($placeParts) || !empty($hp['membership_status'])): ?>
                         <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">

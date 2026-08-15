@@ -47,6 +47,39 @@ Breaking Changes sind jederzeit möglich).
   `station_*`-Felder, ohne `deleted_at`-Filter) — dokumentiert in
   `docs/plugin-development.md`, abgesichert durch
   `tests/Functional/HorseEditSectionsHookTest.php`.
+- Bundesland/Kanton und strukturierte Deckstations-Adresse (#256,
+  SCHEMA_VERSION 4). Bei DACH-weiten Zuchtdaten reichen Land und PLZ oft nicht,
+  um Herkunft oder Zuständigkeit (Landesverband) einzuordnen.
+  - `persons.state` als Freitext analog `country` — bewusst ohne
+    ISO-3166-2-Prüfung und ohne Helfer-Analogon zu `CountryFlag`:
+    Bundesland- und Kantonsnamen sind in DACH uneinheitlich geschrieben, eine
+    Validierung würde mehr korrekte Eingaben ablehnen als falsche. Das Feld ist
+    **öffentlich** wie `city`/`country` und damit auch im
+    `horse.detail_sections`-Payload. Die Trennlinie im Datenmodell ist nicht die
+    Feldanzahl, sondern die Art der Angabe: Was eine Sendung zustellbar macht
+    (Straße, Hausnummer, PLZ, E-Mail), bleibt intern; die grobe geografische
+    Verortung ist öffentlich. Ein Bundesland ist gröber als der ohnehin
+    sichtbare Ort. Die DSGVO-Anonymisierung nullt es mit.
+  - `breeding_stations` bekommt erstmals überhaupt eine strukturierte Anschrift
+    (`street`, `house_number`, `postal_code`, `city`, `state`, `country`) —
+    bisher gab es dort nur ein einziges Freitextfeld und nicht einmal ein
+    `country`. Anders als bei Personen ist hier alles öffentlich: eine
+    Deckstation ist eine Geschäftsadresse, keine Privatperson.
+  - Das alte Freitextfeld `breeding_stations.address` **bleibt bestehen** und
+    wird **nicht** automatisch zerlegt. Der Bestand ist real mehrzeilig
+    (`"Weideweg 1\n24000 Kiel"`), eine Zerlegung wäre geraten — dieselbe
+    Entscheidung wie bei den Personendaten in #188. Angezeigt wird der Freitext
+    weiterhin, solange die Einzelfelder leer sind; ohne diesen Rückfall wäre
+    beim Ausrollen die Anschrift jeder Bestandsstation schlagartig von der
+    öffentlichen Seite verschwunden. Das Admin-Formular hält das Feld
+    bearbeitbar, damit Altbestand übertragen und danach geleert werden kann.
+    Die Erweiterung ist damit rein additiv — `station_address` bleibt
+    unverändert Teil des dokumentierten Plugin-Payloads.
+  - Der DSGVO-Test prüft die zu nullenden Felder jetzt anhand der tatsächlichen
+    Spalten von `persons` statt anhand einer aufgezählten Liste. Eine Aufzählung
+    prüft nur, was beim Schreiben des Tests bekannt war — genau so wäre `state`
+    ungeprüft durchgerutscht, und eine Anonymisierungslücke meldet weiterhin
+    Erfolg.
 - Bot-/Spam-Schutz für das öffentliche DSGVO-Portal (#258, baut auf der
   Vorarbeit aus #254 auf). `POST /dsgvo` ist ohne Anmeldung erreichbar und löst
   je angenommener Anfrage eine Zeile in `gdpr_requests` **und** eine echte
@@ -114,6 +147,18 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- Fußzeile (#257): Betreiber- und Framework-Copyright stehen jetzt in zwei
+  getrennten Blöcken, jedes unmittelbar über den Links, die zu ihm gehören —
+  Betreiber-© über Impressum/Datenschutz/DSGVO (Angaben zur Instanz),
+  Framework-© über Handbuch/Austausch/Fehlermeldung/Lizenz (Angaben zum
+  Projekt). Vorher standen beide Copyrights zusammen in einer Zeile und ihre
+  Links darunter, ohne erkennbare Zuordnung. Die inhaltliche Trennung war als
+  bewusste Entscheidung schon dokumentiert (#199, § 13 UrhG / AGPL-3.0 § 5(d)),
+  nur die Darstellung fasste beides zusammen. Die Tagline hängt am
+  Framework-Block, weil sie das Projekt beschreibt und nicht die Installation.
+  Rein visuell über Blockabstand gelöst, ohne Trennlinie und ohne Spalten —
+  die brächten bei schmalen Viewports nur Umbruchprobleme. Keine neuen
+  Übersetzungsschlüssel, keine Backend-Änderung.
 - Öffentliche Pferde-Detailseite neu gegliedert (#242): Hero-Karte mit Foto
   (Platzhalter statt Layout-Sprung), Identitätszeile und zweispaltigem
   Steckbrief; danach thematische Karten Abstammung, Leistung & Auszeichnungen

@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 3;
+    public const SCHEMA_VERSION = 4;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -752,5 +752,31 @@ final class SchemaMigrator {
         } catch (\Throwable $e) {
             // Tabelle horses existiert ggf. noch nicht (Setup-Fall)
         }
+
+        // 29. Bundesland/Kanton und strukturierte Stationsadresse (#256,
+        // SCHEMA_VERSION 4). Bei DACH-weiten Zuchtdaten reichen Land und PLZ
+        // oft nicht, um Herkunft oder Zuständigkeit (Landesverband) einzuordnen.
+        //
+        // persons: nur die eine fehlende Spalte, eingereiht zwischen city und
+        // country. Freitext wie country - bewusst ohne ISO-3166-2-Validierung,
+        // konsistent mit country/breed/membership_status.
+        $addColumn('persons', 'state', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
+
+        // breeding_stations hatte bisher überhaupt keine strukturierte Adresse,
+        // nur das Freitextfeld address (und nicht einmal ein country). Deshalb
+        // hier der volle Satz.
+        //
+        // Kein Backfill aus address: Der Bestand ist real mehrzeilig
+        // ("Weideweg 1\n24000 Kiel"), eine Zerlegung wäre geraten. Dieselbe
+        // Entscheidung wie bei den Personendaten in Schritt 22. address bleibt
+        // deshalb bestehen, wird weiterhin angezeigt, solange die neuen Felder
+        // leer sind, und bleibt als station_address Teil des dokumentierten
+        // Plugin-Payloads - die Erweiterung ist damit rein additiv.
+        $addColumn('breeding_stations', 'street', 'VARCHAR(150) NULL DEFAULT NULL AFTER `contact_person`');
+        $addColumn('breeding_stations', 'house_number', 'VARCHAR(20) NULL DEFAULT NULL AFTER `street`');
+        $addColumn('breeding_stations', 'postal_code', 'VARCHAR(20) NULL DEFAULT NULL AFTER `house_number`');
+        $addColumn('breeding_stations', 'city', 'VARCHAR(100) NULL DEFAULT NULL AFTER `postal_code`');
+        $addColumn('breeding_stations', 'state', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
+        $addColumn('breeding_stations', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `state`');
     }
 }

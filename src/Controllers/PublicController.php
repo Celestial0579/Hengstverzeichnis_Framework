@@ -347,7 +347,10 @@ class PublicController extends BaseController {
         // Pferde-Detailseite abrufbar, obwohl /station?id=... korrekt 404 liefert (#122).
         $db = Database::getInstance();
         $stmt = $db->prepare("
-            SELECT h.*, bs.name as station_name, bs.contact_person as station_contact, bs.address as station_address, bs.phone as station_phone, bs.email as station_email, bs.website as station_website
+            SELECT h.*, bs.name as station_name, bs.contact_person as station_contact, bs.address as station_address,
+                   bs.street as station_street, bs.house_number as station_house_number, bs.postal_code as station_postal_code,
+                   bs.city as station_city, bs.state as station_state, bs.country as station_country,
+                   bs.phone as station_phone, bs.email as station_email, bs.website as station_website
             FROM horses h
             LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
             WHERE h.id = ? AND h.deleted_at IS NULL AND h.is_published = 1
@@ -362,7 +365,15 @@ class PublicController extends BaseController {
         // Stations-Kontaktblock zusätzlich nur rendern, wenn Gäste Deckstationen
         // überhaupt sehen dürfen - analog zur eigenen Stationsroute stationDetail() (#122).
         if (!$this->hasPermission('breeding_stations', 'view')) {
-            foreach (['station_name', 'station_contact', 'station_address', 'station_phone', 'station_email', 'station_website'] as $stationField) {
+            // Vollständige Feldliste - die strukturierte Adresse (#256) muss hier
+            // genauso mitgenullt werden wie das alte Freitextfeld, sonst wäre der
+            // Schutz durch das Nachziehen des Schemas still ausgehebelt.
+            foreach ([
+                'station_name', 'station_contact', 'station_address',
+                'station_street', 'station_house_number', 'station_postal_code',
+                'station_city', 'station_state', 'station_country',
+                'station_phone', 'station_email', 'station_website',
+            ] as $stationField) {
                 $horse[$stationField] = null;
             }
         }
@@ -384,12 +395,19 @@ class PublicController extends BaseController {
         // Fetch ownership history, person roles and associated breeding stations/studs.
         // Nur veröffentlichte Personen/Stationen (#121/#122) - unveröffentlichte
         // Namen und Kontaktdaten dürfen auf der öffentlichen Seite nicht erscheinen.
-        // Von den strukturierten Personenfeldern (#188) werden bewusst NUR
-        // city/country/membership_status selektiert - email/street/house_number/
-        // postal_code bleiben Admin-only und erreichen weder die View noch den
-        // horse.detail_sections-Hook (siehe docs/plugin-development.md).
+        // Von den strukturierten Personenfeldern (#188, state seit #256) werden
+        // bewusst NUR city/state/country/membership_status selektiert -
+        // email/street/house_number/postal_code bleiben Admin-only und erreichen
+        // weder die View noch den horse.detail_sections-Hook (siehe
+        // docs/plugin-development.md).
+        //
+        // Die Trennlinie ist nicht die Feldanzahl, sondern die Art der Angabe:
+        // Was eine Sendung zustellbar macht, bleibt intern; die grobe
+        // geografische Verortung ist öffentlich. Ein Bundesland ist gröber als
+        // der ohnehin sichtbare Ort - es zu verbergen wäre inkonsistent und
+        // zudem wirkungslos, weil es aus dem Ort folgt.
         $stmt = $db->prepare("
-            SELECT hp.*, p.name as person_name, p.contact_info, p.city, p.country, p.membership_status, bs.name as station_name, bs.id as station_id
+            SELECT hp.*, p.name as person_name, p.contact_info, p.city, p.state, p.country, p.membership_status, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
             LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
             LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1

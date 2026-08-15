@@ -32,6 +32,21 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- Neuer Filter-Hook `horse.edit_sections` (#255): das Admin-Gegenstück zu
+  `horse.detail_sections`. Addons können damit einen eigenen Abschnitt in das
+  Bearbeitungsformular eines Hengstes hängen und bekommen die `horse_id` aus
+  dem Aufrufkontext — bisher gab es dafür keinen Weg, weshalb Addons eigene
+  Verwaltungsseiten mit einer Auswahl über den gesamten Pferdebestand bauten
+  (Anlass: Addons#87 lud dafür bei jedem Seitenaufruf alle Pferde als
+  `<select>`). Der Hook feuert bewusst nur beim Bearbeiten, nicht beim Anlegen
+  (dort gibt es noch keine ID), und die Abschnitte werden **außerhalb** des
+  Kern-Formulars gerendert: Verschachtelte `<form>` sind ungültiges HTML, und
+  ein Speichern über den Kern-POST liefe nur gegen `horses.edit` statt gegen
+  die Berechtigung des Addons. Der Datenvertrag weicht deshalb bewusst von
+  `horse.detail_sections` ab (roher Datensatz ohne Sichtbarkeitsfilter, ohne
+  `station_*`-Felder, ohne `deleted_at`-Filter) — dokumentiert in
+  `docs/plugin-development.md`, abgesichert durch
+  `tests/Functional/HorseEditSectionsHookTest.php`.
 - Bot-/Spam-Schutz für das öffentliche DSGVO-Portal (#258, baut auf der
   Vorarbeit aus #254 auf). `POST /dsgvo` ist ohne Anmeldung erreichbar und löst
   je angenommener Anfrage eine Zeile in `gdpr_requests` **und** eine echte

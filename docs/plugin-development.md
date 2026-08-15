@@ -29,10 +29,11 @@ cp -r docs/examples/demo-plugin plugins/demo-plugin
 
 Danach unter **Admin → Plugins verwalten** (`/admin/plugins`) aktivieren.
 Das Referenz-Plugin (`docs/examples/demo-plugin/Plugin.php`) demonstriert
-die Hooks `admin.dashboard_tiles`, `horse.detail_sections` und
-`horse.after_save`, das Registrieren einer eigenen Route sowie
-`permissions()` und `features()` — nicht jedoch `horse.before_save` und
-`catalog.card_sections` (deren Signaturen stehen in der Tabelle unten).
+die Hooks `admin.dashboard_tiles`, `horse.detail_sections`,
+`horse.edit_sections` und `horse.after_save`, das Registrieren einer eigenen
+Route sowie `permissions()` und `features()` — nicht jedoch
+`horse.before_save` und `catalog.card_sections` (deren Signaturen stehen in
+der Tabelle unten).
 
 ## Verzeichnisstruktur eines Plugins
 
@@ -253,6 +254,7 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `horse.deleted` | Action | Nach dem endgültigen Löschen (einzeln wie beim Papierkorb-Leeren, je Pferd) | `function(int $horseId, array $horse): void` — `$horse` ist der letzte Stand vor dem `DELETE`; abhängige Zeilen mit FK-`ON DELETE CASCADE` sind zu diesem Zeitpunkt bereits weg |
 | `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde. Zum Inhalt von `$horse`/`$horsePersons` siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
 | `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten. `$horse` unterliegt denselben Sichtbarkeitsfiltern, siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
+| `horse.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars eines Hengstes (`HorseController::edit()`) | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. Feuert **nur beim Bearbeiten**, nicht beim Anlegen. `$horse` ist hier der **rohe** Datensatz, siehe Warnkasten unten |
 | `captcha.providers` | Filter | Beim Aufbau der Anbieterauswahl in den Systemeinstellungen und bei jeder Prüfung | `function(array $providers): array` — Slug => Anzeigename. Der eingebaute Anbieter `builtin` ist immer enthalten und lässt sich **nicht** überschreiben |
 | `captcha.render` | Filter | Beim Rendern eines geschützten öffentlichen Formulars, wenn der Admin diesen Anbieter gewählt hat | `function(string $html, string $provider, string $context): string` — fertiges Formular**fragment**, wird **unescaped** ausgegeben. `$provider` ist der gewählte Slug (nur reagieren, wenn er der eigene ist), `$context` derzeit `'dsgvo'` |
 | `captcha.verify` | Filter | Beim Absenden eines geschützten Formulars, vor jeder Verarbeitung | `function(?string $verdict, string $provider, string $context, array $input): ?string` — eine der Konstanten `Captcha::OK`/`WRONG`/`EXPIRED`/`TOO_FAST`, oder `null` für „nicht zuständig" |
@@ -276,6 +278,32 @@ Die Katalog-Query liefert eine feste Spaltenteilmenge (`id`, `name`, `ueln`,
 „Was in `$horse` … steht" unten beschreibt den vollen Satz der
 **Detailseite**; für Katalogkarten gilt nur diese Teilmenge.
 
+**Achtung, `horse.edit_sections` funktioniert anders als alle anderen
+Abschnitts-Hooks — in drei Punkten:**
+
+1. **`$horse` ist der rohe Datensatz.** Er kommt aus
+   `SELECT * FROM horses WHERE id = ?` — es sind **keine** Sichtbarkeitsfilter
+   angewandt, es gibt **keine** `station_*`-Felder (die Abfrage hat keinen Join),
+   und `deleted_at` wird nicht gefiltert: Der Hook feuert auch für ein Pferd im
+   Papierkorb, das über `/admin/horses/edit?id=…` weiterhin erreichbar ist.
+   Der Abschnitt „Was in `$horse` … steht" unten beschreibt die **öffentliche**
+   Seite und gilt hier ausdrücklich **nicht**.
+2. **Der Abschnitt steht außerhalb des Kern-Formulars.** Ein Plugin bringt
+   deshalb sein **eigenes** `<form>` mit eigener POST-Route und eigener
+   `requirePermission()`-Prüfung mit. Der Speichern-Knopf des Kerns speichert
+   Plugin-Felder **nicht** mit. Das ist Absicht: Verschachtelte `<form>` sind
+   ungültiges HTML, und ein Speichern über den Kern-POST liefe nur gegen
+   `horses.edit` — nie gegen die Berechtigung des Plugins.
+3. **Auf einer Seite gibt es dadurch zwei Speichern-Knöpfe.** Wer oben die
+   Stammdaten ändert und dann unten den Knopf des Plugins drückt, verliert die
+   Stammdaten-Änderung. Beschrifte den eigenen Knopf deshalb nicht mit
+   „Speichern", sondern mit der konkreten Handlung („Auszeichnung hinzufügen"),
+   und weise im Abschnitt darauf hin, dass Änderungen oben zuerst zu speichern
+   sind.
+
+Da der Abschnitt hinter Login und `horses.edit` steht, wiegt die
+Escaping-Verantwortung hier **schwerer** als auf der öffentlichen Seite, nicht
+leichter: Ein XSS trifft dort Redakteure und Administratoren mit vollen Rechten.
 **Zu den `captcha.*`-Hooks:** Sie sind der Weg, einen Fremdanbieter
 (Cloudflare Turnstile, hCaptcha) als Addon nachzurüsten. Der Kern bringt eine
 eigene Rechenaufgabe mit und behält sie als Standard - siehe

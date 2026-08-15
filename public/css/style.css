@@ -371,6 +371,15 @@ h1, h2, h3 {
     transition: border-color var(--transition-speed), box-shadow var(--transition-speed), background-color var(--transition-speed), color var(--transition-speed);
 }
 
+/* Hilfetext unter einem Formularfeld (#258). Nutzt --text-muted statt eines
+   fest codierten Grautons: #666 erreicht auf dunklem Kartenhintergrund nur
+   ~2,7:1 und verfehlt damit die von WCAG AA geforderten 4,5:1. */
+.form-hint {
+    display: block;
+    margin-top: 0.35rem;
+    color: var(--text-muted);
+}
+
 .form-control:focus {
     outline: none;
     border-color: var(--primary-fg);

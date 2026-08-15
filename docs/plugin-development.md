@@ -253,6 +253,9 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `horse.deleted` | Action | Nach dem endgültigen Löschen (einzeln wie beim Papierkorb-Leeren, je Pferd) | `function(int $horseId, array $horse): void` — `$horse` ist der letzte Stand vor dem `DELETE`; abhängige Zeilen mit FK-`ON DELETE CASCADE` sind zu diesem Zeitpunkt bereits weg |
 | `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde. Zum Inhalt von `$horse`/`$horsePersons` siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
 | `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten. `$horse` unterliegt denselben Sichtbarkeitsfiltern, siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
+| `captcha.providers` | Filter | Beim Aufbau der Anbieterauswahl in den Systemeinstellungen und bei jeder Prüfung | `function(array $providers): array` — Slug => Anzeigename. Der eingebaute Anbieter `builtin` ist immer enthalten und lässt sich **nicht** überschreiben |
+| `captcha.render` | Filter | Beim Rendern eines geschützten öffentlichen Formulars, wenn der Admin diesen Anbieter gewählt hat | `function(string $html, string $provider, string $context): string` — fertiges Formular**fragment**, wird **unescaped** ausgegeben. `$provider` ist der gewählte Slug (nur reagieren, wenn er der eigene ist), `$context` derzeit `'dsgvo'` |
+| `captcha.verify` | Filter | Beim Absenden eines geschützten Formulars, vor jeder Verarbeitung | `function(?string $verdict, string $provider, string $context, array $input): ?string` — eine der Konstanten `Captcha::OK`/`WRONG`/`EXPIRED`/`TOO_FAST`, oder `null` für „nicht zuständig" |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
 
 **Performance-Hinweis zu `catalog.card_sections`:** Der Filter läuft einmal
@@ -272,6 +275,39 @@ Die Katalog-Query liefert eine feste Spaltenteilmenge (`id`, `name`, `ueln`,
 (`station_contact`/`address`/`phone`/`email`/`website`). Der Abschnitt
 „Was in `$horse` … steht" unten beschreibt den vollen Satz der
 **Detailseite**; für Katalogkarten gilt nur diese Teilmenge.
+
+**Zu den `captcha.*`-Hooks:** Sie sind der Weg, einen Fremdanbieter
+(Cloudflare Turnstile, hCaptcha) als Addon nachzurüsten. Der Kern bringt eine
+eigene Rechenaufgabe mit und behält sie als Standard - siehe
+[security.md](security.md), Abschnitt „DSGVO-Portal", zur Begründung.
+
+Drei Dinge, auf die ein solches Addon achten muss:
+
+- **Der eigene Slug ist zu prüfen.** Alle drei Filter laufen für jeden
+  Anbieter; ein Callback, der `$provider` ignoriert, würde auch dann antworten,
+  wenn der Admin einen anderen Anbieter gewählt hat.
+- **`captcha.verify` gibt `null` zurück, wenn es nicht zuständig ist** - und
+  nur die vier definierten Urteile gelten als Antwort. Alles andere (auch
+  `true`) behandelt der Kern als „nicht geantwortet". Das ist Absicht: Der
+  `HookManager` verschluckt eine Exception im Callback und behält den
+  vorherigen Wert, ein abgestürztes Addon liefert damit `null` und niemals
+  versehentlich ein `OK`.
+- **Antwortet niemand, prüft der Kern selbst.** Ein deaktiviertes oder
+  abgestürztes Addon lässt das Formular also weder ungeschützt noch sperrt es
+  Betroffene aus. Ein Addon darf sich deshalb nicht darauf verlassen, dass sein
+  Widget die einzige Hürde ist.
+
+Das gerenderte Fragment wird **in das bestehende Formular** eingesetzt. Ein
+Addon kann keine vorgeschaltete Prüfseite und keinen zweiten Schritt erzwingen -
+und sollte das auch nicht wollen: Der Besucher füllt ein Formular aus und
+schickt es in einem Zug ab.
+
+Braucht das Widget eine gelockerte Content-Security-Policy (externes Skript,
+`<iframe>`), reicht es nicht, es zu rendern: Die Policy in `config/config.php`
+kennt `default-src 'self'` und kein `frame-src`, der Browser blockiert das
+Widget sonst lautlos. Die Origins gehören nach dem Muster von
+`TRACKING_DOMAINS` in `config/db_config.php` (siehe
+`SetupController::writeDbConfigValue()`).
 
 **Wichtig zu `horse.before_save`:** Da ein fehlgeschlagener Hook-Aufruf den
 Kern-Workflow nicht blockieren darf (siehe Sicherheitsmodell unten), kann

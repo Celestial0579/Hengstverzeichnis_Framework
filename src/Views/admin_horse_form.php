@@ -39,7 +39,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             
             <?php if (!empty($horse['image_url'])): ?>
                 <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0;">
-                    <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Pferdefoto" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="Pferdefoto" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color);">
                     <div>
                         <label style="color: var(--danger-fg); font-size: 0.9rem; cursor: pointer;">
                             <input type="checkbox" name="remove_image" value="1"> 🗑️ Vorhandenes Foto entfernen

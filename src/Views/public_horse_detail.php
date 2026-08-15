@@ -97,7 +97,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                       // wahrgenommene Ladezeit damit verschlechtern statt verbessern -
                       // die Optimierung geht hier in die Gegenrichtung: fetchpriority
                       // zieht das Bild in der Warteschlange nach vorn. ?>
-                <img class="horse-hero-photo" src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" fetchpriority="high" decoding="async">
+                <img class="horse-hero-photo" src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" fetchpriority="high" decoding="async">
             <?php else: ?>
                 <?php // Platzhalter mit festem Seitenverhältnis: ohne ihn kollabierte
                       // die Bildspalte und das ganze Raster verschob sich. ?>

@@ -60,6 +60,22 @@ Breaking Changes sind jederzeit möglich).
   - **Auskunftsanfragen** (Art. 15) bekommen erstmals überhaupt ein Matching —
     aber bewusst ohne Löschen/Anonymisieren, sondern mit dem Weg zum
     Datensatz. Auskunft ist nicht Löschung.
+- Einbettungsschutz für Pferdefotos (#262). Sie werden jetzt über
+  `/media/horse-image` ausgeliefert statt als statische Datei.
+  - **`Cross-Origin-Resource-Policy: same-origin`** ist die eigentliche Sperre:
+    Sie wird vom Browser durchgesetzt und ist von der einbettenden Seite nicht
+    umgehbar — anders als ein Referer, den die einbettende Seite selbst
+    bestimmt.
+  - Eine **Referer-Prüfung** deckt die Clients ab, die CORP nicht kennen. Ein
+    *leerer* Referer bleibt bewusst erlaubt, sonst bräche direktes Aufrufen
+    einer Bild-URL, Lesezeichen und jeder Browser, der den Referer
+    unterdrückt.
+  - **Nebenbefund mit behoben:** Als statische Datei war ein Foto unabhängig
+    von `is_published` abrufbar — das Bild eines unveröffentlichten Pferdes lag
+    offen, sobald jemand die URL kannte. Jetzt gelten dieselben
+    Sichtbarkeitsregeln wie für die Detailseite.
+  - Bedingte Anfragen (`ETag`/`Last-Modified` → 304) und `Cache-Control` mit
+    einem Jahr: Die Auslieferung über PHP kostet damit kein Browser-Caching.
 
 ### Geändert
 
@@ -91,6 +107,11 @@ Breaking Changes sind jederzeit möglich).
   aufgebaut statt als Literal in `config/config.php`. Es gibt jetzt zwei
   Fassungen, die sich in einer Direktive unterscheiden; zwei getrennte Literale
   wären die Bauart, die auseinanderdriftet.
+- `public/uploads/.htaccess` setzt CORP und `nosniff` zusätzlich für den
+  statischen Restweg (Bestandslinks, Addons, die den rohen Spaltenwert
+  rendern). **Nur für Apache** — der eigentliche Schutz liegt bewusst im
+  Anwendungscode, weil eine nginx-Installation von `.htaccess` nichts hat und
+  die Testsuite (`php -S`) sie nicht auswertet.
 
 ### Behoben
 

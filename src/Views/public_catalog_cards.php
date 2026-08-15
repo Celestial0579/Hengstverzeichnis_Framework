@@ -27,7 +27,7 @@ $catalogPagination = $catalogPagination ?? null;
                           // Nachladen. decoding="async" hält zusätzlich das Dekodieren aus dem
                           // Haupt-Thread. Gilt auch für den AJAX-Pfad, der diese Datei erneut
                           // rendert - dort zählt es beim Nachladen umso mehr. ?>
-                    <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" loading="lazy" decoding="async" style="width: 100%; height: 100%; object-fit: cover;">
+                    <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" loading="lazy" decoding="async" style="width: 100%; height: 100%; object-fit: cover;">
                 </div>
             <?php else: ?>
                 <div style="width: 100%; height: 120px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; font-size: 3rem; opacity: 0.4;">

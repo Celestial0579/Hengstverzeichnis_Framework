@@ -16,6 +16,14 @@ class GdprController extends BaseController {
     /** Seitengröße der Anfragen-Liste - deckelt zugleich die Batch-Personensuche (#126). */
     private const PER_PAGE = 25;
 
+    /**
+     * Trefferdeckel der manuellen Personensuche (#266). Bewusst begrenzt: Ein
+     * Auswahlfeld, das den kompletten Personenbestand lädt, ist genau die Falle
+     * aus Addons#87 - dort lud die Hengstauswahl ungebremst den ganzen Bestand.
+     * Derselbe Wert wie im Galerie-Addon, an dem das Muster schon hängt.
+     */
+    private const SEARCH_LIMIT = 50;
+
     public function index(): void {
         $db = Database::getInstance();
 
@@ -35,10 +43,15 @@ class GdprController extends BaseController {
         // Personensuche als EINE Batch-Query statt einer Query pro Anfrage
         // (vorher 1+N mit Full Scan je Zeile, #126). Kandidaten werden für alle
         // Suchbegriffe gemeinsam geladen und danach in PHP je Anfrage zugeordnet.
-        // Nur offene Löschanfragen brauchen Treffer - die View zeigt sie nur dort an.
+        //
+        // Seit #266 auch für Auskunftsanfragen: Wer Auskunft verlangt, will
+        // wissen, was gespeichert ist - dafür muss der Datensatz erst einmal
+        // gefunden werden. Bisher lief für 'info' gar kein Matching, die
+        // Bearbeitung begann also bei null. Was die Oberfläche danach anbietet,
+        // unterscheidet sich weiterhin: Auskunft heißt einsehen, nicht löschen.
         $terms = [];
         foreach ($requests as $req) {
-            if ($req['request_type'] === 'deletion' && $req['status'] !== 'processed') {
+            if (self::needsMatching($req)) {
                 $term = trim($req['name'] ?: $req['email']);
                 if ($term !== '') {
                     $terms[$term] = true;
@@ -74,7 +87,7 @@ class GdprController extends BaseController {
             $matchingPersons = [];
             $searchTerm = trim($req['name'] ?: $req['email']);
 
-            if ($req['request_type'] === 'deletion' && $req['status'] !== 'processed' && $searchTerm !== '') {
+            if (self::needsMatching($req) && $searchTerm !== '') {
                 foreach ($candidates as $candidate) {
                     if (self::containsIgnoreCase((string)$candidate['name'], $searchTerm)
                         || self::containsIgnoreCase((string)($candidate['contact_info'] ?? ''), $searchTerm)
@@ -98,6 +111,18 @@ class GdprController extends BaseController {
     }
 
     /**
+     * Braucht diese Anfrage eine Personenzuordnung? Beide Anfragearten - die
+     * Löschung wie die Auskunft (#266) - solange sie nicht abgeschlossen ist.
+     * An einer erledigten Anfrage gibt es nichts mehr zuzuordnen.
+     *
+     * @param array<string, mixed> $req
+     */
+    private static function needsMatching(array $req): bool {
+        return in_array($req['request_type'], ['deletion', 'info'], true)
+            && $req['status'] !== 'processed';
+    }
+
+    /**
      * Case-insensitiver Teilstring-Vergleich, spiegelt das Verhalten von SQL
      * LIKE unter utf8mb4_unicode_ci für die PHP-seitige Zuordnung der
      * Batch-Treffer wider (Fallback ohne mbstring analog Paginator::search()).
@@ -107,6 +132,69 @@ class GdprController extends BaseController {
             return mb_stripos($haystack, $needle) !== false;
         }
         return stripos($haystack, $needle) !== false;
+    }
+
+    /**
+     * Manuelle Personensuche für die DSGVO-Verwaltung (#266).
+     *
+     * Der Automatch greift nur bei wörtlicher Übereinstimmung und scheitert
+     * schon an abweichender Schreibweise, Tippfehlern oder einem geänderten
+     * Namen. Ohne Rückfallweg blieb die Anfrage dann auf `pending` liegen -
+     * bei einem Verfahren, dessen ganzer Zweck die Einhaltung gesetzlicher
+     * Fristen ist, ist das der ungünstigste denkbare Ausgang.
+     *
+     * Liefert höchstens SEARCH_LIMIT Treffer als JSON. Der Konstruktor
+     * erzwingt Anmeldung und Admin-Rolle, die Action erbt diesen Schutz - die
+     * Antwort enthält personenbezogene Daten und darf nirgends sonst landen.
+     */
+    public function searchPersons(): void {
+        header('Content-Type: application/json; charset=utf-8');
+        // Treffer enthalten PII: weder Browser noch Zwischenspeicher sollen sie
+        // aufbewahren, und eine fremde Seite soll sie nicht einbetten können.
+        header('Cache-Control: no-store, private');
+        header('X-Content-Type-Options: nosniff');
+
+        $q = trim((string)($_GET['q'] ?? ''));
+        // Ab zwei Zeichen: Ein einzelner Buchstabe liefert bei einem
+        // Namensbestand ohnehin nur den willkürlichen Anfang der Liste.
+        if (mb_strlen($q) < 2) {
+            echo json_encode([]);
+            exit;
+        }
+
+        $like = '%' . $q . '%';
+        // BEWUSST OHNE deleted_at-Filter, wie schon der Automatch oben: Ein
+        // weich gelöschter Datensatz ist aus der Oberfläche verschwunden, seine
+        // personenbezogenen Daten stehen aber unverändert in der Tabelle. Wer
+        // Löschung verlangt, hat Anspruch auch auf diese - würde die Suche sie
+        // ausblenden, entstünde genau die Lücke, die niemandem auffällt: kein
+        // Treffer, Anfrage abgehakt, Daten weiter da. Die Oberfläche kennzeichnet
+        // solche Treffer.
+        $stmt = Database::getInstance()->prepare(
+            'SELECT p.id, p.name, p.contact_info, p.email, p.deleted_at, COUNT(hp.id) AS horse_count
+             FROM persons p
+             LEFT JOIN horse_persons hp ON hp.person_id = p.id
+             WHERE p.name LIKE ? OR p.contact_info LIKE ? OR p.email LIKE ?
+             GROUP BY p.id
+             ORDER BY p.name ASC, p.id ASC
+             LIMIT ' . self::SEARCH_LIMIT
+        );
+        $stmt->execute([$like, $like, $like]);
+
+        $results = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $results[] = [
+                'id' => (int)$row['id'],
+                'name' => (string)$row['name'],
+                'contact_info' => (string)($row['contact_info'] ?? ''),
+                'email' => (string)($row['email'] ?? ''),
+                'horse_count' => (int)$row['horse_count'],
+                'is_deleted' => $row['deleted_at'] !== null,
+            ];
+        }
+
+        echo json_encode($results, JSON_UNESCAPED_UNICODE);
+        exit;
     }
 
     public function updateStatus(): void {

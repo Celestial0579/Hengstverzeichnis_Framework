@@ -137,6 +137,9 @@ $router->post('/admin/reset', [App\Controllers\AdminController::class, 'resetSys
 // Admin GDPR Management Routes
 $router->get('/admin/gdpr', [App\Controllers\GdprController::class, 'index']);
 $router->post('/admin/gdpr/update-status', [App\Controllers\GdprController::class, 'updateStatus']);
+// Manuelle Personensuche (#266): Rueckfallweg, wenn der Automatch nichts findet.
+// Admin-only ueber den Konstruktor von GdprController, liefert JSON mit Trefferdeckel.
+$router->get('/admin/gdpr/search-persons', [App\Controllers\GdprController::class, 'searchPersons']);
 $router->post('/admin/gdpr/anonymize-person', [App\Controllers\GdprController::class, 'anonymizePerson']);
 $router->post('/admin/gdpr/delete-person', [App\Controllers\GdprController::class, 'deletePerson']);
 

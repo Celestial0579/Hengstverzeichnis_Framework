@@ -261,6 +261,29 @@ class HorseController extends BaseController {
             $horseRegistrations = array_values(array_filter(array_map('trim', preg_split('~\s*/\s*~', (string)$horse['foreign_ueln']) ?: []), fn($n) => $n !== ''));
         }
 
+        // Plugin-Hook (#255): Erweiterungspunkt für eigene Abschnitte im
+        // Bearbeitungsformular - das Admin-Gegenstück zu horse.detail_sections.
+        // Addons, die pferdbezogene Daten pflegen, bekommen die horse_id damit
+        // aus dem Aufrufkontext und brauchen keine eigene Pferdeauswahl mehr
+        // (Anlass: Addons#87 lud dafür den kompletten Bestand als <select>).
+        //
+        // Bewusst NICHT in create(): dort existiert noch keine horses.id, ein
+        // Abschnitt könnte nichts speichern und würde auf eine nicht vorhandene
+        // ID posten.
+        //
+        // Callbacks liefern fertiges, selbst escapetes HTML (die View gibt es
+        // absichtlich unescaped aus, siehe admin_horse_form.php) - dieselbe
+        // Verantwortungsteilung wie bei horse.detail_sections. Hier wiegt sie
+        // allerdings schwerer, nicht leichter: Der Abschnitt steht hinter Login
+        // und horses.edit, ein XSS trifft also Redakteure und Admins mit vollen
+        // Rechten.
+        //
+        // Achtung beim Datenvertrag: $horse ist hier der ROHE Datensatz aus
+        // "SELECT * FROM horses" - ohne die Sichtbarkeitsfilter der öffentlichen
+        // Seite, ohne die station_*-Felder und ohne deleted_at-Filter (der Hook
+        // feuert also auch für Pferde im Papierkorb).
+        $pluginEditSections = $this->hooks()->applyFilters('horse.edit_sections', [], $horse);
+
         $this->render('admin_horse_form', [
             'title' => 'Pferd bearbeiten',
             'horse' => $horse,
@@ -269,7 +292,8 @@ class HorseController extends BaseController {
             'allBreedingStations' => $allBreedingStations,
             'horsePersons' => $horsePersons,
             'horseRegistrations' => $horseRegistrations,
-            'canPublish' => $this->hasPermission('horses', 'publish')
+            'canPublish' => $this->hasPermission('horses', 'publish'),
+            'pluginEditSections' => $pluginEditSections
         ]);
     }
 

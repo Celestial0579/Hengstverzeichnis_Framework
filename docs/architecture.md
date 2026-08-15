@@ -177,7 +177,10 @@ die zugrundeliegenden Architekturentscheidungen.
   (`PublicController::horseDetail`, erhält zusätzlich den bereits
   berechneten Pedigree-Baum als vierten Filter-Parameter),
   `catalog.card_sections` (je gerenderter Katalogkarte,
-  `PublicController::catalog`), `admin.dashboard_tiles`
+  `PublicController::catalog`), `horse.edit_sections`
+  (`HorseController::edit`, Admin-Gegenstück zu `horse.detail_sections`;
+  rendert außerhalb des Kern-Formulars, damit Addons eigene Formulare mit
+  eigener Berechtigungsprüfung mitbringen können), `admin.dashboard_tiles`
   (`AdminController::dashboard`). Vollständige Referenz samt Datenvertrag:
   [plugin-development.md](plugin-development.md).
 - `App\Service\PedigreeBuilder`: rekursiver Pedigree-Baum-Aufbau, aus

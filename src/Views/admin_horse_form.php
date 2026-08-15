@@ -468,3 +468,28 @@ foreach (($allBreedingStations ?? []) as $bs) {
         </div>
     </form>
 </div>
+
+<?php
+// Plugin-Abschnitte (#255, Hook horse.edit_sections, gefüllt in
+// HorseController::edit()). Bewusst AUSSERHALB des Formulars oben:
+// Verschachtelte <form> sind ungültiges HTML, und die Abnehmer dieses Hooks
+// brauchen eigene Formulare (je Zeile ein Löschen-Knopf, bei der Galerie
+// zusätzlich ein Datei-Upload). Lägen die Abschnitte innerhalb, müssten
+// Addons ihre Daten über den Kern-POST speichern - der aber nur horses.edit
+// geprüft hat und nie die Plugin-Berechtigung. So bleibt jeder Schreibvorgang
+// beim Plugin-Controller mit dessen requirePermission().
+//
+// Je Abschnitt eine eigene Karte, damit sichtbar bleibt, welcher Knopf zu
+// welchem Block gehört. Keine gemeinsame Kern-Überschrift: jedes Addon
+// benennt seinen Abschnitt selbst (und beginnt wie bei horse.detail_sections
+// mit <h3>). Beim Anlegen ist die Variable nicht gesetzt - der Hook feuert
+// dort nicht, siehe Begründung im Controller.
+//
+// Ausgabe unescaped: Der Filter liefert fertiges Abschnitts-HTML, Plugins
+// escapen selbst (siehe docs/plugin-development.md).
+?>
+<?php foreach (($pluginEditSections ?? []) as $pluginEditSection): ?>
+    <div class="card" style="margin-top: 1.5rem;">
+        <?= $pluginEditSection ?>
+    </div>
+<?php endforeach; ?>

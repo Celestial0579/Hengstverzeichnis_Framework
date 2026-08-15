@@ -133,7 +133,11 @@ gehalten, erweiterbar nach Bedarf):
 | `nav.public_links` / `nav.admin_links` (Filter) | `layout.php` | Zusätzliche Navigationspunkte | **nicht umgesetzt** (Abschnitt 4) |
 
 Zusätzlich später umgesetzt (nicht Teil dieser Planung):
-`catalog.card_sections` (#97) je gerenderter Katalogkarte.
+`catalog.card_sections` (#97) je gerenderter Katalogkarte und
+`horse.edit_sections` (#255) im Admin-Bearbeitungsformular — der erste
+Erweiterungspunkt aus Phase 2 (siehe unten), damit Addons pferdbezogene Daten
+in der bestehenden Hengstverwaltung pflegen können, statt eigene
+Verwaltungsseiten mit vollständiger Pferdeauswahl zu bauen.
 
 Wichtig: Hooks sitzen **innerhalb** der bestehenden Controller-Methoden,
 **nach** `checkAuth()`/`requireAdmin()` und CSRF-Prüfung — ein Plugin-Hook
@@ -293,7 +297,8 @@ möglich, siehe PR):
   [plugin-development.md](plugin-development.md), Abschnitt "Routen").
 - **Demo-Plugin:** Demonstriert drei der Phase-1-Hooks
   (`admin.dashboard_tiles`, `horse.detail_sections`, `horse.after_save` —
-  nicht `horse.before_save`) plus eine eigene Route sowie inzwischen
+  nicht `horse.before_save`) sowie den Phase-2-Hook `horse.edit_sections`,
+  plus eine eigene Route sowie inzwischen
   `permissions()` und `features()`
   (`docs/examples/demo-plugin/`, zum Ausprobieren nach `plugins/`
   kopieren — liegt selbst nicht in `plugins/`, da dieses Verzeichnis

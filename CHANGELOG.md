@@ -8,6 +8,23 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Minimal-Layout für einbettbare Ansichten und eine **Domain-Allowlist** für
+  die Frame-Sperre (#260). Voraussetzung für ein Embed-Widget als Addon.
+  - `?embed=1` am Katalog rendert `layout_embed.php`: ohne Kopfbereich,
+    Navigation und Fußzeile, aber **mit** Theme-Variablen, `style.css` und dem
+    Darkmode-FOUC-Fix — ein iframe erbt kein CSS von der einbettenden Seite,
+    und er rendert eigenständig. Ohne Tracking-Code (er gehört nicht in eine
+    fremde Seite hinein, deren Einwilligungsbanner nichts von ihm weiß) und
+    mit `noindex`.
+  - `BaseController::render()` und `PluginPage::render()` nehmen dafür ein
+    `$embed`-Flag — der eigentliche Anwendungsfall sind Addon-Seiten.
+  - **Neu: `EMBED_ALLOWED_DOMAINS`** (Env oder `db_config.php`, Muster wie
+    `TRACKING_DOMAINS`). **Im Auslieferungszustand leer — dann bleibt die
+    Frame-Sperre auch für Embed-Ansichten bestehen.** Das Minimal-Layout
+    lockert von sich aus nichts; `?embed=1` ist eine Darstellungsfrage.
+
 ### Geändert
 
 - Ladeverhalten von Skripten, Stylesheets und Bildern optimiert (#263):
@@ -28,6 +45,16 @@ Breaking Changes sind jederzeit möglich).
     mehr** (`media="print"` + `onload`, mit `<noscript>`-Rückfall). `style.css`
     bleibt bewusst blockierend: asynchron geladen zeigte die Seite garantiert
     einmal ungestylt.
+- `X-Frame-Options` wird nur noch von PHP gesetzt, nicht mehr zusätzlich in
+  `public/.htaccess`. Der Header kann keine Allowlist ausdrücken (`ALLOW-FROM`
+  ist zurückgezogen), die Freigabe läuft deshalb über CSP `frame-ancestors` —
+  und Apache setzt seine `Header`-Direktiven nach PHP, hätte den für eine
+  Embed-Antwort entfernten Header also wieder angefügt und die Freigabe still
+  aufgehoben.
+- Die Content-Security-Policy wird in `App\Security\ContentSecurityPolicy`
+  aufgebaut statt als Literal in `config/config.php`. Es gibt jetzt zwei
+  Fassungen, die sich in einer Direktive unterscheiden; zwei getrennte Literale
+  wären die Bauart, die auseinanderdriftet.
 
 ### Behoben
 

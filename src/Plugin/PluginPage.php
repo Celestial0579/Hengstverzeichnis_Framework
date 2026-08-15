@@ -37,11 +37,22 @@ use App\I18n\Translator;
  */
 final class PluginPage {
 
-    public static function render(string $title, string $contentHtml): void {
+    public static function render(string $title, string $contentHtml, bool $embed = false): void {
         $settings = self::loadSettings();
         self::initLocale($settings);
 
         $content = $contentHtml;
+
+        if ($embed) {
+            // Minimal-Layout ohne Kopf-/Fussbereich (#260). Der eigentliche
+            // Anwendungsfall sitzt hier und nicht im Kern: Ein Addon liefert das
+            // einbettbare Schnipsel (Addons#89), der Kern nur die Voraussetzung.
+            // Die Frame-Lockerung greift auch hier nur bei freigegebenen Domains.
+            \App\Security\FrameGuard::allowEmbedding();
+            require __DIR__ . '/../Views/layout_embed.php';
+            return;
+        }
+
         require __DIR__ . '/../Views/layout.php';
     }
 

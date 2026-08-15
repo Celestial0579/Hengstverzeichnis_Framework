@@ -70,6 +70,10 @@ return [
     // Registry (public catalog)
     'catalog.heading' => 'Registry',
     'catalog.loading' => 'Loading...',
+    'catalog.load_more' => 'Load more horses',
+    'catalog.load_more_status' => '{loaded} of {total} horses loaded',
+    'catalog.load_more_done' => 'All {total} horses loaded',
+    'catalog.load_more_error' => 'Loading more failed. Please try again.',
     'catalog.hit_count_one' => '{count} horse found',
     'catalog.hit_count_other' => '{count} horses found',
     'catalog.search_placeholder' => 'Full-text search (horse, UELN, breeder, owner, breeding station, sire, dam)...',

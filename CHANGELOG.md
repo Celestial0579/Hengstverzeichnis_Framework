@@ -25,6 +25,22 @@ Breaking Changes sind jederzeit möglich).
     Gleiche Wirkung wie der Rückfall, aber sichtbar — wer die Policy liest,
     sieht, dass fremde Rahmen gesperrt sind, statt den Fehler anderswo zu
     suchen.
+- Katalog: nahtloses Nachladen statt Seitenwechsel (#264). Der bestehende
+  AJAX-Pfad hängt die nächste Seite jetzt an, statt die Karten zu ersetzen.
+  - **Der „Weitere Pferde laden"-Knopf ist die Bedienung**, der Scroll-Auslöser
+    (`IntersectionObserver`) nur Bequemlichkeit obendrauf: Der Knopf ist per
+    Tastatur erreichbar, meldet sich über `aria-live` und funktioniert auch,
+    wo automatisches Nachladen nie auslöst.
+  - **Ohne JavaScript ändert sich nichts**: Der Nachlade-Block bleibt
+    ausgeblendet, die serverseitige Seiten-Navigation bleibt vollwertig. Sie
+    wird erst ausgeblendet, wenn das Skript übernimmt — zwei Bedienelemente
+    für dieselbe Sache nebeneinander wären widersprüchlich.
+  - Die AJAX-Antwort führt jetzt `page`, `total_pages` und `has_more`; der
+    Client muss `CATALOG_PER_PAGE` nicht nachbauen.
+  - Die Adresszeile folgt der zuletzt geladenen Seite über `replaceState` —
+    mit `pushState` bräuchte der Zurück-Knopf so viele Klicks, wie nachgeladen
+    wurde, um die Seite überhaupt zu verlassen.
+  - Vier neue Sprachschlüssel in **allen zwölf** mitgelieferten Sprachen.
 
 ### Hinzugefügt
 

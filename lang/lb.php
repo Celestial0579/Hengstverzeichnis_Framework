@@ -78,6 +78,10 @@ return [
     // Verzeechnes (ëffentleche Katalog)
     'catalog.heading' => 'Verzeechnes',
     'catalog.loading' => 'Gëtt gelueden...',
+    'catalog.load_more' => 'Méi Päerd lueden',
+    'catalog.load_more_status' => '{loaded} vu(n) {total} Päerd gelueden',
+    'catalog.load_more_done' => 'All {total} Päerd gelueden',
+    'catalog.load_more_error' => 'D\'Luede ass feelgeschloen. Probéiert w.e.g. nach eng Kéier.',
     'catalog.hit_count_one' => '{count} Päerd fonnt',
     'catalog.hit_count_other' => '{count} Päerd fonnt',
     'catalog.search_placeholder' => 'Volltextsich (Päerd, UELN, Ziichter, Besëtzer, Deckstatioun, Papp, Mamm)...',

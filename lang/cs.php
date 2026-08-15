@@ -73,6 +73,10 @@ return [
     // Rejstřík (veřejný katalog)
     'catalog.heading' => 'Rejstřík',
     'catalog.loading' => 'Načítání...',
+    'catalog.load_more' => 'Načíst další koně',
+    'catalog.load_more_status' => 'Načteno {loaded} z {total} koní',
+    'catalog.load_more_done' => 'Načteni všichni koně ({total})',
+    'catalog.load_more_error' => 'Načítání se nezdařilo. Zkuste to znovu.',
     'catalog.hit_count_one' => 'Nalezen {count} kůň',
     'catalog.hit_count_other' => 'Nalezeno {count} koní',
     'catalog.search_placeholder' => 'Fulltextové vyhledávání (kůň, UELN, chovatel, majitel, připouštěcí stanice, otec, matka)...',

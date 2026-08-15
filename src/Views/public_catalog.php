@@ -172,6 +172,38 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
     <div id="catalog-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; transition: opacity 0.15s ease-in-out;">
         <?php include __DIR__ . '/public_catalog_cards.php'; ?>
     </div>
+
+    <?php // Nachladen (#264). Der Block ist im HTML per hidden ausgeblendet und
+          // wird erst von catalog-filter.js eingeblendet - ohne JavaScript bliebe
+          // sonst eine Schaltfläche stehen, die nichts tut, während die
+          // Seiten-Navigation im Karten-Grid weiterhin funktioniert.
+          //
+          // Der KNOPF ist die eigentliche Bedienung, nicht der Scroll-Auslöser:
+          // Er ist per Tastatur erreichbar, kündigt sich Screenreadern an und
+          // funktioniert auch dort, wo automatisches Nachladen nie auslöst. Der
+          // IntersectionObserver ist reine Bequemlichkeit obendrauf. ?>
+    <div id="catalog-load-more-area" hidden
+         data-total-pages="<?= (int)($catalogPagination['totalPages'] ?? 1) ?>"
+         data-total-horses="<?= (int)($totalHorses ?? 0) ?>"
+         style="display: flex; flex-direction: column; align-items: center; gap: 0.6rem; padding: 1.5rem 0;">
+        <button type="button" id="catalog-load-more" class="btn btn-secondary" style="padding: 0.6rem 1.4rem;">
+            <?= htmlspecialchars(App\I18n\Translator::t('catalog.load_more')) ?>
+        </button>
+        <?php // Die Texte reisen als data-Attribute mit, statt im JavaScript zu
+              // stehen: So bleiben sie in den 12 Sprachdateien und werden mit
+              // übersetzt. Die {loaded}/{total}-Platzhalter setzt das Skript ein. ?>
+        <p id="catalog-load-status" role="status" aria-live="polite"
+           data-status-template="<?= htmlspecialchars(App\I18n\Translator::t('catalog.load_more_status')) ?>"
+           data-done-template="<?= htmlspecialchars(App\I18n\Translator::t('catalog.load_more_done')) ?>"
+           data-loading-text="<?= htmlspecialchars(App\I18n\Translator::t('catalog.loading')) ?>"
+           data-error-text="<?= htmlspecialchars(App\I18n\Translator::t('catalog.load_more_error')) ?>"
+           style="margin: 0; font-size: 0.9rem; color: var(--text-muted);"></p>
+    </div>
+
+    <?php // Sentinel für den IntersectionObserver: ein leeres Element hinter der
+          // Liste. Beobachtet wird sein Sichtbarwerden, kein scroll-Event - das
+          // bräuchte Entprellung und liefe bei jeder Mausbewegung mit. ?>
+    <div id="catalog-scroll-sentinel" aria-hidden="true" style="height: 1px;"></div>
 </div>
 
 <!-- Katalog-Filter (#263): ausgelagert und defer geladen. Als Inline-Block

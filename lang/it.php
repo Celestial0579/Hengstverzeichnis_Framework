@@ -73,6 +73,10 @@ return [
     // Registro (catalogo pubblico)
     'catalog.heading' => 'Registro',
     'catalog.loading' => 'Caricamento...',
+    'catalog.load_more' => 'Carica altri cavalli',
+    'catalog.load_more_status' => '{loaded} di {total} cavalli caricati',
+    'catalog.load_more_done' => 'Tutti i {total} cavalli caricati',
+    'catalog.load_more_error' => 'Caricamento non riuscito. Riprova.',
     'catalog.hit_count_one' => '{count} cavallo trovato',
     'catalog.hit_count_other' => '{count} cavalli trovati',
     'catalog.search_placeholder' => 'Ricerca a testo libero (cavallo, UELN, allevatore, proprietario, stazione di monta, padre, madre)...',

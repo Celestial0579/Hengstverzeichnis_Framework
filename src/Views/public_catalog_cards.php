@@ -76,7 +76,12 @@ $catalogPagination = $catalogPagination ?? null;
 
     <?php if ($catalogPagination !== null && $catalogPagination['totalPages'] > 1): ?>
         <?php $pgQuery = $catalogPagination['query'] !== '' ? $catalogPagination['query'] . '&' : ''; ?>
-        <div style="grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 1rem 0;">
+        <?php // data-catalog-pagination (#264): Sobald JavaScript das Nachladen
+              // übernimmt, blendet es diesen Block aus - zwei Bedienelemente für
+              // dieselbe Sache (Seite anspringen vs. Seite anhängen) wären
+              // widersprüchlich. Ohne JavaScript bleibt er stehen und ist der
+              // vollwertige Weg durch den Katalog. ?>
+        <div data-catalog-pagination style="grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 1rem 0;">
             <?php if ($catalogPagination['page'] > 1): ?>
                 <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] - 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&laquo;</a>
             <?php endif; ?>

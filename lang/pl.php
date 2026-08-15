@@ -73,6 +73,10 @@ return [
     // Rejestr (katalog publiczny)
     'catalog.heading' => 'Rejestr',
     'catalog.loading' => 'Ładowanie...',
+    'catalog.load_more' => 'Załaduj więcej koni',
+    'catalog.load_more_status' => 'Załadowano {loaded} z {total} koni',
+    'catalog.load_more_done' => 'Załadowano wszystkie konie ({total})',
+    'catalog.load_more_error' => 'Wczytywanie nie powiodło się. Spróbuj ponownie.',
     'catalog.hit_count_one' => 'Znaleziono {count} konia',
     'catalog.hit_count_other' => 'Znaleziono {count} koni',
     'catalog.search_placeholder' => 'Wyszukiwanie pełnotekstowe (koń, UELN, hodowca, właściciel, stacja ogierów, ojciec, matka)...',

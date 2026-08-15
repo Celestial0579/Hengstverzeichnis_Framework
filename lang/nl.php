@@ -73,6 +73,10 @@ return [
     // Register (openbare catalogus)
     'catalog.heading' => 'Register',
     'catalog.loading' => 'Laden...',
+    'catalog.load_more' => 'Meer paarden laden',
+    'catalog.load_more_status' => '{loaded} van {total} paarden geladen',
+    'catalog.load_more_done' => 'Alle {total} paarden geladen',
+    'catalog.load_more_error' => 'Laden mislukt. Probeer het opnieuw.',
     'catalog.hit_count_one' => '{count} paard gevonden',
     'catalog.hit_count_other' => '{count} paarden gevonden',
     'catalog.search_placeholder' => 'Zoeken in volledige tekst (paard, UELN, fokker, eigenaar, dekstation, vader, moeder)...',

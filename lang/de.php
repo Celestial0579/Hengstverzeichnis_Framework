@@ -77,6 +77,10 @@ return [
     // Verzeichnis (öffentlicher Katalog)
     'catalog.heading' => 'Verzeichnis',
     'catalog.loading' => 'Lädt...',
+    'catalog.load_more' => 'Weitere Pferde laden',
+    'catalog.load_more_status' => '{loaded} von {total} Pferden geladen',
+    'catalog.load_more_done' => 'Alle {total} Pferde geladen',
+    'catalog.load_more_error' => 'Nachladen fehlgeschlagen. Bitte erneut versuchen.',
     'catalog.hit_count_one' => '{count} Pferd gefunden',
     'catalog.hit_count_other' => '{count} Pferde gefunden',
     'catalog.search_placeholder' => 'Volltextsuche (Pferd, UELN, Züchter, Besitzer, Deckstation, Vater, Mutter)...',

@@ -288,6 +288,16 @@ class PublicController extends BaseController {
 
         if ($isAjax) {
             header('Content-Type: application/json; charset=utf-8');
+
+            // Nachladen statt Ersetzen (#264): Beim Anhängen einer weiteren Seite
+            // darf die Seiten-Navigation NICHT mitkommen - sie steckt in derselben
+            // Teilansicht und landete sonst mitten zwischen den Karten. Sie bleibt
+            // im normalen Seitenaufruf erhalten, denn ohne JavaScript ist sie der
+            // einzige Weg durch den Katalog.
+            if (!empty($_GET['append'])) {
+                $catalogPagination = null;
+            }
+
             ob_start();
             include __DIR__ . '/../Views/public_catalog_cards.php';
             $cardsHtml = ob_get_clean();
@@ -296,7 +306,12 @@ class PublicController extends BaseController {
                 'success' => true,
                 'count' => $totalHorses,
                 'count_text' => \App\I18n\Translator::t($totalHorses === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => $totalHorses]),
-                'cards_html' => $cardsHtml
+                'cards_html' => $cardsHtml,
+                // Der Client kann die Seitenzahl nicht selbst ausrechnen - er kennt
+                // CATALOG_PER_PAGE nicht und soll es auch nicht doppelt führen.
+                'page' => $page,
+                'total_pages' => $totalPages,
+                'has_more' => $page < $totalPages,
             ]);
             exit;
         }

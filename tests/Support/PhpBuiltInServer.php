@@ -36,6 +36,8 @@ class PhpBuiltInServer {
 
         $publicDir = __DIR__ . '/../../public';
 
+        self::refuseIfPortIsTaken();
+
         // stdout/stderr in eine Logdatei umleiten statt in Pipes. php -S schreibt
         // pro Request eine Access-Log-Zeile nach stderr; ginge das in eine Pipe,
         // die niemand ausliest, liefe deren Kernel-Buffer (~64 KB) über die volle
@@ -69,6 +71,62 @@ class PhpBuiltInServer {
         self::waitUntilReady();
     }
 
+    /**
+     * Bricht ab, wenn auf dem Port schon jemand antwortet.
+     *
+     * DER GRUND, WARUM ES DIESE PRÜFUNG GIBT: Der Port ist fest, und die
+     * Addons-Suite startet über den vendorierten Kern denselben Server. Läuft
+     * eine zweite Suite an, während die erste noch lebt, kann `php -S` nicht
+     * binden - `proc_open()` liefert trotzdem eine Ressource, und
+     * `waitUntilReady()` sieht nur, dass IRGENDWER auf dem Port antwortet.
+     * Die gesamte Suite lief dann gegen die fremde Instanz samt deren bereits
+     * eingerichteter Datenbank.
+     *
+     * Das Fehlerbild führt in die Irre: Die Ersteinrichtung meldet `/login`
+     * statt `/2fa/setup`, danach scheitert jeder Test mit "Table users doesn't
+     * exist", obwohl die eigene Datenbank frisch angelegt wurde. Es sieht nach
+     * einem Schema-Problem aus und ist ein Portproblem.
+     *
+     * Deshalb hier lieber ein klarer Abbruch als ein grüner oder wirr roter
+     * Lauf: Der nächtliche `devhost-tests`-Lauf prüft Framework, Addons und
+     * E2E innerhalb weniger Minuten und meldet unbeaufsichtigt GitHub-Issues -
+     * "konnte nicht prüfen" und "geprüft, ist kaputt" sind verschiedene
+     * Aussagen.
+     */
+    private static function refuseIfPortIsTaken(): void {
+        $connection = @fsockopen(self::HOST, self::PORT, $errno, $errstr, 0.5);
+        if ($connection === false) {
+            return;
+        }
+        fclose($connection);
+
+        throw new \RuntimeException(sprintf(
+            "Auf %s:%d antwortet bereits ein Server - dieser Lauf würde gegen eine FREMDE "
+            . "Instanz testen (samt deren Datenbank) statt gegen die eigene.\n"
+            . "Typische Ursachen: eine parallel laufende Functional-Suite (auch die des "
+            . "Addons-Repos nutzt diesen Server), ein Rest aus einem abgebrochenen Lauf, "
+            . "oder der nächtliche devhost-tests-Lauf.\n"
+            . "Nachsehen mit:  ss -ltnp | grep %d",
+            self::HOST,
+            self::PORT,
+            self::PORT
+        ));
+    }
+
+    /**
+     * Ist der eigene Subprozess noch am Leben? Konnte `php -S` den Port nicht
+     * binden, endet er sofort - ohne diese Prüfung liefe die Suite gegen den
+     * Server weiter, der ihn hält.
+     */
+    private static function ownProcessDied(): bool {
+        if (!is_resource(self::$process)) {
+            return true;
+        }
+        $status = proc_get_status(self::$process);
+
+        return $status['running'] === false;
+    }
+
     public static function stop(): void {
         if (self::$process !== null) {
             proc_terminate(self::$process);
@@ -84,6 +142,20 @@ class PhpBuiltInServer {
     private static function waitUntilReady(): void {
         $deadline = microtime(true) + 10;
         while (microtime(true) < $deadline) {
+            // Zuerst der eigene Prozess: Antwortet jemand auf dem Port, während
+            // der eigene php -S längst gestorben ist, wäre das erneut die
+            // fremde Instanz - nur diesmal durch ein Wettrennen entstanden,
+            // das die Vorabprüfung nicht sehen konnte.
+            if (self::ownProcessDied()) {
+                throw new \RuntimeException(sprintf(
+                    "Der eigene php -S auf %s:%d ist sofort beendet worden (vermutlich Port belegt).\n"
+                    . "Protokoll: %s",
+                    self::HOST,
+                    self::PORT,
+                    self::$logFile !== null ? (string)@file_get_contents(self::$logFile) : '(keines)'
+                ));
+            }
+
             $connection = @fsockopen(self::HOST, self::PORT, $errno, $errstr, 0.5);
             if ($connection !== false) {
                 fclose($connection);

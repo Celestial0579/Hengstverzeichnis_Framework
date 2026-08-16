@@ -32,8 +32,13 @@
     <?php else: ?>
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
             <?php foreach ($requests as $req): ?>
-                <?php 
+                <?php
                     $isDeletion = $req['request_type'] === 'deletion';
+                    // Zuordnung brauchen beide Anfragearten, solange sie offen sind (#266).
+                    // Vorher lief sie nur für Löschanfragen - eine Auskunftsanfrage begann
+                    // damit bei null, obwohl auch sie einen Personendatensatz braucht.
+                    $needsMatching = in_array($req['request_type'], ['deletion', 'info'], true)
+                        && $req['status'] !== 'processed';
                     $statusBadge = $req['status'] === 'processed' ? 'background: #28a745; color: white;' : ($req['status'] === 'rejected' ? 'background: #dc3545; color: white;' : 'background: #ffc107; color: #212529;');
                     $statusLabel = $req['status'] === 'processed' ? '✓ Erledigt' : ($req['status'] === 'rejected' ? '✕ Abgelehnt' : '⏳ Offen (Ausstehend)');
                 ?>
@@ -64,15 +69,21 @@
                     <?php endif; ?>
 
                     <!-- Matching Persons Section for Deletion / Anonymization -->
-                    <?php if ($isDeletion && $req['status'] !== 'processed'): ?>
+                    <?php if ($needsMatching): ?>
                         <div style="background: var(--warning-soft-bg); border: 1px solid #ffeeba; border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
                             <h4 style="margin: 0 0 0.5rem 0; color: var(--warning-fg); display: flex; align-items: center; gap: 0.5rem;">
                                 🔍 Gefundene Personeneinträge in der Datenbank:
                             </h4>
-                            
+
                             <?php if (empty($req['matching_persons'])): ?>
-                                <p style="margin: 0; font-size: 0.9rem; color: var(--warning-fg);">
+                                <p style="margin: 0 0 0.6rem 0; font-size: 0.9rem; color: var(--warning-fg);">
                                     Keine direkten Personeneinträge für "<?= htmlspecialchars($req['name'] ?: $req['email']) ?>" gefunden.
+                                    <br>
+                                    <span style="font-size: 0.85rem;">
+                                        Die automatische Suche vergleicht wörtlich und scheitert schon an abweichender
+                                        Schreibweise oder einem geänderten Namen. Über die manuelle Suche unten lässt sich
+                                        die betroffene Person trotzdem finden und die Anfrage bearbeiten.
+                                    </span>
                                 </p>
                             <?php else: ?>
                                 <div style="display: flex; flex-direction: column; gap: 0.8rem; margin-top: 0.8rem;">
@@ -86,30 +97,103 @@
                                                 <br><span style="font-size: 0.8rem; color: var(--primary-fg); font-weight: bold;">🐴 <?= (int)$p['horse_count'] ?> verknüpfte Pferde/Rollen</span>
                                             </div>
                                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                                <!-- Action 1: Anonymisierung (Empfohlen) -->
-                                                <form action="/admin/gdpr/anonymize-person" method="POST" onsubmit="return confirm('Möchten Sie diese Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten.');">
-                                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                                    <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
-                                                    <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
-                                                    <button type="submit" class="btn" style="background-color: #6f42c1; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
-                                                        🔒 Anonymisieren (Pferde behalten)
-                                                    </button>
-                                                </form>
+                                                <?php if ($isDeletion): ?>
+                                                    <!-- Action 1: Anonymisierung (Empfohlen) -->
+                                                    <form action="/admin/gdpr/anonymize-person" method="POST" onsubmit="return confirm('Möchten Sie diese Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten.');">
+                                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                                        <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
+                                                        <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
+                                                        <button type="submit" class="btn" style="background-color: #6f42c1; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                            🔒 Anonymisieren (Pferde behalten)
+                                                        </button>
+                                                    </form>
 
-                                                <!-- Action 2: Vollständiges Löschen -->
-                                                <form action="/admin/gdpr/delete-person" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich vollständig löschen?');">
-                                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                                    <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
-                                                    <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
-                                                    <button type="submit" class="btn" style="background-color: #c62a38; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
-                                                        🗑️ Person Löschen
-                                                    </button>
-                                                </form>
+                                                    <!-- Action 2: Vollständiges Löschen -->
+                                                    <form action="/admin/gdpr/delete-person" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich vollständig löschen?');">
+                                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                                        <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
+                                                        <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
+                                                        <button type="submit" class="btn" style="background-color: #c62a38; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                            🗑️ Person Löschen
+                                                        </button>
+                                                    </form>
+                                                <?php else: ?>
+                                                    <?php // Auskunftsanfrage (Art. 15 DSGVO): einsehen, nicht löschen.
+                                                          // Anonymisieren/Löschen hier anzubieten wäre schlicht die
+                                                          // falsche Rechtsfolge - gefragt ist, WAS gespeichert ist. ?>
+                                                    <a href="/admin/persons/edit?id=<?= (int)$p['id'] ?>" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                        📄 Datensatz für die Auskunft öffnen
+                                                    </a>
+                                                <?php endif; ?>
                                             </div>
                                         </div>
                                     <?php endforeach; ?>
                                 </div>
                             <?php endif; ?>
+
+                            <?php // Manueller Rückfallweg (#266). Bewusst IMMER verfügbar, nicht nur
+                                  // bei null Treffern: Der Automatch kann auch zu wenige oder die
+                                  // falschen Personen finden (Geburtsname, zweiter Datensatz). Bei
+                                  // Treffern eingeklappt, damit er den Normalfall nicht zustellt -
+                                  // bei null Treffern aufgeklappt, weil er dann der einzige Weg ist. ?>
+                            <details style="margin-top: 0.8rem;" <?= empty($req['matching_persons']) ? 'open' : '' ?>>
+                                <summary style="cursor: pointer; font-size: 0.9rem; font-weight: bold; color: var(--warning-fg);">
+                                    🔎 Person manuell suchen
+                                </summary>
+
+                                <div class="gdpr-manual-search" data-request-id="<?= (int)$req['id'] ?>" style="margin-top: 0.8rem;">
+                                    <label for="gdpr-person-query-<?= (int)$req['id'] ?>" style="display: block; font-size: 0.85rem; margin-bottom: 0.3rem;">
+                                        Name, Kontaktangabe oder E-Mail (ab 2 Zeichen, höchstens 50 Treffer):
+                                    </label>
+                                    <input type="search"
+                                           id="gdpr-person-query-<?= (int)$req['id'] ?>"
+                                           class="gdpr-person-query"
+                                           list="gdpr-person-list-<?= (int)$req['id'] ?>"
+                                           autocomplete="off"
+                                           placeholder="z. B. Mustermann"
+                                           style="width: 100%; max-width: 28rem; padding: 0.4rem;">
+                                    <datalist id="gdpr-person-list-<?= (int)$req['id'] ?>"></datalist>
+
+                                    <p class="gdpr-search-status" role="status" aria-live="polite"
+                                       style="margin: 0.4rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);"></p>
+
+                                    <?php // Die Formulare stehen fertig im HTML - samt CSRF-Token, das
+                                          // JavaScript nicht erzeugen kann. Das Skript trägt nur die
+                                          // person_id ein und blendet den Block ein. Ohne JavaScript
+                                          // bleibt er verborgen; der Weg über /admin/persons steht dann
+                                          // weiterhin offen. ?>
+                                    <div class="gdpr-manual-selection" hidden
+                                         style="margin-top: 0.8rem; background: var(--card-bg); padding: 0.8rem; border-radius: 6px; border: 1px solid #eedc9e;">
+                                        <p style="margin: 0 0 0.6rem 0; font-size: 0.9rem;">
+                                            Ausgewählt: <strong class="gdpr-selected-label"></strong>
+                                        </p>
+                                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                            <?php if ($isDeletion): ?>
+                                                <form action="/admin/gdpr/anonymize-person" method="POST" onsubmit="return confirm('Möchten Sie diese manuell ausgewählte Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten.');">
+                                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                                    <input type="hidden" name="person_id" value="" class="gdpr-selected-id">
+                                                    <input type="hidden" name="request_id" value="<?= (int)$req['id'] ?>">
+                                                    <button type="submit" class="btn" style="background-color: #6f42c1; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                        🔒 Anonymisieren (Pferde behalten)
+                                                    </button>
+                                                </form>
+                                                <form action="/admin/gdpr/delete-person" method="POST" onsubmit="return confirm('Möchten Sie diese manuell ausgewählte Person wirklich vollständig löschen?');">
+                                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                                    <input type="hidden" name="person_id" value="" class="gdpr-selected-id">
+                                                    <input type="hidden" name="request_id" value="<?= (int)$req['id'] ?>">
+                                                    <button type="submit" class="btn" style="background-color: #c62a38; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                        🗑️ Person Löschen
+                                                    </button>
+                                                </form>
+                                            <?php else: ?>
+                                                <a href="/admin/persons/edit" class="btn btn-secondary gdpr-selected-link" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                    📄 Datensatz für die Auskunft öffnen
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            </details>
                         </div>
                     <?php endif; ?>
 
@@ -153,3 +237,8 @@
         <?php endif; ?>
     <?php endif; ?>
 </div>
+
+<?php // Manuelle Personensuche (#266): ausgelagert und defer geladen, wie die
+      // uebrigen Skripte seit #263. Steht am Ende der View, damit es nur auf
+      // dieser Seite geladen wird. ?>
+<script defer src="/js/gdpr-person-search.js"></script>

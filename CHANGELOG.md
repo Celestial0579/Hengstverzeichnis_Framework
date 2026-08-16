@@ -42,6 +42,24 @@ Breaking Changes sind jederzeit möglich).
     `TRACKING_DOMAINS`). **Im Auslieferungszustand leer — dann bleibt die
     Frame-Sperre auch für Embed-Ansichten bestehen.** Das Minimal-Layout
     lockert von sich aus nichts; `?embed=1` ist eine Darstellungsfrage.
+- DSGVO-Modul: manuelle Personenzuordnung, wenn die automatische Suche nichts
+  findet (#266). Bisher waren die Anonymisieren-/Löschen-Schaltflächen in
+  `if (!empty($req['matching_persons']))` verschachtelt — bei null Treffern gab
+  es **keinen** Weg, die betroffene Person trotzdem zu finden, und die Anfrage
+  blieb auf `pending` liegen. Der Automatch vergleicht wörtlich und scheitert
+  schon an abweichender Schreibweise, einem Tippfehler oder einem geänderten
+  Namen; bei einem Verfahren, dessen Zweck die Einhaltung gesetzlicher Fristen
+  ist, ist das der ungünstigste Ausgang.
+  - Neue Suche `/admin/gdpr/search-persons` (Admin-only, JSON) mit `LIKE` und
+    Trefferdeckel 50 — ausdrücklich **kein** Auswahlfeld, das den kompletten
+    Personenbestand lädt.
+  - Die Suche findet auch **weich gelöschte** Datensätze und kennzeichnet sie:
+    Sie sind aus der Oberfläche verschwunden, ihre personenbezogenen Daten
+    stehen aber weiter in der Tabelle. Wer Löschung verlangt, hat auch auf
+    diese Anspruch.
+  - **Auskunftsanfragen** (Art. 15) bekommen erstmals überhaupt ein Matching —
+    aber bewusst ohne Löschen/Anonymisieren, sondern mit dem Weg zum
+    Datensatz. Auskunft ist nicht Löschung.
 
 ### Geändert
 

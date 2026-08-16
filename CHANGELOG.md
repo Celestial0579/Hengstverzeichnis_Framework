@@ -10,6 +10,37 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Die Nachweise der 2FA-Einrichtung tragen jetzt die Konto-ID.** Zwei
+  Session-Werte können ein Konto benennen und dabei auf verschiedene zeigen:
+  `pending_2fa_user_id` (Faktor 1 des laufenden Logins) und `user_id` (eine
+  bestehende Anmeldung). Die Step-up-Freigabe und das serverseitig
+  vorbereitete Secret waren an keines von beiden gebunden, und die Prüfung
+  bei aktiver 2FA fragte nur, **ob** eine Anmeldung besteht — nicht, für wen.
+  - Welches Konto gemeint ist, beantwortet jetzt genau eine Stelle
+    (`AuthController::twofaTargetUserId()`); `twofa_reauth` und `totp_setup`
+    führen die Konto-ID mit und werden dagegen geprüft; bei aktiver 2FA muss
+    die Sitzung als genau dieses Konto angemeldet sein.
+  - Ein neuer Passwort-Login löst außerdem jede bestehende Anmeldung derselben
+    Sitzung ab (`discardExistingSessionState()`) — zwei Identitäten
+    nebeneinander sind der Zustand, aus dem solche Verwechslungen entstehen.
+  - Neuer Funktionstest `TwoFaCrossAccountTest`: Der bestehende
+    `TwoFaStepUpTest` prüfte ausschließlich Same-User-Fälle, die Lücke lag
+    genau daneben.
+- **`/force-password-change` läuft durch `checkAuth()`** — es war die einzige
+  Backend-Route ohne diese Prüfung und damit der Rückweg aus der
+  Session-Invalidierung (#113): Eine Sitzung, die überall sonst mit
+  `session_expired` hinausflog, konnte dort ein neues Passwort setzen und sich
+  die frische `session_version` selbst zurückschreiben. Zusätzlich verlangt
+  der Wechsel jetzt das bisherige Passwort (eigener Rate-Limit-Zähler,
+  Fehlversuche im Audit-Log) — dieselbe Begründung wie beim Step-up vor einer
+  2FA-Änderung (#112). Neuer Funktionstest `ForcePasswordChangeGuardTest`.
+- **SSO wertet `email_verified` aus.** Ein ausdrücklich als unbestätigt
+  gemeldeter `email`-Claim wird verworfen, statt als Kontozuordnung zu gelten;
+  bei einem Provider mit Selbstregistrierung genügte sonst ein dort angelegtes
+  Konto mit der Adresse eines Administrators. Ein fehlender Claim bleibt
+  akzeptiert (Entra ID sendet ihn für Geschäftskonten nicht). Der Rückfall auf
+  `preferred_username` greift nur noch, wenn gar kein `email`-Claim vorliegt.
+
 - **`APP_ENV` erkennt die Konfiguration über Umgebungsvariablen.** Der
   Produktions-Automatismus hing allein an der Existenz von
   `config/db_config.php`. Der in der README als Variante A beschriebene Weg -

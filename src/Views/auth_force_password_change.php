@@ -20,13 +20,18 @@
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
         <div class="form-group">
+            <label for="current_password">Bisheriges Passwort *</label>
+            <input type="password" id="current_password" name="current_password" class="form-control" required autocomplete="current-password" autofocus>
+        </div>
+
+        <div class="form-group">
             <label for="password">Neues Passwort (Mind. 8 Zeichen) *</label>
-            <input type="password" id="password" name="password" class="form-control" required minlength="8" autofocus>
+            <input type="password" id="password" name="password" class="form-control" required minlength="8" autocomplete="new-password">
         </div>
 
         <div class="form-group">
             <label for="password_confirm">Passwort bestätigen *</label>
-            <input type="password" id="password_confirm" name="password_confirm" class="form-control" required minlength="8">
+            <input type="password" id="password_confirm" name="password_confirm" class="form-control" required minlength="8" autocomplete="new-password">
         </div>
 
         <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;">Passwort speichern & Fortfahren</button>

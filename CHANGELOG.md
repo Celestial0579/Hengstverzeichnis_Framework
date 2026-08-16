@@ -76,6 +76,13 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- `storage/logs/audit_errors.log` wird nicht mehr versioniert. `AuditLogger`
+  fällt bei nicht erreichbarer Datenbank auf eine Datei zurück und schreibt
+  dorthin — jeder Testlauf erzeugte dadurch einen Diff im Arbeitsverzeichnis,
+  und die Repo-Fassung enthielt bereits 14 Zeilen Fehlermeldungen aus fremden
+  Testläufen. Das Verzeichnis bleibt über `.gitkeep` versioniert, sein Inhalt
+  nicht (dieselbe Bauart wie `var/` und `plugins/`).
+
 - DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige
   Eingaben (fehlerhafte E-Mail-Adresse, unbekannter Anfrage-Typ) wurden
   verworfen, dem Absender aber trotzdem `?success=1` gemeldet — eine echte

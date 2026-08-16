@@ -25,3 +25,10 @@ vendor/
 # App\Service\Maintenance) - nur die leere Verzeichnisstruktur wird versioniert
 var/*
 !var/.gitkeep
+
+# Laufzeit-Protokolle (App\Service\AuditLogger faellt bei nicht erreichbarer
+# Datenbank auf eine Datei zurueck) - nur die leere Verzeichnisstruktur wird
+# versioniert. Ohne diese Regel erzeugt jeder Testlauf einen Diff im
+# Arbeitsverzeichnis, und Fehlermeldungen einzelner Laeufe landen im Repo.
+storage/logs/*
+!storage/logs/.gitkeep

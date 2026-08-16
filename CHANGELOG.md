@@ -50,11 +50,22 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
-- **`pre-commit` in der CI auf eine feste Version genagelt** (`==4.6.2`).
-  Ein unversioniertes `pip install` zieht bei jedem Lauf, was gerade neu ist —
-  dann entscheidet der Zeitpunkt mit darüber, was geprüft wird. OpenSSF
-  Scorecard meldete das als `Pinned-Dependencies`; es war eine Regression
-  gegen die Pinning-Disziplin, die hier sonst überall gilt.
+- **`pre-commit` in der CI per Hash festgenagelt**
+  (`.github/pre-commit-requirements.txt`, erzeugt mit
+  `pip-compile --generate-hashes`). Ein unversioniertes `pip install` zieht
+  bei jedem Lauf, was gerade neu ist — dann entscheidet der Zeitpunkt mit
+  darüber, was geprüft wird. OpenSSF Scorecard meldete das als
+  `Pinned-Dependencies`; es war eine Regression gegen die Pinning-Disziplin,
+  die hier sonst überall gilt (Actions per SHA, Images per Digest).
+
+  Eine Versionsangabe allein genügt dafür nicht — das ist gemessen, nicht
+  vermutet: `pre-commit==4.6.2` stand bereits im Workflow, und Scorecard
+  flaggte die Zeile im Lauf gegen `f562d3b` weiter, weil der Baum darunter
+  (`virtualenv`, `pyyaml`, `identify`, …) offen blieb. `--require-hashes`
+  schließt ihn: pip lehnt jedes Paket ab, dessen Hash nicht in der Datei
+  steht, und verlangt, dass **alle** Abhängigkeiten aufgeführt sind. Die
+  Datei wird gegen Python 3.12 — die Version des Runners — als installierbar
+  geprüft, nicht nur gegen die des Entwicklungsrechners.
 
 ## [0.5.1] – 2026-08-16
 

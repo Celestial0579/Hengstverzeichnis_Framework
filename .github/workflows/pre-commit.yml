@@ -71,20 +71,25 @@ jobs:
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Install pre-commit
-        # Version festgenagelt: Ein unversioniertes "pip install pre-commit"
-        # zieht bei jedem Lauf, was gerade neu ist - dann entscheidet der
-        # Zeitpunkt mit darueber, was geprueft wird, und ein Pflicht-Check
-        # wird unreproduzierbar. Genau das meldet OpenSSF Scorecard als
-        # Pinned-Dependencies; es war eine Regression gegen die
-        # Pinning-Disziplin, die hier sonst ueberall gilt (Actions per SHA,
-        # Images per Digest).
+        # Per Hash festgenagelt, nicht nur per Version: Ein unversioniertes
+        # "pip install pre-commit" zieht bei jedem Lauf, was gerade neu ist -
+        # dann entscheidet der Zeitpunkt mit darueber, was geprueft wird, und
+        # ein Pflicht-Check wird unreproduzierbar. Das meldet OpenSSF
+        # Scorecard als Pinned-Dependencies.
         #
-        # Grenze, damit sie benannt ist: Der Abhaengigkeitsbaum von
-        # pre-commit selbst ist nicht per Hash gepinnt - dafuer braeuchte es
-        # eine erzeugte requirements-Datei mit --require-hashes, die bei jedem
-        # Versionswechsel neu gebaut werden muss. Die Hook-Versionen, auf die
-        # es hier ankommt, stehen ohnehin fest in .pre-commit-config.yaml.
-        run: pip install --disable-pip-version-check pre-commit==4.6.2
+        # Eine Versionsangabe allein genuegt dafuer nachweislich nicht: Sie
+        # stand hier bereits ("pre-commit==4.6.2"), und Scorecard flaggte die
+        # Zeile weiter - denn der Abhaengigkeitsbaum darunter (virtualenv,
+        # pyyaml, identify ...) blieb offen. --require-hashes schliesst ihn:
+        # pip lehnt jedes Paket ab, dessen Hash nicht in der Datei steht, und
+        # verlangt, dass ALLE Abhaengigkeiten aufgefuehrt sind.
+        #
+        # Neu erzeugen nach jeder Versionsaenderung:
+        #   pip-compile --generate-hashes --strip-extras \
+        #       .github/pre-commit-requirements.in
+        run: |
+          pip install --disable-pip-version-check --require-hashes \
+              -r .github/pre-commit-requirements.txt
 
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure

@@ -54,8 +54,14 @@ final class ContentSecurityPolicy {
         return implode('; ', [
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline'" . $tracking . $captcha,
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "font-src 'self' https://fonts.gstatic.com",
+            // Keine Freigabe für fonts.googleapis.com/fonts.gstatic.com mehr:
+            // Die Schrift kommt seit dem Entfernen des externen Stylesheets
+            // aus dem System-Stack (siehe src/Views/layout.php). Eine
+            // Freigabe, die niemand mehr braucht, ist eine offene Tür ohne
+            // Zweck - und sie stünde ausgerechnet in style-src, das wegen
+            // 'unsafe-inline' ohnehin die schwächste Direktive hier ist.
+            "style-src 'self' 'unsafe-inline'",
+            "font-src 'self'",
             "img-src 'self' data:" . $tracking,
             "connect-src 'self'" . $tracking . $captcha,
             // frame-src wird jetzt AUSDRÜCKLICH gesetzt. Ohne die Direktive

@@ -99,7 +99,7 @@ $manager = \App\Plugin\PluginManager::getInstance();
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             <?php if ($isUsable && $needsReapproval): ?>
-                                <form action="/admin/plugins/toggle" method="POST" style="display:inline;" onsubmit="return confirm('Plugin \'<?= htmlspecialchars(addslashes($manifest['name'] ?? $slug)) ?>\' erneut freigeben? Der Code hat sich seit der letzten Freigabe verändert - nur fortfahren, wenn Sie die Änderung selbst vorgenommen haben oder ihr vertrauen. Die bisherige Aktivierung bleibt dabei erhalten, es wird lediglich der neue Code als vertrauenswürdig bestätigt.');">
+                                <form action="/admin/plugins/toggle" method="POST" style="display:inline;" data-confirm="<?= htmlspecialchars('Plugin \'' . ($manifest['name'] ?? $slug) . '\' erneut freigeben? Der Code hat sich seit der letzten Freigabe verändert - nur fortfahren, wenn Sie die Änderung selbst vorgenommen haben oder ihr vertrauen. Die bisherige Aktivierung bleibt dabei erhalten, es wird lediglich der neue Code als vertrauenswürdig bestätigt.', ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">
                                     <input type="hidden" name="enable" value="1">
@@ -112,7 +112,7 @@ $manager = \App\Plugin\PluginManager::getInstance();
                                     <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: var(--danger-fg); color: var(--danger-fg);">Deaktivieren</button>
                                 </form>
                             <?php elseif ($isUsable): ?>
-                                <form action="/admin/plugins/toggle" method="POST" style="display:inline;" <?= $isEnabled ? '' : 'onsubmit="return confirm(\'Plugin \\\'' . htmlspecialchars(addslashes($manifest['name'] ?? $slug)) . '\\\' aktivieren? Der Plugin-Code läuft danach im selben Prozess wie der Kern - nur Plugins aus vertrauenswürdiger Quelle aktivieren.\');"' ?>>
+                                <form action="/admin/plugins/toggle" method="POST" style="display:inline;" <?= $isEnabled ? '' : 'data-confirm="' . htmlspecialchars('Plugin \'' . ($manifest['name'] ?? $slug) . '\' aktivieren? Der Plugin-Code läuft danach im selben Prozess wie der Kern - nur Plugins aus vertrauenswürdiger Quelle aktivieren.', ENT_QUOTES, 'UTF-8') . '"' ?>>
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">
                                     <input type="hidden" name="enable" value="<?= $isEnabled ? '0' : '1' ?>">

@@ -136,7 +136,7 @@ $apiKeys = $apiKeys ?? [];
                     <?php endforeach; ?>
                 </tbody>
             </table>
-            <form action="/admin/users/revoke-api-keys" method="POST" onsubmit="return confirm('Wirklich ALLE aktiven API-Schlüssel dieses Kontos widerrufen? Angebundene Systeme verlieren sofort den Zugriff; der Benutzer kann sich anschließend neue Schlüssel anlegen.');">
+            <form action="/admin/users/revoke-api-keys" method="POST" data-confirm="Wirklich ALLE aktiven API-Schlüssel dieses Kontos widerrufen? Angebundene Systeme verlieren sofort den Zugriff; der Benutzer kann sich anschließend neue Schlüssel anlegen." >
                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                 <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
                 <button type="submit" class="btn" style="background-color: #c62a38;">Alle widerrufen</button>

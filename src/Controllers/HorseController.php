@@ -82,12 +82,68 @@ class HorseController extends BaseController {
         exit;
     }
 
+    /**
+     * Obergrenze der Eltern-Auswahllisten im Pferdeformular.
+     *
+     * Das Formular lud bisher die KOMPLETTE horses-Tabelle - fünf Spalten je
+     * Zeile - und rendert sie zweimal als <option>-Liste (Vater und Mutter),
+     * das Geschlecht erst in der Schleife in PHP gefiltert. Bei jedem Aufruf
+     * von "Neues Pferd" und "Pferd bearbeiten", auch wenn niemand die Eltern
+     * anfasst. Mit dem Bestand wächst das linear, und der Browser bekommt
+     * zweimal dieselbe Liste.
+     *
+     * Der saubere Endzustand ist eine serverseitige Suche wie in den Addons
+     * (SEARCH_LIMIT 50 + datalist). Bis dahin ist die Liste hier gedeckelt -
+     * das nimmt der Seite das unbegrenzte Wachstum, ohne die Bedienung zu
+     * ändern.
+     */
+    private const PARENT_OPTION_LIMIT = 1000;
+
+    /**
+     * Auswahlliste möglicher Elterntiere - gedeckelt, aber immer inklusive
+     * der bereits gesetzten Eltern.
+     *
+     * Ohne das Nachladen fiele die gespeicherte Zuordnung beim nächsten
+     * Öffnen des Formulars still auf "kein Elternteil" zurück, sobald das
+     * Pferd hinter der Obergrenze liegt - ein Datenverlust, den niemand
+     * bemerkt, bis es zu spät ist.
+     *
+     * @param array<int, int|null> $mustInclude IDs, die enthalten sein müssen
+     * @return array<int, array<string, mixed>>
+     */
+    private function parentOptions(\PDO $db, array $mustInclude = []): array {
+        $stmt = $db->query(
+            "SELECT id, name, ueln, birth_year, sex FROM horses WHERE deleted_at IS NULL"
+            . " ORDER BY name ASC LIMIT " . self::PARENT_OPTION_LIMIT
+        );
+        $horses = $stmt->fetchAll();
+
+        $vorhanden = array_map('intval', array_column($horses, 'id'));
+        $fehlend = array_values(array_unique(array_filter(
+            array_map('intval', $mustInclude),
+            static fn (int $id): bool => $id > 0 && !in_array($id, $vorhanden, true)
+        )));
+
+        if ($fehlend !== []) {
+            $nachladen = $db->prepare(
+                "SELECT id, name, ueln, birth_year, sex FROM horses"
+                . " WHERE deleted_at IS NULL AND id IN (" . implode(',', array_fill(0, count($fehlend), '?')) . ")"
+            );
+            $nachladen->execute($fehlend);
+            foreach ($nachladen->fetchAll() as $row) {
+                $horses[] = $row;
+            }
+            usort($horses, static fn (array $a, array $b): int => strcmp((string)$a['name'], (string)$b['name']));
+        }
+
+        return $horses;
+    }
+
     public function create(): void {
         $this->requirePermission('horses', 'create');
 
         $db = Database::getInstance();
-        $stmt = $db->query("SELECT id, name, ueln, birth_year, sex FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allHorses = $stmt->fetchAll();
+        $allHorses = $this->parentOptions($db);
 
         $stmt = $db->query("SELECT id, name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC");
         $allPersons = $stmt->fetchAll();
@@ -236,8 +292,10 @@ class HorseController extends BaseController {
             exit;
         }
 
-        $stmt = $db->query("SELECT id, name, ueln, birth_year, sex FROM horses WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allHorses = $stmt->fetchAll();
+        $allHorses = $this->parentOptions($db, [
+            $horse['sire_id'] ?? null,
+            $horse['dam_id'] ?? null,
+        ]);
 
         $stmt = $db->query("SELECT id, name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC");
         $allPersons = $stmt->fetchAll();

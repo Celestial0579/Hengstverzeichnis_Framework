@@ -263,7 +263,7 @@
         </div>
     <?php endif; ?>
 
-    <form action="/admin/reset" method="POST" style="max-width: 500px;" onsubmit="return confirm('WARNUNG: Möchten Sie wirklich ALLE Daten unwiderruflich löschen?');">
+    <form action="/admin/reset" method="POST" style="max-width: 500px;" data-confirm="WARNUNG: Möchten Sie wirklich ALLE Daten unwiderruflich löschen?" >
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
         <div class="form-group">

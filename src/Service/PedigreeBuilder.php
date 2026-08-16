@@ -56,12 +56,31 @@ class PedigreeBuilder {
      *   `null`, wenn `$horseId` leer ist oder kein passendes Pferd existiert.
      */
     public static function build(?int $horseId, int $maxDepth = 4, bool $publishedOnly = false): ?array {
-        // Caches je Top-Level-Aufruf zurücksetzen: Memoisierung wirkt so nur
-        // innerhalb EINES Baums (deckt den Inzucht-Fall ab), ohne dass zwischen
-        // Requests/Tests veraltete Daten hängen bleiben.
+        return self::buildRecursive($horseId, 1, $maxDepth, $publishedOnly, []);
+    }
+
+    /**
+     * Verwirft die Memoisierung. Für Tests und für Aufrufer, die innerhalb
+     * EINES Requests bewusst gegen einen geänderten Datenbestand bauen
+     * (Import, Migration).
+     *
+     * WARUM DAS FRÜHER build() SELBST TAT: Der Cache wurde bei jedem
+     * Top-Level-Aufruf geleert, damit "zwischen Requests/Tests keine
+     * veralteten Daten hängen bleiben". Zwischen Requests kann er das gar
+     * nicht - statische Eigenschaften leben nur für die Dauer eines Requests.
+     * Innerhalb eines Requests hat das Leeren dagegen echte Kosten: Die
+     * öffentliche Detailseite baut den Stammbaum, und Addons wie
+     * inzuchtkoeffizient oder genealogie-vergleich bauen im selben Request
+     * weitere Bäume über weitgehend dieselben Vorfahren - jeder Aufruf begann
+     * bei null und stellte dieselben Einzelabfragen erneut.
+     *
+     * Für Tests, die den Bestand zwischen zwei Aufrufen ändern, gibt es jetzt
+     * diese ausdrückliche Methode. Das ist die richtige Reihenfolge: Der
+     * Normalfall zahlt nicht für den Sonderfall.
+     */
+    public static function resetCache(): void {
         self::$rowCache = [];
         self::$parentLookupCache = [];
-        return self::buildRecursive($horseId, 1, $maxDepth, $publishedOnly, []);
     }
 
     /**

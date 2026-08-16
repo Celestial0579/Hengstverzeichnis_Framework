@@ -50,6 +50,7 @@ $pluginManager->boot();
 // ist dafür jeweils selbst verantwortlich (No-Op ohne Konfiguration).
 \App\Service\BackupService::registerScheduledTask();
 \App\Service\DigestService::registerScheduledTask();
+\App\Service\UpdateService::registerScheduledTask();
 
 $router = new Router();
 
@@ -237,10 +238,12 @@ $router->get('/cron/run', [App\Controllers\CronController::class, 'run']);
 $router->post('/cron/run', [App\Controllers\CronController::class, 'run']);
 
 // Admin Backup-Verwaltung (#59)
-// Automatisches Update (#85, nur manuell und mit Pflicht-Backup)
+// Automatisches Update (#85; manuell oder - seit #290 - unbeaufsichtigt per
+// Cron, in beiden Fällen mit Pflicht-Backup)
 $router->get('/admin/updates', [App\Controllers\UpdateController::class, 'index']);
 $router->post('/admin/updates/run', [App\Controllers\UpdateController::class, 'run']);
 $router->post('/admin/updates/channel', [App\Controllers\UpdateController::class, 'saveChannel']);
+$router->post('/admin/updates/automation', [App\Controllers\UpdateController::class, 'saveAutomation']);
 $router->post('/admin/updates/addon', [App\Controllers\UpdateController::class, 'updateAddon']);
 
 $router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);

@@ -30,6 +30,21 @@ class AddonStoreController extends BaseController {
     /** Wie lange ein zuvor abgerufener Repo-Katalog wiederverwendet wird, bevor er neu geladen wird. */
     private const CACHE_TTL_SECONDS = 900;
 
+    /**
+     * Zusatzspalte, die jede addon_repos-Abfrage mitführen muss, deren Zeilen
+     * an catalogForRepo() gehen.
+     *
+     * Das Alter wird bewusst in SQL berechnet: `cached_at` schreibt MySQL mit
+     * NOW(), also in der Zeitzone des Datenbankservers. Ein Vergleich gegen
+     * PHPs time() über strtotime() legt dagegen die PHP-Zeitzone zugrunde -
+     * laufen beide auseinander (Container auf UTC, PHP auf Europe/Berlin),
+     * liegt die TTL-Prüfung um genau diesen Versatz daneben und der Cache
+     * gilt dauerhaft als abgelaufen. TIMESTAMPDIFF vergleicht beide Werte auf
+     * derselben Uhr - dasselbe Prinzip, mit dem App\Service\Scheduler seine
+     * Fälligkeiten über Unix-Zeitstempel bestimmt.
+     */
+    public const CACHE_AGE_SELECT = 'TIMESTAMPDIFF(SECOND, cached_at, NOW()) AS cached_age_seconds';
+
     public function __construct() {
         parent::__construct();
         $this->checkAuth();
@@ -38,12 +53,14 @@ class AddonStoreController extends BaseController {
 
     public function index(): void {
         $db = Database::getInstance();
-        $repos = $db->query("SELECT * FROM addon_repos ORDER BY is_official DESC, owner ASC, repo ASC")->fetchAll();
+        $repos = $db->query(
+            "SELECT *, " . self::CACHE_AGE_SELECT . " FROM addon_repos ORDER BY is_official DESC, owner ASC, repo ASC"
+        )->fetchAll();
 
         $forceRefresh = isset($_GET['refresh']);
         $catalogs = [];
         foreach ($repos as $repoRow) {
-            $catalogs[(int)$repoRow['id']] = $this->catalogForRepo($db, $repoRow, $forceRefresh);
+            $catalogs[(int)$repoRow['id']] = self::catalogForRepo($db, $repoRow, $forceRefresh);
         }
 
         $this->render('admin_addon_store', [
@@ -55,13 +72,35 @@ class AddonStoreController extends BaseController {
     }
 
     /**
+     * Reine TTL-Entscheidung ohne Netz und ohne Datenbank, damit die Grenze
+     * isoliert prüfbar bleibt (gleiche Trennung wie
+     * App\Service\AddonUpdateService::resolveAutoUpdateRef()).
+     *
+     * Erwartet das Alter in Sekunden, nicht den Zeitstempel - siehe
+     * CACHE_AGE_SELECT. Ein negatives Alter (Uhr des Datenbankservers
+     * zurückgestellt) gilt als frisch: Der Eintrag ist dann jünger als jetzt,
+     * ein sofortiger Neuabruf brächte nichts.
+     */
+    public static function isCacheFresh(?int $ageSeconds, bool $forceRefresh): bool {
+        return !$forceRefresh
+            && $ageSeconds !== null
+            && $ageSeconds < self::CACHE_TTL_SECONDS;
+    }
+
+    /**
+     * Liefert den Katalog eines Repos und frischt ihn bei abgelaufener TTL
+     * gegen GitHub auf. Seit #290 ruft auch UpdateController::index() das
+     * hier auf (nur für das offizielle Repo): Die Update-Seite zeigte sonst
+     * einen beliebig veralteten Stand, solange niemand den Store besuchte.
+     *
      * @param array<string, mixed> $repoRow
      * @return array{ok: bool, plugins: array<int, array<string, mixed>>, error: ?string}
      */
-    private function catalogForRepo(PDO $db, array $repoRow, bool $forceRefresh): array {
-        $cacheFresh = !$forceRefresh
-            && $repoRow['cached_at'] !== null
-            && (time() - strtotime((string)$repoRow['cached_at'])) < self::CACHE_TTL_SECONDS;
+    public static function catalogForRepo(PDO $db, array $repoRow, bool $forceRefresh): array {
+        $cacheFresh = self::isCacheFresh(
+            isset($repoRow['cached_age_seconds']) ? (int)$repoRow['cached_age_seconds'] : null,
+            $forceRefresh
+        );
 
         if ($cacheFresh && $repoRow['cached_catalog_json'] !== null) {
             $decoded = json_decode((string)$repoRow['cached_catalog_json'], true);
@@ -73,7 +112,7 @@ class AddonStoreController extends BaseController {
         $result = GithubAddonRepository::fetchCatalog(
             (string)$repoRow['owner'],
             (string)$repoRow['repo'],
-            $this->effectiveRef($repoRow)
+            self::effectiveRef($repoRow)
         );
 
         if ($result['ok']) {
@@ -100,7 +139,7 @@ class AddonStoreController extends BaseController {
      *
      * @param array<string, mixed> $repoRow
      */
-    private function effectiveRef(array $repoRow): ?string {
+    public static function effectiveRef(array $repoRow): ?string {
         $ref = $repoRow['ref'] !== null && $repoRow['ref'] !== '' ? (string)$repoRow['ref'] : null;
         if ($ref === null && (int)$repoRow['is_official'] === 1) {
             $line = \App\Service\AddonUpdateService::coreLine(defined('CORE_VERSION') ? CORE_VERSION : '');
@@ -202,7 +241,7 @@ class AddonStoreController extends BaseController {
         // womöglich inzwischen weitergewanderten Branch-HEAD. Ohne Release
         // fällt NUR dieser manuelle Weg auf den Branch zurück, siehe
         // effectiveRef().
-        $ref = $this->effectiveRef($repoRow);
+        $ref = self::effectiveRef($repoRow);
 
         $pluginsDir = __DIR__ . '/../../plugins';
         $result = GithubAddonRepository::installPlugin(

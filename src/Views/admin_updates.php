@@ -13,10 +13,20 @@
  * @var array $addonRows  Addon-Übersicht aus App\Service\AddonOverview::rows()
  * @var bool $addonCatalogAvailable
  * @var string|null $addonCatalogCachedAt
+ * @var bool $notifyEnabled  E-Mail bei neu verfügbaren Updates (#290)
+ * @var bool $autoInstallEnabled  Unbeaufsichtigte Installation aktiviert (#290)
+ * @var string $autoInstallScope  'patch_only' oder 'any'
  */
 $inPlaceEnabled = $inPlaceEnabled ?? true;
 $addonRows = $addonRows ?? [];
 $addonCatalogAvailable = $addonCatalogAvailable ?? false;
+$notifyEnabled = $notifyEnabled ?? false;
+$autoInstallEnabled = $autoInstallEnabled ?? false;
+$autoInstallScope = $autoInstallScope ?? 'patch_only';
+// Ohne Backup bzw. ohne In-Place-Recht kann die Automatik nicht laufen -
+// dieselben Bedingungen wie beim manuellen Knopf, hier nur vorab sichtbar
+// gemacht. Serverseitig setzt UpdateController::saveAutomation() sie durch.
+$automationPossible = $inPlaceEnabled && $backupConfigured;
 // Aktive Addons, die die ZIELversion des anstehenden Kern-Updates nicht
 // unterstützen - sie würden nach dem Update kommentarlos deaktiviert (#197).
 $addonTargetWarnings = array_values(array_filter(
@@ -61,6 +71,60 @@ $addonTargetWarnings = array_values(array_filter(
         </small>
     </form>
 
+    <?php if (isset($_GET['automation_saved'])): ?>
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
+            Einstellungen für automatische Updates gespeichert.
+        </div>
+    <?php endif; ?>
+
+    <!-- Unbeaufsichtigte Update-Automatik (#290, zweite Stufe aus #85).
+         Bewusst ein eigenes Formular neben dem Kanal: Der Kanal gilt auch
+         fürs manuelle Update, diese Einstellungen nur für den Cron-Lauf. -->
+    <form action="/admin/updates/automation" method="POST" style="background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
+        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+        <div class="form-group" style="margin: 0 0 0.5rem 0;">
+            <label style="font-size: 0.9rem;">
+                <input type="checkbox" name="update_notify" value="1" <?= $notifyEnabled ? 'checked' : '' ?>>
+                Per E-Mail über verfügbare Updates informieren
+            </label>
+        </div>
+        <div class="form-group" style="margin: 0 0 0.5rem 0;">
+            <label style="font-size: 0.9rem;">
+                <input type="checkbox" name="update_auto_install" value="1"
+                       <?= $autoInstallEnabled ? 'checked' : '' ?>
+                       <?= $automationPossible ? '' : 'disabled' ?>>
+                Updates zusätzlich automatisch installieren
+            </label>
+        </div>
+        <div class="form-group" style="margin: 0 0 0.5rem 0;">
+            <label for="update_auto_install_scope" style="font-size: 0.9rem;">Reichweite</label>
+            <select id="update_auto_install_scope" name="update_auto_install_scope" class="form-control" style="max-width: 320px;" <?= $automationPossible ? '' : 'disabled' ?>>
+                <option value="patch_only" <?= $autoInstallScope !== 'any' ? 'selected' : '' ?>>Nur Patch-Versionen der laufenden Linie (empfohlen)</option>
+                <option value="any" <?= $autoInstallScope === 'any' ? 'selected' : '' ?>>Jede neuere Version</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;" <?= $automationPossible ? '' : 'disabled' ?>>Speichern</button>
+        <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+            Geprüft wird alle 3 Stunden, installiert höchstens einmal täglich - beides über den
+            <a href="/admin/cron">Cron-Auslöser</a>, der dafür eingerichtet sein muss. Die E-Mail geht an
+            alle Admin-Konten und wird je Fund nur einmal versendet, nicht bei jeder Prüfung erneut.
+            Vor jeder Installation läuft das <strong>Pflicht-Backup</strong>; schlägt es fehl, unterbleibt
+            das Update. Während des Einspielens ist die Seite kurz im Wartungsmodus.
+            Automatisch installieren lässt sich nur zusammen mit der Benachrichtigung.
+            <?php if (!$automationPossible): ?>
+                <br><strong>
+                    <?php if (!$inPlaceEnabled): ?>
+                        In dieser Installation nicht verfügbar: Die In-Place-Aktualisierung ist deaktiviert (Container-Betrieb).
+                        Benachrichtigungen über verfügbare Versionen kommen trotzdem.
+                    <?php else: ?>
+                        Zuerst unter <a href="/admin/backups">Backups</a> ein externes Backup einrichten -
+                        ohne Sicherung wird grundsätzlich nicht aktualisiert.
+                    <?php endif; ?>
+                </strong>
+            <?php endif; ?>
+        </small>
+    </form>
+
     <?php if (isset($_GET['success'])): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             ✓ Update von <strong><?= htmlspecialchars($_GET['from'] ?? '') ?></strong> auf
@@ -70,7 +134,21 @@ $addonTargetWarnings = array_values(array_filter(
                 <br>Addon-Phase: <?= (int)($_GET['addons_ok'] ?? 0) ?> mitgezogen<?php
                     ?><?php if ((int)($_GET['addons_fail'] ?? 0) > 0): ?>,
                     <strong><?= (int)$_GET['addons_fail'] ?> fehlgeschlagen</strong>
-                    (Details im <a href="/admin/logs">Audit-Log</a> und in der Tabelle unten)<?php endif; ?>.
+                    (weitere Details im <a href="/admin/logs?category=plugin">Audit-Log</a> und in der Tabelle unten)<?php endif; ?>.
+                <?php if (!empty($_GET['addons_fail_reasons'])): ?>
+                    <!-- Klartext-Grund der Addon-Phase (#290): ohne ihn stand hier
+                         nur eine Zahl, und der eigentliche Grund - meist ein noch
+                         fehlender Addon-Release zur neuen Kern-Linie - war nur im
+                         Audit-Log auffindbar. -->
+                    <ul style="margin: 0.5rem 0 0 1.2rem;">
+                        <?php foreach (explode(';', (string)$_GET['addons_fail_reasons']) as $reason): ?>
+                            <li><?= htmlspecialchars($reason) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <?php if (!empty($_GET['addons_fail_slugs'])): ?>
+                        <small>Betroffen: <?php foreach (explode(',', (string)$_GET['addons_fail_slugs']) as $i => $failedSlug): ?><?= $i > 0 ? ', ' : '' ?><code><?= htmlspecialchars($failedSlug) ?></code><?php endforeach; ?></small>
+                    <?php endif; ?>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
     <?php endif; ?>

@@ -41,6 +41,13 @@ class UpdateController extends BaseController {
         $targetVersion = (is_array($checkResult) && !empty($checkResult['update_available']))
             ? (string)$checkResult['latest']
             : null;
+
+        // Katalog-Cache des OFFIZIELLEN Repos hier selbst auffrischen (#290),
+        // bevor die Addon-Übersicht daraus gebaut wird - sonst zeigt die
+        // Update-Seite einen beliebig veralteten Stand, solange niemand den
+        // Addon-Store aufruft.
+        \App\Service\AddonUpdateService::refreshOfficialCatalog();
+
         $addonCatalog = \App\Service\AddonOverview::officialCatalogFromCache();
 
         $this->render('admin_updates', [
@@ -55,7 +62,70 @@ class UpdateController extends BaseController {
             'addonRows' => \App\Service\AddonOverview::rows($targetVersion),
             'addonCatalogAvailable' => $addonCatalog['available'],
             'addonCatalogCachedAt' => $addonCatalog['cachedAt'],
+            'notifyEnabled' => UpdateService::isNotifyEnabled(),
+            'autoInstallEnabled' => UpdateService::isAutoInstallEnabled(),
+            'autoInstallScope' => UpdateService::configuredAutoScope(),
         ]);
+    }
+
+    /**
+     * Speichert die Einstellungen der unbeaufsichtigten Update-Automatik
+     * (#290, zweite Stufe aus #85). Der Kanal bleibt bewusst ein eigenes
+     * Formular: Er gilt auch für das manuelle Update, die Automatik nicht.
+     */
+    public function saveAutomation(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $notify = !empty($_POST['update_notify']) ? '1' : '0';
+        $enabled = !empty($_POST['update_auto_install']) ? '1' : '0';
+        $scope = UpdateService::normalizeAutoScope((string)($_POST['update_auto_install_scope'] ?? ''));
+
+        // Automatisch installieren ohne zu benachrichtigen wäre ein stiller
+        // Codeaustausch - die Kombination wird gar nicht erst gespeichert.
+        if ($enabled === '1' && $notify === '0') {
+            header("Location: /admin/updates?error=" . urlencode(
+                'Automatische Installation setzt die E-Mail-Benachrichtigung voraus - '
+                . 'sonst bliebe unbemerkt, was auf der Installation passiert ist.'));
+            exit;
+        }
+
+        // Ohne konfiguriertes Backup würde performUpdate() ohnehin abbrechen -
+        // die Automatik hier trotzdem einschalten zu lassen, erzeugte nur eine
+        // tägliche Fehlermail. Serverseitig durchgesetzt, nicht nur in der View.
+        if ($enabled === '1' && !\App\Service\BackupService::isConfigured($this->settings)) {
+            header("Location: /admin/updates?error=" . urlencode(
+                'Automatische Updates lassen sich erst aktivieren, wenn ein externes Backup eingerichtet ist - '
+                . 'ein Update ohne vorheriges Backup wird grundsätzlich nicht ausgeführt.'));
+            exit;
+        }
+
+        if ($enabled === '1' && !UPDATE_IN_PLACE) {
+            header("Location: /admin/updates?error=" . urlencode(
+                'Die In-Place-Aktualisierung ist in dieser Installation deaktiviert (Container-Betrieb) - '
+                . 'eine automatische Installation ist damit nicht möglich. Über verfügbare Versionen wird '
+                . 'weiterhin per E-Mail informiert.'));
+            exit;
+        }
+
+        $db = \App\Database::getInstance();
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute(['update_notify', $notify, $notify]);
+        $stmt->execute(['update_auto_install', $enabled, $enabled]);
+        $stmt->execute(['update_auto_install_scope', $scope, $scope]);
+
+        \App\Service\AuditLogger::log(
+            'Automatische Updates geändert',
+            'update',
+            'Benachrichtigung: ' . ($notify === '1' ? 'an' : 'aus')
+            . '; Installation: ' . ($enabled === '1'
+                ? 'an, Reichweite ' . ($scope === UpdateService::AUTO_SCOPE_ANY ? 'jede neuere Version' : 'nur Patch-Versionen')
+                : 'aus')
+        );
+
+        header("Location: /admin/updates?automation_saved=1");
+        exit;
     }
 
     /**
@@ -110,13 +180,23 @@ class UpdateController extends BaseController {
         }
 
         // Ergebnis der Addon-Phase (#197, Stufe 2) mit in die Erfolgsmeldung
-        // nehmen - Details stehen im Audit-Log und in der Addon-Tabelle.
+        // nehmen. Seit #290 wandert auch der KLARTEXT-Grund mit: Die blosse
+        // Zahl "N fehlgeschlagen" liess Betreiber im Unklaren, warum Addons
+        // nach einem Kern-Update nicht mitgezogen wurden - der Grund stand
+        // nur im Audit-Log, wo kaum jemand nachsieht.
         $addonResults = is_array($result['addons'] ?? null) ? $result['addons'] : [];
         $addonsOk = count(array_filter($addonResults, static fn(array $r): bool => (bool)$r['ok']));
         $addonsFail = count($addonResults) - $addonsOk;
+        $summary = \App\Service\AddonUpdateService::summarizeFailures($addonResults);
 
-        header("Location: /admin/updates?success=1&from=" . urlencode($result['from']) . "&to=" . urlencode($result['to'])
-            . "&addons_ok=" . $addonsOk . "&addons_fail=" . $addonsFail);
+        $location = "/admin/updates?success=1&from=" . urlencode($result['from']) . "&to=" . urlencode($result['to'])
+            . "&addons_ok=" . $addonsOk . "&addons_fail=" . $addonsFail;
+        if ($summary['reasons'] !== []) {
+            $location .= "&addons_fail_reasons=" . urlencode(implode(';', $summary['reasons']))
+                . "&addons_fail_slugs=" . urlencode(implode(',', $summary['slugs']));
+        }
+
+        header("Location: " . $location);
         exit;
     }
 

@@ -6,6 +6,87 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Hinzugefügt
+
+- **Unbeaufsichtigte Update-Prüfung, Benachrichtigung und Installation**
+  (#290, zweite Stufe aus #85). Bisher gab es Updates nur auf Knopfdruck; das
+  ursprüngliche Feature-Issue hatte den periodischen Lauf über die
+  Cron-Infrastruktur (#67) ausdrücklich als Folgeschritt vorgesehen, das
+  Pflicht-Backup war dafür die genannte Voraussetzung. Zwei neue
+  Scheduler-Aufgaben schließen das:
+
+  - `update.check` (alle 3 Stunden) prüft Kern **und** Addons und
+    benachrichtigt alle Admin-Konten per E-Mail — **einmal je Fund**, nicht
+    bei jeder Prüfung erneut. Der gemeldete Stand wird mitgeführt, ein
+    erledigtes Addon fällt automatisch heraus.
+  - `update.auto_install` (höchstens einmal täglich) spielt ein Update
+    unbeaufsichtigt ein und meldet Erfolg wie Fehlschlag sofort per E-Mail.
+    Verwendet unverändert `performUpdate()` und damit dieselbe Reihenfolge
+    wie der manuelle Knopf: Pflicht-Backup → Kern → Addons.
+
+  Beides ist **Opt-in** — ohne Konfiguration ändert sich für bestehende
+  Installationen nichts, wie bei Backup und Digest. Die Reichweite der
+  Installation wählt der Betreiber: `nur Patch-Versionen der laufenden Linie`
+  (Standard) oder `jede neuere Version`. Der zurückhaltende Standard ist
+  Absicht — solange die Versionierung bei `0.y.z` steht, sind Breaking
+  Changes laut Format dieser Datei jederzeit möglich. Automatisch
+  installieren lässt sich nur zusammen mit der Benachrichtigung: ein stiller
+  Codeaustausch auf einem Produktivsystem wäre genau der Vorgang, den
+  niemand bemerkt, bis etwas fehlt.
+
+- **Wartungsmodus während des Update-Einspielens.** `Maintenance` (#232)
+  existierte bislang nur für das Datenmigrations-Addon und wurde vom Kern
+  nirgends genutzt. Solange ein Update einen anwesenden Admin voraussetzte,
+  war das folgenlos; bei einem unbeaufsichtigten Lauf kann jederzeit ein
+  echter Besucher mitten in den Dateiaustausch geraten. Der Marker umschließt
+  jetzt Dateiaustausch und Addon-Phase — Backup und Download bleiben bewusst
+  außerhalb, damit das Fenster kurz bleibt. Ein `finally` stellt sicher, dass
+  ein abgebrochenes Update die Installation nicht dauerhaft auf 503 nagelt.
+
+### Behoben
+
+- **Die Update-Seite zeigte veraltete Addon-Versionen** (#290). Die
+  Addon-Tabelle unter `/admin/updates` liest ausschließlich den
+  Katalog-Cache, aufgefrischt wurde der aber nur beim Aufruf des
+  Addon-Stores. Wer den Store nie besuchte, sah dort beliebig lange einen
+  alten Stand — verfügbare Addon-Updates erschienen schlicht nicht. Die
+  Update-Seite frischt den Katalog des offiziellen Repos jetzt selbst auf
+  (TTL-gesteuert, kein Netzzugriff bei frischem Cache).
+
+- **Der 15-Minuten-Cache des Addon-Katalogs lief nie an.** Die TTL verglich
+  ein von MySQL `NOW()` geschriebenes `cached_at` per PHP-`strtotime()` gegen
+  `time()`. Laufen Datenbank und PHP in verschiedenen Zeitzonen — Container
+  auf UTC, PHP auf `Europe/Berlin` ist der Normalfall —, liegt die Rechnung
+  um genau diesen Versatz daneben und der Cache gilt **dauerhaft** als
+  abgelaufen: Jeder Store-Aufruf lud den kompletten Tarball neu. Das Alter
+  wird jetzt per `TIMESTAMPDIFF` in SQL bestimmt, wo beide Werte von
+  derselben Uhr kommen — dasselbe Prinzip, nach dem `Scheduler` seine
+  Fälligkeiten schon immer über Unix-Zeitstempel bestimmt.
+
+- **Warum Addons nach einem Kern-Update fehlten, stand nirgends** (#290).
+  Verweigert die Addon-Phase (etwa weil es zur neuen Kern-Linie noch kein
+  Addon-Release gibt, #212), meldete die Update-Seite nur „N fehlgeschlagen";
+  der Klartextgrund lag allein im Audit-Log. Er erscheint jetzt direkt in der
+  Erfolgsmeldung, mit den betroffenen Addons, und der Audit-Log-Link ist auf
+  die Kategorie `plugin` vorgefiltert.
+
+- **`curl_close()` entfernt** (`UpdateService`, `EntraSsoController`,
+  `OidcDiscovery`). Seit PHP 8.0 wirkungslos, seit 8.5 deprecated — und weil
+  `phpunit.xml` auf `failOnDeprecation` steht, hätte jeder Test, der diese
+  Pfade erstmals berührt, den Lauf rot gemacht. Genau das trat beim neuen
+  Update-Integrationstest ein.
+
+### Tests
+
+- Neuer Integrationstest für den **vollständigen Update-Ablauf**
+  (`tests/Integration/UpdateRunTest.php`): echtes Pflicht-Backup gegen den
+  Fake-S3-Server, echter Download des Release-Zips über einen lokalen
+  Fixture-Server, echte SHA256-Prüfung, echtes Anwenden in ein temporäres
+  Zielverzeichnis. Bis hierher gab es für `performUpdate()` keinen einzigen
+  Test — abgedeckt waren nur die Ablehnungsfälle.
+
 ## [0.5.2] – 2026-08-16
 
 ### Sicherheit

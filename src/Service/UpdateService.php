@@ -56,6 +56,35 @@ class UpdateService {
         '.env',
     ];
 
+    /**
+     * Reichweite der UNBEAUFSICHTIGTEN Installation (Setting
+     * `update_auto_install_scope`, #290/#85).
+     *
+     * Standard ist bewusst 'patch_only': Solange die Versionierung bei 0.y.z
+     * steht, sind Breaking Changes laut CHANGELOG jederzeit möglich - ein
+     * Minor-Sprung ohne Aufsicht wäre damit ein Risiko, das der Betreiber
+     * ausdrücklich wählen soll. Innerhalb einer Minor-Linie sagt das
+     * Versionsschema Kompatibilität zu, dieselbe Zusicherung, auf der schon
+     * das Addon-Autoupdate aufsetzt (AddonUpdateService::coreLine()).
+     */
+    public const AUTO_SCOPE_PATCH_ONLY = 'patch_only';
+    public const AUTO_SCOPE_ANY = 'any';
+
+    /** Name der Scheduler-Aufgabe, die nur PRÜFT und ggf. benachrichtigt. */
+    private const TASK_CHECK = 'update.check';
+
+    /** Name der Scheduler-Aufgabe, die unbeaufsichtigt INSTALLIERT. */
+    private const TASK_AUTO_INSTALL = 'update.auto_install';
+
+    /**
+     * Prüfen ist billig (zwei HTTP-Abfragen) und soll zeitnah melden;
+     * Installieren greift in die laufende Installation ein und bleibt
+     * deshalb auf einen Lauf pro Tag begrenzt - ein wiederholter Versuch
+     * derselben fehlschlagenden Aktualisierung bringt nichts.
+     */
+    private const CHECK_INTERVAL_SECONDS = 3 * 3600;
+    private const AUTO_INSTALL_INTERVAL_SECONDS = 24 * 3600;
+
     public static function currentVersion(): string {
         return defined('CORE_VERSION') ? CORE_VERSION : '0.0.0';
     }
@@ -81,6 +110,132 @@ class UpdateService {
      */
     public static function configuredChannel(): string {
         return self::normalizeChannel((string)(self::loadSettings()['update_channel'] ?? self::CHANNEL_STABLE));
+    }
+
+    public static function normalizeAutoScope(string $scope): string {
+        return $scope === self::AUTO_SCOPE_ANY ? self::AUTO_SCOPE_ANY : self::AUTO_SCOPE_PATCH_ONLY;
+    }
+
+    /**
+     * Registriert die beiden Update-Aufgaben beim Scheduler (#290, schließt
+     * die in #85 offen gebliebene zweite Stufe). Wird im Request-Bootstrap
+     * aufgerufen, analog BackupService/DigestService.
+     *
+     * Beide Aufgaben sind ausdrücklich zu aktivieren - wie bei
+     * BackupService und DigestService ist eine nicht konfigurierte Automatik
+     * ein No-Op. Das ist hier keine Förmlichkeit: Die Prüfung ruft
+     * regelmäßig GitHub ab und verschickt E-Mails; beides ungefragt bei
+     * jeder bestehenden Installation aufzunehmen, wäre eine stille
+     * Verhaltensänderung durch ein Update.
+     *
+     * Die BENACHRICHTIGUNG lässt sich unabhängig von der Installation
+     * einschalten - im Container-Betrieb (UPDATE_IN_PLACE=0) ist sie sogar
+     * der einzig nutzbare Teil, weil dort über ein neues Image aktualisiert
+     * wird (#158). Die INSTALLATION verlangt zusätzlich, dass die
+     * Installation sich selbst überschreiben darf.
+     */
+    public static function registerScheduledTask(): void {
+        if (self::isNotifyEnabled()) {
+            Scheduler::register(self::TASK_CHECK, self::CHECK_INTERVAL_SECONDS, [self::class, 'runCheckAndNotify']);
+        }
+
+        if (!self::isAutoInstallEnabled() || !self::inPlaceAllowed()) {
+            return;
+        }
+
+        Scheduler::register(
+            self::TASK_AUTO_INSTALL,
+            self::AUTO_INSTALL_INTERVAL_SECONDS,
+            [self::class, 'runAutoInstallIfEligible']
+        );
+    }
+
+    public static function isNotifyEnabled(): bool {
+        return (string)(self::loadSettings()['update_notify'] ?? '0') === '1';
+    }
+
+    /**
+     * Die unbeaufsichtigte Installation setzt die Benachrichtigung mit
+     * voraus: Wer automatisch einspielen lässt, muss erfahren, was passiert
+     * ist - ein stiller Codeaustausch auf einem Produktivsystem wäre genau
+     * die Art Vorgang, die niemand bemerkt, bis etwas fehlt.
+     */
+    public static function isAutoInstallEnabled(): bool {
+        $settings = self::loadSettings();
+        return (string)($settings['update_auto_install'] ?? '0') === '1'
+            && (string)($settings['update_notify'] ?? '0') === '1';
+    }
+
+    public static function configuredAutoScope(): string {
+        return self::normalizeAutoScope((string)(self::loadSettings()['update_auto_install_scope'] ?? self::AUTO_SCOPE_PATCH_ONLY));
+    }
+
+    /**
+     * Entscheidet, ob eine gefundene Version unbeaufsichtigt eingespielt
+     * werden darf. Rein und ohne Netz/DB, damit die Grenze isoliert prüfbar
+     * ist - dieselbe Trennung wie bei
+     * AddonUpdateService::resolveAutoUpdateRef().
+     */
+    public static function isEligibleForAutoInstall(string $current, string $candidate, string $scope): bool {
+        if (!self::isNewer($candidate, $current)) {
+            return false;
+        }
+        if (self::normalizeAutoScope($scope) === self::AUTO_SCOPE_ANY) {
+            return true;
+        }
+
+        $currentLine = AddonUpdateService::coreLine(self::normalizeVersion($current));
+        $candidateLine = AddonUpdateService::coreLine(self::normalizeVersion($candidate));
+
+        return $currentLine !== null && $currentLine === $candidateLine;
+    }
+
+    /**
+     * Vergleicht die aktuell verfügbaren Updates gegen den zuletzt gemeldeten
+     * Stand und liefert nur, was NEU ist. Ohne diesen Vergleich stünde alle
+     * drei Stunden dieselbe Meldung im Postfach, bis das Update eingespielt
+     * ist - und würde spätestens nach dem dritten Mal ignoriert.
+     *
+     * Rein: kein Netz, keine DB, damit die Vergleichsregel isoliert prüfbar
+     * bleibt.
+     *
+     * @param array<string, string> $previouslyNotifiedAddons slug => version
+     * @param array<int, array{slug: string, version: string}> $currentAddonUpdates
+     * @return array{coreIsNew: bool, newAddons: array<int, array{slug: string, version: string}>, nextNotifiedAddons: array<string, string>}
+     */
+    public static function computeNewFindings(
+        ?string $previouslyNotifiedCoreVersion,
+        ?string $availableCoreVersion,
+        array $previouslyNotifiedAddons,
+        array $currentAddonUpdates
+    ): array {
+        $coreIsNew = $availableCoreVersion !== null
+            && $availableCoreVersion !== ''
+            && $availableCoreVersion !== $previouslyNotifiedCoreVersion;
+
+        $newAddons = [];
+        $nextNotifiedAddons = [];
+        foreach ($currentAddonUpdates as $addon) {
+            $slug = (string)$addon['slug'];
+            $version = (string)$addon['version'];
+
+            // Der neue Stand wird IMMER vollständig aus der aktuellen Lage
+            // aufgebaut, nie in den alten hineingemischt: Ein zwischenzeitlich
+            // aktualisiertes oder deinstalliertes Addon verschwindet damit von
+            // selbst, ohne separates Aufräumen. Meldet es später erneut ein
+            // Update, ist das dann auch wieder ein neuer Fund.
+            $nextNotifiedAddons[$slug] = $version;
+
+            if (($previouslyNotifiedAddons[$slug] ?? null) !== $version) {
+                $newAddons[] = ['slug' => $slug, 'version' => $version];
+            }
+        }
+
+        return [
+            'coreIsNew' => $coreIsNew,
+            'newAddons' => $newAddons,
+            'nextNotifiedAddons' => $nextNotifiedAddons,
+        ];
     }
 
     /**
@@ -255,26 +410,39 @@ class UpdateService {
         }
 
         $zipPath = self::downloadToTempFile($check['zip_url']);
+
+        // Ab hier wird der laufende Codebaum ausgetauscht. Bis #290 lief das
+        // ohne Wartungsmodus, weil ein Update immer ein anwesender Admin
+        // ausgelöst hat; seit der Lauf auch unbeaufsichtigt per Cron
+        // stattfinden kann, kann jederzeit ein echter Besucher mitten in den
+        // Dateiaustausch geraten - genau der Fall, für den der Marker beim
+        // Datenmigrations-Addon schon existiert. Backup und Download bleiben
+        // bewusst AUSSERHALB des Fensters, damit es so kurz wie möglich ist.
+        // Das finally ist wesentlich: Bricht das Anwenden ab, darf die
+        // Installation nicht dauerhaft auf 503 stehen bleiben.
+        Maintenance::enable("Update wird eingespielt: {$check['current']} auf {$check['latest']}");
         try {
-            self::verifyArchiveChecksum($zipPath, (string)$check['zip_name'], (string)$check['checksums_url']);
+            try {
+                self::verifyArchiveChecksum($zipPath, (string)$check['zip_name'], (string)$check['checksums_url']);
+                $files = self::applyUpdateArchive($zipPath, self::baseDir());
+            } finally {
+                @unlink($zipPath);
+            }
 
-            $baseDir = dirname(__DIR__, 2);
-            $files = self::applyUpdateArchive($zipPath, $baseDir);
+            AuditLogger::log('Update angewendet', 'update', "Von {$check['current']} auf {$check['latest']}, {$files} Dateien aktualisiert");
+
+            // Addon-Phase (#197, Stufe 2): Nach dem Kern werden die aus dem
+            // offiziellen Repo installierten Addons auf den zur ZIEL-Linie
+            // passenden Release-Stand mitgezogen (Reihenfolge Backup -> Kern ->
+            // Addons). Fehler einzelner Addons brechen das bereits angewendete
+            // Kern-Update nicht ab - sie landen in der Ergebnisliste und über
+            // AddonUpdateService im Audit-Log; PROTECTED_PATHS bleibt davon
+            // unberührt (der Kern-Kopiervorgang oben fasst plugins/ nie an,
+            // die Addon-Phase schreibt bewusst über ihren eigenen Weg).
+            $addonPhase = AddonUpdateService::updateOfficialAddonsAfterCoreUpdate($check['latest']);
         } finally {
-            @unlink($zipPath);
+            Maintenance::disable();
         }
-
-        AuditLogger::log('Update angewendet', 'update', "Von {$check['current']} auf {$check['latest']}, {$files} Dateien aktualisiert");
-
-        // Addon-Phase (#197, Stufe 2): Nach dem Kern werden die aus dem
-        // offiziellen Repo installierten Addons auf den zur ZIEL-Linie
-        // passenden Release-Stand mitgezogen (Reihenfolge Backup -> Kern ->
-        // Addons). Fehler einzelner Addons brechen das bereits angewendete
-        // Kern-Update nicht ab - sie landen in der Ergebnisliste und über
-        // AddonUpdateService im Audit-Log; PROTECTED_PATHS bleibt davon
-        // unberührt (der Kern-Kopiervorgang oben fasst plugins/ nie an,
-        // die Addon-Phase schreibt bewusst über ihren eigenen Weg).
-        $addonPhase = AddonUpdateService::updateOfficialAddonsAfterCoreUpdate($check['latest']);
 
         return [
             'from' => $check['current'],
@@ -283,6 +451,249 @@ class UpdateService {
             'addons' => $addonPhase['results'],
             'addons_ref' => $addonPhase['ref'],
         ];
+    }
+
+    /**
+     * Scheduler-Aufgabe `update.check` (alle 3 h): prüft auf neue Kern- und
+     * Addon-Versionen und benachrichtigt die Admins - aber nur bei NEUEN
+     * Funden (siehe computeNewFindings()). Installiert nichts.
+     *
+     * Ein nicht erreichbares GitHub ist hier kein Fehler des Laufs, sondern
+     * schlicht "keine Aussage": Es wird nichts gemeldet und nichts
+     * fortgeschrieben, der nächste Lauf versucht es erneut. Ein geworfener
+     * Fehler würde den Betreiber alle drei Stunden mit einem Audit-Eintrag
+     * über eine Netzstörung behelligen, die ihn nicht betrifft.
+     */
+    public static function runCheckAndNotify(): void {
+        // Grundlage für die Addon-Seite: ohne aufgefrischten Katalog meldete
+        // der Lauf ewig den Stand, den zuletzt jemand im Store abgerufen hat.
+        AddonUpdateService::refreshOfficialCatalog();
+
+        $availableCore = null;
+        try {
+            $check = self::checkForUpdate();
+            if (!empty($check['update_available']) && $check['latest'] !== null) {
+                $availableCore = (string)$check['latest'];
+            }
+        } catch (\Throwable $e) {
+            AuditLogger::log('Update-Prüfung nicht möglich', 'update', $e->getMessage(), null, 'SYSTEM');
+            return;
+        }
+
+        $currentAddonUpdates = [];
+        foreach (AddonOverview::rows() as $row) {
+            if (!empty($row['hasUpdate']) && is_string($row['availableVersion'])) {
+                $currentAddonUpdates[] = ['slug' => (string)$row['slug'], 'version' => $row['availableVersion']];
+            }
+        }
+
+        $settings = self::loadSettings();
+        $previousAddons = json_decode((string)($settings['update_last_notified_addons'] ?? '{}'), true);
+        $findings = self::computeNewFindings(
+            isset($settings['update_last_notified_version']) && $settings['update_last_notified_version'] !== ''
+                ? (string)$settings['update_last_notified_version']
+                : null,
+            $availableCore,
+            is_array($previousAddons) ? $previousAddons : [],
+            $currentAddonUpdates
+        );
+
+        // Den gemeldeten Stand IMMER fortschreiben, auch wenn nichts neu war:
+        // Verschwundene Addon-Updates müssen aus dem Merkzettel fallen, sonst
+        // gälte ein später erneut auftauchendes Update fälschlich als bekannt.
+        self::rememberNotifiedState($availableCore, $findings['nextNotifiedAddons']);
+
+        if (!$findings['coreIsNew'] && $findings['newAddons'] === []) {
+            return;
+        }
+
+        $recipients = self::adminRecipients();
+        if ($recipients === []) {
+            AuditLogger::log(
+                'Update verfügbar, aber kein Empfänger',
+                'update',
+                'Kein Konto in der Gruppe admin hat eine E-Mail-Adresse.',
+                null,
+                'SYSTEM'
+            );
+            return;
+        }
+
+        $mailer = new Mailer();
+        $autoInstall = self::isAutoInstallEnabled();
+        $sent = 0;
+        foreach ($recipients as $recipient) {
+            if ($mailer->sendUpdatesAvailableNotification(
+                $recipient,
+                $findings['coreIsNew'] ? $availableCore : null,
+                $findings['newAddons'],
+                $autoInstall
+            )) {
+                $sent++;
+            }
+        }
+
+        $addonList = implode(', ', array_map(
+            static fn(array $a): string => $a['slug'] . ' ' . $a['version'],
+            $findings['newAddons']
+        ));
+        AuditLogger::log(
+            'Update verfügbar gemeldet',
+            'update',
+            'Kern: ' . ($findings['coreIsNew'] ? (string)$availableCore : '—')
+            . '; Addons: ' . ($addonList !== '' ? $addonList : '—')
+            . "; Benachrichtigt: {$sent}/" . count($recipients),
+            null,
+            'SYSTEM'
+        );
+    }
+
+    /**
+     * Scheduler-Aufgabe `update.auto_install` (täglich): spielt ein
+     * verfügbares Update unbeaufsichtigt ein - die in #85 vorgesehene, aber
+     * nie umgesetzte zweite Stufe.
+     *
+     * Verwendet unverändert performUpdate() und damit dieselbe Reihenfolge
+     * wie der manuelle Knopf (Pflicht-Backup -> Kern -> Addons), inklusive
+     * Wartungsmodus. Ein Fehlschlag wird gemeldet UND weitergeworfen, damit
+     * Scheduler::runDue() ihn zusätzlich zentral protokolliert.
+     */
+    public static function runAutoInstallIfEligible(): void {
+        // Erneute Prüfung zur Laufzeit statt Verlass auf die Registrierung -
+        // gleiches Vorgehen wie BackupService::run()/DigestService::run().
+        if (!self::isAutoInstallEnabled() || !self::inPlaceAllowed()) {
+            return;
+        }
+
+        try {
+            $check = self::checkForUpdate();
+        } catch (\Throwable $e) {
+            // Netzstörung ist kein Update-Fehlschlag - siehe runCheckAndNotify().
+            AuditLogger::log('Automatisches Update: Prüfung nicht möglich', 'update', $e->getMessage(), null, 'SYSTEM');
+            return;
+        }
+
+        if (empty($check['update_available']) || $check['latest'] === null) {
+            return;
+        }
+
+        $scope = self::configuredAutoScope();
+        if (!self::isEligibleForAutoInstall((string)$check['current'], (string)$check['latest'], $scope)) {
+            // Bewusst ohne eigene Mail: Über die Version wurde bereits per
+            // runCheckAndNotify() informiert, und dass sie den gewählten
+            // Rahmen überschreitet, ist genau die gewollte Wirkung der
+            // Einstellung - keine Störung, die gemeldet werden müsste.
+            AuditLogger::log(
+                'Automatisches Update übersprungen',
+                'update',
+                "Version {$check['latest']} liegt außerhalb der Einstellung '{$scope}' (installiert: {$check['current']}).",
+                null,
+                'SYSTEM'
+            );
+            return;
+        }
+
+        $recipients = self::adminRecipients();
+        $mailer = new Mailer();
+
+        try {
+            $result = self::performUpdate();
+        } catch (\Throwable $e) {
+            foreach ($recipients as $recipient) {
+                $mailer->sendAutoUpdateNotification(
+                    $recipient,
+                    false,
+                    (string)$check['current'],
+                    (string)$check['latest'],
+                    $e->getMessage()
+                );
+            }
+            AuditLogger::log('Automatisches Update fehlgeschlagen', 'update', $e->getMessage(), null, 'SYSTEM');
+            throw $e;
+        }
+
+        $summary = AddonUpdateService::summarizeFailures($result['addons']);
+        foreach ($recipients as $recipient) {
+            $mailer->sendAutoUpdateNotification(
+                $recipient,
+                true,
+                (string)$result['from'],
+                (string)$result['to'],
+                null,
+                $summary['reasons']
+            );
+        }
+
+        AuditLogger::log(
+            'Automatisches Update eingespielt',
+            'update',
+            "Von {$result['from']} auf {$result['to']}, {$result['files']} Dateien"
+            . ($summary['reasons'] !== [] ? '; Addon-Probleme: ' . implode(' | ', $summary['reasons']) : ''),
+            null,
+            'SYSTEM'
+        );
+    }
+
+    /**
+     * Schreibt fest, worüber bereits benachrichtigt wurde.
+     */
+    private static function rememberNotifiedState(?string $coreVersion, array $addons): void {
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?"
+        );
+
+        $core = $coreVersion ?? '';
+        $stmt->execute(['update_last_notified_version', $core, $core]);
+
+        $json = (string)json_encode($addons);
+        $stmt->execute(['update_last_notified_addons', $json, $json]);
+    }
+
+    /**
+     * E-Mail-Adressen aller Admin-Konten. Bewusst die tatsächlichen Admins
+     * statt der Einstellung `admin_notification_email`: Die ist für
+     * DSGVO-Anfragen gedacht, häufig leer und fällt dann still auf eine
+     * Beispieladresse zurück - eine Update-Meldung ginge damit ins Leere,
+     * ohne dass es jemandem auffiele.
+     *
+     * @return array<int, string>
+     */
+    private static function adminRecipients(): array {
+        try {
+            $rows = Database::getInstance()->query("
+                SELECT DISTINCT u.email
+                FROM users u
+                JOIN user_groups ug ON ug.user_id = u.id
+                JOIN `groups` g ON g.id = ug.group_id
+                WHERE g.slug = 'admin' AND u.deleted_at IS NULL AND u.email <> ''
+            ")->fetchAll(\PDO::FETCH_COLUMN);
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('strval', $rows)));
+    }
+
+    private static function inPlaceAllowed(): bool {
+        return !defined('UPDATE_IN_PLACE') || UPDATE_IN_PLACE;
+    }
+
+    private static ?string $baseDirOverride = null;
+
+    /**
+     * Nur für Tests: Zielverzeichnis des Kern-Updates umbiegen (analog
+     * BackupService::overrideUploadsDirForTests()), damit ein Integrationstest
+     * den vollständigen performUpdate()-Ablauf fahren kann, ohne den
+     * Codebaum des Arbeitsverzeichnisses zu überschreiben. `null` stellt den
+     * Normalzustand wieder her.
+     */
+    public static function overrideBaseDirForTests(?string $dir): void {
+        self::$baseDirOverride = $dir;
+    }
+
+    private static function baseDir(): string {
+        return self::$baseDirOverride ?? dirname(__DIR__, 2);
     }
 
     /**
@@ -679,7 +1090,6 @@ class UpdateService {
         $body = curl_exec($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         $error = curl_error($ch);
-        curl_close($ch);
 
         if ($body === false) {
             throw new \RuntimeException("Update-Server nicht erreichbar: {$error}");

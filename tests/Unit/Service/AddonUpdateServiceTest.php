@@ -97,6 +97,69 @@ class AddonUpdateServiceTest extends TestCase {
         $this->assertNull($resolved['error']);
     }
 
+    // ---- summarizeFailures ---------------------------------------------
+
+    /**
+     * Der häufigste Fall (#290): Fehlt der Release-Tag zur Ziel-Linie,
+     * scheitern ALLE Addons mit demselben Text. Die Update-Seite soll den
+     * Grund einmal nennen, aber alle betroffenen Slugs auflisten.
+     */
+    public function testSummarizeFailuresDeduplicatesIdenticalReasons(): void {
+        $summary = AddonUpdateService::summarizeFailures([
+            ['slug' => 'addon-a', 'ok' => false, 'error' => 'Kein Addon-Release zur Linie 0.6.'],
+            ['slug' => 'addon-b', 'ok' => false, 'error' => 'Kein Addon-Release zur Linie 0.6.'],
+        ]);
+
+        $this->assertSame(['Kein Addon-Release zur Linie 0.6.'], $summary['reasons']);
+        $this->assertSame(['addon-a', 'addon-b'], $summary['slugs']);
+    }
+
+    /**
+     * Unterschiedliche Ursachen dürfen NICHT zu einer verschmelzen - sonst
+     * behebt der Betreiber die eine und wundert sich über das bleibende
+     * Problem der anderen.
+     */
+    public function testSummarizeFailuresKeepsDistinctReasonsApart(): void {
+        $summary = AddonUpdateService::summarizeFailures([
+            ['slug' => 'addon-a', 'ok' => true, 'error' => null],
+            ['slug' => 'addon-b', 'ok' => false, 'error' => 'Kein Addon-Release zur Linie 0.6.'],
+            ['slug' => 'addon-c', 'ok' => false, 'error' => "Addon 'addon-c' ist im bezogenen Stand nicht (mehr) enthalten."],
+        ]);
+
+        $this->assertCount(2, $summary['reasons']);
+        $this->assertContains('Kein Addon-Release zur Linie 0.6.', $summary['reasons']);
+        $this->assertSame(['addon-b', 'addon-c'], $summary['slugs']);
+    }
+
+    public function testSummarizeFailuresIsEmptyWhenEverythingSucceeded(): void {
+        $summary = AddonUpdateService::summarizeFailures([
+            ['slug' => 'addon-a', 'ok' => true, 'error' => null],
+            ['slug' => 'addon-b', 'ok' => true, 'error' => null],
+        ]);
+
+        $this->assertSame([], $summary['reasons']);
+        $this->assertSame([], $summary['slugs']);
+    }
+
+    public function testSummarizeFailuresHandlesEmptyResultList(): void {
+        $summary = AddonUpdateService::summarizeFailures([]);
+
+        $this->assertSame([], $summary['reasons']);
+        $this->assertSame([], $summary['slugs']);
+    }
+
+    /**
+     * Ein Fehlschlag ohne Text darf nicht als leerer Aufzählungspunkt in der
+     * Oberfläche landen - dann stünde dort ein Spiegelstrich ohne Aussage.
+     */
+    public function testSummarizeFailuresSubstitutesMissingErrorText(): void {
+        $summary = AddonUpdateService::summarizeFailures([
+            ['slug' => 'addon-a', 'ok' => false, 'error' => null],
+        ]);
+
+        $this->assertSame(['Unbekannter Fehler.'], $summary['reasons']);
+    }
+
     // ---- updateAddonFromTarball ---------------------------------------
 
     public function testUpdateAddonFromTarballReplacesInstalledVersion(): void {

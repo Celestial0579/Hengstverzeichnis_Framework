@@ -6,7 +6,7 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [Unreleased]
+## [0.5.2] – 2026-08-16
 
 ### Sicherheit
 

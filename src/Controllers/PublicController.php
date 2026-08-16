@@ -7,6 +7,34 @@ use App\Database;
 
 class PublicController extends BaseController {
 
+    /**
+     * Ganzzahliger Anfrageparameter - validiert, nicht umgedeutet.
+     *
+     * Ersetzt das Muster "(int)($_GET['x'] ?? n)". Zwei Gruende:
+     *
+     * Fachlich lehnt filter_var ab, was keine Zahl IST, statt sie
+     * umzudeuten: "abc" wurde zu 0, "3x" zu 3. Der Standardwert steht jetzt
+     * an einer Stelle und gilt fuer fehlend UND unbrauchbar gleichermassen.
+     *
+     * Und die Bereinigung ist von aussen sichtbar. Ein Cast mitten im
+     * Ausdruck ist fuer eine statische Analyse keine erkennbare Bereinigung -
+     * die Seitenzahl floss deshalb als "Nutzerdaten" bis in die
+     * JSON-Ausgabe des Katalog-Nachladens und liess dort eine XSS-Regel
+     * anschlagen. Der Befund war inhaltlich falsch (ausgegeben wird eine
+     * Ganzzahl in einem JSON-Rumpf), die Ursache aber echt. Statt die Meldung
+     * abzuschalten, ist die Zusage jetzt hinter einer Methode mit
+     * int-Rueckgabetyp nachpruefbar - fuer Menschen wie fuer Werkzeuge.
+     */
+    private static function requestInt(string $name, int $default, ?int $min = null): int {
+        $optionen = ['default' => $default];
+        if ($min !== null) {
+            $optionen['min_range'] = $min;
+        }
+        $wert = filter_var($_GET[$name] ?? $default, FILTER_VALIDATE_INT, ['options' => $optionen]);
+        return is_int($wert) ? $wert : $default;
+    }
+
+
     public function index(): void {
         // Fetch some recent or featured horses for the homepage - nur veröffentlichte
         // (is_published), und nur wenn die Gast-Gruppe Pferde überhaupt sehen darf
@@ -34,8 +62,8 @@ class PublicController extends BaseController {
         $search = trim($_GET['search'] ?? '');
         $qName = trim($_GET['q_name'] ?? '');
         $qUeln = trim($_GET['q_ueln'] ?? '');
-        $birthYearFrom = !empty($_GET['birth_year_from']) ? (int)$_GET['birth_year_from'] : null;
-        $birthYearTo = !empty($_GET['birth_year_to']) ? (int)$_GET['birth_year_to'] : null;
+        $birthYearFrom = !empty($_GET['birth_year_from']) ? self::requestInt('birth_year_from', 0) : null;
+        $birthYearTo = !empty($_GET['birth_year_to']) ? self::requestInt('birth_year_to', 0) : null;
         $qColor = trim($_GET['q_color'] ?? '');
         // Geschlechtsfilter (#165): Whitelist gegen die ENUM-Werte, alles andere
         // gilt als "kein Filter".
@@ -214,7 +242,7 @@ class PublicController extends BaseController {
         $horses = [];
         $totalHorses = 0;
         $totalPages = 1;
-        $page = max(1, (int)($_GET['page'] ?? 1));
+        $page = self::requestInt('page', 1, 1);
 
         if ($this->hasPermission('horses', 'view')) {
             // Echte SQL-Pagination statt "alle Treffer laden" (#125).
@@ -302,19 +330,6 @@ class PublicController extends BaseController {
             include __DIR__ . '/../Views/public_catalog_cards.php';
             $cardsHtml = ob_get_clean();
 
-            // Begründung (die Unterdrückung gilt bewusst nur für diese eine Stelle):
-            // Die Regel arbeitet im Taint-Modus mit $_GET als Quelle und `echo` als
-            // Senke; ihre Sanitizer-Liste kennt ausschließlich HTML-Escaper
-            // (htmlentities, htmlspecialchars, strip_tags …). Ein (int)-Cast steht
-            // nicht darauf, deshalb bleibt $page für sie bis hierher "tainted" —
-            // obwohl es in Zeile 217 hart nach int gecastet und über max()/min()
-            // auf 1..$totalPages eingegrenzt wird. Ausgegeben wird eine Ganzzahl in
-            // einem application/json-Rumpf, nicht in HTML: Ein XSS-Vektor besteht
-            // hier nicht. Der von der Regel vorgeschlagene Autofix (htmlentities um
-            // json_encode) würde die Antwort zerstören.
-            // Die Seitenzahl wegzulassen ist keine Alternative — der Client kennt
-            // CATALOG_PER_PAGE nicht und soll es nicht doppelt führen (#264).
-            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
             echo json_encode([
                 'success' => true,
                 'count' => $totalHorses,

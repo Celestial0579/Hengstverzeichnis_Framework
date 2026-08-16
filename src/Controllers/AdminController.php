@@ -163,10 +163,16 @@ class AdminController extends BaseController {
                 $isHttpWarning = true;
             }
 
-            $baseUrl = rtrim($baseUrl, '/') . '/';
-
-            $parsedUrl = parse_url($baseUrl);
-            $host = $parsedUrl['host'] ?? '';
+            // Gespeichert wird der GEPRUEFTE Wert, nicht die Eingabe.
+            //
+            // Vorher lief die Pruefung auf rtrim($baseUrl, '/') und abgelegt
+            // wurde $baseUrl - geprueft und gespeichert waren also zwei
+            // verschiedene Zeichenketten. Das ist genau die Bauart, bei der
+            // eine spaetere Aenderung an einer der beiden Stellen unbemerkt
+            // auseinanderlaeuft. filter_var liefert die Adresse bei Erfolg
+            // zurueck; dieser Rueckgabewert ist ab hier die einzige Quelle.
+            $geprueft = filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL);
+            $host = is_string($geprueft) ? (string) (parse_url($geprueft, PHP_URL_HOST) ?? '') : '';
 
             // Verteidigung in die Tiefe (OWASP SSRF Cheat Sheet): "localhost" sowie
             // literale private/reservierte IPs als Host blockieren. base_url wird
@@ -178,14 +184,16 @@ class AdminController extends BaseController {
                 && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
 
             if (
-                filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL) === false
-                || empty($host)
+                !is_string($geprueft)
+                || $host === ''
                 || strcasecmp($host, 'localhost') === 0
                 || $isPrivateOrLoopbackIp
             ) {
                 header("Location: /admin/system-settings?error=invalid_base_url");
                 exit;
             }
+
+            $baseUrl = $geprueft . '/';
         }
 
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('base_url', ?) ON DUPLICATE KEY UPDATE setting_value = ?");

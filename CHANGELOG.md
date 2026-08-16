@@ -6,6 +6,35 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Sicherheit
+
+- **Anfrageparameter werden validiert statt umgedeutet** (`PublicController::requestInt()`).
+  Das Muster `(int)($_GET['x'] ?? n)` machte aus `"abc"` eine 0 und aus `"3x"`
+  eine 3; der Standardwert galt nur für „fehlt", nicht für „unbrauchbar".
+  `filter_var` mit `FILTER_VALIDATE_INT` lehnt ab, was keine Zahl **ist**.
+  Betrifft die Katalog-Seitenzahl und die Geburtsjahr-Filter.
+- **`base_url` speichert den geprüften Wert.** Die Prüfung lief auf
+  `rtrim($baseUrl, '/')`, abgelegt wurde `$baseUrl` — geprüft und gespeichert
+  waren zwei verschiedene Zeichenketten. Jetzt ist der Rückgabewert von
+  `filter_var(..., FILTER_VALIDATE_URL)` die einzige Quelle.
+- **Die einzige `nosemgrep`-Unterdrückung im Kern ist entfernt** — samt
+  Ursache. Sie stand seit `4d37b67` an der JSON-Ausgabe des
+  Katalog-Nachladens, weil die Taint-Analyse den `(int)`-Cast nicht als
+  Bereinigung erkennt. Mit der Validierung oben entfällt der Grund: Der Scan
+  ist ohne Ausnahme sauber. Eine Meldung abzuschalten behebt nichts — sie
+  nimmt nur die Sicht darauf, dass dem Code die Bereinigung nicht anzusehen
+  war.
+
+### Geändert
+
+- **`pre-commit` in der CI auf eine feste Version genagelt** (`==4.6.2`).
+  Ein unversioniertes `pip install` zieht bei jedem Lauf, was gerade neu ist —
+  dann entscheidet der Zeitpunkt mit darüber, was geprüft wird. OpenSSF
+  Scorecard meldete das als `Pinned-Dependencies`; es war eine Regression
+  gegen die Pinning-Disziplin, die hier sonst überall gilt.
+
 ## [0.5.1] – 2026-08-16
 
 ### Sicherheit

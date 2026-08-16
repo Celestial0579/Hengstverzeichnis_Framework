@@ -24,6 +24,19 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
   (`/2fa/reauth`, Freischaltung 10 Minuten gültig). Secret und Backup-Codes
   entstehen ausschließlich serverseitig und liegen bis zur Bestätigung in der
   Session - POST-Werte des Clients werden ignoriert.
+- **Alle Nachweise der 2FA-Einrichtung tragen die Konto-ID.** Zwei
+  Session-Werte können ein Konto benennen und dabei auf verschiedene zeigen:
+  `pending_2fa_user_id` (Faktor 1 des laufenden Logins) und `user_id` (eine
+  bestehende Anmeldung). Welches Konto gemeint ist, beantwortet deshalb genau
+  eine Stelle (`AuthController::twofaTargetUserId()`), und jede Prüfung
+  vergleicht ausdrücklich dagegen: Die Step-up-Freigabe (`twofa_reauth`) und
+  das vorbereitete Secret (`totp_setup`) gelten nur für das Konto, für das sie
+  entstanden sind, und bei aktiver 2FA muss die Sitzung als **dieses** Konto
+  angemeldet sein. Ein neuer Passwort-Login löst zudem jede bestehende
+  Anmeldung derselben Sitzung ab, damit erst gar keine zwei Identitäten
+  nebeneinander laufen. Ohne diese Bindung hätte der Step-up des einen Kontos
+  die Neukonfiguration eines anderen bezahlt - abgedeckt durch
+  `tests/Functional/TwoFaCrossAccountTest.php`.
 - **TOTP-Replay-Schutz (#111):** Jeder erfolgreich verwendete Code verbraucht
   seinen 30s-Zeitschlitz (`users.last_totp_timeslice`);
   `Totp::verifyCodeReturnSlice()` lehnt bereits verbrauchte und ältere
@@ -44,6 +57,13 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
     reduziert das Fenster für Session-Fixation-Angriffe.
   - **Erzwungene Passwortänderung:** `must_change_password`-Flag blockiert
     alle Routen außer `/force-password-change` und `/logout`.
+    `/force-password-change` selbst läuft durch dieselbe `checkAuth()`-Prüfung
+    wie jede andere geschützte Route (die Ausnahme oben betrifft nur die
+    Weiterleitung) und verlangt zusätzlich das bisherige Passwort - sonst wäre
+    ausgerechnet diese Route der Rückweg aus der Session-Invalidierung
+    darunter: Wer eine invalidierte Sitzung hält, setzte dort ein neues
+    Passwort und schriebe sich die frische `session_version` selbst zurück.
+    Abgedeckt durch `tests/Functional/ForcePasswordChangeGuardTest.php`.
   - **Session-Invalidierung bei Passwortänderung (#113):** `users.session_version`
     wird bei jeder Passwortänderung (Reset per Mail-Token, erzwungener Wechsel,
     Admin-Änderung) erhöht; `checkAuth()` vergleicht den beim Login in der
@@ -153,11 +173,32 @@ bevor `ClientIp` sie liest.
 
 ### `APP_ENV`-Default
 
-Existiert `config/db_config.php` (App wurde über den Setup-Wizard
-eingerichtet), gilt ohne explizite `APP_ENV`-Angabe automatisch `production`
-(keine PHP-Fehlerdetails an Besucher). Nur ein komplett unkonfigurierter
-Checkout ohne Env-Variable und ohne `db_config.php` gilt als lokale
-Entwicklungsumgebung (`development`, Fehler werden angezeigt).
+Ist die Instanz überhaupt konfiguriert - also entweder über
+DB-Umgebungsvariablen (`DB_HOST`/`DB_USER`/`DB_NAME`/`DB_PASS`) **oder** über
+`config/db_config.php` -, gilt ohne explizite `APP_ENV`-Angabe automatisch
+`production` (keine PHP-Fehlerdetails an Besucher). Nur ein komplett
+unkonfigurierter Checkout gilt als lokale Entwicklungsumgebung
+(`development`, Fehler werden angezeigt).
+
+Die Prüfung hing zunächst allein an der Existenz von `db_config.php`. Damit
+fiel ausgerechnet der in der README als Variante A beschriebene Weg -
+Konfiguration rein über Umgebungsvariablen, also der Container-Betrieb - auf
+`development` zurück: `display_errors` an, und der erste PDO-Fehler zeigte dem
+Besucher DSN samt Datenbankbenutzer. Wer nach Anleitung installiert, darf
+nicht in der unsichereren Betriebsart landen.
+
+### Fehlerprotokollierung (`App\Service\ErrorHandler`)
+
+Anzeige und Protokollierung sind getrennt: `error_reporting` steht in **jeder**
+Umgebung auf `E_ALL` und `log_errors` ist immer an; nur `display_errors` hängt
+an `APP_ENV`. Zuvor setzte die Produktionsumgebung `error_reporting(0)` - die
+Stufe ist aber die Maske für beides, es wurde also auch nichts mehr
+protokolliert. Zusammen mit dem fehlenden Exception-Handler hieß das: Eine
+unbehandelte `PDOException` lieferte eine leere Seite und hinterließ nirgends
+eine Spur (OWASP A09). Registriert sind ein `set_exception_handler` und eine
+`register_shutdown_function` für fatale Fehler; beide schreiben nach
+`error_log()` - bewusst nicht in die Datenbank, weil genau sie der Ausfall
+sein kann - und liefern eine schlichte 500-Seite ohne Details.
 
 ## Security-Header & CSP (`config/config.php`)
 
@@ -270,6 +311,21 @@ Routen `/auth/entra*` nicht erreichbar und der Login-Button erscheint nicht.
   der Identity-Provider bringt eigene MFA-Richtlinien mit. Die
   Session-Härtung (`App\Service\LoginSession`) ist identisch zum lokalen
   Login, inkl. Session-Invalidierung bei Passwortänderung (#113).
+- **`email_verified` wird ausgewertet.** Die E-Mail-Adresse ist der einzige
+  Anknüpfungspunkt an das lokale Konto. Sagt der Provider ausdrücklich, dass
+  sie ihm nicht nachgewiesen wurde, wird der Claim verworfen — bei einem IdP
+  mit Selbstregistrierung (Keycloak, Authentik) genügte es sonst, sich dort
+  mit der Adresse eines Administrators anzulegen. Ein **fehlender** Claim
+  bleibt akzeptiert: Entra ID sendet ihn für Geschäftskonten nicht, und dort
+  vergibt ohnehin nur der Tenant-Administrator Adressen.
+  - **Restrisiko `preferred_username`:** Fehlt der `email`-Claim ganz, gilt
+    ersatzweise `preferred_username` (bei Entra der UPN). OIDC Core 5.7 nennt
+    ihn weder eindeutig noch unveränderlich; er bleibt nur deshalb, weil
+    Entra die E-Mail als optionalen Claim ausliefert und ein Entfernen
+    bestehende Installationen aussperren würde. Ein vorhandener, aber
+    unbestätigter `email`-Claim weicht **nicht** mehr auf ihn aus. Wer einen
+    IdP mit Selbstregistrierung betreibt, sollte den `email`-Claim samt
+    `email_verified` ausliefern lassen.
 - **Redirect-URI** beim Provider: `<Stamm-URL>/auth/entra/callback` — der
   Pfad heißt aus Kompatibilität zu bestehenden Entra-App-Registrierungen
   für alle Provider gleich.

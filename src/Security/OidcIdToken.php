@@ -74,15 +74,55 @@ final class OidcIdToken {
      * Extrahiert die E-Mail-Adresse aus den Claims: `email` bevorzugt, sonst
      * `preferred_username` (bei Entra ID üblicherweise der UPN), sofern es wie
      * eine E-Mail-Adresse aussieht.
+     *
+     * WARUM `email_verified` HIER ZÄHLT: Die Adresse ist der einzige
+     * Anknüpfungspunkt an das lokale Konto (EntraSsoController sucht
+     * `WHERE email = ?`). Ein Provider mit Selbstregistrierung - Keycloak,
+     * Authentik - lässt einen Benutzer beim Anlegen eine beliebige Adresse
+     * eintragen. Sagt der Provider ausdrücklich, dass sie ihm NICHT
+     * nachgewiesen wurde, ist der Claim eine Behauptung des Angreifers und
+     * kein Identitätsnachweis: Es genügte, sich dort mit der Adresse eines
+     * Administrators zu registrieren. Fehlt der Claim ganz, wird er
+     * akzeptiert - Entra ID sendet ihn für Geschäftskonten nicht, und dort
+     * vergibt ohnehin nur der Tenant-Administrator Adressen.
+     *
+     * RESTRISIKO `preferred_username`: OIDC Core 5.7 nennt den Claim
+     * ausdrücklich weder eindeutig noch unveränderlich. Er bleibt als
+     * Rückfall erhalten, weil Entra ID die E-Mail nur als optionalen Claim
+     * ausliefert und ohne ihn der UPN die einzige Quelle ist - ein Entfernen
+     * würde bestehende, funktionierende Installationen aussperren. Er greift
+     * jetzt nur noch, wenn gar kein `email`-Claim vorliegt: Ein vorhandener,
+     * aber unbestätigter `email`-Claim führt zur Ablehnung statt zum
+     * Ausweichen auf den schwächeren Wert.
      */
     public static function extractEmail(array $claims): ?string {
-        foreach (['email', 'preferred_username'] as $claim) {
-            $value = trim((string)($claims[$claim] ?? ''));
-            if ($value !== '' && filter_var($value, FILTER_VALIDATE_EMAIL) !== false) {
-                return $value;
+        $email = trim((string)($claims['email'] ?? ''));
+        if ($email !== '') {
+            if (self::claimsSayEmailUnverified($claims)) {
+                return null;
             }
+            return filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : null;
         }
+
+        $upn = trim((string)($claims['preferred_username'] ?? ''));
+        if ($upn !== '' && filter_var($upn, FILTER_VALIDATE_EMAIL) !== false) {
+            return $upn;
+        }
+
         return null;
+    }
+
+    /**
+     * Sagt der Provider ausdrücklich, dass die Adresse unbestätigt ist?
+     * Nur ein ausdrückliches Nein zählt - ein fehlender Claim ist keine
+     * Aussage. Der Wert kommt je nach Provider als Boolean, als String oder
+     * als 0/1 an.
+     */
+    private static function claimsSayEmailUnverified(array $claims): bool {
+        if (!array_key_exists('email_verified', $claims)) {
+            return false;
+        }
+        return filter_var($claims['email_verified'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== true;
     }
 
     private static function base64UrlDecode(string $data): string {

@@ -8,6 +8,48 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **Kern-Update prüft die Prüfsumme des Archivs, bevor es angewendet wird.**
+  Das Update überschreibt den gesamten Codebaum - was durchkommt, läuft danach
+  als PHP. Geprüft wird gegen die `SHA256SUMS.txt`, die der Release-Workflow
+  ohnehin miterzeugt; fehlt die Datei oder der Eintrag zum Zip, wird nicht
+  aktualisiert (fail-closed). Das ist eine Integritäts-, keine Echtheitsprüfung
+  — Archiv und Prüfsumme stammen aus derselben Quelle —, fängt aber
+  abgebrochene und unterwegs veränderte Downloads sowie zur Version
+  unpassende Assets ab. Die Echtheit trägt weiterhin die TLS-Verbindung zur
+  fest verdrahteten `api.github.com`-URL.
+- **Der Updater spricht nur noch HTTPS**, auch nach einer Umleitung
+  (`CURLOPT_PROTOCOLS_STR`/`CURLOPT_REDIR_PROTOCOLS_STR`). Zuvor konnte eine
+  302 auf `http://` oder `file://` aus dem gesicherten Transport herausführen.
+  In der Entwicklungsumgebung bleibt `http` erlaubt, weil die Funktionstests
+  ihr Release-Fixture über einen lokalen `php -S` ohne TLS ausliefern.
+- **`UPDATE_RELEASES_URL` greift nur noch in der Entwicklungsumgebung.** Die
+  Variable ist ein Test-/Staging-Hilfsmittel; in Produktion bestimmt sie, woher
+  der Code kommt, der die Installation überschreibt. Eine ignorierte
+  Übersteuerung wird protokolliert, damit sie nicht still wirkungslos bleibt.
+- **WebDAV folgt keinen Umleitungen mehr.** PHP hängt beim Folgen die gesetzten
+  Header unverändert an die neue Anfrage — also auch den
+  `Authorization`-Header mit den Basic-Zugangsdaten, und das an einen Host, den
+  die Antwort des Servers bestimmt. Eine Umleitung fällt jetzt in die
+  Statusprüfung und wird als Fehler gemeldet; ein dauerhaft umleitender Server
+  gehört mit seiner Zieladresse in die Konfiguration.
+- **FTPS: fehlende Zertifikatsprüfung benannt.** `ftp_ssl_connect()`
+  verschlüsselt, prüft das Serverzertifikat aber nicht, und PHPs
+  FTP-Erweiterung bietet dafür keine Einstellung — das ist nicht
+  wegzuprogrammieren. Der Admin-Bereich weist am FTPS-Abschnitt jetzt darauf
+  hin und empfiehlt WebDAV oder S3, wo beide das Zertifikat prüfen.
+
+### Behoben
+
+- **Ein abgebrochenes Kern-Update hinterlässt keinen Mischstand mehr.** Der
+  Kopiervorgang lief additiv über die laufende Installation; brach er in der
+  Mitte ab, blieben zwei Versionen nebeneinander liegen — und genau dieser
+  Baum wird als Nächstes ausgeführt. Jetzt prüft eine Vorabprüfung erst alle
+  Zielpfade, und ein Journal aus Sicherungskopien rollt zurück, was die
+  Vorabprüfung nicht vorhersehen kann (volle Platte, entzogene Rechte mitten
+  im Lauf). Neuer Test in `UpdateServiceTest`.
+
 ### Hinzugefügt
 
 - **Zeitreihen-Endpunkt `GET /api/stats`** für externe Dashboards (#270).

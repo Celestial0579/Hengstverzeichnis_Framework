@@ -137,6 +137,19 @@ final class FtpsClient implements BackupTarget {
             throw new \RuntimeException('PHP-FTP-Extension (mit SSL-Unterstützung) ist auf diesem Server nicht verfügbar.');
         }
 
+        // BEKANNTE GRENZE: ftp_ssl_connect() verschlüsselt die Verbindung,
+        // prüft das Serverzertifikat aber NICHT - und PHPs FTP-Erweiterung
+        // bietet dafür keine Einstellung (kein ftp_set_option dafür,
+        // openssl.cafile wirkt hier nicht, der eigene SSL-Kontext der
+        // Erweiterung verifiziert grundsätzlich nicht). Vertraulichkeit ja,
+        // Authentizität nein: Wer sich in die Verbindung setzen kann, kann
+        // sich mit einem beliebigen Zertifikat als der Backup-Server ausgeben
+        // und bekommt Zugangsdaten und Sicherung.
+        //
+        // Deshalb ist das hier nicht wegzuprogrammieren, sondern zu benennen:
+        // Der Hinweis steht im Admin-Bereich am FTPS-Abschnitt und in
+        // docs/security.md. Wer die Wahl hat, nimmt WebDAV oder S3 - dort
+        // prüfen die verwendeten Stream-/curl-Wege das Zertifikat.
         $conn = @ftp_ssl_connect($this->host, $this->port, 10);
         if ($conn === false) {
             throw new \RuntimeException("FTPS-Verbindung zu {$this->host}:{$this->port} fehlgeschlagen.");

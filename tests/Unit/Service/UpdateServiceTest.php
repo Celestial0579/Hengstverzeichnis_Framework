@@ -148,6 +148,52 @@ class UpdateServiceTest extends TestCase {
     }
 
     /**
+     * Bricht das Kopieren mitten im Baum ab, muss die Installation auf dem
+     * Stand VOR dem Update stehen - vorher blieb ein Mischstand aus zwei
+     * Versionen zurück, und genau der wird als Nächstes ausgeführt.
+     *
+     * Der Abbruch wird über eine Kollision erzwungen: Im Ziel liegt unter dem
+     * Namen, den das Archiv für eine Datei verwendet, ein Verzeichnis - dort
+     * scheitert jedes copy(). Bewusst NICHT über entzogene Schreibrechte:
+     * Läuft die Suite als root (Container, CI), überfährt der Prozess
+     * chmod 0444 einfach, und der Test prüfte nichts.
+     *
+     * Zwei Mechanismen greifen hier nacheinander, und der Test prüft das
+     * Ergebnis, nicht welcher von beiden es war: die Vorabprüfung, die den
+     * Konflikt findet, bevor die erste Datei angefasst wird, und das
+     * Rückrollen aus dem Journal für alles, was sie nicht vorhersehen kann
+     * (volle Platte, entzogene Rechte mitten im Lauf).
+     */
+    public function testApplyUpdateArchiveRollsBackWhenItCannotFinish(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        mkdir($target . '/src/Kollision.php', 0755, true);
+        file_put_contents($target . '/index.php', 'ALTE VERSION');
+        file_put_contents($target . '/src/Bestand.php', 'ALTE DATEI');
+
+        $zipPath = $this->makeZip([
+            'hengstverzeichnis-framework-9.9.9/index.php' => 'NEUE VERSION',
+            'hengstverzeichnis-framework-9.9.9/src/Bestand.php' => 'NEUE DATEI',
+            'hengstverzeichnis-framework-9.9.9/src/Kollision.php' => 'GEHT NICHT',
+        ]);
+
+        $thrown = null;
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertNotNull($thrown, 'Das Update muss mit einer Ausnahme abbrechen');
+
+        // Die Installation steht auf dem Stand von vorher - nichts
+        // halb Aktualisiertes, nichts Neues liegengeblieben.
+        $this->assertSame('ALTE VERSION', file_get_contents($target . '/index.php'));
+        $this->assertSame('ALTE DATEI', file_get_contents($target . '/src/Bestand.php'));
+    }
+
+    /**
      * @param array<string, string> $files Pfad im Archiv => Inhalt
      */
     private function makeZip(array $files): string {

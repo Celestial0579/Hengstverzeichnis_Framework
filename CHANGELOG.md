@@ -195,6 +195,32 @@ Breaking Changes sind jederzeit möglich).
   für deren Dauer durch einen Platzhalter geschützt; zusätzlich muss die URL
   als `http(s)`-URL durchgehen, sonst bleibt sie Text.
 
+### Behoben (Performance)
+
+- **Die Bildauslieferung serialisierte sich selbst.** `/media/horse-image`
+  läuft durch den vollen Front-Controller, der für jeden Request eine Sitzung
+  startet - und PHPs Standard-Sitzungsspeicher hält die Sitzungsdatei bis zum
+  Ende des Requests exklusiv gesperrt. Eine Katalogseite fordert zwei Dutzend
+  Bilder über diesen Endpunkt an; statt parallel ausgeliefert zu werden,
+  reihten sie sich hintereinander auf. `session_write_close()` vor `readfile()`
+  gibt das Schloss frei, sobald die Sichtbarkeitsprüfung durch ist.
+- **Der Stammbaum-Cache wird nicht mehr bei jedem Aufruf weggeworfen.**
+  `PedigreeBuilder::build()` leerte seine Memoisierung zu Beginn jedes
+  Top-Level-Aufrufs, mit der Begründung, dass sonst „zwischen Requests/Tests
+  veraltete Daten hängen bleiben" - zwischen Requests kann eine statische
+  Eigenschaft das gar nicht. Innerhalb eines Requests kostete es: Die
+  Detailseite baut einen Baum, Addons wie `inzuchtkoeffizient` oder
+  `genealogie-vergleich` bauen im selben Request weitere über weitgehend
+  dieselben Vorfahren, und jeder fing wieder bei null an. Für Tests und
+  Import-/Migrationswege gibt es jetzt `PedigreeBuilder::resetCache()`.
+- **Das Pferdeformular lädt die Eltern-Auswahl nicht mehr unbegrenzt.**
+  „Neues Pferd" und „Pferd bearbeiten" holten die komplette `horses`-Tabelle
+  (fünf Spalten je Zeile) und rendern sie zweimal als `<option>`-Liste, das
+  Geschlecht erst in der Schleife in PHP gefiltert - bei jedem Aufruf, auch
+  wenn niemand die Eltern anfasst. Jetzt gedeckelt; bereits gesetzte Eltern
+  werden gezielt nachgeladen, damit die gespeicherte Zuordnung nicht still auf
+  „kein Elternteil" zurückfällt.
+
 ### Hinzugefügt
 
 - **Zeitreihen-Endpunkt `GET /api/stats`** für externe Dashboards (#270).

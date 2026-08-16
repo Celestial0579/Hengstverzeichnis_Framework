@@ -10,6 +10,24 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- **`frame-src` in der Content-Security-Policy**, mit `CAPTCHA_DOMAINS` als
+  Erweiterungspunkt für einen externen CAPTCHA-Anbieter (Voraussetzung für ein
+  Addon auf Basis der Hooks aus #258). Die Policy hatte bisher **überhaupt kein
+  `frame-src`** — es griff der Rückfall auf `default-src 'self'`, und das
+  Widget von Turnstile oder hCaptcha (beide rendern in einem iframe) wäre
+  lautlos leer geblieben. `TRACKING_DOMAINS` hilft dabei nicht: Es erweitert
+  `script-src`/`img-src`/`connect-src`, der Rahmen bliebe gesperrt, das Skript
+  lüde und scheiterte danach.
+  - Eigener Wert statt `TRACKING_DOMAINS`, weil es zwei verschiedene
+    Entscheidungen sind: Wer Tracking zulässt, will damit nicht automatisch
+    fremde Rahmen zulassen.
+  - `frame-src` wird jetzt **ausdrücklich** gesetzt, auch ohne Konfiguration.
+    Gleiche Wirkung wie der Rückfall, aber sichtbar — wer die Policy liest,
+    sieht, dass fremde Rahmen gesperrt sind, statt den Fehler anderswo zu
+    suchen.
+
+### Hinzugefügt
+
 - Minimal-Layout für einbettbare Ansichten und eine **Domain-Allowlist** für
   die Frame-Sperre (#260). Voraussetzung für ein Embed-Widget als Addon.
   - `?embed=1` am Katalog rendert `layout_embed.php`: ohne Kopfbereich,

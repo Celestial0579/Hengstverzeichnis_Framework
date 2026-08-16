@@ -64,6 +64,7 @@ class TwoFaGroupPolicyTest extends FunctionalTestCase {
         $forcePage = $client->get('/force-password-change');
         $changeResponse = $client->post('/force-password-change', [
             'csrf_token' => $forcePage->formField('csrf_token') ?? '',
+            'current_password' => 'OhneZweiFa123!',
             'password' => 'OhneZweiFaNeu456!',
             'password_confirm' => 'OhneZweiFaNeu456!',
         ]);

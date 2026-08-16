@@ -10,6 +10,140 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Die Nachweise der 2FA-Einrichtung tragen jetzt die Konto-ID.** Zwei
+  Session-Werte können ein Konto benennen und dabei auf verschiedene zeigen:
+  `pending_2fa_user_id` (Faktor 1 des laufenden Logins) und `user_id` (eine
+  bestehende Anmeldung). Die Step-up-Freigabe und das serverseitig
+  vorbereitete Secret waren an keines von beiden gebunden, und die Prüfung
+  bei aktiver 2FA fragte nur, **ob** eine Anmeldung besteht — nicht, für wen.
+  - Welches Konto gemeint ist, beantwortet jetzt genau eine Stelle
+    (`AuthController::twofaTargetUserId()`); `twofa_reauth` und `totp_setup`
+    führen die Konto-ID mit und werden dagegen geprüft; bei aktiver 2FA muss
+    die Sitzung als genau dieses Konto angemeldet sein.
+  - Ein neuer Passwort-Login löst außerdem jede bestehende Anmeldung derselben
+    Sitzung ab (`discardExistingSessionState()`) — zwei Identitäten
+    nebeneinander sind der Zustand, aus dem solche Verwechslungen entstehen.
+  - Neuer Funktionstest `TwoFaCrossAccountTest`: Der bestehende
+    `TwoFaStepUpTest` prüfte ausschließlich Same-User-Fälle, die Lücke lag
+    genau daneben.
+- **`/force-password-change` läuft durch `checkAuth()`** — es war die einzige
+  Backend-Route ohne diese Prüfung und damit der Rückweg aus der
+  Session-Invalidierung (#113): Eine Sitzung, die überall sonst mit
+  `session_expired` hinausflog, konnte dort ein neues Passwort setzen und sich
+  die frische `session_version` selbst zurückschreiben. Zusätzlich verlangt
+  der Wechsel jetzt das bisherige Passwort (eigener Rate-Limit-Zähler,
+  Fehlversuche im Audit-Log) — dieselbe Begründung wie beim Step-up vor einer
+  2FA-Änderung (#112). Neuer Funktionstest `ForcePasswordChangeGuardTest`.
+- **SSO wertet `email_verified` aus.** Ein ausdrücklich als unbestätigt
+  gemeldeter `email`-Claim wird verworfen, statt als Kontozuordnung zu gelten;
+  bei einem Provider mit Selbstregistrierung genügte sonst ein dort angelegtes
+  Konto mit der Adresse eines Administrators. Ein fehlender Claim bleibt
+  akzeptiert (Entra ID sendet ihn für Geschäftskonten nicht). Der Rückfall auf
+  `preferred_username` greift nur noch, wenn gar kein `email`-Claim vorliegt.
+
+- **`APP_ENV` erkennt die Konfiguration über Umgebungsvariablen.** Der
+  Produktions-Automatismus hing allein an der Existenz von
+  `config/db_config.php`. Der in der README als Variante A beschriebene Weg -
+  Konfiguration rein über `DB_*`-Umgebungsvariablen, also der Container-Betrieb -
+  fiel damit auf `development` zurück: `display_errors` an, und der erste
+  PDO-Fehler zeigte dem Besucher DSN samt Datenbankbenutzer. Jetzt gilt
+  `production`, sobald die Instanz überhaupt konfiguriert ist. Zusätzlich
+  `ENV APP_ENV=production` im Dockerfile.
+- **In Produktion wird wieder protokolliert** (neu:
+  `App\Service\ErrorHandler`). `error_reporting(0)` schaltete nicht nur die
+  Anzeige ab, sondern auch das Logging - die Stufe ist die Maske für beides.
+  Zusammen mit dem fehlenden Exception-Handler hinterließ eine unbehandelte
+  `PDOException` eine leere Seite und **nirgends** einen Eintrag (OWASP A09).
+  Jetzt: `error_reporting` immer `E_ALL`, `log_errors` immer an, nur
+  `display_errors` hängt an der Umgebung; dazu ein Exception-Handler und eine
+  Shutdown-Funktion für fatale Fehler, die nach `error_log()` schreiben (nicht
+  in die Datenbank - sie kann der Ausfall sein) und eine schlichte 500-Seite
+  ohne Details liefern.
+- **Setup-Wizard prüft Datenbankname, Host und Port immer** (neu:
+  `App\Security\DbIdentifier`). Die Namensprüfung hing am Zweig „DB-Abschnitt
+  im Formular sichtbar", und der gilt schon als erledigt, sobald *irgendeine*
+  der Variablen `DB_HOST`/`DB_USER`/`DB_PASS` gesetzt ist - `DB_NAME` zählt
+  dabei nicht mit. Wer `DB_HOST` setzte, aber `DB_NAME` nicht, lieferte den
+  Namen weiterhin ungeprüft aus dem Formular, und er landet interpoliert in
+  `DROP DATABASE`/`CREATE DATABASE`. Host und Port werden neu geprüft, damit
+  ein Semikolon keine weiteren DSN-Parameter anhängen kann.
+- **`config/db_config.php` wird mit 0600 geschrieben.** Sie enthält
+  DB-Passwort und `APP_KEY` im Klartext; mit dem Schlüssel lassen sich alle
+  verschlüsselt abgelegten Geheimnisse entschlüsseln. `file_put_contents`
+  legte sie mit 0644 an, auf geteiltem Webhosting also für jeden Systembenutzer
+  lesbar.
+- **`DB_SSL_VERIFY` ist standardmäßig an, sobald eine CA-Datei hinterlegt
+  ist.** Zuvor war die Zertifikatsprüfung ohne ausdrückliches Zutun aus - eine
+  angegebene CA blieb wirkungslos und die Verbindung verschlüsselt, aber nicht
+  authentifiziert.
+
+### Geändert (Betrieb)
+
+- **PHP-Uploadgrenzen im Docker-Image angehoben** (`conf.d/zz-app.ini`).
+  `upload_max_filesize` (2 MB) und `post_max_size` (8 MB) lagen **unter** der
+  5-MB-Grenze, die die Anwendung selbst prüft: Ein 4-MB-Bild verwarf PHP,
+  bevor der Code es sah - `$_FILES` kam leer an, und der Benutzer las „keine
+  Datei ausgewählt". Die Grenze der Anwendung ist die verbindliche, PHP muss
+  darüber liegen.
+  - **Korrektur zum Prüfbericht:** Dort stand zusätzlich „OPcache im Image
+    nicht aktiviert". Am laufenden Basis-Image nachgemessen stimmt das nicht -
+    in `php:8.5-apache` ist OPcache fest einkompiliert und für die Web-SAPI
+    bereits eingeschaltet (`opcache.enable=1`, `memory_consumption=128`,
+    `max_accelerated_files=10000`, `revalidate_freq=2`). Die zunächst
+    gesetzten Werte waren mit den Vorgaben identisch, und das dazugehörige
+    `docker-php-ext-enable opcache` liess den Image-Bau sogar scheitern, weil
+    es kein ladbares Modul dieses Namens gibt. Der Block ist wieder draussen.
+    `memory_limit` und `max_execution_time` bleiben ebenfalls unangetastet -
+    ein Zeitlimit von 60 Sekunden hätte Sicherung, Import und Update
+    abgeschnitten.
+- **`plugins/` ist ein Volume** in `docker-compose.yml`. Der dokumentierte
+  Update-Weg (`docker compose pull && up -d`) nahm bisher jedes über den
+  Addon-Store installierte Addon mit; die Datenbankzeilen blieben stehen, die
+  Dateien nicht. Zu `config/db_config.php` steht jetzt dort, warum ein Volume
+  über `config/` der falsche Weg wäre (es fröre `config.php` - also Code - auf
+  dem Stand des ersten Starts ein) und wie man stattdessen gezielt die eine
+  Datei einbindet.
+
+- **Kern-Update prüft die Prüfsumme des Archivs, bevor es angewendet wird.**
+  Das Update überschreibt den gesamten Codebaum - was durchkommt, läuft danach
+  als PHP. Geprüft wird gegen die `SHA256SUMS.txt`, die der Release-Workflow
+  ohnehin miterzeugt; fehlt die Datei oder der Eintrag zum Zip, wird nicht
+  aktualisiert (fail-closed). Das ist eine Integritäts-, keine Echtheitsprüfung
+  — Archiv und Prüfsumme stammen aus derselben Quelle —, fängt aber
+  abgebrochene und unterwegs veränderte Downloads sowie zur Version
+  unpassende Assets ab. Die Echtheit trägt weiterhin die TLS-Verbindung zur
+  fest verdrahteten `api.github.com`-URL.
+- **Der Updater spricht nur noch HTTPS**, auch nach einer Umleitung
+  (`CURLOPT_PROTOCOLS_STR`/`CURLOPT_REDIR_PROTOCOLS_STR`). Zuvor konnte eine
+  302 auf `http://` oder `file://` aus dem gesicherten Transport herausführen.
+  In der Entwicklungsumgebung bleibt `http` erlaubt, weil die Funktionstests
+  ihr Release-Fixture über einen lokalen `php -S` ohne TLS ausliefern.
+- **`UPDATE_RELEASES_URL` greift nur noch in der Entwicklungsumgebung.** Die
+  Variable ist ein Test-/Staging-Hilfsmittel; in Produktion bestimmt sie, woher
+  der Code kommt, der die Installation überschreibt. Eine ignorierte
+  Übersteuerung wird protokolliert, damit sie nicht still wirkungslos bleibt.
+- **WebDAV folgt keinen Umleitungen mehr.** PHP hängt beim Folgen die gesetzten
+  Header unverändert an die neue Anfrage — also auch den
+  `Authorization`-Header mit den Basic-Zugangsdaten, und das an einen Host, den
+  die Antwort des Servers bestimmt. Eine Umleitung fällt jetzt in die
+  Statusprüfung und wird als Fehler gemeldet; ein dauerhaft umleitender Server
+  gehört mit seiner Zieladresse in die Konfiguration.
+- **FTPS: fehlende Zertifikatsprüfung benannt.** `ftp_ssl_connect()`
+  verschlüsselt, prüft das Serverzertifikat aber nicht, und PHPs
+  FTP-Erweiterung bietet dafür keine Einstellung — das ist nicht
+  wegzuprogrammieren. Der Admin-Bereich weist am FTPS-Abschnitt jetzt darauf
+  hin und empfiehlt WebDAV oder S3, wo beide das Zertifikat prüfen.
+
+### Behoben
+
+- **Ein abgebrochenes Kern-Update hinterlässt keinen Mischstand mehr.** Der
+  Kopiervorgang lief additiv über die laufende Installation; brach er in der
+  Mitte ab, blieben zwei Versionen nebeneinander liegen — und genau dieser
+  Baum wird als Nächstes ausgeführt. Jetzt prüft eine Vorabprüfung erst alle
+  Zielpfade, und ein Journal aus Sicherungskopien rollt zurück, was die
+  Vorabprüfung nicht vorhersehen kann (volle Platte, entzogene Rechte mitten
+  im Lauf). Neuer Test in `UpdateServiceTest`.
+
 - **Keine Schrift mehr von einem fremden Host.** Jede Seite - auch die
   öffentliche, auch ohne Anmeldung - lud ein Stylesheet von
   `fonts.googleapis.com` und die Schriftdateien von `fonts.gstatic.com`. Damit

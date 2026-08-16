@@ -73,6 +73,13 @@ class AuthController extends BaseController {
             // die Spuren von Spraying-Versuchen gegen andere Konten löscht.
             \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
 
+            // Ein neuer Login löst jede bestehende Anmeldung dieser Sitzung ab.
+            // Ohne das laufen zwei Identitäten nebeneinander: die alte in
+            // `user_id`, die neue in `pending_2fa_user_id` - und alles, was
+            // zwischen Faktor 1 und Faktor 2 passiert, kann die Nachweise der
+            // einen für das Konto der anderen verwenden.
+            $this->discardExistingSessionState();
+
             if ($user['totp_enabled']) {
                 // Prompt for 2FA Code
                 $_SESSION['pending_2fa_user_id'] = $user['id'];
@@ -101,6 +108,28 @@ class AuthController extends BaseController {
             'title' => \App\I18n\Translator::t('meta.title_login_failed'),
             'error' => \App\I18n\Translator::t('auth.invalid_credentials')
         ]);
+    }
+
+    /**
+     * Räumt Anmelde- und Step-up-Zustand einer vorherigen Identität aus der
+     * Session, sobald ein neuer Faktor-1-Nachweis erbracht wurde. Das
+     * CSRF-Token bleibt bewusst erhalten - es gehört zur Sitzung, nicht zur
+     * Identität, und der Login-Vorgang ist an dieser Stelle bereits geprüft.
+     */
+    private function discardExistingSessionState(): void {
+        unset(
+            $_SESSION['user_id'],
+            $_SESSION['username'],
+            $_SESSION['user_agent_hash'],
+            $_SESSION['session_version'],
+            $_SESSION['pending_2fa_user_id'],
+            $_SESSION['twofa_reauth'],
+            $_SESSION['totp_setup'],
+            $_SESSION['must_change_password'],
+            $_SESSION['last_activity'],
+            $_SESSION['last_token_rotation'],
+            $_SESSION['created_time']
+        );
     }
 
     /**
@@ -139,18 +168,49 @@ class AuthController extends BaseController {
      */
     private const TWOFA_REAUTH_TTL = 600;
 
-    private function hasFresh2faReauth(): bool {
-        return isset($_SESSION['twofa_reauth_at'])
-            && (time() - (int)$_SESSION['twofa_reauth_at']) <= self::TWOFA_REAUTH_TTL;
+    /**
+     * Konto, dessen 2FA gerade eingerichtet oder neu konfiguriert wird.
+     *
+     * Zwei Session-Werte können ein Konto benennen, und sie können auf
+     * VERSCHIEDENE Konten zeigen: `pending_2fa_user_id` ist der Nachweis von
+     * Faktor 1 aus dem gerade laufenden Login, `user_id` eine bereits
+     * bestehende Anmeldung. Wer beides gleichzeitig hält, richtet sonst die
+     * 2FA des einen Kontos mit dem Nachweis des anderen ein. Deshalb gibt es
+     * für die Frage "welches Konto?" genau diese eine Antwortstelle, und jede
+     * Prüfung weiter unten vergleicht ausdrücklich gegen ihr Ergebnis.
+     */
+    private function twofaTargetUserId(): ?int {
+        $target = $_SESSION['pending_2fa_user_id'] ?? $_SESSION['user_id'] ?? null;
+        return $target === null ? null : (int)$target;
+    }
+
+    /**
+     * Liegt für GENAU dieses Konto eine frische Step-up-Freigabe vor?
+     *
+     * Der Zeitstempel allein reicht nicht: Er entsteht in process2faReauth()
+     * aus Passwort und TOTP-Code des dort angemeldeten Benutzers und sagt
+     * nichts darüber aus, für welches Konto er gilt. Ohne den Abgleich
+     * bezahlt der Nachweis des einen Kontos die Neukonfiguration eines
+     * anderen.
+     */
+    private function hasFresh2faReauth(int $userId): bool {
+        $reauth = $_SESSION['twofa_reauth'] ?? null;
+        if (!is_array($reauth) || !isset($reauth['user_id'], $reauth['at'])) {
+            return false;
+        }
+        if ((int)$reauth['user_id'] !== $userId) {
+            return false;
+        }
+        return (time() - (int)$reauth['at']) <= self::TWOFA_REAUTH_TTL;
     }
 
     public function show2faSetup(): void {
-        if (!isset($_SESSION['pending_2fa_user_id']) && !isset($_SESSION['user_id'])) {
+        $userId = $this->twofaTargetUserId();
+        if ($userId === null) {
             header("Location: /login");
             exit;
         }
 
-        $userId = $_SESSION['pending_2fa_user_id'] ?? $_SESSION['user_id'];
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$userId]);
@@ -167,13 +227,18 @@ class AuthController extends BaseController {
         // sonst könnte ein Angreifer mit übernommener Session (z. B.
         // unbeaufsichtigter Arbeitsplatz) die 2FA dauerhaft an sich binden.
         if ((int)$user['totp_enabled'] === 1) {
-            if (!isset($_SESSION['user_id'])) {
+            // Die Neukonfiguration darf nur die eigene, angemeldete Sitzung
+            // dieses Kontos anstoßen. Eine Sitzung, die als jemand anderes
+            // angemeldet ist, zählt hier ausdrücklich NICHT als Nachweis -
+            // sonst genügte das Passwort des Opfers, um mit dem eigenen
+            // Step-up dessen Secret zu überschreiben.
+            if ((int)($_SESSION['user_id'] ?? 0) !== $userId) {
                 // Pending-Session hat nur das Passwort bewiesen - für Konten
                 // mit aktiver 2FA führt der Weg ausschließlich über /login/2fa.
                 header("Location: /login/2fa");
                 exit;
             }
-            if (!$this->hasFresh2faReauth()) {
+            if (!$this->hasFresh2faReauth($userId)) {
                 $this->render('2fa_reauth', ['title' => '2FA-Änderung bestätigen']);
                 return;
             }
@@ -182,9 +247,11 @@ class AuthController extends BaseController {
         // Secret und Backup-Codes entstehen ausschließlich serverseitig und
         // werden bis zur Bestätigung in der Session gehalten (#112) - der
         // Client kann sie anzeigen, aber nicht per POST eigene Werte vorgeben.
+        // Mit der Konto-ID daneben, damit ein in der Sitzung liegendes Secret
+        // nicht auf ein anderes Konto angewendet werden kann.
         $secret = Totp::generateSecret();
         $backupCodes = Totp::generateBackupCodes(10);
-        $_SESSION['totp_setup'] = ['secret' => $secret, 'backup_codes' => $backupCodes];
+        $_SESSION['totp_setup'] = ['user_id' => $userId, 'secret' => $secret, 'backup_codes' => $backupCodes];
 
         $siteName = $this->settings['site_name'] ?? 'Hengstverzeichnis';
         $otpAuthUrl = Totp::getOtpAuthUrl($user['email'], $siteName, $secret);
@@ -240,7 +307,10 @@ class AuthController extends BaseController {
                 $update->execute([$matchedSlice, $userId]);
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
 
-                $_SESSION['twofa_reauth_at'] = time();
+                // Mit der Konto-ID, nicht als blanker Zeitstempel: Der
+                // Nachweis gilt für dieses Konto und für kein anderes
+                // (siehe hasFresh2faReauth()).
+                $_SESSION['twofa_reauth'] = ['user_id' => (int)$userId, 'at' => time()];
 
                 \App\Service\AuditLogger::log("2FA-Neukonfiguration freigeschaltet", "auth", "Step-up-Reauth erfolgreich", (int)$userId, $_SESSION['username'] ?? null);
 
@@ -262,8 +332,8 @@ class AuthController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $userId = $_SESSION['pending_2fa_user_id'] ?? $_SESSION['user_id'] ?? null;
-        if (!$userId) {
+        $userId = $this->twofaTargetUserId();
+        if ($userId === null) {
             header("Location: /login");
             exit;
         }
@@ -280,21 +350,31 @@ class AuthController extends BaseController {
         // Step-up-Reauth (#112): Bei bereits aktiver 2FA muss die Session die
         // Neukonfiguration zuvor über /2fa/reauth freigeschaltet haben - die
         // Prüfung aus show2faSetup() wird hier serverseitig wiederholt, damit
-        // ein direkter POST sie nicht umgehen kann.
+        // ein direkter POST sie nicht umgehen kann. Wortgleich, weil beide
+        // Wege für sich allein tragen müssen: /2fa/setup gibt das neue Secret
+        // bereits aus, ein Fix nur hier käme zu spät.
         if ((int)$dbUser['totp_enabled'] === 1) {
-            if (!isset($_SESSION['user_id'])) {
+            if ((int)($_SESSION['user_id'] ?? 0) !== $userId) {
                 header("Location: /login/2fa");
                 exit;
             }
-            if (!$this->hasFresh2faReauth()) {
+            if (!$this->hasFresh2faReauth($userId)) {
                 $this->renderForbidden("Für die Änderung der 2FA-Konfiguration ist eine erneute Bestätigung mit Passwort und aktuellem Code erforderlich.");
             }
         }
 
         // Secret/Backup-Codes stammen ausschließlich aus dem Server-State der
         // Session (#112, siehe show2faSetup()) - POST-Werte werden ignoriert.
+        // Der hinterlegte Satz gilt nur für das Konto, für das er erzeugt
+        // wurde: Sonst ließe sich ein in der eigenen Sitzung erzeugtes Secret
+        // auf ein fremdes Konto anwenden.
         $setup = $_SESSION['totp_setup'] ?? null;
         if (!is_array($setup) || empty($setup['secret']) || empty($setup['backup_codes'])) {
+            header("Location: /2fa/setup");
+            exit;
+        }
+        if ((int)($setup['user_id'] ?? 0) !== $userId) {
+            unset($_SESSION['totp_setup']);
             header("Location: /2fa/setup");
             exit;
         }
@@ -335,7 +415,7 @@ class AuthController extends BaseController {
         $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $matchedSlice, $userId]);
 
         // Server-State der Einrichtung und Reauth-Freischaltung verbrauchen.
-        unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth_at']);
+        unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth']);
 
         $this->completeLogin($userId, '/admin?2fa=enabled');
     }
@@ -700,9 +780,23 @@ class AuthController extends BaseController {
         \App\Service\LoginSession::establish($userId, $redirectSuccess);
     }
 
+    /**
+     * Der erzwungene Passwortwechsel läuft über dieselbe Sitzungsprüfung wie
+     * jede andere geschützte Seite.
+     *
+     * Ohne checkAuth() war er die einzige Ausnahme im ganzen Backend: Eine
+     * Sitzung, die dort längst hinausgeflogen wäre (Konto gelöscht, Passwort
+     * anderswo geändert, abweichender User-Agent, abgelaufen), konnte hier
+     * ein neues Passwort setzen - und schrieb sich mit der frischen
+     * session_version die Gültigkeit gleich selbst zurück, die #113 ihr
+     * genommen hatte. checkAuth() lässt /force-password-change ausdrücklich
+     * passieren (siehe dort Punkt 4), die Ausnahme kostet also nichts.
+     */
     public function showForcePasswordChange(): void {
-        if (!isset($_SESSION['user_id'])) {
-            header("Location: /login");
+        $this->checkAuth();
+
+        if (empty($_SESSION['must_change_password'])) {
+            header("Location: /admin");
             exit;
         }
 
@@ -716,14 +810,52 @@ class AuthController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $userId = $_SESSION['user_id'] ?? null;
-        if (!$userId) {
-            header("Location: /login");
+        $this->checkAuth();
+
+        if (empty($_SESSION['must_change_password'])) {
+            header("Location: /admin");
             exit;
         }
 
+        $userId = $_SESSION['user_id'];
+
+        $currentPassword = $_POST['current_password'] ?? '';
         $password = $_POST['password'] ?? '';
         $passwordConfirm = $_POST['password_confirm'] ?? '';
+
+        // Das bisherige Passwort erneut verlangen - dieselbe Begründung wie
+        // beim Step-up vor einer 2FA-Änderung (#112): Wer eine unbeaufsichtigte
+        // Sitzung übernimmt, soll das Konto nicht dauerhaft an sich binden
+        // können. Gegen Raten gilt derselbe Zähler wie beim Login.
+        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, 'force_password_change')) {
+            $this->render('auth_force_password_change', [
+                'title' => 'Erstmals Passwort ändern',
+                'error' => 'Zu viele Fehlversuche. Bitte versuchen Sie es später erneut.'
+            ]);
+            return;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$userId]);
+        $currentHash = (string)$stmt->fetchColumn();
+
+        if ($currentHash === '' || !password_verify($currentPassword, $currentHash)) {
+            \App\Security\RateLimiter::recordAttempt((string)$userId, 'force_password_change');
+            \App\Service\AuditLogger::log(
+                "Erzwungener Passwortwechsel abgelehnt",
+                "auth",
+                "Bisheriges Passwort falsch",
+                (int)$userId,
+                $_SESSION['username'] ?? null
+            );
+
+            $this->render('auth_force_password_change', [
+                'title' => 'Erstmals Passwort ändern',
+                'error' => 'Das bisherige Passwort ist nicht korrekt.'
+            ]);
+            return;
+        }
 
         if (strlen($password) < 8 || $password !== $passwordConfirm) {
             $this->render('auth_force_password_change', [
@@ -733,7 +865,8 @@ class AuthController extends BaseController {
             return;
         }
 
-        $db = Database::getInstance();
+        \App\Security\RateLimiter::clearAttempts((string)$userId, 'force_password_change');
+
         $hash = password_hash($password, PASSWORD_DEFAULT);
         // session_version erhöhen, damit andere bestehende Sessions dieses
         // Benutzers ungültig werden (#113) - die eigene, gerade aktive Session

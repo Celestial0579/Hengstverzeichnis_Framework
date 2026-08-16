@@ -178,6 +178,20 @@ final class WebDavClient implements BackupTarget {
                 'ignore_errors' => true,
                 'timeout' => 30,
                 'protocol_version' => 1.1,
+                // Umleitungen werden NICHT verfolgt. PHP hängt beim Folgen die
+                // gesetzten Header unverändert an die neue Anfrage - also auch
+                // den Authorization-Header mit den Basic-Zugangsdaten, und das
+                // an einen Host, den die Antwort des Servers bestimmt. Ein
+                // kompromittierter oder falsch konfigurierter WebDAV-Server
+                // bekäme damit die Zugangsdaten an eine beliebige Adresse
+                // geschickt.
+                //
+                // Eine Umleitung fällt jetzt in die Statusprüfung unten
+                // (>= 300) und wird als Fehler gemeldet. Wenn ein Server
+                // dauerhaft umleitet, gehört das Ziel in die Konfiguration -
+                // nicht in eine stille Weiterreichung der Zugangsdaten.
+                'follow_location' => 0,
+                'max_redirects' => 0,
             ],
         ]);
 

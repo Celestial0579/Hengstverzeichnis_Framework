@@ -18,6 +18,35 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/var/www/html/public/uploads
+      # Installierte Addons überleben den Image-Wechsel. Ohne dieses Volume
+      # nimmt der dokumentierte Update-Weg (`docker compose pull && up -d`)
+      # jedes über den Addon-Store installierte Addon mit - das Verzeichnis
+      # liegt im Container-Dateisystem, nicht in einem Volume, und ein neuer
+      # Container startet mit dem leeren plugins/ aus dem Image. Die
+      # Datenbankzeilen in `plugins` blieben dabei stehen, die Dateien nicht:
+      # Der Betreiber sieht nach dem Update aktivierte Addons, deren Code weg
+      # ist. Im Image ist das Verzeichnis leer (nur .gitkeep), es wird also
+      # nichts Veraltetes in das Volume eingefroren.
+      - plugins_data:/var/www/html/plugins
+      # HINWEIS zu config/db_config.php: Diese Datei entsteht erst zur
+      # Laufzeit und nimmt auf, was im Admin-Bereich unter Systemeinstellungen
+      # gepflegt wird - TRUSTED_PROXIES, die Embed-Freigabe, Tracking- und
+      # Captcha-Domains, die OIDC-Zugangsdaten. Auch sie liegt im
+      # Container-Dateisystem und ist nach einem Image-Wechsel weg.
+      #
+      # Ein Volume über config/ wäre der falsche Weg: Docker kopiert den
+      # Image-Inhalt einmalig hinein, und danach bliebe config/config.php -
+      # also CODE - auf dem Stand des ersten Starts stehen, während das Image
+      # weiterzieht. Genau die Sorte stiller Fehler, die man erst Monate
+      # später bemerkt.
+      #
+      # Wer diese Einstellungen im Container pflegen will, bindet deshalb
+      # gezielt die eine Datei ein (vorher auf dem Host anlegen, sonst legt
+      # Docker ein Verzeichnis an):
+      #   touch ./db_config.php
+      #   - ./db_config.php:/var/www/html/config/db_config.php
+      # Der empfohlene Weg im Container bleibt, alles über .env zu setzen -
+      # Umgebungsvariablen haben ohnehin Vorrang (siehe config/config.php).
 
   # Optionaler Auto-Updater für den Container-Weg: zieht ein neues Image und
   # startet den Container neu, sobald ein Release veröffentlicht ist. Ersetzt
@@ -47,3 +76,4 @@ services:
 volumes:
   db_data:
   uploads_data:
+  plugins_data:

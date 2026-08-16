@@ -35,6 +35,36 @@ RUN printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' \
     && printf 'expose_php = Off\n' \
       > /usr/local/etc/php/conf.d/zz-hardening.ini
 
+# Laufzeit-Einstellungen.
+#
+# NUR die Upload-Grenzen, und das mit Absicht: Ein erster Entwurf setzte hier
+# auch OPcache-Werte, weil der Prüfbericht "OPcache nicht aktiviert" meldete.
+# Am laufenden Basis-Image nachgemessen stimmt das nicht - in php:8.5-apache
+# ist OPcache fest einkompiliert (kein ladbares Modul, ein
+# 'docker-php-ext-enable opcache' bricht den Build ab) und für die Web-SAPI
+# bereits eingeschaltet:
+#
+#   opcache.enable                1
+#   opcache.memory_consumption    128
+#   opcache.max_accelerated_files 10000
+#   opcache.revalidate_freq       2
+#
+# Die gesetzten Werte waren also entweder wirkungslos oder schädlich. Was
+# bleibt, ist der echte Fund:
+#
+#   upload_max_filesize   2M   <- unter der 5-MB-Grenze der Anwendung
+#   post_max_size         8M
+#
+# Ein 4-MB-Bild verwarf PHP, bevor der Code es je sah: $_FILES kam leer an,
+# und der Benutzer las "keine Datei ausgewählt". Die Grenze der Anwendung ist
+# die verbindliche, PHP muss darüber liegen. memory_limit und
+# max_execution_time bleiben unangetastet - ein Zeitlimit von 60 Sekunden
+# hätte Sicherung, Import und Update abgeschnitten.
+RUN { \
+      echo 'upload_max_filesize=8M'; \
+      echo 'post_max_size=12M'; \
+    } > /usr/local/etc/php/conf.d/zz-app.ini
+
 # Docroot direkt auf public/ setzen, damit src/, config/ und database/
 # außerhalb des von Apache ausgelieferten Verzeichnisses liegen.
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
@@ -55,6 +85,13 @@ COPY . .
 # Aktualisiert wird im Container über ein neues Image (z. B. Watchtower); der
 # Updates-Screen zeigt weiterhin an, dass ein neues Release vorliegt (#158).
 ENV UPDATE_IN_PLACE=0
+
+# Ein Image ist immer eine echte Installation, nie ein Entwickler-Checkout.
+# config/config.php leitet die Betriebsart inzwischen auch aus gesetzten
+# DB_*-Variablen ab; hier steht sie zusätzlich ausdrücklich, damit sie nicht
+# von einer Konfigurationsvariante abhängt. Wer im Container bewusst
+# entwickeln will, überschreibt APP_ENV in seiner .env.
+ENV APP_ENV=production
 
 # Nur die DATEN-/Laufzeitverzeichnisse für www-data beschreibbar machen -
 # der Code bleibt root und ist für den Web-Prozess nicht überschreibbar.

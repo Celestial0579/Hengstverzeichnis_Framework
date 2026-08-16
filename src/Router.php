@@ -5,7 +5,7 @@ namespace App;
 
 /**
  * Class Router
- * 
+ *
  * Zentrale Routing-Komponente des Frameworks.
  * Verwalte HTTP-Routen (GET & POST), löst Anfragen basierend auf der URL auf
  * und bietet statische Hilfsmethoden für den CSRF-Sicherheitsschutz (Cross-Site Request Forgery).
@@ -80,7 +80,7 @@ class Router {
     public function dispatch(string $uri, string $requestMethod): void {
         // Query-String (Parameter nach '?') abtrennen
         $uri = strtok($uri, '?');
-        
+
         // Pfad normalisieren (abschließenden Slash entfernen, außer bei '/')
         if ($uri !== '/') {
             $uri = rtrim($uri, '/');

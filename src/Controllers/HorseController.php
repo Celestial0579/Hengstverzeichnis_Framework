@@ -920,7 +920,7 @@ class HorseController extends BaseController {
             $role = $item['role'] ?? 'owner';
             $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
             $stationText = trim($item['breeding_station_text'] ?? '');
-            
+
             // Breeders do not have a time period!
             if ($role === 'breeder') {
                 $fromYear = null;

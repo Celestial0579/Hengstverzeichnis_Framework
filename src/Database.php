@@ -90,7 +90,7 @@ class Database {
 
             try {
                 self::$instance = new PDO($dsn, $user, $pass, $options);
-                
+
                 // Datenbank-Schema bei Verbindungsaufbau automatisch auf den neuesten Stand bringen
                 self::ensureSchemaUpToDate(self::$instance);
             } catch (PDOException $e) {

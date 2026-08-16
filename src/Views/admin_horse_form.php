@@ -28,7 +28,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
 
     <form action="<?= $actionUrl ?>" method="POST" enctype="multipart/form-data" style="max-width: 700px; margin-top: 1.5rem;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-        
+
         <?php if ($isEdit): ?>
             <input type="hidden" name="id" value="<?= $horse['id'] ?>">
         <?php endif; ?>
@@ -36,7 +36,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
         <!-- Foto-Upload -->
         <div class="form-group" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
             <label for="horse_image" style="font-weight: bold; color: var(--primary-fg);">📷 Foto des Pferdes hochladen</label>
-            
+
             <?php if (!empty($horse['image_url'])): ?>
                 <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0;">
                     <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="Pferdefoto" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color);">
@@ -51,7 +51,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             <input type="file" id="horse_image" name="horse_image" accept="image/jpeg,image/png,image/webp" class="form-control">
             <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">Erlaubte Formate: JPG, PNG, WEBP (Max. 5 MB).</small>
         </div>
-        
+
         <div class="form-group">
             <label for="name">Name des Pferdes *</label>
             <input type="text" id="name" name="name" class="form-control" value="<?= htmlspecialchars($horse['name'] ?? '') ?>" required>
@@ -118,7 +118,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
         <!-- Abstammung: Vater (Sire) -->
         <fieldset style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: var(--surface-muted);">
             <legend style="padding: 0 0.5rem; font-weight: bold; color: var(--primary-fg);">♂ Vater (Sire)</legend>
-            
+
             <div class="form-group">
                 <label for="sire_id">Existierendes Pferd aus der Datenbank wählen:</label>
                 <select id="sire_id" name="sire_id" class="form-control">
@@ -155,7 +155,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
         <!-- Abstammung: Mutter (Dam) -->
         <fieldset style="border: 1px solid var(--border-color); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; background: var(--surface-muted);">
             <legend style="padding: 0 0.5rem; font-weight: bold; color: var(--primary-fg);">♀ Mutter (Dam)</legend>
-            
+
             <div class="form-group">
                 <label for="dam_id">Existierendes Pferd aus der Datenbank wählen:</label>
                 <select id="dam_id" name="dam_id" class="form-control">
@@ -264,7 +264,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <a href="/admin/breeding-stations/create" target="_blank" style="color: var(--primary-fg);">+ Neue Deckstation anlegen</a>
                 </div>
             </div>
-            
+
             <div id="persons_container" style="display: flex; flex-direction: column; gap: 0.8rem;">
                 <?php if (empty($horsePersons)): ?>
                     <!-- Initial empty row if none -->

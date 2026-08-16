@@ -97,6 +97,13 @@ pick_free_port() {
 
 PROJECT=""
 SCAN_ENV=""
+# Wird per 'trap teardown EXIT INT TERM' aufgerufen (siehe unten) - shellcheck
+# sieht indirekte Aufrufe nicht. Je nach Version meldet es dafuer SC2329
+# ("function is never invoked") ODER SC2317 ("command appears to be
+# unreachable") fuer den Rumpf; lokal war es SC2329, in der CI SC2317. Beide
+# Codes stehen deshalb hier - eine Direktive, die nur die lokal sichtbare
+# Fassung abdeckt, laesst das Gate anderswo rot.
+# shellcheck disable=SC2329,SC2317
 teardown() {
   [[ "$KEEP" == "1" ]] && { warn "Instanz bleibt stehen (--keep): Projekt '$PROJECT'"; return; }
   [[ -z "$PROJECT" ]] && return

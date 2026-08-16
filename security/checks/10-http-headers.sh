@@ -85,17 +85,27 @@ if [[ -z "$cookies" ]]; then
 fi
 if [[ -n "$cookies" ]]; then
   while IFS= read -r c; do
+    # if/else statt 'A && B || C': Bei dem Kurzmuster laeuft C auch dann,
+    # wenn A wahr ist und B fehlschlaegt (SC2015). record_finding kann heute
+    # nicht fehlschlagen - aber die Zusage haengt dann an einer Eigenschaft,
+    # die niemand zugesichert hat.
     name="$(printf '%s' "$c" | sed -E 's/^[Ss]et-[Cc]ookie:[[:space:]]*([^=]+)=.*/\1/; s/\r$//')"
-    printf '%s' "$c" | grep -qi 'HttpOnly' \
-      && record_finding PASS headers "Cookie '$name' HttpOnly" \
-      || record_finding MED headers "Cookie '$name' ohne HttpOnly" "per JS auslesbar"
-    printf '%s' "$c" | grep -qi 'SameSite' \
-      && record_finding PASS headers "Cookie '$name' SameSite gesetzt" \
-      || record_finding LOW headers "Cookie '$name' ohne SameSite"
+    if printf '%s' "$c" | grep -qi 'HttpOnly'; then
+      record_finding PASS headers "Cookie '$name' HttpOnly"
+    else
+      record_finding MED headers "Cookie '$name' ohne HttpOnly" "per JS auslesbar"
+    fi
+    if printf '%s' "$c" | grep -qi 'SameSite'; then
+      record_finding PASS headers "Cookie '$name' SameSite gesetzt"
+    else
+      record_finding LOW headers "Cookie '$name' ohne SameSite"
+    fi
     if [[ "$is_https" == "1" ]]; then
-      printf '%s' "$c" | grep -qi 'Secure' \
-        && record_finding PASS headers "Cookie '$name' Secure" \
-        || record_finding MED headers "Cookie '$name' ohne Secure trotz HTTPS"
+      if printf '%s' "$c" | grep -qi 'Secure'; then
+        record_finding PASS headers "Cookie '$name' Secure"
+      else
+        record_finding MED headers "Cookie '$name' ohne Secure trotz HTTPS"
+      fi
     fi
   done <<< "$cookies"
 else

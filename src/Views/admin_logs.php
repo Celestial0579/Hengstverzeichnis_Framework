@@ -22,7 +22,7 @@
     <!-- Filter Bar -->
     <form method="GET" action="/admin/logs" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
-            
+
             <div class="form-group" style="margin: 0;">
                 <label style="font-size: 0.85rem; font-weight: bold;">Kategorie</label>
                 <select name="category" class="form-control" onchange="this.form.submit()">
@@ -73,7 +73,7 @@
                 </thead>
                 <tbody>
                     <?php foreach ($logs as $log): ?>
-                        <?php 
+                        <?php
                             $isSystem = ($log['username'] === 'SYSTEM');
                             $userBadgeBg = $isSystem ? '#6c757d' : '#2a52be';
                         ?>

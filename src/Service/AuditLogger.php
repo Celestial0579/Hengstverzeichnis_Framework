@@ -8,7 +8,7 @@ use App\Security\ClientIp;
 
 /**
  * Class AuditLogger
- * 
+ *
  * Revisionssicherer Audit-Protokoll-Dienst.
  * Zeichnet alle sicherheits- und datenrelevanten Systemereignisse (Pferde, Personen,
  * Deckstationen, Einstellungen, Logins, 403-Sicherheitsverstöße, E-Mail-Versand)
@@ -39,7 +39,7 @@ class AuditLogger {
                 if (!empty($_SESSION['user_id'])) {
                     $userId = (int)$_SESSION['user_id'];
                     $username = $_SESSION['username'] ?? null;
-                    
+
                     // Benutzernamen aus der Datenbank nachladen, falls nicht in der Session vorhanden
                     if (empty($username)) {
                         $stmt = $db->prepare("SELECT username FROM users WHERE id = ?");
@@ -98,7 +98,7 @@ class AuditLogger {
                 @mkdir($logDir, 0755, true);
             }
             @file_put_contents($logDir . '/audit_errors.log', date('[Y-m-d H:i:s] ') . $e->getMessage() . "\n", FILE_APPEND);
-            
+
             // Automatische Dateibereinigung triggern
             self::cleanupLogs();
         }

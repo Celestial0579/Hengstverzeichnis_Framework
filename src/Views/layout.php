@@ -25,7 +25,7 @@ $faviconCacheBust = '';
 if (!empty($logoUrl)) {
     $pathOnly = parse_url($logoUrl, PHP_URL_PATH);
     $ext = strtolower(pathinfo($pathOnly, PATHINFO_EXTENSION));
-    
+
     if ($ext === 'svg') {
         $faviconMime = 'image/svg+xml';
     } elseif ($ext === 'jpg' || $ext === 'jpeg') {
@@ -90,7 +90,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         <!-- Default Horse Favicon -->
         <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐴</text></svg>">
     <?php endif; ?>
-    
+
     <?php // KEINE Schrift von einem fremden Host mehr.
           //
           // Bisher lud jede Seite - auch die öffentliche, auch ohne Anmeldung -
@@ -120,7 +120,7 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
           // dorthin und ist ein eigener Schritt, kein Nebenbei. ?>
     <!-- Base Stylesheet -->
     <link rel="stylesheet" href="/css/style.css">
-    
+
     <!-- Dynamic Theme Variables Injected from Database -->
     <style>
         :root {

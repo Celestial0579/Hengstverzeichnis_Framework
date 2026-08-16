@@ -91,9 +91,9 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
                                 <?= htmlspecialchars($match['child_name']) ?>
                             </h3>
                             <p style="margin: 0; color: var(--text-muted);">
-                                Unverknüpfter <strong><?= htmlspecialchars($match['parent_type_label']) ?></strong>: 
+                                Unverknüpfter <strong><?= htmlspecialchars($match['parent_type_label']) ?></strong>:
                                 <span style="background: var(--warning-soft-bg); padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--warning-fg); font-weight: bold;">
-                                    <?= htmlspecialchars($match['placeholder_name'] ?: 'Kein Name') ?> 
+                                    <?= htmlspecialchars($match['placeholder_name'] ?: 'Kein Name') ?>
                                     <?= $match['placeholder_ueln'] ? '[' . htmlspecialchars($match['placeholder_ueln']) . ']' : '' ?>
                                 </span>
                             </p>
@@ -106,7 +106,7 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
 
                         <div style="display: flex; flex-direction: column; gap: 0.6rem;">
                             <?php foreach ($match['suggestions'] as $sug): ?>
-                                <?php 
+                                <?php
                                     $score = $sug['score'];
                                     $badgeColor = $score >= 90 ? '#28a745' : ($score >= 70 ? '#ffc107' : '#17a2b8');
                                     $textColor = $score >= 70 && $score < 90 ? '#212529' : '#ffffff';
@@ -119,7 +119,7 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
                                         <div>
                                             <strong><?= htmlspecialchars($sug['horse']['name']) ?></strong>
                                             <span style="color: var(--text-muted); font-size: 0.85rem;">
-                                                <?= $sug['horse']['birth_year'] ? 'geb. ' . htmlspecialchars((string)$sug['horse']['birth_year']) : '' ?> 
+                                                <?= $sug['horse']['birth_year'] ? 'geb. ' . htmlspecialchars((string)$sug['horse']['birth_year']) : '' ?>
                                                 <?= $sug['horse']['ueln'] ? ' (UELN: ' . htmlspecialchars($sug['horse']['ueln']) . ')' : '' ?>
                                                 <?= !empty($sug['horse']['foreign_ueln']) ? ' [Ausland: ' . htmlspecialchars($sug['horse']['foreign_ueln']) . ']' : '' ?>
                                             </span>

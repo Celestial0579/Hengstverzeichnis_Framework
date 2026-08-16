@@ -39,7 +39,7 @@ STATUSES="200,204,301,302,307,308"
 hits=""
 if [[ "$SEC_RUNNER" == "kali" ]]; then
   wlname="hvsec-wl-$$.txt"
-  cat "$WL" | kali run bash -c "cat > /work/$wlname" >/dev/null 2>&1
+  kali run bash -c "cat > /work/$wlname" < "$WL" >/dev/null 2>&1
   hits="$(sec_tool gobuster dir -u "$SCAN_URL" -w "/work/$wlname" \
             -q -k -t 20 --no-error --timeout 10s -s "$STATUSES" -b '' 2>/dev/null)"
   kali run bash -c "rm -f /work/$wlname" >/dev/null 2>&1 || true

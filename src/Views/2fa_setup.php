@@ -11,7 +11,7 @@
     <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1rem;">
         🔐 2-Faktor-Authentifizierung (2FA) Einrichtung
     </h1>
-    
+
     <p style="color: var(--text-muted); margin-bottom: 1.5rem;">
         Zur Erhöhung der Sicherheit ist die 2-Faktor-Authentifizierung für alle Benutzer verpflichtet. Bitte richten Sie Ihre Authentikator-App (z. B. Google Authenticator, 1Password, Bitwarden) ein.
     </p>

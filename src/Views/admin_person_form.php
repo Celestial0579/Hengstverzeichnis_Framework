@@ -22,7 +22,7 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
 
     <form action="<?= $actionUrl ?>" method="POST" style="margin-top: 1.5rem;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-        
+
         <?php if ($isEdit): ?>
             <input type="hidden" name="id" value="<?= $person['id'] ?>">
         <?php endif; ?>

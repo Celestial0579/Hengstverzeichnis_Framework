@@ -3,10 +3,53 @@
 # sqlmap testet. Ergaenzt den Formular-Crawl um Endpunkte, die sqlmap sonst nicht
 # selbst findet. Kommentar mit '#'.
 #
-# Die konkreten Query-Parameter der Katalogsuche/-filter hier eintragen, sobald
-# sie feststehen, z. B.:
-#   /katalog?q=test
-#   /katalog?rasse=1&geschlecht=hengst&sort=name
-#   /hengst?id=1
+# WARUM DIESE DATEI NICHT LEER BLEIBEN DARF: Der Formular-Crawl aus 60-sqli.sh
+# findet nur, was in einem <form> steht. Die gesamte Katalogsuche laeuft aber
+# ueber Query-Parameter, die per JavaScript und ueber Links gesetzt werden -
+# also genau der oeffentlich erreichbare, unauthentifizierte Lesepfad mit der
+# groessten Angriffsflaeche. Solange hier nichts stand, hat der woechentliche
+# DAST-Lauf ihn nie angefasst und trotzdem "bestanden" gemeldet. Ein Gate, das
+# den wichtigsten Pfad auslaesst, ist schlimmer als keins: Es behauptet
+# Abdeckung.
 #
-# (leer lassen ist ok — dann laeuft nur der Formular-Crawl aus 60-sqli.sh)
+# Die Parameternamen stammen aus src/Controllers/PublicController.php
+# (Katalogfilter), src/Controllers/ApiController.php und
+# src/Controllers/StatsApiController.php. Wer dort einen Parameter ergaenzt,
+# ergaenzt ihn hier - tests/run-tests.sh prueft das nicht, das ist Disziplin.
+
+# --- Oeffentlicher Katalog: Freitextsuche und alle Feldfilter ---------------
+/katalog?search=test
+/katalog?q_name=test
+/katalog?q_ueln=DE123456789
+/katalog?q_sire=test
+/katalog?q_dam=test
+/katalog?q_breeder=test
+/katalog?q_owner=test
+/katalog?q_station=test
+/katalog?q_color=braun
+/katalog?q_breed=Fjordpferd
+/katalog?q_sex=stallion
+/katalog?q_status=1
+/katalog?birth_year_from=1990&birth_year_to=2020
+/katalog?page=1
+# Kombination mehrerer Filter: baut die laengste WHERE-Kette der Anwendung.
+/katalog?search=a&q_name=b&q_sire=c&q_dam=d&q_color=e&q_breed=f&q_sex=stallion&q_status=1&page=1
+# AJAX-Weiche des Nachladens (#221) - anderer Code-Pfad als der Vollrender.
+/katalog?ajax=1&append=1&page=2&search=test
+
+# --- Detailseite und Medien -------------------------------------------------
+/horse?id=1
+/hengst?id=1
+/station?id=1
+/media/horse-image?id=1
+
+# --- JSON-API (Bearer noetig; sqlmap sieht 401, prueft aber die Parameter
+#     auf Fehlerdifferenzen im Routing-/Validierungspfad) --------------------
+/api/horses?page=1
+/api/horses?ueln=DE123456789
+/api/horses/show?id=1
+/api/stats?metric=horses_total&interval=day&from=2020-01-01&to=2020-12-31
+/api/stats?metric=horses_total&interval=day&filter=1
+
+# --- Oeffentliches DSGVO-Portal --------------------------------------------
+/dsgvo

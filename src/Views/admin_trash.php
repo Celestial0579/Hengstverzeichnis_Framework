@@ -14,12 +14,12 @@
         <div>
             <h2>🗑️ Papierkorb</h2>
             <p style="color: var(--text-muted); font-size: 0.95rem; margin-top: 0.2rem;">
-                Gelöschte Elemente werden aufbewahrt. 
-                <strong>Editoren</strong> können Pferde, Personen und Deckstationen wiederherstellen (endgültige Löschung nach 30 Tagen). 
+                Gelöschte Elemente werden aufbewahrt.
+                <strong>Editoren</strong> können Pferde, Personen und Deckstationen wiederherstellen (endgültige Löschung nach 30 Tagen).
                 <strong>Administratoren</strong> haben jederzeit Vollzugriff.
             </p>
         </div>
-        
+
         <?php if ($totalCount > 0): ?>
             <form action="/admin/trash/empty" method="POST" data-confirm="Möchten Sie alle berechtigten Elemente im Papierkorb leeren?" >
                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">

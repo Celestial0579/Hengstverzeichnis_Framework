@@ -58,6 +58,25 @@ $embedDomainsList = array_values(array_filter(array_map('trim', explode(',', $em
 }));
 define('EMBED_ALLOWED_DOMAINS', implode(',', $embedDomainsList));
 
+// Origins eines externen CAPTCHA-Anbieters (Turnstile, hCaptcha, ...), die ein
+// Addon ueber die Hooks aus #258 einbindet.
+//
+// WARUM EIN EIGENER WERT UND NICHT TRACKING_DOMAINS: Beide Anbieter rendern ihr
+// Widget in einem IFRAME. TRACKING_DOMAINS erweitert script-src, img-src und
+// connect-src - aber die Policy hatte ueberhaupt kein frame-src, es griff also
+// der Rueckfall auf default-src 'self', und das Widget blieb lautlos leer.
+// Ein Anbieter, der nur in script-src steht, laedt sein Skript und scheitert
+// danach am Rahmen; genau die Sorte Fehler, die man dem CAPTCHA-Addon
+// zuschreibt statt der CSP.
+//
+// Getrennt von TRACKING_DOMAINS, weil es zwei verschiedene Entscheidungen sind:
+// Wer Tracking zulaesst, will damit nicht automatisch fremde Rahmen zulassen.
+$captchaDomainsRaw = getenv('CAPTCHA_DOMAINS') !== false ? getenv('CAPTCHA_DOMAINS') : ($dbConfig['captcha_domains'] ?? '');
+$captchaDomainsList = array_values(array_filter(array_map('trim', explode(',', $captchaDomainsRaw)), function ($d) {
+    return $d !== '' && preg_match('#^https://[a-zA-Z0-9.-]+(:\d+)?$#', $d) === 1;
+}));
+define('CAPTCHA_DOMAINS', implode(',', $captchaDomainsList));
+
 // Vertrauenswürdige Host-Header (Issue #116, siehe App\Security\TrustedHost):
 // Kommagetrennte Hostnamen (führender Punkt = beliebige Subdomain). Wird nur für
 // den dynamischen APP_URL-/Mailer-Fallback ausgewertet, wenn weder base_url noch

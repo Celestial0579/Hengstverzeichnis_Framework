@@ -213,6 +213,90 @@ class EmbedLayoutTest extends FunctionalTestCase {
     }
 
     /**
+     * frame-src als Erweiterungspunkt für einen externen CAPTCHA-Anbieter.
+     *
+     * Der Anlass ist ein Fehler, der sonst dem Addon zugeschrieben würde:
+     * Turnstile und hCaptcha rendern ihr Widget in einem IFRAME. Die Policy
+     * hatte überhaupt kein `frame-src`, es griff also der Rückfall auf
+     * `default-src 'self'` - das Widget blieb lautlos leer. `TRACKING_DOMAINS`
+     * hilft dabei NICHT: Es erweitert script-src/img-src/connect-src, der
+     * Rahmen bliebe gesperrt, das Skript lüde und scheiterte danach.
+     */
+    public function testCaptchaDomainsReachFrameSrcNotOnlyScriptSrc(): void {
+        $policy = \App\Security\ContentSecurityPolicy::build();
+
+        // Ohne Konfiguration: frame-src steht ausdrücklich da und ist streng.
+        $this->assertStringContainsString(
+            "frame-src 'self'",
+            $policy,
+            'frame-src muss ausdrücklich gesetzt sein, nicht nur über default-src wirken.'
+        );
+
+        $directives = [];
+        foreach (explode(';', $policy) as $part) {
+            $part = trim($part);
+            if ($part !== '') {
+                $name = explode(' ', $part)[0];
+                $directives[$name] = $part;
+            }
+        }
+
+        $this->assertArrayHasKey('frame-src', $directives);
+        $this->assertSame(
+            "frame-src 'self'",
+            $directives['frame-src'],
+            'Ohne konfigurierten Anbieter darf frame-src nichts Fremdes erlauben.'
+        );
+    }
+
+    /**
+     * Und die Gegenrichtung ueber eine echte Antwort: Mit konfiguriertem
+     * Anbieter muss seine Herkunft in frame-src, script-src UND connect-src
+     * stehen - das Widget laedt ein Skript, oeffnet einen Rahmen und ruft von
+     * dort zurueck. Fehlt eine der drei, scheitert es an einer anderen Stelle,
+     * aber immer lautlos.
+     */
+    public function testConfiguredCaptchaProviderReachesAllThreeDirectives(): void {
+        $server = new \Tests\Support\AuxiliaryServer(
+            port: 8792,
+            docroot: __DIR__ . '/../../public',
+            env: ['CAPTCHA_DOMAINS' => 'https://challenges.cloudflare.com'],
+        );
+        $server->start();
+
+        try {
+            $client = new \Tests\Support\HttpClient($server->baseUrl());
+            $policy = (string)$client->get('/katalog')->header('Content-Security-Policy');
+
+            $directives = [];
+            foreach (explode(';', $policy) as $part) {
+                $part = trim($part);
+                if ($part !== '') {
+                    $directives[explode(' ', $part)[0]] = $part;
+                }
+            }
+
+            foreach (['frame-src', 'script-src', 'connect-src'] as $name) {
+                $this->assertStringContainsString(
+                    'https://challenges.cloudflare.com',
+                    $directives[$name] ?? '',
+                    "Die Anbieter-Herkunft fehlt in {$name} - das Widget scheitert dort lautlos."
+                );
+            }
+
+            // Und NICHT ueberall: Ein CAPTCHA-Anbieter braucht keine Bilder von
+            // uns und soll die Seite nicht einrahmen duerfen.
+            $this->assertStringNotContainsString(
+                'challenges.cloudflare.com',
+                $directives['frame-ancestors'] ?? '',
+                'Ein CAPTCHA-Anbieter darf nicht zum erlaubten Einbetter werden.'
+            );
+        } finally {
+            $server->stop();
+        }
+    }
+
+    /**
      * Die dritte Stelle aus #260. `X-Frame-Options` darf NICHT zusätzlich in
      * public/.htaccess gesetzt werden: Apache setzt seine Header nach PHP und
      * würde den für eine Embed-Antwort entfernten Header wieder anfügen - die

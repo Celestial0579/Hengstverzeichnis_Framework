@@ -33,6 +33,15 @@ final class ContentSecurityPolicy {
         $configured = defined('TRACKING_DOMAINS') ? (string)constant('TRACKING_DOMAINS') : '';
         $tracking = $configured !== '' ? ' ' . str_replace(',', ' ', $configured) : '';
 
+        // Externer CAPTCHA-Anbieter (#258-Hooks). Beide gängigen Anbieter
+        // rendern ihr Widget in einem IFRAME und rufen von dort auf ihre eigene
+        // Herkunft zurück - sie brauchen deshalb frame-src, script-src UND
+        // connect-src. Nur script-src zu erweitern (wie TRACKING_DOMAINS es
+        // täte) lädt das Skript und scheitert danach am Rahmen: Das Widget
+        // bleibt leer, ohne Fehlermeldung im Formular.
+        $captchaConfigured = defined('CAPTCHA_DOMAINS') ? (string)constant('CAPTCHA_DOMAINS') : '';
+        $captcha = $captchaConfigured !== '' ? ' ' . str_replace(',', ' ', $captchaConfigured) : '';
+
         // 'self' bleibt IMMER enthalten, auch bei gesetzter Allowlist: Die eigene
         // Oberfläche bettet sich selbst ein (Vorschau im Admin-Bereich), und ein
         // Konfigurationsfehler in der Allowlist darf nicht die eigene Seite
@@ -44,11 +53,16 @@ final class ContentSecurityPolicy {
 
         return implode('; ', [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline'" . $tracking,
+            "script-src 'self' 'unsafe-inline'" . $tracking . $captcha,
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data:" . $tracking,
-            "connect-src 'self'" . $tracking,
+            "connect-src 'self'" . $tracking . $captcha,
+            // frame-src wird jetzt AUSDRÜCKLICH gesetzt. Ohne die Direktive
+            // greift der Rückfall auf default-src 'self' - dieselbe Wirkung,
+            // aber unsichtbar: Wer die Policy liest, sieht nicht, dass fremde
+            // Rahmen gesperrt sind, und sucht den Fehler anderswo.
+            "frame-src 'self'" . $captcha,
             "object-src 'none'",
             "base-uri 'self'",
             "form-action 'self'",

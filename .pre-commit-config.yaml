@@ -11,6 +11,14 @@ repos:
   rev: 3.0.0
   hooks:
   - id: shellcheck
+    # Schwelle ausdruecklich auf 'warning': Ohne sie entscheidet die
+    # shellcheck-Version, ob das Gate rot ist. Lokal (0.11.0) und im
+    # GitHub-Runner liefen unterschiedliche Fassungen und meldeten
+    # unterschiedliche info-/style-Funde - SC2329 hier, SC2317 dort, SC2002 nur
+    # in einer von beiden. Ein Gate, dessen Ergebnis von der Laufumgebung
+    # abhaengt, taugt nicht als Pflicht-Check; die inhaltlich relevanten Codes
+    # (SC2086 & Co.) liegen alle bei warning oder hoeher.
+    args: ["--severity=warning"]
 - repo: https://github.com/pre-commit/mirrors-eslint
   rev: v10.8.0
   hooks:

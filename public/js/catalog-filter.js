@@ -174,6 +174,18 @@ document.addEventListener('DOMContentLoaded', function () {
                 // insertAdjacentHTML statt innerHTML +=: Letzteres serialisiert
                 // das gesamte Grid neu und laedt dabei alle bereits sichtbaren
                 // Bilder ein zweites Mal.
+                //
+                // Die Semgrep-Regel dazu ist eine React-Audit-Regel, die hier auf
+                // schlichtes JavaScript trifft. cards_html ist keine Nutzereingabe,
+                // sondern die serverseitig gerenderte Teilansicht
+                // public_catalog_cards.php - dieselbe Datei, die auch den normalen
+                // Seitenaufruf erzeugt. Alle Pferdedaten darin laufen durch
+                // htmlspecialchars; roh ausgegeben wird allein $extraSection, die
+                // Ausgabe des Hooks catalog.card_sections, und die ist im
+                // nicht-AJAX-Pfad genauso roh. Eine Sanitisierung an dieser Stelle
+                // wuerde also nichts absichern, was der normale Seitenaufbau nicht
+                // ebenso ausliefert - sie wuerde nur Addon-Markup zerstoeren.
+                // nosemgrep: typescript.react.security.audit.react-unsanitized-method.react-unsanitized-method
                 grid.insertAdjacentHTML('beforeend', data.cards_html);
 
                 currentPage = data.page || (currentPage + 1);

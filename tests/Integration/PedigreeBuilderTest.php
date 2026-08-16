@@ -20,6 +20,14 @@ use PHPUnit\Framework\TestCase;
  */
 class PedigreeBuilderTest extends TestCase {
 
+    protected function setUp(): void {
+        // Die Memoisierung lebt jetzt über den einzelnen build()-Aufruf hinaus
+        // (Performance: Detailseite und Addons bauen im selben Request
+        // mehrere Bäume über dieselben Vorfahren). Tests legen zwischen den
+        // Fällen neue Pferde an und müssen sie deshalb ausdrücklich verwerfen.
+        \App\Service\PedigreeBuilder::resetCache();
+    }
+
     private static PDO $db;
 
     public static function setUpBeforeClass(): void {

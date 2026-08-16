@@ -191,6 +191,23 @@ class MediaController extends BaseController {
 
         header('Content-Length: ' . $size);
 
+        // Sitzung freigeben, BEVOR die Datei ausgeliefert wird.
+        //
+        // PHPs Standard-Sitzungsspeicher hält die Sitzungsdatei bis zum Ende
+        // des Requests exklusiv gesperrt. Solange dieser Request die Datei
+        // liest und schreibt, wartet JEDER weitere Request desselben
+        // Besuchers - und eine Katalogseite fordert zwei Dutzend Bilder an,
+        // die alle über diesen Endpunkt laufen. Statt parallel ausgeliefert
+        // zu werden, reihen sie sich hintereinander auf; der Browser wartet
+        // auf einen Server, der nur auf sein eigenes Schloss wartet.
+        //
+        // Ab hier wird nichts mehr in die Sitzung geschrieben, das Schließen
+        // ist also folgenlos - die Sichtbarkeitsprüfung oben ist längst
+        // gelaufen.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
         // Ausgabepuffer leeren, sonst hält PHP die gesamte Datei im Speicher,
         // bevor das erste Byte den Server verlässt.
         while (ob_get_level() > 0) {

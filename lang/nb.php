@@ -73,6 +73,10 @@ return [
     // Register (offentlig katalog)
     'catalog.heading' => 'Register',
     'catalog.loading' => 'Laster...',
+    'catalog.load_more' => 'Last inn flere hester',
+    'catalog.load_more_status' => '{loaded} av {total} hester lastet inn',
+    'catalog.load_more_done' => 'Alle {total} hester lastet inn',
+    'catalog.load_more_error' => 'Innlastingen mislyktes. Prøv igjen.',
     'catalog.hit_count_one' => '{count} hest funnet',
     'catalog.hit_count_other' => '{count} hester funnet',
     'catalog.search_placeholder' => 'Fritekstsøk (hest, UELN, oppdretter, eier, hingstestasjon, far, mor)...',

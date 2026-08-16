@@ -73,6 +73,10 @@ return [
     // Register (offentligt katalog)
     'catalog.heading' => 'Register',
     'catalog.loading' => 'Indlæser...',
+    'catalog.load_more' => 'Indlæs flere heste',
+    'catalog.load_more_status' => '{loaded} af {total} heste indlæst',
+    'catalog.load_more_done' => 'Alle {total} heste indlæst',
+    'catalog.load_more_error' => 'Indlæsningen mislykkedes. Prøv igen.',
     'catalog.hit_count_one' => '{count} hest fundet',
     'catalog.hit_count_other' => '{count} heste fundet',
     'catalog.search_placeholder' => 'Fritekstsøgning (hest, UELN, opdrætter, ejer, hingstestation, far, mor)...',

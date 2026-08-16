@@ -73,6 +73,10 @@ return [
     // Registre (catalogue public)
     'catalog.heading' => 'Registre',
     'catalog.loading' => 'Chargement...',
+    'catalog.load_more' => 'Charger plus de chevaux',
+    'catalog.load_more_status' => '{loaded} chevaux sur {total} chargés',
+    'catalog.load_more_done' => 'Les {total} chevaux sont chargés',
+    'catalog.load_more_error' => 'Échec du chargement. Veuillez réessayer.',
     'catalog.hit_count_one' => '{count} cheval trouvé',
     'catalog.hit_count_other' => '{count} chevaux trouvés',
     'catalog.search_placeholder' => 'Recherche plein texte (cheval, UELN, éleveur, propriétaire, station de monte, père, mère)...',

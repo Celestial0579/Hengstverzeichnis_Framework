@@ -288,15 +288,41 @@ class PublicController extends BaseController {
 
         if ($isAjax) {
             header('Content-Type: application/json; charset=utf-8');
+
+            // Nachladen statt Ersetzen (#264): Beim Anhängen einer weiteren Seite
+            // darf die Seiten-Navigation NICHT mitkommen - sie steckt in derselben
+            // Teilansicht und landete sonst mitten zwischen den Karten. Sie bleibt
+            // im normalen Seitenaufruf erhalten, denn ohne JavaScript ist sie der
+            // einzige Weg durch den Katalog.
+            if (!empty($_GET['append'])) {
+                $catalogPagination = null;
+            }
+
             ob_start();
             include __DIR__ . '/../Views/public_catalog_cards.php';
             $cardsHtml = ob_get_clean();
 
+            // Begründung (die Unterdrückung gilt bewusst nur für diese eine Stelle):
+            // Die Regel arbeitet im Taint-Modus mit $_GET als Quelle und `echo` als
+            // Senke; ihre Sanitizer-Liste kennt ausschließlich HTML-Escaper
+            // (htmlentities, htmlspecialchars, strip_tags …). Ein (int)-Cast steht
+            // nicht darauf, deshalb bleibt $page für sie bis hierher "tainted" —
+            // obwohl es in Zeile 217 hart nach int gecastet und über max()/min()
+            // auf 1..$totalPages eingegrenzt wird. Ausgegeben wird eine Ganzzahl in
+            // einem application/json-Rumpf, nicht in HTML: Ein XSS-Vektor besteht
+            // hier nicht. Der von der Regel vorgeschlagene Autofix (htmlentities um
+            // json_encode) würde die Antwort zerstören.
+            // Die Seitenzahl wegzulassen ist keine Alternative — der Client kennt
+            // CATALOG_PER_PAGE nicht und soll es nicht doppelt führen (#264).
+            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
             echo json_encode([
                 'success' => true,
                 'count' => $totalHorses,
                 'count_text' => \App\I18n\Translator::t($totalHorses === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => $totalHorses]),
-                'cards_html' => $cardsHtml
+                'cards_html' => $cardsHtml,
+                'page' => (int)$page,
+                'total_pages' => (int)$totalPages,
+                'has_more' => (int)$page < (int)$totalPages,
             ]);
             exit;
         }

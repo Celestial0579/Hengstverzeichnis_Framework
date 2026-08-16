@@ -73,6 +73,10 @@ return [
     // Rekisteri (julkinen luettelo)
     'catalog.heading' => 'Rekisteri',
     'catalog.loading' => 'Ladataan...',
+    'catalog.load_more' => 'Lataa lisää hevosia',
+    'catalog.load_more_status' => '{loaded}/{total} hevosta ladattu',
+    'catalog.load_more_done' => 'Kaikki {total} hevosta ladattu',
+    'catalog.load_more_error' => 'Lataus epäonnistui. Yritä uudelleen.',
     'catalog.hit_count_one' => 'Löytyi {count} hevonen',
     'catalog.hit_count_other' => 'Löytyi {count} hevosta',
     'catalog.search_placeholder' => 'Vapaatekstihaku (hevonen, UELN, kasvattaja, omistaja, oriasema, isä, emä)...',

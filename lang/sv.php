@@ -73,6 +73,10 @@ return [
     // Register (publik katalog)
     'catalog.heading' => 'Register',
     'catalog.loading' => 'Laddar...',
+    'catalog.load_more' => 'Ladda fler hästar',
+    'catalog.load_more_status' => '{loaded} av {total} hästar laddade',
+    'catalog.load_more_done' => 'Alla {total} hästar laddade',
+    'catalog.load_more_error' => 'Inläsningen misslyckades. Försök igen.',
     'catalog.hit_count_one' => '{count} häst hittad',
     'catalog.hit_count_other' => '{count} hästar hittade',
     'catalog.search_placeholder' => 'Fritextsökning (häst, UELN, uppfödare, ägare, hingststation, far, mor)...',

@@ -96,8 +96,11 @@ abstract class BaseController {
      * 
      * @param string $view Name der View-Datei (ohne Endung .php)
      * @param array $data Variablen-Array, das in der View verfügbar gemacht wird
+     * @param bool $embed Minimal-Layout ohne Kopf-/Fußbereich (#260). Lockert
+     *   zusätzlich die Frame-Sperre - aber NUR, wenn der Betreiber Domains
+     *   freigegeben hat; ohne Freigabe bleibt sie bestehen.
      */
-    protected function render(string $view, array $data = []): void {
+    protected function render(string $view, array $data = [], bool $embed = false): void {
         // Variablen aus dem Data-Array für die View extrahieren
         extract($data);
         
@@ -113,6 +116,15 @@ abstract class BaseController {
             echo "View '{$view}' nicht gefunden.";
         }
         $content = ob_get_clean();
+
+        if ($embed) {
+            // Reihenfolge ist wesentlich: Die Header muessen raus, BEVOR das
+            // Layout die erste Ausgabe erzeugt - danach ist headers_sent() wahr
+            // und die Lockerung liefe wirkungslos ins Leere.
+            \App\Security\FrameGuard::allowEmbedding();
+            require __DIR__ . "/../Views/layout_embed.php";
+            return;
+        }
 
         // Haupt-Layout rendern und den abgefangenen $content injizieren
         require __DIR__ . "/../Views/layout.php";

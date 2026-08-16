@@ -314,6 +314,12 @@ class PublicController extends BaseController {
         $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
         $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
+        // Minimal-Layout (#260): Das Issue nennt genau diesen fehlenden Schalter.
+        // Er wirkt NUR auf die Darstellung; die Frame-Sperre lockert sich davon
+        // nicht - dafuer muss der Betreiber Domains freigegeben haben
+        // (EMBED_ALLOWED_DOMAINS, siehe App\Security\FrameGuard).
+        $embed = isset($_GET['embed']) && $_GET['embed'] !== '0';
+
         $this->render('public_catalog', [
             'title' => \App\I18n\Translator::t('meta.title_catalog') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
             'horses' => $horses,
@@ -324,8 +330,9 @@ class PublicController extends BaseController {
             'stations' => $stations,
             'persons' => $persons,
             'cardSections' => $cardSections,
-            'catalogPagination' => $catalogPagination
-        ]);
+            'catalogPagination' => $catalogPagination,
+            'embed' => $embed,
+        ], $embed);
     }
 
     public function horseDetail(): void {

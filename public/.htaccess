@@ -12,7 +12,15 @@ ServerSignature Off
 # 3. HTTP Security Headers
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "SAMEORIGIN"
+    # X-Frame-Options wird seit #260 AUSSCHLIESSLICH von PHP gesetzt
+    # (config/config.php). Der Grund ist keine Aufraeumarbeit, sondern eine
+    # Notwendigkeit: Der Header kann keine Allowlist ausdruecken (ALLOW-FROM ist
+    # zurueckgezogen), die Embed-Freigabe laeuft deshalb ueber CSP
+    # frame-ancestors, und eine Embed-Antwort muss X-Frame-Options ENTFERNEN.
+    # Apache setzt seine Header-Direktiven NACH PHP - ein 'Header set' hier
+    # wuerde den entfernten Header wieder anfuegen und die Freigabe still
+    # aufheben. Wer die Zeile zurueckholt, macht #260 wirkungslos, ohne dass
+    # ein Test es merkt, der nur PHP-Antworten prueft.
     # X-XSS-Protection bewusst auf "0": Der veraltete Browser-XSS-Filter
     # (1; mode=block) kann selbst Lecks/DoS ermoeglichen und ist deprecated.
     # OWASP empfiehlt "0" — der XSS-Schutz kommt hier aus der CSP unten.

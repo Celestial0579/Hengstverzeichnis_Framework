@@ -39,6 +39,25 @@ $trackingDomainsList = array_values(array_filter(array_map('trim', explode(',', 
 }));
 define('TRACKING_DOMAINS', implode(',', $trackingDomainsList));
 
+// Fremde Seiten, die eine Embed-Ansicht dieses Verzeichnisses per <iframe>
+// einbinden duerfen (#260). LEER = niemand, und das ist der Auslieferungszustand:
+// Ohne ausdrueckliche Freigabe bleibt die Frame-Sperre fuer JEDE Seite bestehen,
+// auch fuer die Embed-Routen selbst.
+//
+// Dieselbe Pruefung wie bei TRACKING_DOMAINS und aus demselben Grund: Nur echte
+// https://-Origins ohne Pfad. Ein korrupter Konfigurationswert koennte sonst
+// ueber frame-ancestors weitere CSP-Direktiven einschleusen - und anders als beim
+// Tracking-Wert ginge es hier um die Clickjacking-Sperre selbst.
+//
+// Kein Platzhalter, keine Wildcard-Subdomains: '*.example.com' zu erlauben hiesse,
+// jeder Subdomain dieser Fremd-Domain zu vertrauen; eine uebernommene Subdomain
+// reicht dann fuer einen Clickjacking-Rahmen.
+$embedDomainsRaw = getenv('EMBED_ALLOWED_DOMAINS') !== false ? getenv('EMBED_ALLOWED_DOMAINS') : ($dbConfig['embed_allowed_domains'] ?? '');
+$embedDomainsList = array_values(array_filter(array_map('trim', explode(',', $embedDomainsRaw)), function ($d) {
+    return $d !== '' && preg_match('#^https://[a-zA-Z0-9.-]+(:\d+)?$#', $d) === 1;
+}));
+define('EMBED_ALLOWED_DOMAINS', implode(',', $embedDomainsList));
+
 // Vertrauenswürdige Host-Header (Issue #116, siehe App\Security\TrustedHost):
 // Kommagetrennte Hostnamen (führender Punkt = beliebige Subdomain). Wird nur für
 // den dynamischen APP_URL-/Mailer-Fallback ausgewertet, wenn weder base_url noch
@@ -106,6 +125,14 @@ define('APP_ENV', getenv('APP_ENV') ?: ($dbConfig['app_env'] ?? (file_exists($db
 if (PHP_SAPI !== 'cli') {
     if (!headers_sent()) {
         header("X-Content-Type-Options: nosniff");
+        // X-Frame-Options wird seit #260 NUR noch hier gesetzt, nicht mehr
+        // zusaetzlich in public/.htaccess. Grund: Der Header kann keine
+        // Allowlist ausdruecken (ALLOW-FROM ist tot und wird von keinem
+        // aktuellen Browser mehr ausgewertet), die Embed-Freigabe laeuft also
+        // ueber CSP frame-ancestors. Eine Embed-Antwort muss X-Frame-Options
+        // deshalb ENTFERNEN - und ein zusaetzliches 'Header set' in der
+        // .htaccess wuerde es hinterher wieder setzen und die Freigabe still
+        // aufheben. Eine Regel, eine Stelle.
         header("X-Frame-Options: SAMEORIGIN");
         // X-XSS-Protection bewusst auf "0", identisch zu public/.htaccess: Der
         // veraltete Browser-XSS-Filter (1; mode=block) kann selbst Lecks/DoS
@@ -123,19 +150,11 @@ if (PHP_SAPI !== 'cli') {
         // bieten trotzdem echten Zusatzschutz ohne Änderungen an den Views.
         // TRACKING_DOMAINS wird nur bei aktiv konfiguriertem Tracking-Code angehängt -
         // ohne Konfiguration bleibt die Policy unverändert streng.
-        $trackingDomainsForCsp = TRACKING_DOMAINS !== '' ? ' ' . str_replace(',', ' ', TRACKING_DOMAINS) : '';
-        header("Content-Security-Policy: " . implode('; ', [
-            "default-src 'self'",
-            "script-src 'self' 'unsafe-inline'" . $trackingDomainsForCsp,
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-            "font-src 'self' https://fonts.gstatic.com",
-            "img-src 'self' data:" . $trackingDomainsForCsp,
-            "connect-src 'self'" . $trackingDomainsForCsp,
-            "object-src 'none'",
-            "base-uri 'self'",
-            "form-action 'self'",
-            "frame-ancestors 'self'",
-        ]));
+        // Aufbau der Policy liegt seit #260 in App\Security\ContentSecurityPolicy -
+        // die Embed-Antwort muss denselben Header mit einem anderen
+        // frame-ancestors erneut senden, und zwei getrennte Fassungen derselben
+        // Policy waeren genau die Bauart, die auseinanderdriftet.
+        header('Content-Security-Policy: ' . \App\Security\ContentSecurityPolicy::build());
     }
 
     if (session_status() === PHP_SESSION_NONE) {

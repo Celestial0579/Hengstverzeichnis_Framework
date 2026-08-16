@@ -6,7 +6,7 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [Unreleased]
+## [0.5.1] – 2026-08-16
 
 ### Sicherheit
 
@@ -26,6 +26,7 @@ Breaking Changes sind jederzeit möglich).
   - Neuer Funktionstest `TwoFaCrossAccountTest`: Der bestehende
     `TwoFaStepUpTest` prüfte ausschließlich Same-User-Fälle, die Lücke lag
     genau daneben.
+
 - **`/force-password-change` läuft durch `checkAuth()`** — es war die einzige
   Backend-Route ohne diese Prüfung und damit der Rückweg aus der
   Session-Invalidierung (#113): Eine Sitzung, die überall sonst mit
@@ -34,6 +35,7 @@ Breaking Changes sind jederzeit möglich).
   der Wechsel jetzt das bisherige Passwort (eigener Rate-Limit-Zähler,
   Fehlversuche im Audit-Log) — dieselbe Begründung wie beim Step-up vor einer
   2FA-Änderung (#112). Neuer Funktionstest `ForcePasswordChangeGuardTest`.
+
 - **SSO wertet `email_verified` aus.** Ein ausdrücklich als unbestätigt
   gemeldeter `email`-Claim wird verworfen, statt als Kontozuordnung zu gelten;
   bei einem Provider mit Selbstregistrierung genügte sonst ein dort angelegtes
@@ -49,6 +51,7 @@ Breaking Changes sind jederzeit möglich).
   PDO-Fehler zeigte dem Besucher DSN samt Datenbankbenutzer. Jetzt gilt
   `production`, sobald die Instanz überhaupt konfiguriert ist. Zusätzlich
   `ENV APP_ENV=production` im Dockerfile.
+
 - **In Produktion wird wieder protokolliert** (neu:
   `App\Service\ErrorHandler`). `error_reporting(0)` schaltete nicht nur die
   Anzeige ab, sondern auch das Logging - die Stufe ist die Maske für beides.
@@ -59,6 +62,7 @@ Breaking Changes sind jederzeit möglich).
   Shutdown-Funktion für fatale Fehler, die nach `error_log()` schreiben (nicht
   in die Datenbank - sie kann der Ausfall sein) und eine schlichte 500-Seite
   ohne Details liefern.
+
 - **Setup-Wizard prüft Datenbankname, Host und Port immer** (neu:
   `App\Security\DbIdentifier`). Die Namensprüfung hing am Zweig „DB-Abschnitt
   im Formular sichtbar", und der gilt schon als erledigt, sobald *irgendeine*
@@ -67,11 +71,13 @@ Breaking Changes sind jederzeit möglich).
   Namen weiterhin ungeprüft aus dem Formular, und er landet interpoliert in
   `DROP DATABASE`/`CREATE DATABASE`. Host und Port werden neu geprüft, damit
   ein Semikolon keine weiteren DSN-Parameter anhängen kann.
+
 - **`config/db_config.php` wird mit 0600 geschrieben.** Sie enthält
   DB-Passwort und `APP_KEY` im Klartext; mit dem Schlüssel lassen sich alle
   verschlüsselt abgelegten Geheimnisse entschlüsseln. `file_put_contents`
   legte sie mit 0644 an, auf geteiltem Webhosting also für jeden Systembenutzer
   lesbar.
+
 - **`DB_SSL_VERIFY` ist standardmäßig an, sobald eine CA-Datei hinterlegt
   ist.** Zuvor war die Zertifikatsprüfung ohne ausdrückliches Zutun aus - eine
   angegebene CA blieb wirkungslos und die Verbindung verschlüsselt, aber nicht
@@ -96,6 +102,7 @@ Breaking Changes sind jederzeit möglich).
     `memory_limit` und `max_execution_time` bleiben ebenfalls unangetastet -
     ein Zeitlimit von 60 Sekunden hätte Sicherung, Import und Update
     abgeschnitten.
+
 - **`plugins/` ist ein Volume** in `docker-compose.yml`. Der dokumentierte
   Update-Weg (`docker compose pull && up -d`) nahm bisher jedes über den
   Addon-Store installierte Addon mit; die Datenbankzeilen blieben stehen, die
@@ -113,21 +120,25 @@ Breaking Changes sind jederzeit möglich).
   abgebrochene und unterwegs veränderte Downloads sowie zur Version
   unpassende Assets ab. Die Echtheit trägt weiterhin die TLS-Verbindung zur
   fest verdrahteten `api.github.com`-URL.
+
 - **Der Updater spricht nur noch HTTPS**, auch nach einer Umleitung
   (`CURLOPT_PROTOCOLS_STR`/`CURLOPT_REDIR_PROTOCOLS_STR`). Zuvor konnte eine
   302 auf `http://` oder `file://` aus dem gesicherten Transport herausführen.
   In der Entwicklungsumgebung bleibt `http` erlaubt, weil die Funktionstests
   ihr Release-Fixture über einen lokalen `php -S` ohne TLS ausliefern.
+
 - **`UPDATE_RELEASES_URL` greift nur noch in der Entwicklungsumgebung.** Die
   Variable ist ein Test-/Staging-Hilfsmittel; in Produktion bestimmt sie, woher
   der Code kommt, der die Installation überschreibt. Eine ignorierte
   Übersteuerung wird protokolliert, damit sie nicht still wirkungslos bleibt.
+
 - **WebDAV folgt keinen Umleitungen mehr.** PHP hängt beim Folgen die gesetzten
   Header unverändert an die neue Anfrage — also auch den
   `Authorization`-Header mit den Basic-Zugangsdaten, und das an einen Host, den
   die Antwort des Servers bestimmt. Eine Umleitung fällt jetzt in die
   Statusprüfung und wird als Fehler gemeldet; ein dauerhaft umleitender Server
   gehört mit seiner Zieladresse in die Konfiguration.
+
 - **FTPS: fehlende Zertifikatsprüfung benannt.** `ftp_ssl_connect()`
   verschlüsselt, prüft das Serverzertifikat aber nicht, und PHPs
   FTP-Erweiterung bietet dafür keine Einstellung — das ist nicht
@@ -155,11 +166,13 @@ Breaking Changes sind jederzeit möglich).
   ohnehin schon als Rückfall führte; die Freigaben in der CSP entfallen. Wer
   die Inter-Typografie exakt behalten will, liefert die woff2-Dateien selbst
   aus.
+
 - **Reset-Token liegen nur noch als SHA-256-Abdruck in der Datenbank.** Im
   Klartext war `password_resets` ein Vorrat gültiger Zugänge: Wer die Tabelle
   lesen kann - Leselücke, Sicherungskopie, Dump -, übernimmt in den 15 Minuten
   Gültigkeit jedes Konto, für das gerade ein Reset läuft. Bestehende Zeilen
   werden bei der Migration entfernt statt umgerechnet (Schema-Version 5).
+
 - **`/forgot-password` verrät über die Antwortzeit nicht mehr, ob es das Konto
   gibt.** Die Antwort war zwar in beiden Fällen wortgleich, aber nur für ein
   vorhandenes Konto wurde eine SMTP-Verbindung aufgebaut - und die kostet ein
@@ -167,12 +180,14 @@ Breaking Changes sind jederzeit möglich).
   deckelt die Auflösung, es beseitigt den Unterschied nicht: Braucht der
   Versand länger als die Untergrenze, ist er wieder messbar. Sauber wäre eine
   Warteschlange.
+
 - **Der Konto-Zähler des Logins ist nicht mehr durch Leerzeichen umgehbar.**
   Der Bezeichner ist zusammengesetzt (`email|ip`), das angehängte Leerzeichen
   stand darin also mittendrin; der Zähler lief auf einen frischen Wert,
   während die Benutzersuche die Adresse dank PAD-SPACE-Collation unverändert
   fand. `RateLimiter` entfernt Whitespace jetzt vollständig, und die Adresse
   wird schon am Rand getrimmt.
+
 - **Sicherheitsabfragen kommen ohne Inline-JavaScript aus.** Der Text wurde
   mit `addslashes()` in ein `onsubmit="return confirm('…')"` geschrieben -
   eine Maskierung, die Anführungszeichen kennt, aber keine Zeilenumbrüche. Ein
@@ -204,6 +219,7 @@ Breaking Changes sind jederzeit möglich).
   Bilder über diesen Endpunkt an; statt parallel ausgeliefert zu werden,
   reihten sie sich hintereinander auf. `session_write_close()` vor `readfile()`
   gibt das Schloss frei, sobald die Sichtbarkeitsprüfung durch ist.
+
 - **Der Stammbaum-Cache wird nicht mehr bei jedem Aufruf weggeworfen.**
   `PedigreeBuilder::build()` leerte seine Memoisierung zu Beginn jedes
   Top-Level-Aufrufs, mit der Begründung, dass sonst „zwischen Requests/Tests
@@ -213,6 +229,7 @@ Breaking Changes sind jederzeit möglich).
   `genealogie-vergleich` bauen im selben Request weitere über weitgehend
   dieselben Vorfahren, und jeder fing wieder bei null an. Für Tests und
   Import-/Migrationswege gibt es jetzt `PedigreeBuilder::resetCache()`.
+
 - **Das Pferdeformular lädt die Eltern-Auswahl nicht mehr unbegrenzt.**
   „Neues Pferd" und „Pferd bearbeiten" holten die komplette `horses`-Tabelle
   (fünf Spalten je Zeile) und rendern sie zweimal als `<option>`-Liste, das
@@ -230,17 +247,20 @@ Breaking Changes sind jederzeit möglich).
   Geheimnis-Scanner, der nur dort läuft, wo ihn jemand eingerichtet hat, ist
   kein Gate, sondern eine Bitte. Der erste erzwungene Lauf hat prompt drei
   Dinge gefunden, die seit Langem unbemerkt lagen (siehe unten).
+
 - **`eslint.config.js` ergänzt.** Der eslint-Hook ist auf v10 gepinnt; seit
   ESLint v9 ist `eslint.config.js` die einzige gesuchte Konfigurationsdatei,
   und es gab keine. Der Hook brach also bei jedem Lauf mit „couldn't find an
   eslint.config file" ab - ein Prüfschritt, der immer rot ist und den niemand
   ausführt, ist von einem, der nicht existiert, nicht zu unterscheiden. Die
   mitgelieferte Fremdbibliothek `public/js/qrcode.js` ist ausgenommen.
+
 - **shellcheck-Funde behoben:** dreimal `A && B || C` in
   `security/checks/10-http-headers.sh` durch `if/else` ersetzt (bei dem
   Kurzmuster läuft C auch, wenn A wahr ist und B fehlschlägt), und die per
   `trap` aufgerufene `teardown()` in `security/run-security-scan.sh` als
   solche gekennzeichnet.
+
 - **Nachlaufende Leerzeichen in 24 Dateien entfernt** - die Bereinigung, die
   der lokale Hook seit jeher gemacht hätte, wenn er gelaufen wäre.
 
@@ -304,6 +324,7 @@ Breaking Changes sind jederzeit möglich).
     Gleiche Wirkung wie der Rückfall, aber sichtbar — wer die Policy liest,
     sieht, dass fremde Rahmen gesperrt sind, statt den Fehler anderswo zu
     suchen.
+
 - Katalog: nahtloses Nachladen statt Seitenwechsel (#264). Der bestehende
   AJAX-Pfad hängt die nächste Seite jetzt an, statt die Karten zu ersetzen.
   - **Der „Weitere Pferde laden"-Knopf ist die Bedienung**, der Scroll-Auslöser
@@ -320,6 +341,7 @@ Breaking Changes sind jederzeit möglich).
     mit `pushState` bräuchte der Zurück-Knopf so viele Klicks, wie nachgeladen
     wurde, um die Seite überhaupt zu verlassen.
   - Vier neue Sprachschlüssel in **allen zwölf** mitgelieferten Sprachen.
+
 - Minimal-Layout für einbettbare Ansichten und eine **Domain-Allowlist** für
   die Frame-Sperre (#260). Voraussetzung für ein Embed-Widget als Addon.
   - `?embed=1` am Katalog rendert `layout_embed.php`: ohne Kopfbereich,
@@ -334,6 +356,7 @@ Breaking Changes sind jederzeit möglich).
     `TRACKING_DOMAINS`). **Im Auslieferungszustand leer — dann bleibt die
     Frame-Sperre auch für Embed-Ansichten bestehen.** Das Minimal-Layout
     lockert von sich aus nichts; `?embed=1` ist eine Darstellungsfrage.
+
 - DSGVO-Modul: manuelle Personenzuordnung, wenn die automatische Suche nichts
   findet (#266). Bisher waren die Anonymisieren-/Löschen-Schaltflächen in
   `if (!empty($req['matching_persons']))` verschachtelt — bei null Treffern gab
@@ -352,6 +375,7 @@ Breaking Changes sind jederzeit möglich).
   - **Auskunftsanfragen** (Art. 15) bekommen erstmals überhaupt ein Matching —
     aber bewusst ohne Löschen/Anonymisieren, sondern mit dem Weg zum
     Datensatz. Auskunft ist nicht Löschung.
+
 - Einbettungsschutz für Pferdefotos (#262). Sie werden jetzt über
   `/media/horse-image` ausgeliefert statt als statische Datei.
   - **`Cross-Origin-Resource-Policy: same-origin`** ist die eigentliche Sperre:
@@ -368,6 +392,7 @@ Breaking Changes sind jederzeit möglich).
     Sichtbarkeitsregeln wie für die Detailseite.
   - Bedingte Anfragen (`ETag`/`Last-Modified` → 304) und `Cache-Control` mit
     einem Jahr: Die Auslieferung über PHP kostet damit kein Browser-Caching.
+
 - Neuer Filter-Hook `horse.edit_sections` (#255): das Admin-Gegenstück zu
   `horse.detail_sections`. Addons können damit einen eigenen Abschnitt in das
   Bearbeitungsformular eines Hengstes hängen und bekommen die `horse_id` aus
@@ -383,6 +408,7 @@ Breaking Changes sind jederzeit möglich).
   `station_*`-Felder, ohne `deleted_at`-Filter) — dokumentiert in
   `docs/plugin-development.md`, abgesichert durch
   `tests/Functional/HorseEditSectionsHookTest.php`.
+
 - Bundesland/Kanton und strukturierte Deckstations-Adresse (#256,
   SCHEMA_VERSION 4). Bei DACH-weiten Zuchtdaten reichen Land und PLZ oft nicht,
   um Herkunft oder Zuständigkeit (Landesverband) einzuordnen.
@@ -416,6 +442,7 @@ Breaking Changes sind jederzeit möglich).
     prüft nur, was beim Schreiben des Tests bekannt war — genau so wäre `state`
     ungeprüft durchgerutscht, und eine Anonymisierungslücke meldet weiterhin
     Erfolg.
+
 - Bot-/Spam-Schutz für das öffentliche DSGVO-Portal (#258, baut auf der
   Vorarbeit aus #254 auf). `POST /dsgvo` ist ohne Anmeldung erreichbar und löst
   je angenommener Anfrage eine Zeile in `gdpr_requests` **und** eine echte
@@ -438,6 +465,7 @@ Breaking Changes sind jederzeit möglich).
     die Übertragung von IP-Adresse und Browser-Fingerprint an einen weiteren
     Empfänger kaum zu rechtfertigen. Die eingebaute Aufgabe braucht weder
     Schlüssel noch Netzzugang noch eine CSP-Lockerung.
+
 - Neue Erweiterungspunkte `captcha.providers`, `captcha.render` und
   `captcha.verify` (#258). Damit lässt sich ein Fremdanbieter (Cloudflare
   Turnstile, hCaptcha) als **Addon** nachrüsten, wenn ein Betreiber ihn
@@ -450,6 +478,123 @@ Breaking Changes sind jederzeit möglich).
   nicht mehr an ihre Auskunft) wäre hier vertretbar; dass es diesen dritten Weg
   gibt, ist der Grund, den Standard im Kern zu halten statt ihn selbst zum
   Addon zu machen.
+
+### Geändert
+
+- Authentifizierung, Rechteprüfung und Antwortform der JSON-API liegen jetzt
+  in `App\Controllers\JsonApiController`, von dem `ApiController` und der
+  neue `StatsApiController` erben. Läge das Lesen des Bearer-Headers an zwei
+  Stellen, käme eine spätere Härtung irgendwann nur an einer davon an.
+  Verhalten von `/api/horses` unverändert.
+
+- Ladeverhalten von Skripten, Stylesheets und Bildern optimiert (#263):
+  - **Katalogbilder laden `lazy`**, ebenso die Vorschaubilder der
+    Hengstverwaltung. Beide Stellen geben ihre Bildhöhe fest vor, es entsteht
+    also kein Layout-Sprung. Das **Hero-Foto der Detailseite bleibt bewusst
+    eager** und bekommt stattdessen `fetchpriority="high"`: Es ist dort das
+    LCP-Element, `lazy` hätte die wahrgenommene Ladezeit verschlechtert.
+  - **Die drei nicht-kritischen Skripte** (Katalogfilter, Pedigree-Zoom,
+    Darkmode-Umschalter) liegen jetzt unter `public/js/` und werden mit
+    `defer` geladen. Sie standen vorher als Inline-Blöcke im HTML — `defer`
+    daran zu schreiben wäre wirkungslos geblieben, das Attribut gilt laut
+    HTML-Standard nur für Skripte mit `src`. Nebeneffekt: Die Dateien werden
+    jetzt über Seitenaufrufe hinweg vom Browser zwischengespeichert.
+  - **Der Darkmode-FOUC-Fix bleibt unverändert inline und synchron im
+    `<head>`** (#91) — er muss vor dem ersten Rendern laufen.
+  - **Das Schriften-Stylesheet des Fremdhosts blockiert das Rendern nicht
+    mehr** (`media="print"` + `onload`, mit `<noscript>`-Rückfall). `style.css`
+    bleibt bewusst blockierend: asynchron geladen zeigte die Seite garantiert
+    einmal ungestylt.
+
+- `X-Frame-Options` wird nur noch von PHP gesetzt, nicht mehr zusätzlich in
+  `public/.htaccess`. Der Header kann keine Allowlist ausdrücken (`ALLOW-FROM`
+  ist zurückgezogen), die Freigabe läuft deshalb über CSP `frame-ancestors` —
+  und Apache setzt seine `Header`-Direktiven nach PHP, hätte den für eine
+  Embed-Antwort entfernten Header also wieder angefügt und die Freigabe still
+  aufgehoben.
+
+- Die Content-Security-Policy wird in `App\Security\ContentSecurityPolicy`
+  aufgebaut statt als Literal in `config/config.php`. Es gibt jetzt zwei
+  Fassungen, die sich in einer Direktive unterscheiden; zwei getrennte Literale
+  wären die Bauart, die auseinanderdriftet.
+
+- `public/uploads/.htaccess` setzt CORP und `nosniff` zusätzlich für den
+  statischen Restweg (Bestandslinks, Addons, die den rohen Spaltenwert
+  rendern). **Nur für Apache** — der eigentliche Schutz liegt bewusst im
+  Anwendungscode, weil eine nginx-Installation von `.htaccess` nichts hat und
+  die Testsuite (`php -S`) sie nicht auswertet.
+
+- Fußzeile (#257): Betreiber- und Framework-Copyright stehen jetzt in zwei
+  getrennten Blöcken, jedes unmittelbar über den Links, die zu ihm gehören —
+  Betreiber-© über Impressum/Datenschutz/DSGVO (Angaben zur Instanz),
+  Framework-© über Handbuch/Austausch/Fehlermeldung/Lizenz (Angaben zum
+  Projekt). Vorher standen beide Copyrights zusammen in einer Zeile und ihre
+  Links darunter, ohne erkennbare Zuordnung. Die inhaltliche Trennung war als
+  bewusste Entscheidung schon dokumentiert (#199, § 13 UrhG / AGPL-3.0 § 5(d)),
+  nur die Darstellung fasste beides zusammen. Die Tagline hängt am
+  Framework-Block, weil sie das Projekt beschreibt und nicht die Installation.
+  Rein visuell über Blockabstand gelöst, ohne Trennlinie und ohne Spalten —
+  die brächten bei schmalen Viewports nur Umbruchprobleme. Keine neuen
+  Übersetzungsschlüssel, keine Backend-Änderung.
+
+### Behoben
+
+- Der Testserver der Functional-Suite bricht jetzt ab, wenn sein Port schon
+  belegt ist, statt still gegen die fremde Instanz zu testen. Der Port ist
+  fest (8767), und die Addons-Suite startet über den vendorierten Kern
+  denselben Server: Läuft eine zweite Suite an, während die erste lebt,
+  kann `php -S` nicht binden - `proc_open()` lieferte trotzdem eine
+  Ressource, und die Bereitschaftsprüfung sah nur, dass *irgendwer* auf dem
+  Port antwortet. Die Suite lief dann komplett gegen die fremde Anwendung
+  samt deren Datenbank. Das Fehlerbild führte in die Irre: `/login` statt
+  `/2fa/setup` bei der Ersteinrichtung, danach "Table users doesn't exist"
+  trotz frisch angelegter Datenbank - es sah nach einem Schema-Problem aus
+  und war ein Portproblem. Jetzt ein klarer Abbruch mit Hinweis auf die
+  Ursache und `ss -ltnp | grep 8767`; zusätzlich wird geprüft, ob der eigene
+  Subprozess überhaupt noch läuft. Das zählt besonders für den nächtlichen
+  `devhost-tests`-Lauf, der Framework, Addons und E2E binnen Minuten prüft
+  und unbeaufsichtigt Issues meldet - "konnte nicht prüfen" und "geprüft,
+  ist kaputt" sind verschiedene Aussagen.
+
+- `ApiStatsTest::testRequiresAnApiKey` erzwingt die Ersteinrichtung, bevor es
+  die 401-Antwort prüft. Ohne das antwortet eine frische Datenbank auf jede
+  Route mit dem Setup-Redirect (302), und der rein anonyme Test war von der
+  Ausführungsreihenfolge abhängig - im vollen Lauf grün, allein auf frischer
+  Datenbank rot.
+
+- `storage/logs/audit_errors.log` wird nicht mehr versioniert. `AuditLogger`
+  fällt bei nicht erreichbarer Datenbank auf eine Datei zurück und schreibt
+  dorthin — jeder Testlauf erzeugte dadurch einen Diff im Arbeitsverzeichnis,
+  und die Repo-Fassung enthielt bereits 14 Zeilen Fehlermeldungen aus fremden
+  Testläufen. Das Verzeichnis bleibt über `.gitkeep` versioniert, sein Inhalt
+  nicht (dieselbe Bauart wie `var/` und `plugins/`).
+
+- DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige
+  Eingaben (fehlerhafte E-Mail-Adresse, unbekannter Anfrage-Typ) wurden
+  verworfen, dem Absender aber trotzdem `?success=1` gemeldet — eine echte
+  Betroffenen-Anfrage konnte so unbemerkt verlorengehen. Jetzt serverseitige
+  Validierung inklusive Feldlängen, mit Fehlermeldung und **ohne Verlust der
+  bereits eingegebenen Werte**: Eine lange Anfrage nach einem Rechenfehler noch
+  einmal tippen zu müssen, ist der sicherste Weg, dass jemand sein
+  Auskunftsrecht am Ende nicht wahrnimmt.
+
+- Dark Mode: Kontrastverstöße auf der öffentlichen Oberfläche behoben
+  (Regression seit v0.5.0, #248). `color-scheme` folgt jetzt dem Theme,
+  damit Browser-eigene Bedienelement-Farben (UA-Buttontext) im Darkmode
+  nicht mehr schwarz auf dunklen Theme-Flächen stehen (betraf Plugin-Buttons
+  wie „☆ Merken" mit 1,44:1 und „QR-Code anzeigen" mit 1,26:1). Die
+  Footer-Links nutzen wieder `--footer-link-color` statt der globalen
+  Inhalts-Linkfarbe (Spezifität, im hellen Theme nur 1,8:1 auf der
+  Markenfläche). Der E2E-Kontrast-Audit versteht zusätzlich moderne
+  Farb-Serialisierungen (`color(srgb …)`, `oklab(…)` aus `color-mix`) und
+  misst ohne CSS-Transitions - der gemeldete Wert 1,52 für
+  `btn-nav-abgrenzung` war ein Messfehler des Audits (real ~8,6:1).
+
+
+## [0.5.0] – 2026-08-11
+
+### Hinzugefügt
+
 - Wartungsmodus im Kern (#232): Werkzeuge (z. B. der Datenbank-Import des
   Addons `datenmigration`) können über `App\Service\Maintenance::enable($grund)`
   / `disable()` eine Marker-Datei `var/wartung.lock` setzen; ein früher Check
@@ -483,57 +628,6 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
-- Authentifizierung, Rechteprüfung und Antwortform der JSON-API liegen jetzt
-  in `App\Controllers\JsonApiController`, von dem `ApiController` und der
-  neue `StatsApiController` erben. Läge das Lesen des Bearer-Headers an zwei
-  Stellen, käme eine spätere Härtung irgendwann nur an einer davon an.
-  Verhalten von `/api/horses` unverändert.
-
-- Ladeverhalten von Skripten, Stylesheets und Bildern optimiert (#263):
-  - **Katalogbilder laden `lazy`**, ebenso die Vorschaubilder der
-    Hengstverwaltung. Beide Stellen geben ihre Bildhöhe fest vor, es entsteht
-    also kein Layout-Sprung. Das **Hero-Foto der Detailseite bleibt bewusst
-    eager** und bekommt stattdessen `fetchpriority="high"`: Es ist dort das
-    LCP-Element, `lazy` hätte die wahrgenommene Ladezeit verschlechtert.
-  - **Die drei nicht-kritischen Skripte** (Katalogfilter, Pedigree-Zoom,
-    Darkmode-Umschalter) liegen jetzt unter `public/js/` und werden mit
-    `defer` geladen. Sie standen vorher als Inline-Blöcke im HTML — `defer`
-    daran zu schreiben wäre wirkungslos geblieben, das Attribut gilt laut
-    HTML-Standard nur für Skripte mit `src`. Nebeneffekt: Die Dateien werden
-    jetzt über Seitenaufrufe hinweg vom Browser zwischengespeichert.
-  - **Der Darkmode-FOUC-Fix bleibt unverändert inline und synchron im
-    `<head>`** (#91) — er muss vor dem ersten Rendern laufen.
-  - **Das Schriften-Stylesheet des Fremdhosts blockiert das Rendern nicht
-    mehr** (`media="print"` + `onload`, mit `<noscript>`-Rückfall). `style.css`
-    bleibt bewusst blockierend: asynchron geladen zeigte die Seite garantiert
-    einmal ungestylt.
-- `X-Frame-Options` wird nur noch von PHP gesetzt, nicht mehr zusätzlich in
-  `public/.htaccess`. Der Header kann keine Allowlist ausdrücken (`ALLOW-FROM`
-  ist zurückgezogen), die Freigabe läuft deshalb über CSP `frame-ancestors` —
-  und Apache setzt seine `Header`-Direktiven nach PHP, hätte den für eine
-  Embed-Antwort entfernten Header also wieder angefügt und die Freigabe still
-  aufgehoben.
-- Die Content-Security-Policy wird in `App\Security\ContentSecurityPolicy`
-  aufgebaut statt als Literal in `config/config.php`. Es gibt jetzt zwei
-  Fassungen, die sich in einer Direktive unterscheiden; zwei getrennte Literale
-  wären die Bauart, die auseinanderdriftet.
-- `public/uploads/.htaccess` setzt CORP und `nosniff` zusätzlich für den
-  statischen Restweg (Bestandslinks, Addons, die den rohen Spaltenwert
-  rendern). **Nur für Apache** — der eigentliche Schutz liegt bewusst im
-  Anwendungscode, weil eine nginx-Installation von `.htaccess` nichts hat und
-  die Testsuite (`php -S`) sie nicht auswertet.
-- Fußzeile (#257): Betreiber- und Framework-Copyright stehen jetzt in zwei
-  getrennten Blöcken, jedes unmittelbar über den Links, die zu ihm gehören —
-  Betreiber-© über Impressum/Datenschutz/DSGVO (Angaben zur Instanz),
-  Framework-© über Handbuch/Austausch/Fehlermeldung/Lizenz (Angaben zum
-  Projekt). Vorher standen beide Copyrights zusammen in einer Zeile und ihre
-  Links darunter, ohne erkennbare Zuordnung. Die inhaltliche Trennung war als
-  bewusste Entscheidung schon dokumentiert (#199, § 13 UrhG / AGPL-3.0 § 5(d)),
-  nur die Darstellung fasste beides zusammen. Die Tagline hängt am
-  Framework-Block, weil sie das Projekt beschreibt und nicht die Installation.
-  Rein visuell über Blockabstand gelöst, ohne Trennlinie und ohne Spalten —
-  die brächten bei schmalen Viewports nur Umbruchprobleme. Keine neuen
-  Übersetzungsschlüssel, keine Backend-Änderung.
 - Öffentliche Pferde-Detailseite neu gegliedert (#242): Hero-Karte mit Foto
   (Platzhalter statt Layout-Sprung), Identitätszeile und zweispaltigem
   Steckbrief; danach thematische Karten Abstammung, Leistung & Auszeichnungen
@@ -542,54 +636,6 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
-- Der Testserver der Functional-Suite bricht jetzt ab, wenn sein Port schon
-  belegt ist, statt still gegen die fremde Instanz zu testen. Der Port ist
-  fest (8767), und die Addons-Suite startet über den vendorierten Kern
-  denselben Server: Läuft eine zweite Suite an, während die erste lebt,
-  kann `php -S` nicht binden - `proc_open()` lieferte trotzdem eine
-  Ressource, und die Bereitschaftsprüfung sah nur, dass *irgendwer* auf dem
-  Port antwortet. Die Suite lief dann komplett gegen die fremde Anwendung
-  samt deren Datenbank. Das Fehlerbild führte in die Irre: `/login` statt
-  `/2fa/setup` bei der Ersteinrichtung, danach "Table users doesn't exist"
-  trotz frisch angelegter Datenbank - es sah nach einem Schema-Problem aus
-  und war ein Portproblem. Jetzt ein klarer Abbruch mit Hinweis auf die
-  Ursache und `ss -ltnp | grep 8767`; zusätzlich wird geprüft, ob der eigene
-  Subprozess überhaupt noch läuft. Das zählt besonders für den nächtlichen
-  `devhost-tests`-Lauf, der Framework, Addons und E2E binnen Minuten prüft
-  und unbeaufsichtigt Issues meldet - "konnte nicht prüfen" und "geprüft,
-  ist kaputt" sind verschiedene Aussagen.
-- `ApiStatsTest::testRequiresAnApiKey` erzwingt die Ersteinrichtung, bevor es
-  die 401-Antwort prüft. Ohne das antwortet eine frische Datenbank auf jede
-  Route mit dem Setup-Redirect (302), und der rein anonyme Test war von der
-  Ausführungsreihenfolge abhängig - im vollen Lauf grün, allein auf frischer
-  Datenbank rot.
-
-- `storage/logs/audit_errors.log` wird nicht mehr versioniert. `AuditLogger`
-  fällt bei nicht erreichbarer Datenbank auf eine Datei zurück und schreibt
-  dorthin — jeder Testlauf erzeugte dadurch einen Diff im Arbeitsverzeichnis,
-  und die Repo-Fassung enthielt bereits 14 Zeilen Fehlermeldungen aus fremden
-  Testläufen. Das Verzeichnis bleibt über `.gitkeep` versioniert, sein Inhalt
-  nicht (dieselbe Bauart wie `var/` und `plugins/`).
-
-- DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige
-  Eingaben (fehlerhafte E-Mail-Adresse, unbekannter Anfrage-Typ) wurden
-  verworfen, dem Absender aber trotzdem `?success=1` gemeldet — eine echte
-  Betroffenen-Anfrage konnte so unbemerkt verlorengehen. Jetzt serverseitige
-  Validierung inklusive Feldlängen, mit Fehlermeldung und **ohne Verlust der
-  bereits eingegebenen Werte**: Eine lange Anfrage nach einem Rechenfehler noch
-  einmal tippen zu müssen, ist der sicherste Weg, dass jemand sein
-  Auskunftsrecht am Ende nicht wahrnimmt.
-- Dark Mode: Kontrastverstöße auf der öffentlichen Oberfläche behoben
-  (Regression seit v0.5.0, #248). `color-scheme` folgt jetzt dem Theme,
-  damit Browser-eigene Bedienelement-Farben (UA-Buttontext) im Darkmode
-  nicht mehr schwarz auf dunklen Theme-Flächen stehen (betraf Plugin-Buttons
-  wie „☆ Merken" mit 1,44:1 und „QR-Code anzeigen" mit 1,26:1). Die
-  Footer-Links nutzen wieder `--footer-link-color` statt der globalen
-  Inhalts-Linkfarbe (Spezifität, im hellen Theme nur 1,8:1 auf der
-  Markenfläche). Der E2E-Kontrast-Audit versteht zusätzlich moderne
-  Farb-Serialisierungen (`color(srgb …)`, `oklab(…)` aus `color-mix`) und
-  misst ohne CSS-Transitions - der gemeldete Wert 1,52 für
-  `btn-nav-abgrenzung` war ein Messfehler des Audits (real ~8,6:1).
 - Die CLI-Skripte `database/migrate.php`/`seed.php`/`reset.php` luden keine
   App-Klassen mehr (fehlender Autoloader) und waren damit unbenutzbar (#236).
 - Schema-Drift beseitigt: `users.passkeys`, `plugins.dir_stamp`/`source`,

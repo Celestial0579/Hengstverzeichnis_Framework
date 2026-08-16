@@ -295,6 +295,28 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- Der Testserver der Functional-Suite bricht jetzt ab, wenn sein Port schon
+  belegt ist, statt still gegen die fremde Instanz zu testen. Der Port ist
+  fest (8767), und die Addons-Suite startet über den vendorierten Kern
+  denselben Server: Läuft eine zweite Suite an, während die erste lebt,
+  kann `php -S` nicht binden - `proc_open()` lieferte trotzdem eine
+  Ressource, und die Bereitschaftsprüfung sah nur, dass *irgendwer* auf dem
+  Port antwortet. Die Suite lief dann komplett gegen die fremde Anwendung
+  samt deren Datenbank. Das Fehlerbild führte in die Irre: `/login` statt
+  `/2fa/setup` bei der Ersteinrichtung, danach "Table users doesn't exist"
+  trotz frisch angelegter Datenbank - es sah nach einem Schema-Problem aus
+  und war ein Portproblem. Jetzt ein klarer Abbruch mit Hinweis auf die
+  Ursache und `ss -ltnp | grep 8767`; zusätzlich wird geprüft, ob der eigene
+  Subprozess überhaupt noch läuft. Das zählt besonders für den nächtlichen
+  `devhost-tests`-Lauf, der Framework, Addons und E2E binnen Minuten prüft
+  und unbeaufsichtigt Issues meldet - "konnte nicht prüfen" und "geprüft,
+  ist kaputt" sind verschiedene Aussagen.
+- `ApiStatsTest::testRequiresAnApiKey` erzwingt die Ersteinrichtung, bevor es
+  die 401-Antwort prüft. Ohne das antwortet eine frische Datenbank auf jede
+  Route mit dem Setup-Redirect (302), und der rein anonyme Test war von der
+  Ausführungsreihenfolge abhängig - im vollen Lauf grün, allein auf frischer
+  Datenbank rot.
+
 - `storage/logs/audit_errors.log` wird nicht mehr versioniert. `AuditLogger`
   fällt bei nicht erreichbarer Datenbank auf eine Datei zurück und schreibt
   dorthin — jeder Testlauf erzeugte dadurch einen Diff im Arbeitsverzeichnis,

@@ -66,6 +66,15 @@ class ApiStatsTest extends FunctionalTestCase {
      * WWW-Authenticate-Hinweis.
      */
     public function testRequiresAnApiKey(): void {
+        // Erzwingt die Ersteinrichtung der Testinstanz (ensureProvisioned()
+        // hängt an authenticatedClient()). Ohne diesen Aufruf antwortet eine
+        // frische Datenbank auf JEDE Route zunächst mit dem Setup-Redirect
+        // (302), und dieser rein anonyme Test wäre von der Ausführungs-
+        // reihenfolge innerhalb der Suite abhängig - im vollen Lauf grün, als
+        // erster Test auf frischer Datenbank rot. Dieselbe Vorkehrung wie in
+        // ApiKeyAuthTest::testApiIsUnreachableWithoutValidKey().
+        $this->authenticatedClient();
+
         $response = $this->newClient()->get('/api/stats?metric=horses.created');
         $this->assertSame(401, $response->statusCode);
 

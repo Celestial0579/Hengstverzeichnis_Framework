@@ -8,6 +8,63 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **`APP_ENV` erkennt die Konfiguration über Umgebungsvariablen.** Der
+  Produktions-Automatismus hing allein an der Existenz von
+  `config/db_config.php`. Der in der README als Variante A beschriebene Weg -
+  Konfiguration rein über `DB_*`-Umgebungsvariablen, also der Container-Betrieb -
+  fiel damit auf `development` zurück: `display_errors` an, und der erste
+  PDO-Fehler zeigte dem Besucher DSN samt Datenbankbenutzer. Jetzt gilt
+  `production`, sobald die Instanz überhaupt konfiguriert ist. Zusätzlich
+  `ENV APP_ENV=production` im Dockerfile.
+- **In Produktion wird wieder protokolliert** (neu:
+  `App\Service\ErrorHandler`). `error_reporting(0)` schaltete nicht nur die
+  Anzeige ab, sondern auch das Logging - die Stufe ist die Maske für beides.
+  Zusammen mit dem fehlenden Exception-Handler hinterließ eine unbehandelte
+  `PDOException` eine leere Seite und **nirgends** einen Eintrag (OWASP A09).
+  Jetzt: `error_reporting` immer `E_ALL`, `log_errors` immer an, nur
+  `display_errors` hängt an der Umgebung; dazu ein Exception-Handler und eine
+  Shutdown-Funktion für fatale Fehler, die nach `error_log()` schreiben (nicht
+  in die Datenbank - sie kann der Ausfall sein) und eine schlichte 500-Seite
+  ohne Details liefern.
+- **Setup-Wizard prüft Datenbankname, Host und Port immer** (neu:
+  `App\Security\DbIdentifier`). Die Namensprüfung hing am Zweig „DB-Abschnitt
+  im Formular sichtbar", und der gilt schon als erledigt, sobald *irgendeine*
+  der Variablen `DB_HOST`/`DB_USER`/`DB_PASS` gesetzt ist - `DB_NAME` zählt
+  dabei nicht mit. Wer `DB_HOST` setzte, aber `DB_NAME` nicht, lieferte den
+  Namen weiterhin ungeprüft aus dem Formular, und er landet interpoliert in
+  `DROP DATABASE`/`CREATE DATABASE`. Host und Port werden neu geprüft, damit
+  ein Semikolon keine weiteren DSN-Parameter anhängen kann.
+- **`config/db_config.php` wird mit 0600 geschrieben.** Sie enthält
+  DB-Passwort und `APP_KEY` im Klartext; mit dem Schlüssel lassen sich alle
+  verschlüsselt abgelegten Geheimnisse entschlüsseln. `file_put_contents`
+  legte sie mit 0644 an, auf geteiltem Webhosting also für jeden Systembenutzer
+  lesbar.
+- **`DB_SSL_VERIFY` ist standardmäßig an, sobald eine CA-Datei hinterlegt
+  ist.** Zuvor war die Zertifikatsprüfung ohne ausdrückliches Zutun aus - eine
+  angegebene CA blieb wirkungslos und die Verbindung verschlüsselt, aber nicht
+  authentifiziert.
+
+### Geändert (Betrieb)
+
+- **OPcache im Docker-Image eingeschaltet** und PHP-Grenzen gesetzt
+  (`conf.d/zz-app.ini`). Das Image brachte gar keine Laufzeit-Einstellungen
+  mit: OPcache ist in den offiziellen `php`-Images mitgebaut, aber nicht
+  aktiv - PHP kompilierte den kompletten Baum bei **jeder** Anfrage neu.
+  `validate_timestamps` bleibt an, weil der Addon-Store weiterhin nach
+  `plugins/` schreibt. Außerdem lagen `upload_max_filesize` (2 MB) und
+  `post_max_size` (8 MB) unter der 5-MB-Grenze, die die Anwendung selbst
+  prüft: Ein 4-MB-Bild verwarf PHP, bevor der Code es sah, und der Benutzer
+  las „keine Datei ausgewählt".
+- **`plugins/` ist ein Volume** in `docker-compose.yml`. Der dokumentierte
+  Update-Weg (`docker compose pull && up -d`) nahm bisher jedes über den
+  Addon-Store installierte Addon mit; die Datenbankzeilen blieben stehen, die
+  Dateien nicht. Zu `config/db_config.php` steht jetzt dort, warum ein Volume
+  über `config/` der falsche Weg wäre (es fröre `config.php` - also Code - auf
+  dem Stand des ersten Starts ein) und wie man stattdessen gezielt die eine
+  Datei einbindet.
+
 ### Hinzugefügt
 
 - **Zeitreihen-Endpunkt `GET /api/stats`** für externe Dashboards (#270).

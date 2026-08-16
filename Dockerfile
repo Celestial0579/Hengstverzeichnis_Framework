@@ -35,6 +35,38 @@ RUN printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' \
     && printf 'expose_php = Off\n' \
       > /usr/local/etc/php/conf.d/zz-hardening.ini
 
+# Laufzeit-Einstellungen. Das Image brachte bisher gar keine mit und lief
+# damit auf den PHP-Vorgaben - in zwei Punkten passte das nicht zur Anwendung:
+#
+# 1. OPcache ist in den offiziellen php-Images zwar mitgebaut, aber NICHT
+#    eingeschaltet. Ohne ihn parst und kompiliert PHP bei jeder einzelnen
+#    Anfrage den kompletten Baum neu; der Kern hat ~250 Dateien, und der
+#    Autoloader zieht pro Anfrage Dutzende davon herein. Das ist reine,
+#    wiederholte Arbeit ohne jeden Nutzen.
+#    validate_timestamps bleibt AN: Das In-Place-Update ist im Container zwar
+#    abgeschaltet, aber der Addon-Store schreibt weiterhin nach plugins/ -
+#    mit ausgeschalteter Prüfung liefe ein frisch installiertes Addon erst
+#    nach einem Neustart des Containers.
+# 2. upload_max_filesize (2M) und post_max_size (8M) lagen UNTER der
+#    5-MB-Grenze, die die Anwendung selbst für Bilder prüft. Ein 4-MB-Bild
+#    wurde von PHP verworfen, bevor der Code es je sah: $_FILES kam leer an,
+#    und der Benutzer bekam die Meldung, es sei keine Datei ausgewählt worden.
+#    Die Grenze der Anwendung ist die verbindliche, PHP muss darüber liegen.
+RUN { \
+      echo 'opcache.enable=1'; \
+      echo 'opcache.enable_cli=0'; \
+      echo 'opcache.memory_consumption=128'; \
+      echo 'opcache.interned_strings_buffer=16'; \
+      echo 'opcache.max_accelerated_files=10000'; \
+      echo 'opcache.validate_timestamps=1'; \
+      echo 'opcache.revalidate_freq=2'; \
+      echo 'upload_max_filesize=8M'; \
+      echo 'post_max_size=12M'; \
+      echo 'memory_limit=256M'; \
+      echo 'max_execution_time=60'; \
+    } > /usr/local/etc/php/conf.d/zz-app.ini \
+    && docker-php-ext-enable opcache
+
 # Docroot direkt auf public/ setzen, damit src/, config/ und database/
 # außerhalb des von Apache ausgelieferten Verzeichnisses liegen.
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
@@ -55,6 +87,13 @@ COPY . .
 # Aktualisiert wird im Container über ein neues Image (z. B. Watchtower); der
 # Updates-Screen zeigt weiterhin an, dass ein neues Release vorliegt (#158).
 ENV UPDATE_IN_PLACE=0
+
+# Ein Image ist immer eine echte Installation, nie ein Entwickler-Checkout.
+# config/config.php leitet die Betriebsart inzwischen auch aus gesetzten
+# DB_*-Variablen ab; hier steht sie zusätzlich ausdrücklich, damit sie nicht
+# von einer Konfigurationsvariante abhängt. Wer im Container bewusst
+# entwickeln will, überschreibt APP_ENV in seiner .env.
+ENV APP_ENV=production
 
 # Nur die DATEN-/Laufzeitverzeichnisse für www-data beschreibbar machen -
 # der Code bleibt root und ist für den Web-Prozess nicht überschreibbar.

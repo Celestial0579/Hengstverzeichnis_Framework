@@ -12,8 +12,24 @@ define('DB_NAME', getenv('DB_NAME') ?: ($dbConfig['name'] ?? 'hengstverzeichnis'
 define('DB_USER', getenv('DB_USER') ?: ($dbConfig['user'] ?? ''));
 define('DB_PASS', getenv('DB_PASS') ?: ($dbConfig['pass'] ?? ''));
 define('DB_SSL', getenv('DB_SSL') !== false ? in_array(getenv('DB_SSL'), ['true', '1'], true) : !empty($dbConfig['ssl']));
-define('DB_SSL_VERIFY', getenv('DB_SSL_VERIFY') !== false ? in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true) : !empty($dbConfig['ssl_verify']));
 define('DB_SSL_CA', getenv('DB_SSL_CA') ?: ($dbConfig['ssl_ca'] ?? ''));
+
+// Zertifikatsprüfung der DB-Verbindung. Standard ist AN, sobald eine CA-Datei
+// hinterlegt ist: Wer eine CA angibt, will damit den Server prüfen - eine
+// ausgeschaltete Prüfung machte die Angabe wirkungslos und die Verbindung
+// verschlüsselt, aber nicht authentifiziert (ein Angreifer in der Mitte kann
+// sich mit einem beliebigen Zertifikat ausgeben). Ohne CA-Datei bleibt es
+// beim bisherigen Verhalten, sonst schlüge jede Verbindung mit
+// selbstsigniertem Serverzertifikat plötzlich fehl. Ausdrücklich gesetzte
+// Werte (Umgebungsvariable oder db_config.php) haben immer Vorrang.
+$dbSslVerifyDefault = defined('DB_SSL_CA') && DB_SSL_CA !== '';
+if (getenv('DB_SSL_VERIFY') !== false) {
+    define('DB_SSL_VERIFY', in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true));
+} elseif (array_key_exists('ssl_verify', $dbConfig)) {
+    define('DB_SSL_VERIFY', (bool)$dbConfig['ssl_verify']);
+} else {
+    define('DB_SSL_VERIFY', $dbSslVerifyDefault);
+}
 
 // Trusted Reverse Proxies (siehe src/Security/ClientIp.php): Umgebungsvariable hat
 // Vorrang, sonst der über Admin > Systemeinstellungen in db_config.php gespeicherte
@@ -133,12 +149,22 @@ define('UPDATE_IN_PLACE', getenv('UPDATE_IN_PLACE') !== false
     ? in_array(strtolower((string)getenv('UPDATE_IN_PLACE')), ['1', 'true', 'yes', 'on'], true)
     : true);
 
-// Environment: Existiert bereits eine config/db_config.php (App wurde über den
-// Setup-Wizard eingerichtet), handelt es sich um eine echte Installation - dann
-// ohne explizite Angabe sicherheitshalber IMMER 'production' annehmen (keine
-// Fehlerdetails an Besucher ausgeben). Nur ein komplett unkonfigurierter Checkout
-// (weder Env-Variable noch db_config.php) gilt als lokale Entwicklungsumgebung.
-define('APP_ENV', getenv('APP_ENV') ?: ($dbConfig['app_env'] ?? (file_exists($dbConfigFile) ? 'production' : 'development')));
+// Environment: Ist die Instanz ÜBERHAUPT konfiguriert, gilt sie ohne
+// ausdrückliche Angabe als echte Installation - also 'production', keine
+// Fehlerdetails an Besucher. Nur ein komplett unkonfigurierter Checkout
+// (weder DB-Umgebungsvariablen noch db_config.php) gilt als lokale
+// Entwicklungsumgebung.
+//
+// Die Prüfung hing früher allein an der Existenz von config/db_config.php.
+// Damit fiel ausgerechnet der in der README als Variante A beschriebene Weg -
+// Konfiguration rein über Umgebungsvariablen, wie im Container - auf
+// 'development' zurück: display_errors an, und der erste PDO-Fehler zeigte
+// dem Besucher DSN samt Datenbankbenutzer. Wer nach Anleitung installiert,
+// darf nicht in der unsichereren Betriebsart landen.
+$hasDbEnv = getenv('DB_HOST') !== false || getenv('DB_USER') !== false
+    || getenv('DB_NAME') !== false || getenv('DB_PASS') !== false;
+define('APP_ENV', getenv('APP_ENV')
+    ?: ($dbConfig['app_env'] ?? (($hasDbEnv || file_exists($dbConfigFile)) ? 'production' : 'development')));
 
 // Security Headers & Anti-Infostealer Session Security
 if (PHP_SAPI !== 'cli') {
@@ -196,11 +222,8 @@ if (PHP_SAPI !== 'cli') {
     }
 }
 
-// Basic Error Reporting (adjust for production)
-if (APP_ENV === 'development') {
-    error_reporting(E_ALL);
-    ini_set('display_errors', 1);
-} else {
-    error_reporting(0);
-    ini_set('display_errors', 0);
-}
+// Fehlerbehandlung: In JEDER Umgebung wird alles protokolliert, angezeigt wird
+// es nur in der Entwicklung. Siehe App\Service\ErrorHandler - dort steht auch,
+// warum das frühere error_reporting(0) in Produktion nicht nur die Anzeige,
+// sondern auch die Protokollierung abgeschaltet hat.
+\App\Service\ErrorHandler::register(APP_ENV !== 'development');

@@ -83,6 +83,60 @@ class SetupAndAuthTest extends FunctionalTestCase {
         }
     }
 
+    /**
+     * Die Stamm-URL muss ihr Protokoll mitbringen. Frueher ergaenzte der
+     * Controller ein fehlendes "https://" selbst und pruefte danach eine
+     * Zeichenkette, die er zur Haelfte selbst gebaut hatte; zulaessige
+     * Protokolle waren nur als Nebenwirkung dieser Praefix-Logik begrenzt.
+     * Beides ist entfallen - der Test haelt fest, dass die Grenze jetzt
+     * ausdruecklich gezogen wird und nicht wieder still aufweicht.
+     */
+    public function testBaseUrlRequiresExplicitHttpScheme(): void {
+        $client = $this->authenticatedClient();
+        $settingsPage = $client->get('/admin/system-settings');
+        $csrfToken = $settingsPage->formField('csrf_token') ?? '';
+
+        $abzulehnen = [
+            'hengstverzeichnis.example.com',          // ohne Protokoll
+            'ftp://hengstverzeichnis.example.com',    // FILTER_VALIDATE_URL laesst das durch
+            'javascript://hengstverzeichnis.example.com',
+        ];
+
+        foreach ($abzulehnen as $eingabe) {
+            $response = $client->post('/admin/system-settings', [
+                'csrf_token' => $csrfToken,
+                'base_url' => $eingabe,
+            ]);
+
+            $this->assertSame(302, $response->statusCode, "Erwartete Weiterleitung für {$eingabe}");
+            $this->assertStringContainsString(
+                'error=invalid_base_url',
+                (string)$response->location(),
+                "Erwartete Ablehnung für {$eingabe}"
+            );
+        }
+    }
+
+    /**
+     * Gegenprobe zum vorigen Test: http bleibt zulaessig, wird aber weiterhin
+     * als unverschluesselt gemeldet. Die Warnung haengt jetzt am geprueften
+     * Schema statt an einem str_starts_with auf der Eingabe.
+     */
+    public function testBaseUrlAcceptsHttpButWarns(): void {
+        $client = $this->authenticatedClient();
+        $settingsPage = $client->get('/admin/system-settings');
+
+        $response = $client->post('/admin/system-settings', [
+            'csrf_token' => $settingsPage->formField('csrf_token') ?? '',
+            'base_url' => 'http://hengstverzeichnis.example.com',
+        ]);
+
+        $this->assertSame(302, $response->statusCode);
+        $location = (string)$response->location();
+        $this->assertStringContainsString('success=1', $location);
+        $this->assertStringContainsString('warning=http_unencrypted', $location);
+    }
+
     public function testBaseUrlAcceptsPublicDomain(): void {
         $client = $this->authenticatedClient();
         $settingsPage = $client->get('/admin/system-settings');

@@ -70,6 +70,21 @@ final class PermissionRegistry {
                 'delete' => 'Löschen',
             ],
         ],
+        // Modul ohne eigene Oberfläche: Es existiert allein, um dem
+        // Zeitreihen-Endpunkt /api/stats (#270) ein eigenes Recht zu geben.
+        // Ohne das liefe die Auswertung unter einem fachfremden Recht mit -
+        // ein Katalog-Schlüssel mit `horses.view` käme dann an
+        // DSGVO-Anfragen, Login-Fehlversuchen und Benutzerzahlen.
+        //
+        // Nur die Standard-Aktionen `view`/`publish` (siehe STANDARD_ACTIONS);
+        // gelesen wird ausschließlich `stats.view`. `publish` ergibt hier
+        // keinen Sinn, wird aber wie überall automatisch ergänzt und bleibt
+        // schlicht unbenutzt - eine Sonderregel dafür wäre eine Ausnahme, die
+        // sich niemand merkt.
+        'stats' => [
+            'label' => 'Statistik-Schnittstelle',
+            'actions' => [],
+        ],
     ];
 
     /**

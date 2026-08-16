@@ -173,11 +173,32 @@ bevor `ClientIp` sie liest.
 
 ### `APP_ENV`-Default
 
-Existiert `config/db_config.php` (App wurde über den Setup-Wizard
-eingerichtet), gilt ohne explizite `APP_ENV`-Angabe automatisch `production`
-(keine PHP-Fehlerdetails an Besucher). Nur ein komplett unkonfigurierter
-Checkout ohne Env-Variable und ohne `db_config.php` gilt als lokale
-Entwicklungsumgebung (`development`, Fehler werden angezeigt).
+Ist die Instanz überhaupt konfiguriert - also entweder über
+DB-Umgebungsvariablen (`DB_HOST`/`DB_USER`/`DB_NAME`/`DB_PASS`) **oder** über
+`config/db_config.php` -, gilt ohne explizite `APP_ENV`-Angabe automatisch
+`production` (keine PHP-Fehlerdetails an Besucher). Nur ein komplett
+unkonfigurierter Checkout gilt als lokale Entwicklungsumgebung
+(`development`, Fehler werden angezeigt).
+
+Die Prüfung hing zunächst allein an der Existenz von `db_config.php`. Damit
+fiel ausgerechnet der in der README als Variante A beschriebene Weg -
+Konfiguration rein über Umgebungsvariablen, also der Container-Betrieb - auf
+`development` zurück: `display_errors` an, und der erste PDO-Fehler zeigte dem
+Besucher DSN samt Datenbankbenutzer. Wer nach Anleitung installiert, darf
+nicht in der unsichereren Betriebsart landen.
+
+### Fehlerprotokollierung (`App\Service\ErrorHandler`)
+
+Anzeige und Protokollierung sind getrennt: `error_reporting` steht in **jeder**
+Umgebung auf `E_ALL` und `log_errors` ist immer an; nur `display_errors` hängt
+an `APP_ENV`. Zuvor setzte die Produktionsumgebung `error_reporting(0)` - die
+Stufe ist aber die Maske für beides, es wurde also auch nichts mehr
+protokolliert. Zusammen mit dem fehlenden Exception-Handler hieß das: Eine
+unbehandelte `PDOException` lieferte eine leere Seite und hinterließ nirgends
+eine Spur (OWASP A09). Registriert sind ein `set_exception_handler` und eine
+`register_shutdown_function` für fatale Fehler; beide schreiben nach
+`error_log()` - bewusst nicht in die Datenbank, weil genau sie der Ausfall
+sein kann - und liefern eine schlichte 500-Seite ohne Details.
 
 ## Security-Header & CSP (`config/config.php`)
 

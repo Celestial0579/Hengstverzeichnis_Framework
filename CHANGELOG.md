@@ -10,6 +10,38 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- **Zeitreihen-Endpunkt `GET /api/stats`** für externe Dashboards (#270).
+  Bisher gab es keinerlei Metrik-Historie: `DigestService` liefert zwei
+  Live-Zähler per E-Mail, `recordStatus()` speichert nur den letzten
+  Schnappschuss, das Admin-Dashboard ist eine Momentaufnahme.
+  - Acht Reihen über bereits vorhandene Zeitstempel (Pferdebestand und
+    Veröffentlichungen, DSGVO-Anfragen, Audit-Ereignisse, Anmeldeversuche,
+    API-Schlüssel, Benutzerkonten), gruppierbar nach Tag, Woche (ab Montag,
+    ISO-8601) oder Monat. **Bewusst ohne neue Historien-Tabelle und ohne
+    Sammel-Job**: Die Zeitstempel stehen längst in den Fachtabellen, eine
+    zweite Ablage müsste befüllt, überwacht und aufgeräumt werden und wäre
+    nach einem Rollback still unvollständig.
+  - **Neues Recht `stats.view`** (Modul „Statistik-Schnittstelle", ohne
+    eigene Oberfläche). Die Zahlen sind betriebsintern — ein Katalog-Schlüssel
+    mit `horses.view` kommt hier nicht durch, sonst verrieten
+    Login-Fehlversuche ihren Verlauf an jeden Katalog-Integrator. In keiner
+    Standardgruppe vorbelegt, der Betreiber vergibt es bewusst.
+  - **Lücken sind mit `0` gefüllt.** Sonst zieht Grafana eine Linie über die
+    leeren Tage hinweg, und ein Tag ohne Ereignisse sieht aus wie ein Tag, den
+    es nicht gab. Dazu ein Deckel von 1500 Kübeln je Antwort, geprüft **bevor**
+    die Abfrage läuft — die Füllung erzeugt die Zeilen auch ohne Daten.
+  - Ungültige Parameter werden **abgewiesen statt still durch Standardwerte
+    ersetzt** (`2026-02-31` und `yesterday` gelten als ungültig): Ein Dashboard
+    soll nach einem Tippfehler nichts anzeigen statt plausibler falscher
+    Zahlen. `metric` und `interval` landen nie in SQL, sondern werden als
+    Schlüssel in feste Definitionen nachgeschlagen.
+  - Ohne `?metric=` liefert der Endpunkt den Katalog der verfügbaren Reihen,
+    damit die Grafana-Datenquelle ohne Blick in die Doku einrichtbar ist.
+  - Kein Prometheus-`/metrics`: Das brächte ein weiteres Composer-Paket und
+    ein eigenes Auth-Modell neben dem vorhandenen Bearer-Mechanismus.
+    Dokumentiert in `docs/api.md`, inklusive Einrichtung der
+    Infinity-Datenquelle.
+
 - **`frame-src` in der Content-Security-Policy**, mit `CAPTCHA_DOMAINS` als
   Erweiterungspunkt für einen externen CAPTCHA-Anbieter (Voraussetzung für ein
   Addon auf Basis der Hooks aus #258). Die Policy hatte bisher **überhaupt kein
@@ -41,9 +73,6 @@ Breaking Changes sind jederzeit möglich).
     mit `pushState` bräuchte der Zurück-Knopf so viele Klicks, wie nachgeladen
     wurde, um die Seite überhaupt zu verlassen.
   - Vier neue Sprachschlüssel in **allen zwölf** mitgelieferten Sprachen.
-
-### Hinzugefügt
-
 - Minimal-Layout für einbettbare Ansichten und eine **Domain-Allowlist** für
   die Frame-Sperre (#260). Voraussetzung für ein Embed-Widget als Addon.
   - `?embed=1` am Katalog rendert `layout_embed.php`: ohne Kopfbereich,
@@ -92,74 +121,6 @@ Breaking Changes sind jederzeit möglich).
     Sichtbarkeitsregeln wie für die Detailseite.
   - Bedingte Anfragen (`ETag`/`Last-Modified` → 304) und `Cache-Control` mit
     einem Jahr: Die Auslieferung über PHP kostet damit kein Browser-Caching.
-
-### Geändert
-
-- Ladeverhalten von Skripten, Stylesheets und Bildern optimiert (#263):
-  - **Katalogbilder laden `lazy`**, ebenso die Vorschaubilder der
-    Hengstverwaltung. Beide Stellen geben ihre Bildhöhe fest vor, es entsteht
-    also kein Layout-Sprung. Das **Hero-Foto der Detailseite bleibt bewusst
-    eager** und bekommt stattdessen `fetchpriority="high"`: Es ist dort das
-    LCP-Element, `lazy` hätte die wahrgenommene Ladezeit verschlechtert.
-  - **Die drei nicht-kritischen Skripte** (Katalogfilter, Pedigree-Zoom,
-    Darkmode-Umschalter) liegen jetzt unter `public/js/` und werden mit
-    `defer` geladen. Sie standen vorher als Inline-Blöcke im HTML — `defer`
-    daran zu schreiben wäre wirkungslos geblieben, das Attribut gilt laut
-    HTML-Standard nur für Skripte mit `src`. Nebeneffekt: Die Dateien werden
-    jetzt über Seitenaufrufe hinweg vom Browser zwischengespeichert.
-  - **Der Darkmode-FOUC-Fix bleibt unverändert inline und synchron im
-    `<head>`** (#91) — er muss vor dem ersten Rendern laufen.
-  - **Das Schriften-Stylesheet des Fremdhosts blockiert das Rendern nicht
-    mehr** (`media="print"` + `onload`, mit `<noscript>`-Rückfall). `style.css`
-    bleibt bewusst blockierend: asynchron geladen zeigte die Seite garantiert
-    einmal ungestylt.
-- `X-Frame-Options` wird nur noch von PHP gesetzt, nicht mehr zusätzlich in
-  `public/.htaccess`. Der Header kann keine Allowlist ausdrücken (`ALLOW-FROM`
-  ist zurückgezogen), die Freigabe läuft deshalb über CSP `frame-ancestors` —
-  und Apache setzt seine `Header`-Direktiven nach PHP, hätte den für eine
-  Embed-Antwort entfernten Header also wieder angefügt und die Freigabe still
-  aufgehoben.
-- Die Content-Security-Policy wird in `App\Security\ContentSecurityPolicy`
-  aufgebaut statt als Literal in `config/config.php`. Es gibt jetzt zwei
-  Fassungen, die sich in einer Direktive unterscheiden; zwei getrennte Literale
-  wären die Bauart, die auseinanderdriftet.
-- `public/uploads/.htaccess` setzt CORP und `nosniff` zusätzlich für den
-  statischen Restweg (Bestandslinks, Addons, die den rohen Spaltenwert
-  rendern). **Nur für Apache** — der eigentliche Schutz liegt bewusst im
-  Anwendungscode, weil eine nginx-Installation von `.htaccess` nichts hat und
-  die Testsuite (`php -S`) sie nicht auswertet.
-
-### Behoben
-
-- `storage/logs/audit_errors.log` wird nicht mehr versioniert. `AuditLogger`
-  fällt bei nicht erreichbarer Datenbank auf eine Datei zurück und schreibt
-  dorthin — jeder Testlauf erzeugte dadurch einen Diff im Arbeitsverzeichnis,
-  und die Repo-Fassung enthielt bereits 14 Zeilen Fehlermeldungen aus fremden
-  Testläufen. Das Verzeichnis bleibt über `.gitkeep` versioniert, sein Inhalt
-  nicht (dieselbe Bauart wie `var/` und `plugins/`).
-
-- DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige
-  Eingaben (fehlerhafte E-Mail-Adresse, unbekannter Anfrage-Typ) wurden
-  verworfen, dem Absender aber trotzdem `?success=1` gemeldet — eine echte
-  Betroffenen-Anfrage konnte so unbemerkt verlorengehen. Jetzt serverseitige
-  Validierung inklusive Feldlängen, mit Fehlermeldung und **ohne Verlust der
-  bereits eingegebenen Werte**: Eine lange Anfrage nach einem Rechenfehler noch
-  einmal tippen zu müssen, ist der sicherste Weg, dass jemand sein
-  Auskunftsrecht am Ende nicht wahrnimmt.
-- Dark Mode: Kontrastverstöße auf der öffentlichen Oberfläche behoben
-  (Regression seit v0.5.0, #248). `color-scheme` folgt jetzt dem Theme,
-  damit Browser-eigene Bedienelement-Farben (UA-Buttontext) im Darkmode
-  nicht mehr schwarz auf dunklen Theme-Flächen stehen (betraf Plugin-Buttons
-  wie „☆ Merken" mit 1,44:1 und „QR-Code anzeigen" mit 1,26:1). Die
-  Footer-Links nutzen wieder `--footer-link-color` statt der globalen
-  Inhalts-Linkfarbe (Spezifität, im hellen Theme nur 1,8:1 auf der
-  Markenfläche). Der E2E-Kontrast-Audit versteht zusätzlich moderne
-  Farb-Serialisierungen (`color(srgb …)`, `oklab(…)` aus `color-mix`) und
-  misst ohne CSS-Transitions - der gemeldete Wert 1,52 für
-  `btn-nav-abgrenzung` war ein Messfehler des Audits (real ~8,6:1).
-
-### Hinzugefügt
-
 - Neuer Filter-Hook `horse.edit_sections` (#255): das Admin-Gegenstück zu
   `horse.detail_sections`. Addons können damit einen eigenen Abschnitt in das
   Bearbeitungsformular eines Hengstes hängen und bekommen die `horse_id` aus
@@ -275,6 +236,45 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- Authentifizierung, Rechteprüfung und Antwortform der JSON-API liegen jetzt
+  in `App\Controllers\JsonApiController`, von dem `ApiController` und der
+  neue `StatsApiController` erben. Läge das Lesen des Bearer-Headers an zwei
+  Stellen, käme eine spätere Härtung irgendwann nur an einer davon an.
+  Verhalten von `/api/horses` unverändert.
+
+- Ladeverhalten von Skripten, Stylesheets und Bildern optimiert (#263):
+  - **Katalogbilder laden `lazy`**, ebenso die Vorschaubilder der
+    Hengstverwaltung. Beide Stellen geben ihre Bildhöhe fest vor, es entsteht
+    also kein Layout-Sprung. Das **Hero-Foto der Detailseite bleibt bewusst
+    eager** und bekommt stattdessen `fetchpriority="high"`: Es ist dort das
+    LCP-Element, `lazy` hätte die wahrgenommene Ladezeit verschlechtert.
+  - **Die drei nicht-kritischen Skripte** (Katalogfilter, Pedigree-Zoom,
+    Darkmode-Umschalter) liegen jetzt unter `public/js/` und werden mit
+    `defer` geladen. Sie standen vorher als Inline-Blöcke im HTML — `defer`
+    daran zu schreiben wäre wirkungslos geblieben, das Attribut gilt laut
+    HTML-Standard nur für Skripte mit `src`. Nebeneffekt: Die Dateien werden
+    jetzt über Seitenaufrufe hinweg vom Browser zwischengespeichert.
+  - **Der Darkmode-FOUC-Fix bleibt unverändert inline und synchron im
+    `<head>`** (#91) — er muss vor dem ersten Rendern laufen.
+  - **Das Schriften-Stylesheet des Fremdhosts blockiert das Rendern nicht
+    mehr** (`media="print"` + `onload`, mit `<noscript>`-Rückfall). `style.css`
+    bleibt bewusst blockierend: asynchron geladen zeigte die Seite garantiert
+    einmal ungestylt.
+- `X-Frame-Options` wird nur noch von PHP gesetzt, nicht mehr zusätzlich in
+  `public/.htaccess`. Der Header kann keine Allowlist ausdrücken (`ALLOW-FROM`
+  ist zurückgezogen), die Freigabe läuft deshalb über CSP `frame-ancestors` —
+  und Apache setzt seine `Header`-Direktiven nach PHP, hätte den für eine
+  Embed-Antwort entfernten Header also wieder angefügt und die Freigabe still
+  aufgehoben.
+- Die Content-Security-Policy wird in `App\Security\ContentSecurityPolicy`
+  aufgebaut statt als Literal in `config/config.php`. Es gibt jetzt zwei
+  Fassungen, die sich in einer Direktive unterscheiden; zwei getrennte Literale
+  wären die Bauart, die auseinanderdriftet.
+- `public/uploads/.htaccess` setzt CORP und `nosniff` zusätzlich für den
+  statischen Restweg (Bestandslinks, Addons, die den rohen Spaltenwert
+  rendern). **Nur für Apache** — der eigentliche Schutz liegt bewusst im
+  Anwendungscode, weil eine nginx-Installation von `.htaccess` nichts hat und
+  die Testsuite (`php -S`) sie nicht auswertet.
 - Fußzeile (#257): Betreiber- und Framework-Copyright stehen jetzt in zwei
   getrennten Blöcken, jedes unmittelbar über den Links, die zu ihm gehören —
   Betreiber-© über Impressum/Datenschutz/DSGVO (Angaben zur Instanz),
@@ -295,6 +295,32 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- `storage/logs/audit_errors.log` wird nicht mehr versioniert. `AuditLogger`
+  fällt bei nicht erreichbarer Datenbank auf eine Datei zurück und schreibt
+  dorthin — jeder Testlauf erzeugte dadurch einen Diff im Arbeitsverzeichnis,
+  und die Repo-Fassung enthielt bereits 14 Zeilen Fehlermeldungen aus fremden
+  Testläufen. Das Verzeichnis bleibt über `.gitkeep` versioniert, sein Inhalt
+  nicht (dieselbe Bauart wie `var/` und `plugins/`).
+
+- DSGVO-Formular meldete stille Datenverluste als Erfolg (#258): Ungültige
+  Eingaben (fehlerhafte E-Mail-Adresse, unbekannter Anfrage-Typ) wurden
+  verworfen, dem Absender aber trotzdem `?success=1` gemeldet — eine echte
+  Betroffenen-Anfrage konnte so unbemerkt verlorengehen. Jetzt serverseitige
+  Validierung inklusive Feldlängen, mit Fehlermeldung und **ohne Verlust der
+  bereits eingegebenen Werte**: Eine lange Anfrage nach einem Rechenfehler noch
+  einmal tippen zu müssen, ist der sicherste Weg, dass jemand sein
+  Auskunftsrecht am Ende nicht wahrnimmt.
+- Dark Mode: Kontrastverstöße auf der öffentlichen Oberfläche behoben
+  (Regression seit v0.5.0, #248). `color-scheme` folgt jetzt dem Theme,
+  damit Browser-eigene Bedienelement-Farben (UA-Buttontext) im Darkmode
+  nicht mehr schwarz auf dunklen Theme-Flächen stehen (betraf Plugin-Buttons
+  wie „☆ Merken" mit 1,44:1 und „QR-Code anzeigen" mit 1,26:1). Die
+  Footer-Links nutzen wieder `--footer-link-color` statt der globalen
+  Inhalts-Linkfarbe (Spezifität, im hellen Theme nur 1,8:1 auf der
+  Markenfläche). Der E2E-Kontrast-Audit versteht zusätzlich moderne
+  Farb-Serialisierungen (`color(srgb …)`, `oklab(…)` aus `color-mix`) und
+  misst ohne CSS-Transitions - der gemeldete Wert 1,52 für
+  `btn-nav-abgrenzung` war ein Messfehler des Audits (real ~8,6:1).
 - Die CLI-Skripte `database/migrate.php`/`seed.php`/`reset.php` luden keine
   App-Klassen mehr (fehlender Autoloader) und waren damit unbenutzbar (#236).
 - Schema-Drift beseitigt: `users.passkeys`, `plugins.dir_stamp`/`source`,

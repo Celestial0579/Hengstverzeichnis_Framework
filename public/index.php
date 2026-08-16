@@ -87,6 +87,11 @@ $router->get('/media/horse-image', [App\Controllers\MediaController::class, 'hor
 $router->get('/api/horses', [App\Controllers\ApiController::class, 'index']);
 $router->get('/api/horses/show', [App\Controllers\ApiController::class, 'show']); // Requires ?ueln=
 
+// Zeitreihen für externe Dashboards, z. B. Grafana (#270). Verlangt zusätzlich
+// zum Schlüssel das eigene Recht `stats.view` - die Zahlen sind betriebsintern.
+// Ohne ?metric= liefert der Endpunkt den Katalog der verfügbaren Reihen.
+$router->get('/api/stats', [App\Controllers\StatsApiController::class, 'index']);
+
 // Selfservice-Verwaltung eigener API-Schlüssel (nur für angemeldete Benutzer)
 $router->get('/api-keys', [App\Controllers\ApiKeyController::class, 'index']);
 $router->post('/api-keys/create', [App\Controllers\ApiKeyController::class, 'create']);

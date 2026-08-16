@@ -48,15 +48,23 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert (Betrieb)
 
-- **OPcache im Docker-Image eingeschaltet** und PHP-Grenzen gesetzt
-  (`conf.d/zz-app.ini`). Das Image brachte gar keine Laufzeit-Einstellungen
-  mit: OPcache ist in den offiziellen `php`-Images mitgebaut, aber nicht
-  aktiv - PHP kompilierte den kompletten Baum bei **jeder** Anfrage neu.
-  `validate_timestamps` bleibt an, weil der Addon-Store weiterhin nach
-  `plugins/` schreibt. Außerdem lagen `upload_max_filesize` (2 MB) und
-  `post_max_size` (8 MB) unter der 5-MB-Grenze, die die Anwendung selbst
-  prüft: Ein 4-MB-Bild verwarf PHP, bevor der Code es sah, und der Benutzer
-  las „keine Datei ausgewählt".
+- **PHP-Uploadgrenzen im Docker-Image angehoben** (`conf.d/zz-app.ini`).
+  `upload_max_filesize` (2 MB) und `post_max_size` (8 MB) lagen **unter** der
+  5-MB-Grenze, die die Anwendung selbst prüft: Ein 4-MB-Bild verwarf PHP,
+  bevor der Code es sah - `$_FILES` kam leer an, und der Benutzer las „keine
+  Datei ausgewählt". Die Grenze der Anwendung ist die verbindliche, PHP muss
+  darüber liegen.
+  - **Korrektur zum Prüfbericht:** Dort stand zusätzlich „OPcache im Image
+    nicht aktiviert". Am laufenden Basis-Image nachgemessen stimmt das nicht -
+    in `php:8.5-apache` ist OPcache fest einkompiliert und für die Web-SAPI
+    bereits eingeschaltet (`opcache.enable=1`, `memory_consumption=128`,
+    `max_accelerated_files=10000`, `revalidate_freq=2`). Die zunächst
+    gesetzten Werte waren mit den Vorgaben identisch, und das dazugehörige
+    `docker-php-ext-enable opcache` liess den Image-Bau sogar scheitern, weil
+    es kein ladbares Modul dieses Namens gibt. Der Block ist wieder draussen.
+    `memory_limit` und `max_execution_time` bleiben ebenfalls unangetastet -
+    ein Zeitlimit von 60 Sekunden hätte Sicherung, Import und Update
+    abgeschnitten.
 - **`plugins/` ist ein Volume** in `docker-compose.yml`. Der dokumentierte
   Update-Weg (`docker compose pull && up -d`) nahm bisher jedes über den
   Addon-Store installierte Addon mit; die Datenbankzeilen blieben stehen, die

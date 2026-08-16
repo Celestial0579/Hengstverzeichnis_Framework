@@ -155,14 +155,32 @@ class AdminController extends BaseController {
         $isHttpWarning = false;
 
         if (!empty($baseUrl)) {
-            if (!str_starts_with($baseUrl, 'http://') && !str_starts_with($baseUrl, 'https://')) {
-                $baseUrl = 'https://' . $baseUrl;
-            }
-
-            if (str_starts_with($baseUrl, 'http://')) {
-                $isHttpWarning = true;
-            }
-
+            // Das Protokoll wird VERLANGT, nicht ergaenzt.
+            //
+            // Hier stand fuer schemalose Eingaben ein
+            // `$baseUrl = 'https://' . $baseUrl;`. Das war aus drei Gruenden
+            // die falsche Freundlichkeit:
+            //
+            // 1. Geprueft wurde danach eine Zeichenkette, die zur Haelfte von
+            //    uns selbst stammte. Dieselbe Bauart hatte hier schon einmal
+            //    einen Fehler versteckt (geprueft wurde `rtrim(...)`,
+            //    gespeichert `$baseUrl`).
+            // 2. Sie widerspricht dem eigenen Formular: Das Feld ist
+            //    `<input type="url">`, Beschriftung und Hilfetext verlangen
+            //    das Protokoll ausdruecklich. Ein Browser laesst eine Eingabe
+            //    ohne Schema gar nicht erst abschicken - ergaenzt wurde also
+            //    nur fuer Anfragen, die das Formular umgehen.
+            // 3. Ein Schema-Literal unmittelbar vor einem Wert aus `$_POST`
+            //    ist die Bauform, aus der SSRF entsteht; Semgrep meldet sie
+            //    als `tainted-url-host`. Die Regel kennt keinen Sanitizer -
+            //    keine noch so strenge Pruefung danach kann sie erfuellen,
+            //    nur das Nicht-mehr-Zusammensetzen.
+            //
+            // Das Schema kommt jetzt aus der geprueften Adresse und muss in
+            // der Allowlist stehen. Das ist keine reine Formsache:
+            // FILTER_VALIDATE_URL laesst auch `ftp://` und `javascript:`
+            // durch - bisher schloss das allein die Praefix-Logik oben aus.
+            //
             // Gespeichert wird der GEPRUEFTE Wert, nicht die Eingabe.
             //
             // Vorher lief die Pruefung auf rtrim($baseUrl, '/') und abgelegt
@@ -173,6 +191,8 @@ class AdminController extends BaseController {
             // zurueck; dieser Rueckgabewert ist ab hier die einzige Quelle.
             $geprueft = filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL);
             $host = is_string($geprueft) ? (string) (parse_url($geprueft, PHP_URL_HOST) ?? '') : '';
+            $schema = is_string($geprueft) ? strtolower((string) (parse_url($geprueft, PHP_URL_SCHEME) ?? '')) : '';
+            $isHttpWarning = $schema === 'http';
 
             // Verteidigung in die Tiefe (OWASP SSRF Cheat Sheet): "localhost" sowie
             // literale private/reservierte IPs als Host blockieren. base_url wird
@@ -185,6 +205,7 @@ class AdminController extends BaseController {
 
             if (
                 !is_string($geprueft)
+                || !in_array($schema, ['http', 'https'], true)
                 || $host === ''
                 || strcasecmp($host, 'localhost') === 0
                 || $isPrivateOrLoopbackIp

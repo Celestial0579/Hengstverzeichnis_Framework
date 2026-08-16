@@ -19,7 +19,7 @@
 
     <?php if (isset($_GET['error']) && $_GET['error'] === 'invalid_base_url'): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
-            Ungültiges Format der Stamm-URL. Bitte eine gültige Adresse angeben (z. B. <code>https://hengstverzeichnis.de/</code>). Es wurden keine Änderungen gespeichert.
+            Ungültiges Format der Stamm-URL. Bitte eine vollständige Adresse <strong>mit Protokoll</strong> angeben (z. B. <code>https://hengstverzeichnis.de/</code>) — zulässig sind <code>https://</code> und <code>http://</code>. Es wurden keine Änderungen gespeichert.
         </div>
     <?php endif; ?>
 

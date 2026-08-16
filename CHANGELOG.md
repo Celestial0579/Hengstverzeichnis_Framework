@@ -10,6 +10,27 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Die Stamm-URL verlangt ihr Protokoll, statt es zu ergänzen**
+  (`AdminController::updateSystemSettings()`). Für Eingaben ohne Schema stand
+  dort ein `'https://' . $baseUrl`. Geprüft wurde danach eine Zeichenkette,
+  die zur Hälfte von der Anwendung selbst stammte — dieselbe Bauart, die hier
+  schon einmal einen Fehler verdeckt hat. Das Formular verlangt das Protokoll
+  ohnehin (`<input type="url">`, Beschriftung, Hilfetext); ergänzt wurde also
+  nur für Anfragen, die das Formular umgehen.
+
+  Nebenwirkung dieser Präfix-Logik war zugleich die einzige Begrenzung der
+  zulässigen Protokolle: `FILTER_VALIDATE_URL` lässt `ftp://` und
+  `javascript://` durch. Das Schema wird jetzt aus der **geprüften** Adresse
+  gelesen und gegen eine Allowlist (`http`, `https`) gehalten; daran hängt
+  auch die HTTP-Unverschlüsselt-Warnung. Zwei neue Funktionstests halten
+  beides fest.
+
+  Semgrep meldete die Zeile als `tainted-url-host` (SSRF, CWE-918). Die Regel
+  hat **keine** `pattern-sanitizers` — keine nachgelagerte Prüfung kann sie
+  erfüllen, nur das Nicht-mehr-Zusammensetzen. Damit ist der Scan über den
+  gesamten Kern befundfrei: 0 Funde, 0 Unterdrückungen, über alle Schweregrade
+  statt nur über `ERROR`.
+
 - **Anfrageparameter werden validiert statt umgedeutet** (`PublicController::requestInt()`).
   Das Muster `(int)($_GET['x'] ?? n)` machte aus `"abc"` eine 0 und aus `"3x"`
   eine 3; der Standardwert galt nur für „fehlt", nicht für „unbrauchbar".

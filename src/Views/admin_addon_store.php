@@ -85,7 +85,7 @@ $successMessages = [
                 <div style="display: flex; gap: 0.5rem;">
                     <a href="/admin/plugins/store?refresh=1#repo-<?= $repoId ?>" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem;">Katalog neu laden</a>
                     <?php if (!$isOfficial): ?>
-                        <form action="/admin/plugins/store/remove-repo" method="POST" onsubmit="return confirm('Repository \'<?= htmlspecialchars(addslashes($repoLabel)) ?>\' wirklich entfernen?');">
+                        <form action="/admin/plugins/store/remove-repo" method="POST" data-confirm="Repository '<?= htmlspecialchars(($repoLabel)) ?>' wirklich entfernen?" >
                             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                             <input type="hidden" name="id" value="<?= $repoId ?>">
                             <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem; border-color: var(--danger-fg); color: var(--danger-fg);">Entfernen</button>
@@ -137,7 +137,7 @@ $successMessages = [
                                 </td>
                                 <td style="padding: 0.4rem;">
                                     <?php if (!$isInstalled || $hasUpdate): ?>
-                                        <form action="/admin/plugins/store/install" method="POST" onsubmit="return confirm('Plugin \'<?= htmlspecialchars(addslashes($entry['name'])) ?>\' aus <?= htmlspecialchars(addslashes($repoRow['owner'] . '/' . $repoRow['repo'])) ?> installieren? Der Code wird nach plugins/<?= htmlspecialchars(addslashes($slug)) ?>/ kopiert, aber nicht automatisch aktiviert.');">
+                                        <form action="/admin/plugins/store/install" method="POST" data-confirm="Plugin '<?= htmlspecialchars(($entry['name'])) ?>' aus <?= htmlspecialchars(($repoRow['owner'] . '/' . $repoRow['repo'])) ?> installieren? Der Code wird nach plugins/<?= htmlspecialchars(($slug)) ?>/ kopiert, aber nicht automatisch aktiviert." >
                                             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                             <input type="hidden" name="repo_id" value="<?= $repoId ?>">
                                             <input type="hidden" name="slug" value="<?= htmlspecialchars($slug) ?>">

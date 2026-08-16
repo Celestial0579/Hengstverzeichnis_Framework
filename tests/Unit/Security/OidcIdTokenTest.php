@@ -96,4 +96,55 @@ class OidcIdTokenTest extends TestCase {
         $this->assertNull(OidcIdToken::extractEmail(['preferred_username' => 'DOMAIN\\benutzer']));
         $this->assertNull(OidcIdToken::extractEmail([]));
     }
+
+    /**
+     * Die E-Mail ist der einzige Anknüpfungspunkt an das lokale Konto. Sagt
+     * der Provider ausdrücklich, dass sie unbestätigt ist, wäre sie eine
+     * Selbstauskunft: Bei einem IdP mit Selbstregistrierung genügte sonst ein
+     * Konto mit der Adresse eines Administrators.
+     */
+    public function testUnverifiedEmailClaimIsRejected(): void {
+        foreach ([false, 'false', 0, '0'] as $unverified) {
+            $this->assertNull(
+                OidcIdToken::extractEmail([
+                    'email' => 'opfer@example.org',
+                    'email_verified' => $unverified,
+                ]),
+                'email_verified=' . var_export($unverified, true) . ' muss zur Ablehnung führen'
+            );
+        }
+    }
+
+    public function testVerifiedEmailClaimIsAccepted(): void {
+        foreach ([true, 'true', 1, '1'] as $verified) {
+            $this->assertSame('nutzer@example.org', OidcIdToken::extractEmail([
+                'email' => 'nutzer@example.org',
+                'email_verified' => $verified,
+            ]));
+        }
+    }
+
+    /**
+     * Entra ID sendet den Claim für Geschäftskonten nicht - ein fehlender
+     * Claim ist keine Aussage und darf funktionierende Installationen nicht
+     * aussperren.
+     */
+    public function testMissingEmailVerifiedClaimStaysAccepted(): void {
+        $this->assertSame('nutzer@example.org', OidcIdToken::extractEmail([
+            'email' => 'nutzer@example.org',
+        ]));
+    }
+
+    /**
+     * Ein vorhandener, aber unbestätigter email-Claim darf nicht auf den
+     * schwächeren preferred_username ausweichen - sonst hebt der Rückfall die
+     * Prüfung wieder auf.
+     */
+    public function testUnverifiedEmailDoesNotFallBackToPreferredUsername(): void {
+        $this->assertNull(OidcIdToken::extractEmail([
+            'email' => 'opfer@example.org',
+            'email_verified' => false,
+            'preferred_username' => 'angreifer@example.org',
+        ]));
+    }
 }

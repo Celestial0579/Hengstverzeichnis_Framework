@@ -143,7 +143,7 @@ $addonTargetWarnings = array_values(array_filter(
             <?php endif; ?>
 
             <?php if ($inPlaceEnabled): ?>
-                <form action="/admin/updates/run" method="POST" onsubmit="return confirm('Jetzt auf Version <?= htmlspecialchars(addslashes($checkResult['latest'])) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen.');" style="margin-bottom: 1rem;">
+                <form action="/admin/updates/run" method="POST" data-confirm="Jetzt auf Version <?= htmlspecialchars(($checkResult['latest'])) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen." style="margin-bottom: 1rem;">
                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                     <button type="submit" class="btn" <?= $backupConfigured ? '' : 'disabled title="Backups zuerst konfigurieren"' ?>>
                         ⬆️ Jetzt aktualisieren (mit Pflicht-Backup)
@@ -204,7 +204,7 @@ $addonTargetWarnings = array_values(array_filter(
                                      (#197, Stufe 2) - nur offizielles Repo, Fremd-Quellen lehnt
                                      der Server ab. -->
                                 <form action="/admin/updates/addon" method="POST" style="display: inline; margin-left: 0.3rem;"
-                                      onsubmit="return confirm('Addon <?= htmlspecialchars(addslashes($row['slug'])) ?> jetzt auf <?= htmlspecialchars(addslashes($row['availableVersion'])) ?> aktualisieren?');">
+                                      data-confirm="Addon <?= htmlspecialchars(($row['slug'])) ?> jetzt auf <?= htmlspecialchars(($row['availableVersion'])) ?> aktualisieren?" >
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="slug" value="<?= htmlspecialchars($row['slug']) ?>">
                                     <button type="submit" class="btn btn-secondary" style="padding: 0.15rem 0.6rem; font-size: 0.8rem;">⬆️ Aktualisieren</button>

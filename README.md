@@ -81,11 +81,11 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `DB_USER`        | ✅ | –                    | DB-Benutzername |
 | `DB_PASS`        | ✅ | –                    | DB-Passwort |
 | `DB_SSL`         | –  | `false`              | `true`/`1` aktiviert SSL/TLS zur DB |
-| `DB_SSL_VERIFY`  | –  | `false`              | Server-Zertifikat der DB verifizieren |
+| `DB_SSL_VERIFY`  | –  | `true`, sobald `DB_SSL_CA` gesetzt ist, sonst `false` | Server-Zertifikat der DB verifizieren. Ohne Prüfung ist die Verbindung zwar verschlüsselt, aber nicht authentifiziert – eine hinterlegte CA-Datei bliebe wirkungslos |
 | `DB_SSL_CA`      | –  | –                    | Pfad zur CA-Datei, falls `DB_SSL=true` |
 | `APP_KEY`        | ✅ | –                    | 32-Byte-Hex-Schlüssel (AES-256-GCM) für verschlüsselte Werte (u. a. SMTP-Passwort, TOTP-Secrets) |
 | `APP_URL`        | –  | dynamisch aus Request | Feste Basis-URL, falls automatische Erkennung nicht passt |
-| `APP_ENV`        | –  | `development`         | `production` deaktiviert Fehlerausgaben im Browser |
+| `APP_ENV`        | –  | `production`, sobald die Instanz konfiguriert ist (DB-Env-Variablen oder `db_config.php`); `development` nur im unkonfigurierten Checkout | `production` deaktiviert Fehlerausgaben im Browser. Protokolliert wird in **beiden** Betriebsarten alles (`error_log`) |
 | `TRUSTED_PROXIES`| –  | – (kein Proxy vertraut) | Kommagetrennte Liste vertrauenswürdiger Reverse-Proxy-IPs/-Netze, siehe unten |
 | `TRACKING_DOMAINS`| – | – (kein Tracking) | Kommagetrennte Liste von `https://`-Origins (Matomo/Google Analytics o. Ä.), die in der Content-Security-Policy freigeschaltet werden. Alternative ohne Env-Var: Admin → Systemeinstellungen. |
 | `TRUSTED_HOSTS`  | –  | – (Host-Header wird akzeptiert) | Kommagetrennte Liste erlaubter Hostnamen; schützt in Mail-Links vor Host-Header-Injection |

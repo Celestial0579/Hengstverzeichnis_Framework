@@ -94,7 +94,7 @@ $publishFormId = 'personPublishForm';
                                 <a href="/admin/persons/edit?id=<?= $p['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
                             <?php endif; ?>
                             <?php if ($canDelete): ?>
-                                <form action="/admin/persons/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben.');" style="display:inline;">
+                                <form action="/admin/persons/delete" method="POST" data-confirm="Möchten Sie diese Person wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben." style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $p['id'] ?>">
                                     <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>

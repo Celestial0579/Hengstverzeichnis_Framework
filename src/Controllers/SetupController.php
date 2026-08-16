@@ -32,7 +32,31 @@ class SetupController extends BaseController {
         $config = self::readDbConfig();
         $config[$key] = $value;
         $content = "<?php\n// Auto-generated database configuration\nreturn " . var_export($config, true) . ";\n";
-        return file_put_contents(self::dbConfigFilePath(), $content) !== false;
+        return self::writeDbConfigFile($content);
+    }
+
+    /**
+     * Schreibt config/db_config.php und beschränkt die Dateirechte auf den
+     * Eigentümer.
+     *
+     * Die Datei enthält das Datenbank-Passwort und den APP_KEY im Klartext -
+     * mit dem Schlüssel lassen sich alle verschlüsselt abgelegten Geheimnisse
+     * entschlüsseln (SMTP-, S3-, FTPS-, WebDAV-Zugänge und die TOTP-Secrets,
+     * siehe App\Security\Crypto). file_put_contents legt sie mit 0644 an,
+     * also für jeden Systembenutzer lesbar; auf geteiltem Webhosting ist das
+     * genau der Fall, den man nicht will. Ein fehlgeschlagenes chmod ist kein
+     * Abbruchgrund - die Datei ist dann geschrieben und die Installation
+     * funktioniert -, wird aber protokolliert.
+     */
+    private static function writeDbConfigFile(string $content): bool {
+        $path = self::dbConfigFilePath();
+        if (file_put_contents($path, $content) === false) {
+            return false;
+        }
+        if (!@chmod($path, 0600)) {
+            error_log('Konnte die Dateirechte von config/db_config.php nicht auf 0600 setzen - bitte manuell prüfen.');
+        }
+        return true;
     }
 
     public static function needsSetup(): bool {
@@ -196,8 +220,28 @@ class SetupController extends BaseController {
             if (empty($dbHost)) $errors[] = "Bitte geben Sie den Datenbank-Server (Host) ein.";
             if (empty($dbPort)) $errors[] = "Bitte geben Sie den Datenbank-Port ein.";
             if (empty($dbName)) $errors[] = "Bitte geben Sie den Datenbank-Namen ein.";
-            elseif (!preg_match('/^[A-Za-z0-9_]+$/', $dbName)) $errors[] = "Der Datenbank-Name darf nur Buchstaben, Ziffern und Unterstriche enthalten.";
             if (empty($dbUser)) $errors[] = "Bitte geben Sie den Datenbank-Benutzer ein.";
+        }
+
+        // Formatprüfung der TATSÄCHLICH verwendeten Werte - unabhängig davon,
+        // ob der DB-Abschnitt im Formular sichtbar war (App\Security\DbIdentifier).
+        //
+        // Die Prüfung des Namens stand früher im Zweig darüber, und
+        // $dbFromEnv ist wahr, sobald IRGENDEINE der Variablen
+        // DB_HOST/DB_USER/DB_PASS gesetzt ist - DB_NAME zählt gar nicht mit.
+        // Wer also DB_HOST setzt, aber DB_NAME nicht, bekam den Namen
+        // weiterhin aus $_POST, ungeprüft, und er landet in provision()
+        // interpoliert in `DROP DATABASE` und `CREATE DATABASE` (Bezeichner
+        // lassen sich nicht als Parameter binden). Der Wizard ist vor der
+        // Einrichtung unauthentifiziert erreichbar.
+        if ($dbName !== '' && !\App\Security\DbIdentifier::isValidDatabaseName($dbName)) {
+            $errors[] = "Der Datenbank-Name darf nur Buchstaben, Ziffern und Unterstriche enthalten (max. 64 Zeichen).";
+        }
+        if ($dbHost !== '' && !\App\Security\DbIdentifier::isValidHost($dbHost)) {
+            $errors[] = "Der Datenbank-Server enthält unzulässige Zeichen.";
+        }
+        if ($dbPort !== '' && !\App\Security\DbIdentifier::isValidPort($dbPort)) {
+            $errors[] = "Der Datenbank-Port muss eine Zahl zwischen 1 und 65535 sein.";
         }
 
         if ($siteFromEnv === null && empty($siteName)) $errors[] = "Bitte geben Sie einen Namen für den Verband / die Seite ein.";
@@ -303,7 +347,7 @@ class SetupController extends BaseController {
                 'app_env' => 'production',
             ], true) . ";\n";
 
-            if (file_put_contents(self::dbConfigFilePath(), $configContent) === false) {
+            if (!self::writeDbConfigFile($configContent)) {
                 $this->render('setup', array_merge([
                     'title' => 'Einrichtung - Hengstverzeichnis Framework',
                     'errors' => ['Konnte config/db_config.php nicht schreiben. Bitte Schreibrechte im Ordner config/ prüfen.'],

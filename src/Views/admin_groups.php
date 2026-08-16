@@ -155,7 +155,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                                     <?= (int)$group['id'] === $selectedGroupId ? 'Ausgewählt' : 'Bearbeiten' ?>
                                 </a>
                                 <?php if (!$group['is_builtin']): ?>
-                                    <form action="/admin/groups/delete" method="POST" onsubmit="return confirm('Gruppe \'<?= htmlspecialchars(addslashes($group['name'])) ?>\' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen.');">
+                                    <form action="/admin/groups/delete" method="POST" data-confirm="Gruppe '<?= htmlspecialchars(($group['name'])) ?>' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen." >
                                         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                         <input type="hidden" name="id" value="<?= (int)$group['id'] ?>">
                                         <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>
@@ -258,7 +258,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                      Verwaltungsrechte anbieten, die der Server ohnehin verwirft
                      (GroupController::restrictForGuest()) - die UI soll diesen
                      scheinbar harmlosen Ein-Klick-Weg gar nicht erst eröffnen. -->
-                <form action="/admin/groups/copy-permissions" method="POST" onsubmit="return confirm('Berechtigungen der ausgewählten Quell-Gruppe übernehmen? Die aktuellen Berechtigungen von \'<?= htmlspecialchars(addslashes($selected['name'])) ?>\' werden dabei vollständig überschrieben.');" style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
+                <form action="/admin/groups/copy-permissions" method="POST" data-confirm="Berechtigungen der ausgewählten Quell-Gruppe übernehmen? Die aktuellen Berechtigungen von '<?= htmlspecialchars(($selected['name'])) ?>' werden dabei vollständig überschrieben." style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid #e0e0e0; margin-bottom: 1.2rem;">
                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                     <input type="hidden" name="target_group_id" value="<?= (int)$selected['id'] ?>">
                     <div class="form-group" style="margin: 0;">

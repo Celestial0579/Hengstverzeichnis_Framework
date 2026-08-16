@@ -103,7 +103,7 @@ $publishFormId = 'horsePublishForm';
                                 <a href="/admin/horses/edit?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
                             <?php endif; ?>
                             <?php if ($canDelete): ?>
-                                <form action="/admin/horses/delete" method="POST" onsubmit="return confirm('Möchten Sie dieses Pferd wirklich löschen?');" style="display:inline;">
+                                <form action="/admin/horses/delete" method="POST" data-confirm="Möchten Sie dieses Pferd wirklich löschen?" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $horse['id'] ?>">
                                     <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>

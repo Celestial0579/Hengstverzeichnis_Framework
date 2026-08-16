@@ -32,14 +32,59 @@ class Markdown {
         $text = preg_replace('/^\s*[\-\*]\s+(.*?)$/m', '<li>$1</li>', $text);
         $text = preg_replace('/((?:<li>.*?<\/li>\s*)+)/s', '<ul style="margin: 0.8rem 0 0.8rem 1.5rem; padding-left: 1rem;">$1</ul>', $text);
 
-        // 4. Bold & Italic
+        // 4. Links [Text](http://example.com) - vor Bold/Italic, und für deren
+        //    Dauer gegen weitere Ersetzungen geschützt.
+        //
+        // WARUM DER PLATZHALTER: Es genügt nicht, die Link-Regel nur
+        // vorzuziehen. Die Kursiv- und Fett-Regeln laufen über den GESAMTEN
+        // Text, also auch über das gerade erzeugte <a href="...">, und
+        // schieben ihre Tags mitten in den Attributwert:
+        // "[x](http://a.com/_foo_bar)" wurde zu
+        // href="http://a.com/<em>foo</em>bar", ein unpaariges Sternchen
+        // hinterließ sogar ein hängendes </em> darin. Ein Ausbruch aus den
+        // Anführungszeichen war das nicht - htmlspecialchars(ENT_QUOTES) in
+        // Schritt 1 hat sie längst entschärft -, aber ein kaputter Link und
+        // eine Ausgabe, die man niemandem erklären möchte.
+        //
+        // Der fertige Anker wird deshalb durch einen Platzhalter ersetzt, der
+        // keine Markdown-Sonderzeichen enthält, und ganz am Ende wieder
+        // eingesetzt. Der Linktext selbst durchläuft die weiteren Regeln
+        // bewusst NICHT - er ist eine Beschriftung, kein Textkörper.
+        //
+        // Zusätzlich wird die URL geprüft statt nur eingesetzt: Was nicht als
+        // http(s)-URL durchgeht, bleibt schlichter Text. Kein Link ist besser
+        // als ein Link an eine Adresse, die niemand geprüft hat.
+        $linkPlaceholders = [];
+        $text = preg_replace_callback(
+            '/\[([^\]]*)\]\((https?:\/\/[^\s<>()]+)\)/',
+            static function (array $m) use (&$linkPlaceholders): string {
+                // Der Text ist hier bereits HTML-escaped; für die Prüfung wird
+                // die URL zurückverwandelt und danach wieder sauber für ein
+                // Attribut kodiert.
+                $url = html_entity_decode($m[2], ENT_QUOTES, 'UTF-8');
+
+                if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+                    return $m[0];
+                }
+                $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
+                if (!in_array($scheme, ['http', 'https'], true)) {
+                    return $m[0];
+                }
+
+                $href = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+                $key = "\x02MDLINK" . count($linkPlaceholders) . "\x03";
+                $linkPlaceholders[$key] = '<a href="' . $href . '" target="_blank" rel="noopener noreferrer"'
+                    . ' style="color: var(--primary-color); text-decoration: underline;">' . $m[1] . '</a>';
+                return $key;
+            },
+            $text
+        );
+
+        // 5. Bold & Italic
         $text = preg_replace('/\*\*(.*?)\*\*/s', '<strong>$1</strong>', $text);
         $text = preg_replace('/__(.*?)__/s', '<strong>$1</strong>', $text);
         $text = preg_replace('/\*(.*?)\*/s', '<em>$1</em>', $text);
         $text = preg_replace('/_(.*?)_/s', '<em>$1</em>', $text);
-
-        // 5. Links [Text](http://example.com)
-        $text = preg_replace('/\[(.*?)\]\((https?:\/\/.*?)\)/s', '<a href="$2" target="_blank" rel="noopener noreferrer" style="color: var(--primary-color); text-decoration: underline;">$1</a>', $text);
 
         // 6. Paragraphs and Line breaks
         // Convert double newlines to paragraphs
@@ -54,6 +99,10 @@ class Markdown {
             return '<p style="margin-bottom: 1rem; line-height: 1.6;">' . nl2br($p) . '</p>';
         }, $paragraphs);
 
-        return implode("\n", array_filter($formattedParagraphs));
+        $html = implode("\n", array_filter($formattedParagraphs));
+
+        // 7. Die geschützten Links wieder einsetzen - nachdem keine Regel mehr
+        //    über den Text läuft.
+        return $linkPlaceholders === [] ? $html : strtr($html, $linkPlaceholders);
     }
 }

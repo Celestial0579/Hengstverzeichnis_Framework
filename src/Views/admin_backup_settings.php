@@ -139,6 +139,13 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
                 Ausschließlich TLS-verschlüsseltes FTP (FTPS) - unverschlüsseltes FTP wird
                 aus Sicherheitsgründen nicht angeboten.
             </p>
+            <p style="color: var(--danger-fg); font-size: 0.85rem; margin-top: 0;">
+                <strong>Hinweis:</strong> PHPs FTP-Erweiterung prüft das Serverzertifikat
+                nicht und bietet dafür auch keine Einstellung. Die Übertragung ist damit
+                verschlüsselt, aber nicht gegen einen Angreifer in der Verbindung
+                geschützt. Wo möglich WebDAV oder S3 vorziehen - beide prüfen das
+                Zertifikat.
+            </p>
 
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 3;">

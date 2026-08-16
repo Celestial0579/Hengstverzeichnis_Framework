@@ -21,7 +21,13 @@ $catalogPagination = $catalogPagination ?? null;
         <div class="card" style="border: 1px solid var(--border-color); margin-bottom: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s;">
             <?php if (!empty($horse['image_url'])): ?>
                 <div style="width: 100%; height: 180px; overflow: hidden; background: var(--surface-muted);">
-                    <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                    <?php // Lazy-Loading (#263): Bei CATALOG_PER_PAGE = 24 Karten liegt der
+                          // weit überwiegende Teil außerhalb des Viewports. Der Container gibt
+                          // die Höhe fest vor (180px), es entsteht also kein Layout-Sprung beim
+                          // Nachladen. decoding="async" hält zusätzlich das Dekodieren aus dem
+                          // Haupt-Thread. Gilt auch für den AJAX-Pfad, der diese Datei erneut
+                          // rendert - dort zählt es beim Nachladen umso mehr. ?>
+                    <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" loading="lazy" decoding="async" style="width: 100%; height: 100%; object-fit: cover;">
                 </div>
             <?php else: ?>
                 <div style="width: 100%; height: 120px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; font-size: 3rem; opacity: 0.4;">

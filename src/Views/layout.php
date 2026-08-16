@@ -94,8 +94,25 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
     <!-- Google Fonts for premium typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
+    <?php // Nicht blockierend nachgeladen (#263): Das Schriften-Stylesheet liegt auf
+          // einem FREMDEN Host - es blockierte das Rendern also bis zu einer
+          // Verbindung, die wir nicht kontrollieren. Mit media="print" gilt es beim
+          // Parsen als nicht anwendbar und blockiert nicht; der onload-Handler
+          // schaltet es danach scharf. Der Text ist derweil sichtbar, weil die URL
+          // bereits display=swap trägt. <noscript> hält den Weg ohne JavaScript offen.
+          //
+          // Der Handler ist der einzige verbliebene Inline-Handler im Layout und hängt
+          // an script-src 'unsafe-inline' (config/config.php). Wer die CSP dort einmal
+          // verschärft, muss ihn mitnehmen - die eigentliche Lösung wäre ohnehin, die
+          // Schrift selbst auszuliefern (siehe PR-Text). ?>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'; this.onload=null;">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+
+    <?php // style.css bleibt BEWUSST blockierend (#263): Es ist das eigene
+          // Grund-Stylesheet, kein Zusatz. Es asynchron nachzuladen hieße, die Seite
+          // garantiert einmal ungestylt zu zeigen - ein sichtbarer Rückschritt
+          // zugunsten einer Messzahl. Kritisches CSS auszulagern wäre der saubere Weg
+          // dorthin und ist ein eigener Schritt, kein Nebenbei. ?>
     <!-- Base Stylesheet -->
     <link rel="stylesheet" href="/css/style.css">
     
@@ -278,35 +295,9 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         </form>
     </footer>
 
-    <script>
-        // Darkmode-Umschalter (#91): Klick-Handler + Icon-Sync. Getrennt vom
-        // FOUC-Präventions-Script im <head> (siehe dort) - dieses hier braucht
-        // ein bereits vorhandenes DOM (Button), jenes muss vor dem ersten
-        // Rendern laufen.
-        (function () {
-            var toggleBtn = document.getElementById('theme-toggle');
-            if (!toggleBtn) return;
-
-            function isDarkActive() {
-                var explicit = document.documentElement.getAttribute('data-theme');
-                if (explicit === 'dark') return true;
-                if (explicit === 'light') return false;
-                return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-            }
-
-            function syncIcon() {
-                toggleBtn.textContent = isDarkActive() ? '☀️' : '🌙';
-            }
-
-            window.__toggleTheme = function () {
-                var next = isDarkActive() ? 'light' : 'dark';
-                document.documentElement.setAttribute('data-theme', next);
-                localStorage.setItem('theme', next);
-                syncIcon();
-            };
-
-            syncIcon();
-        })();
-    </script>
+    <!-- Darkmode-Umschalter (#263): ausgelagert und defer geladen. Laeuft
+         vor DOMContentLoaded, findet den Button also fertig geparst vor.
+         Der FOUC-Fix im <head> bleibt bewusst inline und synchron. -->
+    <script defer src="/js/theme-toggle.js"></script>
 </body>
 </html>

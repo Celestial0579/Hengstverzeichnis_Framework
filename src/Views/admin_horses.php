@@ -74,7 +74,10 @@ $publishFormId = 'horsePublishForm';
                         <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['id']) ?></td>
                         <td style="padding: 0.5rem;">
                             <?php if (!empty($horse['image_url'])): ?>
-                                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Foto" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
+                                <?php // Lazy-Loading (#263): Die Verwaltungsliste zeigt viele Zeilen
+                                      // untereinander, die Vorschaubilder liegen fast alle unter dem
+                                      // Falz. Feste Kantenlänge im style, also kein Layout-Sprung. ?>
+                                <img src="<?= htmlspecialchars($horse['image_url']) ?>" alt="Foto" loading="lazy" decoding="async" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
                             <?php else: ?>
                                 <span style="font-size: 1.2rem; opacity: 0.3;">🐴</span>
                             <?php endif; ?>

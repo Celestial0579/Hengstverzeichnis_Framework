@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 4;
+    public const SCHEMA_VERSION = 5;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -778,5 +778,24 @@ final class SchemaMigrator {
         $addColumn('breeding_stations', 'city', 'VARCHAR(100) NULL DEFAULT NULL AFTER `postal_code`');
         $addColumn('breeding_stations', 'state', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
         $addColumn('breeding_stations', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `state`');
+
+        // Reset-Token liegen nur noch als SHA-256-Abdruck in der Tabelle
+        // (siehe AuthController::hashResetToken()). Bestehende Zeilen enthalten
+        // noch Klartext-Token, die gegen den Abdruck nie treffen würden - sie
+        // werden entfernt statt umgerechnet: Aus dem Klartext ließe sich der
+        // Abdruck zwar bilden, aber die Zeilen sind höchstens 15 Minuten
+        // gültig, und ein laufender Reset ist mit einem Klick neu angefordert.
+        // Ein Vorrat gültiger Klartext-Token soll die Migration nicht
+        // überleben.
+        try {
+            $offen = (int)$pdo->query("SELECT COUNT(*) FROM password_resets")->fetchColumn();
+            if ($offen > 0) {
+                $pdo->exec("DELETE FROM password_resets");
+                $performed[] = "password_resets geleert ({$offen} offene Anforderung(en)) - Token liegen jetzt nur als Abdruck vor";
+            }
+        } catch (\Throwable $e) {
+            // Tabelle existiert im Setup-Fall noch nicht - dann gibt es auch
+            // nichts zu bereinigen.
+        }
     }
 }

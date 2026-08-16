@@ -91,22 +91,27 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
         <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐴</text></svg>">
     <?php endif; ?>
     
-    <!-- Google Fonts for premium typography -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <?php // Nicht blockierend nachgeladen (#263): Das Schriften-Stylesheet liegt auf
-          // einem FREMDEN Host - es blockierte das Rendern also bis zu einer
-          // Verbindung, die wir nicht kontrollieren. Mit media="print" gilt es beim
-          // Parsen als nicht anwendbar und blockiert nicht; der onload-Handler
-          // schaltet es danach scharf. Der Text ist derweil sichtbar, weil die URL
-          // bereits display=swap trägt. <noscript> hält den Weg ohne JavaScript offen.
+    <?php // KEINE Schrift von einem fremden Host mehr.
           //
-          // Der Handler ist der einzige verbliebene Inline-Handler im Layout und hängt
-          // an script-src 'unsafe-inline' (config/config.php). Wer die CSP dort einmal
-          // verschärft, muss ihn mitnehmen - die eigentliche Lösung wäre ohnehin, die
-          // Schrift selbst auszuliefern (siehe PR-Text). ?>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'; this.onload=null;">
-    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+          // Bisher lud jede Seite - auch die öffentliche, auch ohne Anmeldung -
+          // ein Stylesheet von fonts.googleapis.com und die Schriftdateien von
+          // fonts.gstatic.com. Das sind drei Dinge auf einmal: Jeder Besucher
+          // meldet seine IP-Adresse und die aufgerufene Seite an einen Dritten
+          // (nach EuGH-Rechtsprechung nicht ohne Einwilligung zulässig, und ein
+          // Zuchtverzeichnis führt Personendaten), die Darstellung hängt an der
+          // Verfügbarkeit eines fremden Dienstes, und ein kompromittiertes
+          // Font-CSS könnte über die dort ohnehin nötige style-src-Freigabe
+          // wirken (A08).
+          //
+          // Der Ersatz kostet nichts: --font-family in public/css/style.css
+          // führte 'Inter' ohnehin nur als erste Wahl vor einem System-Stack.
+          // Wer die Inter-Typografie exakt behalten will, liefert die
+          // woff2-Dateien selbst aus (OFL erlaubt das) - dann bleibt der
+          // Datenfluss trotzdem im eigenen Haus.
+          //
+          // Nebenwirkung, die gelegen kommt: Damit verschwindet der letzte
+          // Inline-onload-Handler aus dem Layout, ein Schritt weniger auf dem
+          // Weg zu einer CSP ohne 'unsafe-inline'. ?>
 
     <?php // style.css bleibt BEWUSST blockierend (#263): Es ist das eigene
           // Grund-Stylesheet, kein Zusatz. Es asynchron nachzuladen hieße, die Seite
@@ -299,5 +304,8 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
          vor DOMContentLoaded, findet den Button also fertig geparst vor.
          Der FOUC-Fix im <head> bleibt bewusst inline und synchron. -->
     <script defer src="/js/theme-toggle.js"></script>
+    <?php // Sicherheitsabfragen vor dem Absenden (data-confirm), ausgelagert
+          // statt als onsubmit-Attribut - siehe public/js/confirm-submit.js. ?>
+    <script defer src="/js/confirm-submit.js"></script>
 </body>
 </html>

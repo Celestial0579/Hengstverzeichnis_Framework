@@ -144,7 +144,7 @@ $limitReached = $activeCount >= $maxKeys;
                         <td style="padding: 0.5rem; font-size: 0.9rem;"><?= htmlspecialchars((string)($key['last_used_at'] ?? 'nie')) ?></td>
                         <td style="padding: 0.5rem;">
                             <form method="POST" action="/api-keys/revoke" style="margin: 0;"
-                                  onsubmit="return confirm('Diesen Schlüssel wirklich widerrufen? Anwendungen, die ihn nutzen, verlieren sofort den Zugriff.');">
+                                  data-confirm="Diesen Schlüssel wirklich widerrufen? Anwendungen, die ihn nutzen, verlieren sofort den Zugriff." >
                                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(App\Router::generateCsrfToken()) ?>">
                                 <input type="hidden" name="id" value="<?= (int)$key['id'] ?>">
                                 <button type="submit" class="btn btn-secondary" style="border-color: var(--danger-fg); color: var(--danger-fg); padding: 0.3rem 0.7rem; font-size: 0.85rem;">

@@ -104,7 +104,7 @@
                             <a href="/admin/users/edit?id=<?= $user['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
 
                             <?php if (!empty($user['totp_enabled'])): ?>
-                                <form action="/admin/users/reset-2fa" method="POST" onsubmit="return confirm('Möchten Sie die 2-Faktor-Authentifizierung für den Benutzer \'<?= htmlspecialchars(addslashes($user['username'])) ?>\' wirklich zurücksetzen? Der Benutzer muss 2FA bei der nächsten Anmeldung neu einrichten.');" style="display:inline;">
+                                <form action="/admin/users/reset-2fa" method="POST" data-confirm="Möchten Sie die 2-Faktor-Authentifizierung für den Benutzer '<?= htmlspecialchars(($user['username'])) ?>' wirklich zurücksetzen? Der Benutzer muss 2FA bei der nächsten Anmeldung neu einrichten." style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $user['id'] ?>">
                                     <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #fd7e14;">🔑 2FA Reset</button>
@@ -112,7 +112,7 @@
                             <?php endif; ?>
 
                             <?php if ($user['id'] != $_SESSION['user_id']): ?>
-                                <form action="/admin/users/delete" method="POST" onsubmit="return confirm('Möchten Sie diesen Benutzer wirklich löschen?');" style="display:inline;">
+                                <form action="/admin/users/delete" method="POST" data-confirm="Möchten Sie diesen Benutzer wirklich löschen?" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $user['id'] ?>">
                                     <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>

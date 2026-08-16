@@ -15,3 +15,33 @@ Options -Indexes -ExecCGI
 <IfModule mod_php.c>
     php_flag engine off
 </IfModule>
+
+# --- Einbettungsschutz fuer Pferdefotos (#262) ---
+#
+# Pferdefotos werden seit #262 ueber /media/horse-image ausgeliefert. Der direkte
+# statische Weg bleibt fuer Bestandslinks erreichbar, aber nicht mehr fuer fremde
+# Seiten: Cross-Origin-Resource-Policy wird vom Browser durchgesetzt und ist von
+# der einbettenden Seite nicht umgehbar.
+#
+# WICHTIG: Diese Datei gilt nur fuer Apache. Der eigentliche Schutz liegt
+# deshalb im Anwendungscode (App\Controllers\MediaController) - hier steht nur
+# die Absicherung des statischen Restwegs. Eine nginx-/Caddy-Installation
+# braucht das Gegenstueck in ihrer Serverkonfiguration; ohne sie bleibt der
+# statische Pfad ungeschuetzt, waehrend die Anwendung selbst korrekt liefert.
+<IfModule mod_headers.c>
+    <FilesMatch "\.(jpe?g|png|gif|webp)$">
+        Header set Cross-Origin-Resource-Policy "same-origin"
+        Header set X-Content-Type-Options "nosniff"
+    </FilesMatch>
+</IfModule>
+
+# Referer-Filter als zweite Schicht: greift dort, wo CORP nicht greift (Clients
+# ohne CORP-Unterstuetzung). Ein LEERER Referer wird bewusst durchgelassen -
+# ihn zu blocken braeche direktes Aufrufen, Lesezeichen und Browser, die den
+# Referer grundsaetzlich unterdruecken.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP_REFERER} !^$
+    RewriteCond %{HTTP_REFERER} !^https?://%{HTTP_HOST}(:[0-9]+)?/ [NC]
+    RewriteRule \.(jpe?g|png|gif|webp)$ - [F,L]
+</IfModule>

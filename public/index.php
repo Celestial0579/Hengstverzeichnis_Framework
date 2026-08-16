@@ -76,6 +76,12 @@ $router->get('/horse', [App\Controllers\PublicController::class, 'horseDetail'])
 $router->redirect('/hengst', '/horse');
 $router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
 
+// Pferdefotos ueber PHP statt als statische Datei (#262): setzt
+// Cross-Origin-Resource-Policy und die Referer-Pruefung durch und wendet
+// dieselben Sichtbarkeitsregeln an wie die Detailseite. Als statische Datei war
+// ein Foto unabhaengig von is_published abrufbar.
+$router->get('/media/horse-image', [App\Controllers\MediaController::class, 'horseImage']); // Requires ?id=
+
 // Read-only-JSON-API für Katalogdaten (#47, siehe docs/api.md). Zugriff nur
 // mit gültigem API-Schlüssel im Authorization-Header (App\Security\ApiKey).
 $router->get('/api/horses', [App\Controllers\ApiController::class, 'index']);

@@ -5,7 +5,7 @@ namespace App\Security;
 
 /**
  * Class Crypto
- * 
+ *
  * Symmetrisches Kryptographie-Hilfswerkzeug.
  * Nutzt AES-256-GCM (Authenticated Encryption with Associated Data) für zweiwegebasiertes
  * Ver- und Entschlüsseln sensibler Daten (z. B. SMTP-Passwörter in der Datenbank)

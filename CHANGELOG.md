@@ -8,6 +8,40 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Geändert (Prüfkette)
+
+- **pre-commit läuft jetzt in der CI** (`.github/workflows/pre-commit.yml`).
+  `.pre-commit-config.yaml` war rein lokal: Wer die Hooks nicht installiert
+  hatte - jeder frische Klon, jeder Beitrag von aussen -, umging gitleaks,
+  shellcheck, eslint und die Whitespace-Prüflinge vollständig. Ein
+  Geheimnis-Scanner, der nur dort läuft, wo ihn jemand eingerichtet hat, ist
+  kein Gate, sondern eine Bitte. Der erste erzwungene Lauf hat prompt drei
+  Dinge gefunden, die seit Langem unbemerkt lagen (siehe unten).
+- **`eslint.config.js` ergänzt.** Der eslint-Hook ist auf v10 gepinnt; seit
+  ESLint v9 ist `eslint.config.js` die einzige gesuchte Konfigurationsdatei,
+  und es gab keine. Der Hook brach also bei jedem Lauf mit „couldn't find an
+  eslint.config file" ab - ein Prüfschritt, der immer rot ist und den niemand
+  ausführt, ist von einem, der nicht existiert, nicht zu unterscheiden. Die
+  mitgelieferte Fremdbibliothek `public/js/qrcode.js` ist ausgenommen.
+- **shellcheck-Funde behoben:** dreimal `A && B || C` in
+  `security/checks/10-http-headers.sh` durch `if/else` ersetzt (bei dem
+  Kurzmuster läuft C auch, wenn A wahr ist und B fehlschlägt), und die per
+  `trap` aufgerufene `teardown()` in `security/run-security-scan.sh` als
+  solche gekennzeichnet.
+- **Nachlaufende Leerzeichen in 24 Dateien entfernt** - die Bereinigung, die
+  der lokale Hook seit jeher gemacht hätte, wenn er gelaufen wäre.
+
+### Sicherheit
+
+- **`security/baseline/sqli-targets.txt` gefüllt.** Die Datei enthielt nur
+  einen TODO-Kommentar, der Formular-Crawl aus `60-sqli.sh` findet aber nur,
+  was in einem `<form>` steht. Die gesamte Katalogsuche läuft über
+  Query-Parameter - also der öffentlich erreichbare, unauthentifizierte
+  Lesepfad mit der grössten Angriffsfläche - und wurde vom wöchentlichen
+  DAST-Lauf nie angefasst, der trotzdem „bestanden" meldete. Jetzt stehen die
+  Filter des Katalogs, die Detail- und Medienrouten sowie die JSON-API-Endpunkte
+  drin.
+
 ### Hinzugefügt
 
 - **Zeitreihen-Endpunkt `GET /api/stats`** für externe Dashboards (#270).

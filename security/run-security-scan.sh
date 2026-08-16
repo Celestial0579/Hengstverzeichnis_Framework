@@ -97,6 +97,9 @@ pick_free_port() {
 
 PROJECT=""
 SCAN_ENV=""
+# Wird per 'trap teardown EXIT INT TERM' aufgerufen (siehe unten) - shellcheck
+# sieht indirekte Aufrufe nicht und meldet sonst SC2329 "never invoked".
+# shellcheck disable=SC2329
 teardown() {
   [[ "$KEEP" == "1" ]] && { warn "Instanz bleibt stehen (--keep): Projekt '$PROJECT'"; return; }
   [[ -z "$PROJECT" ]] && return

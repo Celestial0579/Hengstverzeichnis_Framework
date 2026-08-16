@@ -6,7 +6,7 @@
 ?>
 <div class="card" style="max-width: 400px; margin: 4rem auto;">
     <h2 class="text-center">Admin Login</h2>
-    
+
     <?php if (isset($_GET['success']) && $_GET['success'] === 'password_reset'): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars(App\I18n\Translator::t('auth.password_reset_success')) ?>

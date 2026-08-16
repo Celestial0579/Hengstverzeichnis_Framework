@@ -18,7 +18,7 @@ use App\Database;
  * - Validierung reservierter System-Benutzernamen
  */
 abstract class BaseController {
-    
+
     /**
      * Aus der Datenbank geladene globale Systemeinstellungen.
      * @var array
@@ -55,7 +55,7 @@ abstract class BaseController {
             $db = Database::getInstance();
             $stmt = $db->query("SELECT setting_key, setting_value FROM settings");
             $rows = $stmt->fetchAll();
-            
+
             foreach ($rows as $row) {
                 $this->settings[$row['setting_key']] = $row['setting_value'];
             }
@@ -93,7 +93,7 @@ abstract class BaseController {
 
     /**
      * Rendert ein View-Template innerhalb des zentralen Haupt-Layouts (`src/Views/layout.php`).
-     * 
+     *
      * @param string $view Name der View-Datei (ohne Endung .php)
      * @param array $data Variablen-Array, das in der View verfügbar gemacht wird
      * @param bool $embed Minimal-Layout ohne Kopf-/Fußbereich (#260). Lockert
@@ -103,7 +103,7 @@ abstract class BaseController {
     protected function render(string $view, array $data = [], bool $embed = false): void {
         // Variablen aus dem Data-Array für die View extrahieren
         extract($data);
-        
+
         // Globale Einstellungen automatisch in jeder View bereitstellen
         $settings = $this->settings;
 
@@ -219,7 +219,7 @@ abstract class BaseController {
                 "auth",
                 "User-Agent Mismatch für User ID " . $_SESSION['user_id']
             );
-            
+
             $_SESSION = [];
             if (ini_get("session.use_cookies")) {
                 $params = session_get_cookie_params();
@@ -239,7 +239,7 @@ abstract class BaseController {
                 "auth",
                 "User ID " . $_SESSION['user_id']
             );
-            
+
             $_SESSION = [];
             session_destroy();
             header("Location: /login?error=session_expired");
@@ -434,7 +434,7 @@ abstract class BaseController {
             'support', 'help', 'helpdesk', 'service', 'info', 'webmaster', 'hostmaster', 'postmaster', 'security', 'abuse', 'contact',
             'api', 'bot', 'daemon', 'guest', 'test', 'testing', 'demo', 'null', 'undefined'
         ];
-        
+
         return in_array(strtolower(trim($username)), $reserved, true);
     }
 

@@ -49,7 +49,7 @@
                                 <?= $isDeletion ? '🗑️ Löschanfrage (Art. 17 DSGVO)' : 'ℹ️ Auskunftsanfrage (Art. 15 DSGVO)' ?>
                             </span>
                             <h3 style="margin: 0; font-size: 1.1rem; color: var(--primary-fg);">
-                                <?= htmlspecialchars($req['name'] ?: 'Unbekannter Name') ?> 
+                                <?= htmlspecialchars($req['name'] ?: 'Unbekannter Name') ?>
                                 <span style="font-weight: normal; color: var(--text-muted); font-size: 0.95rem;">(&lt;<?= htmlspecialchars($req['email']) ?>&gt;)</span>
                             </h3>
                             <span style="font-size: 0.85rem; color: var(--text-subtle);">Eingegangen am: <?= date('d.m.Y H:i', strtotime($req['created_at'])) ?> Uhr</span>

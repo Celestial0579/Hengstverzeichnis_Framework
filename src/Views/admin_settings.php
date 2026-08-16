@@ -13,7 +13,7 @@
 
     <form action="/admin/settings" method="POST" enctype="multipart/form-data" style="max-width: 600px;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-        
+
         <div class="form-group">
             <label for="site_name">Name des Verbands / der Anwendung</label>
             <input type="text" id="site_name" name="site_name" class="form-control" value="<?= htmlspecialchars($settings['site_name'] ?? 'Hengstverzeichnis') ?>" required>
@@ -29,7 +29,7 @@
 
         <div class="form-group" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
             <label for="logo_file" style="font-weight: bold; color: var(--primary-fg);">🖼️ Verbands-Logo hochladen</label>
-            
+
             <?php if (!empty($settings['site_logo'])): ?>
                 <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0; background: var(--card-bg); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                     <img src="<?= htmlspecialchars($settings['site_logo']) ?>" alt="Logo Vorschau" style="max-height: 60px; max-width: 200px; object-fit: contain;">

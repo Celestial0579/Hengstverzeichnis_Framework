@@ -24,7 +24,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
 
     <!-- Search & Filter Form (Asynchronous AJAX-Enabled) -->
     <form id="catalog-filter-form" action="/katalog" method="GET" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
-        
+
         <!-- Main Quick Search Bar -->
         <div style="display: flex; gap: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 260px;">

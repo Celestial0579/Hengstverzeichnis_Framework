@@ -179,6 +179,9 @@ abstract class FunctionalTestCase extends TestCase {
         $newPassword = 'EditorTestNeu456!';
         $changeResponse = $client->post('/force-password-change', [
             'csrf_token' => $forcePage->formField('csrf_token') ?? '',
+            // Das bisherige Passwort ist Pflicht, damit eine übernommene
+            // Sitzung das Konto nicht dauerhaft an sich binden kann.
+            'current_password' => $password,
             'password' => $newPassword,
             'password_confirm' => $newPassword,
         ]);

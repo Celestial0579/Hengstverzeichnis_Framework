@@ -74,7 +74,13 @@
     --footer-bg: var(--primary-color);
     --footer-fg: var(--on-primary);
     --footer-link-color: var(--on-primary);
-    --font-family: 'Inter', system-ui, sans-serif;
+    /* System-Schriften. 'Inter' steht weiterhin an erster Stelle, greift aber
+       nur noch, wenn die Schrift auf dem Gerät installiert ist - geladen wird
+       sie nicht mehr von einem fremden Host (siehe src/Views/layout.php).
+       Dahinter der übliche System-Stack, damit die Darstellung auf jedem
+       Betriebssystem der dort vertrauten Oberfläche entspricht. */
+    --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto,
+        'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
     --border-radius: 8px;
     --transition-speed: 0.3s;
     --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);

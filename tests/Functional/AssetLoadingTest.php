@@ -117,18 +117,41 @@ class AssetLoadingTest extends FunctionalTestCase {
         );
     }
 
-    public function testWebfontStylesheetDoesNotBlockRendering(): void {
+    /**
+     * Die öffentliche Seite lädt NICHTS von einem fremden Host.
+     *
+     * Vorher hing hier die umgekehrte Zusage: Das Schriften-Stylesheet von
+     * fonts.googleapis.com sollte wenigstens nicht das Rendern blockieren.
+     * Nicht-blockierend war die richtige Antwort auf die falsche Frage - jeder
+     * Besucher meldete damit weiterhin IP-Adresse und aufgerufene Seite an
+     * einen Dritten, und die Darstellung hing an dessen Verfügbarkeit. Die
+     * Schrift kommt jetzt aus dem System-Stack.
+     *
+     * Der Test prüft deshalb das Ganze statt des Einzelfalls: kein Verweis auf
+     * einen fremden Host in der Antwort, egal ob Schrift, Skript oder Bild.
+     */
+    public function testPublicPageLoadsNothingFromThirdPartyHosts(): void {
         $body = $this->getOk('/');
 
-        $this->assertMatchesRegularExpression(
-            '/<link[^>]*fonts\.googleapis\.com[^>]*\bmedia="print"[^>]*\bonload=/',
-            $body,
-            'Das Schriften-Stylesheet des Fremdhosts blockiert wieder das Rendern.'
-        );
-        $this->assertMatchesRegularExpression(
-            '/<noscript><link[^>]*fonts\.googleapis\.com/',
-            $body,
-            'Ohne <noscript>-Rückfall bliebe die Schrift ohne JavaScript ganz aus.'
+        $this->assertStringNotContainsString('fonts.googleapis.com', $body);
+        $this->assertStringNotContainsString('fonts.gstatic.com', $body);
+
+        // Nur Verweise, die der Browser VON SICH AUS nachlädt: src an
+        // Skript/Bild/Rahmen und href an <link>. Gewöhnliche <a href> zu
+        // GitHub im Fußbereich sind Navigation - der Besucher entscheidet, ob
+        // er darauf klickt, und dabei fließt nichts ungefragt ab.
+        preg_match_all('/\bsrc="(https?:\/\/[^"]+)"/i', $body, $srcMatches);
+        preg_match_all('/<link\b[^>]*\bhref="(https?:\/\/[^"]+)"/i', $body, $linkMatches);
+
+        $external = array_values(array_filter(
+            array_merge($srcMatches[1], $linkMatches[1]),
+            static fn (string $url): bool => !str_starts_with($url, \Tests\Support\PhpBuiltInServer::baseUrl())
+        ));
+
+        $this->assertSame(
+            [],
+            $external,
+            'Die öffentliche Seite darf keine Ressourcen von fremden Hosts nachladen: ' . implode(', ', $external)
         );
 
         // Das eigene Grund-Stylesheet bleibt bewusst blockierend: asynchron
@@ -138,6 +161,17 @@ class AssetLoadingTest extends FunctionalTestCase {
             $body,
             'style.css soll unverändert blockierend geladen werden.'
         );
+    }
+
+    /**
+     * Sicherheitsabfragen hängen an data-confirm und werden von einem
+     * ausgelagerten Skript ausgewertet - nicht mehr an einem onsubmit-Attribut,
+     * in das PHP einen Text hineinschreibt (siehe public/js/confirm-submit.js).
+     */
+    public function testConfirmDialogsUseDataAttributesInsteadOfInlineHandlers(): void {
+        $body = $this->getOk('/');
+        $this->assertStringContainsString('/js/confirm-submit.js', $body, 'Das Skript für die Sicherheitsabfragen fehlt.');
+        $this->assertStringNotContainsString('onsubmit=', $body);
     }
 
     private function getOk(string $path): string {

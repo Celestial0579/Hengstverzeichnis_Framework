@@ -99,7 +99,7 @@
                                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                                 <?php if ($isDeletion): ?>
                                                     <!-- Action 1: Anonymisierung (Empfohlen) -->
-                                                    <form action="/admin/gdpr/anonymize-person" method="POST" onsubmit="return confirm('Möchten Sie diese Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten.');">
+                                                    <form action="/admin/gdpr/anonymize-person" method="POST" data-confirm="Möchten Sie diese Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten." >
                                                         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                                         <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
                                                         <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
@@ -109,7 +109,7 @@
                                                     </form>
 
                                                     <!-- Action 2: Vollständiges Löschen -->
-                                                    <form action="/admin/gdpr/delete-person" method="POST" onsubmit="return confirm('Möchten Sie diese Person wirklich vollständig löschen?');">
+                                                    <form action="/admin/gdpr/delete-person" method="POST" data-confirm="Möchten Sie diese Person wirklich vollständig löschen?" >
                                                         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                                         <input type="hidden" name="person_id" value="<?= $p['id'] ?>">
                                                         <input type="hidden" name="request_id" value="<?= $req['id'] ?>">
@@ -169,7 +169,7 @@
                                         </p>
                                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                             <?php if ($isDeletion): ?>
-                                                <form action="/admin/gdpr/anonymize-person" method="POST" onsubmit="return confirm('Möchten Sie diese manuell ausgewählte Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten.');">
+                                                <form action="/admin/gdpr/anonymize-person" method="POST" data-confirm="Möchten Sie diese manuell ausgewählte Person anonymisieren? Name und Kontaktdaten werden überschrieben, aber die Pferdeprofile bleiben erhalten." >
                                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                                     <input type="hidden" name="person_id" value="" class="gdpr-selected-id">
                                                     <input type="hidden" name="request_id" value="<?= (int)$req['id'] ?>">
@@ -177,7 +177,7 @@
                                                         🔒 Anonymisieren (Pferde behalten)
                                                     </button>
                                                 </form>
-                                                <form action="/admin/gdpr/delete-person" method="POST" onsubmit="return confirm('Möchten Sie diese manuell ausgewählte Person wirklich vollständig löschen?');">
+                                                <form action="/admin/gdpr/delete-person" method="POST" data-confirm="Möchten Sie diese manuell ausgewählte Person wirklich vollständig löschen?" >
                                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                                     <input type="hidden" name="person_id" value="" class="gdpr-selected-id">
                                                     <input type="hidden" name="request_id" value="<?= (int)$req['id'] ?>">

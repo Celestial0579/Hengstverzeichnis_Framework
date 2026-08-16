@@ -8,6 +8,59 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **Keine Schrift mehr von einem fremden Host.** Jede Seite - auch die
+  öffentliche, auch ohne Anmeldung - lud ein Stylesheet von
+  `fonts.googleapis.com` und die Schriftdateien von `fonts.gstatic.com`. Damit
+  meldete jeder Besucher IP-Adresse und aufgerufene Seite an einen Dritten
+  (ohne Einwilligung nicht zulässig, und ein Zuchtverzeichnis führt
+  Personendaten), die Darstellung hing an einem fremden Dienst, und ein
+  kompromittiertes Font-CSS hätte über die dafür nötige `style-src`-Freigabe
+  gewirkt. Die Schrift kommt jetzt aus dem System-Stack, den `--font-family`
+  ohnehin schon als Rückfall führte; die Freigaben in der CSP entfallen. Wer
+  die Inter-Typografie exakt behalten will, liefert die woff2-Dateien selbst
+  aus.
+- **Reset-Token liegen nur noch als SHA-256-Abdruck in der Datenbank.** Im
+  Klartext war `password_resets` ein Vorrat gültiger Zugänge: Wer die Tabelle
+  lesen kann - Leselücke, Sicherungskopie, Dump -, übernimmt in den 15 Minuten
+  Gültigkeit jedes Konto, für das gerade ein Reset läuft. Bestehende Zeilen
+  werden bei der Migration entfernt statt umgerechnet (Schema-Version 5).
+- **`/forgot-password` verrät über die Antwortzeit nicht mehr, ob es das Konto
+  gibt.** Die Antwort war zwar in beiden Fällen wortgleich, aber nur für ein
+  vorhandenes Konto wurde eine SMTP-Verbindung aufgebaut - und die kostet ein
+  Vielfaches. Die Antwortzeit liegt jetzt auf einer festen Untergrenze. Das
+  deckelt die Auflösung, es beseitigt den Unterschied nicht: Braucht der
+  Versand länger als die Untergrenze, ist er wieder messbar. Sauber wäre eine
+  Warteschlange.
+- **Der Konto-Zähler des Logins ist nicht mehr durch Leerzeichen umgehbar.**
+  Der Bezeichner ist zusammengesetzt (`email|ip`), das angehängte Leerzeichen
+  stand darin also mittendrin; der Zähler lief auf einen frischen Wert,
+  während die Benutzersuche die Adresse dank PAD-SPACE-Collation unverändert
+  fand. `RateLimiter` entfernt Whitespace jetzt vollständig, und die Adresse
+  wird schon am Rand getrimmt.
+- **Sicherheitsabfragen kommen ohne Inline-JavaScript aus.** Der Text wurde
+  mit `addslashes()` in ein `onsubmit="return confirm('…')"` geschrieben -
+  eine Maskierung, die Anführungszeichen kennt, aber keine Zeilenumbrüche. Ein
+  Zeilenumbruch im Wert (etwa im Namen eines Plugins) beendete das
+  JS-Stringliteral, der Handler war kaputt und die Abfrage vor dem Aktivieren
+  fremden Codes verschwand ersatzlos. Jetzt trägt das Formular ein
+  `data-confirm`-Attribut, das `public/js/confirm-submit.js` auswertet - alle
+  23 Stellen umgestellt, `addslashes()` kommt im Code nicht mehr vor. Damit
+  ist zugleich der letzte Inline-Handler aus den Views verschwunden.
+
+### Behoben
+
+- **`Markdown::parse()` zerlegte URLs mit Unterstrich oder Sternchen.** Die
+  Kursiv- und Fett-Regeln liefen nach der Link-Regel über den gesamten Text,
+  also auch über das gerade erzeugte `<a href="…">`, und schoben fertige Tags
+  in den Attributwert (`href="http://a.com/<em>foo</em>bar"`); ein unpaariges
+  Sternchen hinterließ ein hängendes `</em>` darin. Ein Ausbruch aus den
+  Anführungszeichen war es nicht - `htmlspecialchars(ENT_QUOTES)` fängt die ab
+  -, aber ein kaputter Link. Links werden jetzt vor Bold/Italic erzeugt und
+  für deren Dauer durch einen Platzhalter geschützt; zusätzlich muss die URL
+  als `http(s)`-URL durchgehen, sonst bleibt sie Text.
+
 ### Hinzugefügt
 
 - **Zeitreihen-Endpunkt `GET /api/stats`** für externe Dashboards (#270).

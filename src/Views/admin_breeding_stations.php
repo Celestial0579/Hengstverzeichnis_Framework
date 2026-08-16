@@ -83,7 +83,7 @@ $publishFormId = 'stationPublishForm';
                                 <a href="/admin/breeding-stations/edit?id=<?= $st['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">Bearbeiten</a>
                             <?php endif; ?>
                             <?php if ($canDelete): ?>
-                                <form action="/admin/breeding-stations/delete" method="POST" onsubmit="return confirm('Möchten Sie diese Deckstation wirklich löschen?');" style="display:inline;">
+                                <form action="/admin/breeding-stations/delete" method="POST" data-confirm="Möchten Sie diese Deckstation wirklich löschen?" style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $st['id'] ?>">
                                     <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>

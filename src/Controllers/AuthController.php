@@ -22,7 +22,11 @@ class AuthController extends BaseController {
             $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
-        $email = $_POST['email'] ?? '';
+        // Am Rand trimmen, nicht erst im Zähler: Die Adresse geht sowohl in
+        // die Benutzersuche als auch in den Bezeichner des Rate-Limiters, und
+        // ein angehängtes Leerzeichen darf nicht zwei verschiedene Dinge
+        // bedeuten (siehe App\Security\RateLimiter::normalizeIdentifier()).
+        $email = trim((string)($_POST['email'] ?? ''));
         $password = $_POST['password'] ?? '';
 
         // Zwei getrennte Zähler (Issue #115): Der Konto-Zähler ist an die
@@ -511,6 +515,9 @@ class AuthController extends BaseController {
         }
         \App\Security\RateLimiter::recordAttempt($clientIp, 'password_reset');
 
+        // Untergrenze für die Antwortzeit, siehe unten.
+        $startedAt = microtime(true);
+
         $email = trim($_POST['email'] ?? '');
         if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $db = Database::getInstance();
@@ -527,17 +534,65 @@ class AuthController extends BaseController {
                 $stmt = $db->prepare("DELETE FROM password_resets WHERE email = ?");
                 $stmt->execute([$email]);
 
+                // Gespeichert wird nur der SHA-256-Abdruck, nie das Token
+                // selbst (siehe self::hashResetToken()).
                 $stmt = $db->prepare("INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)");
-                $stmt->execute([$email, $token, $expiresAt]);
+                $stmt->execute([$email, self::hashResetToken($token), $expiresAt]);
 
                 $mailer = new \App\Service\Mailer();
                 $mailer->sendPasswordResetEmail($email, $token);
             }
         }
 
+        self::padResponseTime($startedAt);
+
         // Always show success message to prevent user enumeration
         header("Location: /forgot-password?sent=1");
         exit;
+    }
+
+    /**
+     * Reset-Token werden nur als Abdruck gespeichert.
+     *
+     * Im Klartext wäre die Tabelle `password_resets` ein Vorrat gültiger
+     * Zugänge: Wer sie lesen kann - über eine spätere Leselücke, eine
+     * Sicherungskopie, einen Dump - übernimmt in den 15 Minuten Gültigkeit
+     * jedes Konto, für das gerade ein Reset läuft, ohne das Passwort zu
+     * kennen. Dasselbe Prinzip wie bei Passwörtern und API-Schlüsseln, die
+     * hier längst nicht mehr im Klartext liegen.
+     *
+     * SHA-256 ohne Salt genügt, anders als bei Passwörtern: Das Token sind 256
+     * Bit aus random_bytes(), da ist nichts zu raten und nichts über eine
+     * Wortliste zu finden. Der Vergleich bleibt damit eine indizierte
+     * Gleichheitssuche.
+     */
+    private static function hashResetToken(string $token): string {
+        return hash('sha256', $token);
+    }
+
+    /**
+     * Hält die Antwortzeit auf einer festen Untergrenze.
+     *
+     * Ohne sie verrät /forgot-password durch die Dauer, ob es das Konto gibt:
+     * Nur für ein vorhandenes Konto wird eine SMTP-Verbindung aufgebaut, und
+     * die kostet ein Vielfaches der übrigen Verarbeitung. Die Antwort ist zwar
+     * in beiden Fällen wortgleich - genau darauf zielt der bestehende
+     * Kommentar "prevent user enumeration" -, die Uhr sagte aber trotzdem die
+     * Wahrheit.
+     *
+     * EHRLICHE GRENZE: Das deckelt die Auflösung, es beseitigt den Unterschied
+     * nicht vollständig. Braucht der Mailversand länger als die Untergrenze,
+     * ist er wieder messbar. Ein Versand über eine Warteschlange wäre die
+     * saubere Lösung; bis dahin verengt das zusammen mit dem IP-Zähler
+     * oberhalb das Fenster so weit, dass ein Abzählen von Konten unpraktikabel
+     * wird.
+     */
+    private static function padResponseTime(float $startedAt, float $minimumSeconds = 1.0): void {
+        $elapsed = microtime(true) - $startedAt;
+        $remaining = $minimumSeconds - $elapsed;
+        if ($remaining > 0) {
+            usleep((int)round($remaining * 1_000_000));
+        }
     }
 
     public function resetPassword(): void {
@@ -549,7 +604,7 @@ class AuthController extends BaseController {
 
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT * FROM password_resets WHERE token = ? AND expires_at > NOW()");
-        $stmt->execute([$token]);
+        $stmt->execute([self::hashResetToken($token)]);
         $reset = $stmt->fetch();
 
         if (!$reset) {
@@ -586,7 +641,7 @@ class AuthController extends BaseController {
 
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT * FROM password_resets WHERE token = ? AND expires_at > NOW()");
-        $stmt->execute([$token]);
+        $stmt->execute([self::hashResetToken($token)]);
         $reset = $stmt->fetch();
 
         if (!$reset) {

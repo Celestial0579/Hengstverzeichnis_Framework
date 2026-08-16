@@ -77,4 +77,40 @@ class MarkdownTest extends TestCase {
         $this->assertStringContainsString('Erster Absatz.', $result);
         $this->assertStringContainsString('Zweiter Absatz.', $result);
     }
+
+    /**
+     * Die Kursiv- und Fett-Regeln liefen früher NACH der Link-Regel über den
+     * gesamten Text - also auch über das gerade erzeugte <a href="...">. Eine
+     * URL mit Unterstrich oder Sternchen bekam dadurch fertige Tags mitten in
+     * den Attributwert geschoben, und ein unpaariges Sternchen hinterließ
+     * sogar ein hängendes </em> darin.
+     */
+    public function testUrlsWithMarkdownCharactersSurviveIntact(): void {
+        $result = Markdown::parse('[x](http://a.com/_foo_bar)');
+        $this->assertStringContainsString('href="http://a.com/_foo_bar"', $result);
+        $this->assertStringNotContainsString('<em>', $result);
+
+        $result = Markdown::parse('*[x](http://a.com/a*b)*');
+        $this->assertStringContainsString('href="http://a.com/a*b"', $result);
+        $this->assertStringNotContainsString('href="http://a.com/a</em>b"', $result);
+    }
+
+    public function testOnlyHttpAndHttpsLinksAreTurnedIntoAnchors(): void {
+        // Was nicht als http(s)-URL durchgeht, bleibt Text - kein Link ist
+        // besser als einer an eine ungeprüfte Adresse.
+        $this->assertStringNotContainsString('<a ', Markdown::parse('[x](javascript:alert(1))'));
+        $this->assertStringNotContainsString('<a ', Markdown::parse('[x](http://a.com/" onmouseover=alert(1) x=")'));
+
+        // Der Normalfall bleibt unberührt, inklusive Query-String.
+        $result = Markdown::parse('[Beispiel](https://example.org/pfad?a=1&b=2#anker)');
+        $this->assertStringContainsString('href="https://example.org/pfad?a=1&amp;b=2#anker"', $result);
+        $this->assertStringContainsString('rel="noopener noreferrer"', $result);
+    }
+
+    public function testBoldAndItalicStillWorkAlongsideLinks(): void {
+        $result = Markdown::parse('**fett** und [link](https://a.de) und *kursiv*');
+        $this->assertStringContainsString('<strong>fett</strong>', $result);
+        $this->assertStringContainsString('<em>kursiv</em>', $result);
+        $this->assertStringContainsString('href="https://a.de"', $result);
+    }
 }

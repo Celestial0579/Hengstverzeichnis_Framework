@@ -157,10 +157,13 @@ class BreedingStationController extends BaseController {
         $addressColumns = implode(', ', self::ADDRESS_FIELDS);
         $addressPlaceholders = implode(', ', array_fill(0, count(self::ADDRESS_FIELDS), '?'));
         $stmt = $db->prepare("
-            INSERT INTO breeding_stations (name, contact_person, {$addressColumns}, address, phone, email, website, is_published)
-            VALUES (?, ?, {$addressPlaceholders}, ?, ?, ?, ?, ?)
+            INSERT INTO breeding_stations (name, contact_person, {$addressColumns}, address, phone, email, website, contact_public, is_published)
+            VALUES (?, ?, {$addressPlaceholders}, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$name, $contactPerson, ...array_values($addressFields), $address, $phone, $email, $website, $isPublished]);
+        // Vorgabe 1 beim Anlegen ueber das Formular: Das Haekchen ist dort
+        // vorbelegt, ein leeres Feld heisst also bewusst "nicht oeffentlich".
+        $contactPublic = !empty($_POST['contact_public']) ? 1 : 0;
+        $stmt->execute([$name, $contactPerson, ...array_values($addressFields), $address, $phone, $email, $website, $contactPublic, $isPublished]);
         $newStationId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Deckstation angelegt", "breeding_stations", "Deckstation ID {$newStationId}: {$name}");
@@ -188,6 +191,8 @@ class BreedingStationController extends BaseController {
             'station' => $station,
             // Siehe PersonController::edit() - anzeigen ja, speichern nein.
             'isDeleted' => ($station['deleted_at'] ?? null) !== null,
+            // Erweiterungspunkt wie person.edit_sections.
+            'pluginEditSections' => $this->hooks()->applyFilters('station.edit_sections', [], $station),
             'canPublish' => $this->hasPermission('breeding_stations', 'publish')
         ]);
     }
@@ -236,6 +241,8 @@ class BreedingStationController extends BaseController {
         $db = Database::getInstance();
         $addressSql = implode(', ', array_map(fn($field) => "{$field} = ?", self::ADDRESS_FIELDS));
         $addressValues = array_values($addressFields);
+        $contactPublic = !empty($_POST['contact_public']) ? 1 : 0;
+
         // Schreibschutz fuer den Papierkorb, wie bei Personen (#296): Ein aus
         // der Oberflaeche verschwundener Datensatz darf nicht ueber einen alten
         // Link weiter bearbeitet werden.
@@ -243,17 +250,17 @@ class BreedingStationController extends BaseController {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
             $stmt = $db->prepare("
                 UPDATE breeding_stations
-                SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?, is_published = ?
+                SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?, contact_public = ?, is_published = ?
                 WHERE id = ? AND deleted_at IS NULL
             ");
-            $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $isPublished, $id]);
+            $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $contactPublic, $isPublished, $id]);
         } else {
             $stmt = $db->prepare("
                 UPDATE breeding_stations
-                SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?
+                SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?, contact_public = ?
                 WHERE id = ? AND deleted_at IS NULL
             ");
-            $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $id]);
+            $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $contactPublic, $id]);
         }
 
         \App\Service\AuditLogger::log("Deckstation aktualisiert", "breeding_stations", "Deckstation ID {$id}: {$name}");

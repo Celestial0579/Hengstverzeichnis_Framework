@@ -123,6 +123,18 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
 
         <div class="form-group">
             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="contact_public" value="1" <?= !empty($old['contact_public'] ?? $person['contact_public'] ?? 0) ? 'checked' : '' ?>>
+                <span>📇 Kontaktdaten öffentlich zeigen</span>
+            </label>
+            <small style="color: var(--text-muted);">
+                Ohne Häkchen bleiben <strong>E-Mail, Telefon und Mobil intern</strong> - das ist die Vorgabe.
+                Mit Häkchen erscheinen sie auf der öffentlichen Personenseite, für jeden lesbar.
+                Anschrift und die interne Notiz bleiben in jedem Fall intern.
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                 <input type="checkbox" name="is_breeder" value="1" <?= !empty($old['is_breeder'] ?? $person['is_breeder'] ?? 0) ? 'checked' : '' ?>>
                 <span>🐴 Diese Person züchtet</span>
             </label>
@@ -148,3 +160,13 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
         </div>
     </form>
 </div>
+
+<?php
+// Plugin-Abschnitte (Hook person.edit_sections). Bewusst AUSSERHALB des
+// Formulars oben: Verschachtelte <form> sind ungueltiges HTML, und die
+// Abnehmer brauchen eigene Formulare. So bleibt jeder Schreibvorgang beim
+// Plugin-Controller mit dessen eigener Berechtigungspruefung - dieselbe
+// Begruendung wie bei horse.edit_sections.
+foreach (($pluginEditSections ?? []) as $section): ?>
+    <div class="card" style="max-width: 600px; margin-top: 1.5rem;"><?= $section ?></div>
+<?php endforeach; ?>

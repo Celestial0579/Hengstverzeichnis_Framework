@@ -129,8 +129,10 @@ class PersonController extends BaseController {
         // is_breeder ist ein Schalter, kein Freitext, und die Spalte ist NOT
         // NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
         $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_breeder, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?, ?)");
-        $stmt->execute([$name, $contact_info, ...array_values($fields), $isBreeder, $isPublished]);
+        // Freigabe der Kontaktdaten: Vorgabe 0, es muss aktiv angehakt werden.
+        $contactPublic = !empty($_POST['contact_public']) ? 1 : 0;
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_breeder, contact_public, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?, ?, ?)");
+        $stmt->execute([$name, $contact_info, ...array_values($fields), $isBreeder, $contactPublic, $isPublished]);
         $newPersonId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Person angelegt", "persons", "Person ID {$newPersonId}: {$name}");
@@ -166,10 +168,18 @@ class PersonController extends BaseController {
         // geloeschte Daten). Wer den Datensatz nicht mehr oeffnen kann, kann
         // auch nicht pruefen, was noch drinsteht - genau die Luecke, die dort
         // vermieden werden soll. Das Schreiben verhindert update().
+        // Erweiterungspunkt fuer Addons, Muster: horse.edit_sections (#255).
+        // Feuert nur beim BEARBEITEN, nicht beim Anlegen - ein Addon braucht
+        // eine ID, an der es seine Daten festmachen kann. Damit koennen Addons
+        // eigene Felder am Datensatz pflegen (etwa ein Kontaktanfragen-Opt-out),
+        // ohne dass der Kern eine Spalte dafuer mitbringen muss.
+        $pluginEditSections = $this->hooks()->applyFilters('person.edit_sections', [], $person);
+
         $this->render('admin_person_form', [
             'title' => 'Person bearbeiten',
             'person' => $person,
             'isDeleted' => $person['deleted_at'] !== null,
+            'pluginEditSections' => $pluginEditSections,
             'canPublish' => $this->hasPermission('persons', 'publish')
         ]);
     }
@@ -203,6 +213,7 @@ class PersonController extends BaseController {
                         'is_published' => !empty($_POST['is_published']) ? 1 : 0,
                         // Sonst verlöre ein Validierungsfehler das Häkchen.
                         'is_breeder' => !empty($_POST['is_breeder']) ? 1 : 0,
+                        'contact_public' => !empty($_POST['contact_public']) ? 1 : 0,
                     ],
                     $fields
                 ),
@@ -227,13 +238,14 @@ class PersonController extends BaseController {
         // is_breeder (#293) ist ein Schalter, kein Freitext, und die Spalte ist
         // NOT NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
         $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
+        $contactPublic = !empty($_POST['contact_public']) ? 1 : 0;
         if ($this->hasPermission('persons', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ?, is_published = ? WHERE id = ? AND deleted_at IS NULL");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $isPublished, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ?, contact_public = ?, is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $contactPublic, $isPublished, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ? WHERE id = ? AND deleted_at IS NULL");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ?, contact_public = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $contactPublic, $id]);
         }
 
         // Keine betroffene Zeile heisst: Der Datensatz liegt im Papierkorb.

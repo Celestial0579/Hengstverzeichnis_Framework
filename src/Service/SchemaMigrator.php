@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 7;
+    public const SCHEMA_VERSION = 8;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -274,6 +274,17 @@ final class SchemaMigrator {
         // jeweilige Instanz entscheiden. Dieselbe Zurueckhaltung wie in
         // Schritt 22, 29 und 30.
         $addColumn('horse_persons', 'origin_country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `breeding_station_text`');
+
+        // 32. Ausdrueckliche Freigabe der Kontaktdaten (SCHEMA_VERSION 8).
+        //
+        // Die Vorgabewerte sind BEWUSST verschieden und das ist der Kern des
+        // Schritts: Bei persons war die Veroeffentlichung bis #293 ein
+        // Versehen, dort ist 0 richtig. Bei breeding_stations sind Telefon und
+        // E-Mail seit jeher oeffentlich (Geschaeftsadresse) - eine 0 wuerde
+        // bestehende Angaben stillschweigend verstecken, und eine Migration
+        // darf nichts wegnehmen, was vorher da war.
+        $addColumn('persons', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_breeder`');
+        $addColumn('breeding_stations', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER `website`');
 
         // person_id NULL-fähig machen (Zuordnung kann auch nur über eine
         // Deckstation erfolgen). Früher ein bei jedem Lauf wiederholtes

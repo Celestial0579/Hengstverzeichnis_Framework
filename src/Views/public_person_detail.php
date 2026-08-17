@@ -12,7 +12,9 @@
  *
  * @var array $person
  * @var array<string, array<int, array<string, mixed>>> $horsesByRole
+ * @var array<int, string> $pluginDetailSections
  */
+$pluginDetailSections = $pluginDetailSections ?? [];
 
 $statusLabels = [
     'active' => [App\I18n\Translator::t('status.active'), '#d4edda', '#155724'],
@@ -66,6 +68,28 @@ $personWebsite = App\Helper\ExternalUrl::hrefOrNull($person['website'] ?? null);
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$person['membership_status']) ?></td>
             </tr>
         <?php endif; ?>
+        <?php
+            // E-Mail/Telefon/Mobil liefert der Controller NUR bei ausdruecklicher
+            // Freigabe mit - fehlt sie, sind die Schluessel gar nicht vorhanden.
+        ?>
+        <?php if (!empty($person['email'])): ?>
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">✉️ <?= htmlspecialchars(App\I18n\Translator::t('field.email')) ?></th>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><a href="mailto:<?= htmlspecialchars((string)$person['email']) ?>"><?= htmlspecialchars((string)$person['email']) ?></a></td>
+            </tr>
+        <?php endif; ?>
+        <?php if (!empty($person['phone'])): ?>
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">☎️ <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$person['phone']) ?></td>
+            </tr>
+        <?php endif; ?>
+        <?php if (!empty($person['mobile'])): ?>
+            <tr style="border-bottom: 1px solid var(--border-color);">
+                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📱 <?= htmlspecialchars(App\I18n\Translator::t('field.mobile')) ?></th>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$person['mobile']) ?></td>
+            </tr>
+        <?php endif; ?>
         <?php if ($personWebsite !== null): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🌐 <?= htmlspecialchars(App\I18n\Translator::t('field.website')) ?></th>
@@ -117,3 +141,13 @@ $personWebsite = App\Helper\ExternalUrl::hrefOrNull($person['website'] ?? null);
         <?php endforeach; ?>
     <?php endif; ?>
 </div>
+
+<?php if (!empty($pluginDetailSections)): ?>
+    <?php // Erweiterungspunkt 'person.detail_sections' - z. B. fuer eine
+          // Kontaktanfrage, die ohne oeffentliche Adresse auskommt. ?>
+    <div class="card" style="margin-top: 2rem;">
+        <?php foreach ($pluginDetailSections as $section): ?>
+            <div class="horse-plugin-section"><?= $section ?></div>
+        <?php endforeach; ?>
+    </div>
+<?php endif; ?>

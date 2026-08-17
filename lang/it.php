@@ -160,6 +160,7 @@ return [
     'person.no_details' => 'Non sono disponibili informazioni pubbliche su questa persona.',
     'meta.title_person_detail_suffix' => 'Persona',
     'horse.person_unknown' => 'Allevatore/proprietario sconosciuto',
+    'field.mobile' => 'Cellulare',
     'station.not_found' => 'La stazione di monta richiesta non esiste o è stata rimossa dal registro.',
     'meta.title_station_detail_suffix' => 'Stazione di monta',
 

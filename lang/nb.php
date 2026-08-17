@@ -160,6 +160,7 @@ return [
     'person.no_details' => 'Det finnes ingen offentlige opplysninger om denne personen.',
     'meta.title_person_detail_suffix' => 'Person',
     'horse.person_unknown' => 'Oppdretter/eier ukjent',
+    'field.mobile' => 'Mobil',
     'station.not_found' => 'Hingstestasjonen du ba om, finnes ikke eller er fjernet fra registeret.',
     'meta.title_station_detail_suffix' => 'Hingstestasjon',
 

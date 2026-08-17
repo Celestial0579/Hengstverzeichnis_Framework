@@ -160,6 +160,7 @@ return [
     'person.no_details' => 'Det finns inga offentliga uppgifter om denna person.',
     'meta.title_person_detail_suffix' => 'Person',
     'horse.person_unknown' => 'Uppfödare/ägare okänd',
+    'field.mobile' => 'Mobil',
     'station.not_found' => 'Den begärda hingststationen finns inte eller har tagits bort från registret.',
     'meta.title_station_detail_suffix' => 'Hingststation',
 

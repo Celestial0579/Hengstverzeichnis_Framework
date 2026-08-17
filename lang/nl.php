@@ -160,6 +160,7 @@ return [
     'person.no_details' => 'Voor deze persoon zijn geen openbare gegevens beschikbaar.',
     'meta.title_person_detail_suffix' => 'Persoon',
     'horse.person_unknown' => 'Fokker/eigenaar onbekend',
+    'field.mobile' => 'Mobiel',
     'station.not_found' => 'Het opgevraagde dekstation bestaat niet of is uit het register verwijderd.',
     'meta.title_station_detail_suffix' => 'Dekstation',
 

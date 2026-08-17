@@ -160,6 +160,7 @@ return [
     'person.no_details' => 'K této osobě nejsou k dispozici žádné veřejné údaje.',
     'meta.title_person_detail_suffix' => 'Osoba',
     'horse.person_unknown' => 'Chovatel/majitel neznámý',
+    'field.mobile' => 'Mobil',
     'station.not_found' => 'Požadovaná připouštěcí stanice neexistuje nebo byla z rejstříku odstraněna.',
     'meta.title_station_detail_suffix' => 'Připouštěcí stanice',
 

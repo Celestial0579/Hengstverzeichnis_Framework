@@ -104,6 +104,16 @@ CREATE TABLE IF NOT EXISTS `persons` (
     -- nebeneinander) - deshalb öffentlich wie membership_status und mit Index
     -- für die Filterung.
     `is_breeder` TINYINT(1) NOT NULL DEFAULT 0,
+    -- Ausdrückliche Freigabe der Kontaktdaten (#293/Folgeauftrag). Ohne sie
+    -- bleiben E-Mail, Telefon und Mobil intern - das ist die Vorgabe und
+    -- entspricht der Trennlinie oben. Mit ihr erscheinen sie auf der
+    -- öffentlichen Personenseite.
+    --
+    -- Der Unterschied zum Fehler aus #293 ist nicht das Ergebnis, sondern die
+    -- Absicht: Dort wurde ein als "sonstige Kontaktinformationen" beschriftetes
+    -- Freitextfeld VERSEHENTLICH öffentlich gerendert. Hier entscheidet die
+    -- Redaktion je Datensatz und sieht im Formular, was das bedeutet.
+    `contact_public` TINYINT(1) NOT NULL DEFAULT 0,
     -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
     -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
     -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
@@ -139,6 +149,12 @@ CREATE TABLE IF NOT EXISTS `breeding_stations` (
     `phone` VARCHAR(50) NULL,
     `email` VARCHAR(100) NULL,
     `website` VARCHAR(255) NULL,
+    -- Freigabe wie bei persons, aber mit Vorgabe 1: Telefon und E-Mail einer
+    -- Deckstation sind hier seit jeher öffentlich (Geschäftsadresse, siehe
+    -- Kommentar oben). Eine Vorgabe von 0 würde bestehende Angaben
+    -- stillschweigend verstecken - eine Freigabe darf nichts wegnehmen, was
+    -- vorher da war. Wer sie doch verbergen will, nimmt das Häkchen heraus.
+    `contact_public` TINYINT(1) NOT NULL DEFAULT 1,
     -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
     -- erscheint auf der öffentlichen Stations-Detailseite und in den Katalog-Filterlisten.
     -- Neu angelegte Stationen sind standardmäßig unveröffentlicht.

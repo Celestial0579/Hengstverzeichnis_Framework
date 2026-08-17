@@ -560,10 +560,13 @@ class PublicController extends BaseController {
             $horses = $stmt->fetchAll();
         }
 
+        $pluginDetailSections = $this->hooks()->applyFilters('station.detail_sections', [], $station, $horses);
+
         $this->render('public_station_detail', [
             'title' => $station['name'] . ' - ' . \App\I18n\Translator::t('meta.title_station_detail_suffix'),
             'station' => $station,
-            'horses' => $horses
+            'horses' => $horses,
+            'pluginDetailSections' => $pluginDetailSections,
         ]);
     }
 
@@ -594,8 +597,24 @@ class PublicController extends BaseController {
         }
 
         $db = Database::getInstance();
+
+        // Die Kontaktspalten kommen nur mit, wenn der Datensatz sie ausdruecklich
+        // freigibt. Bewusst so herum statt "holen und in der View verstecken":
+        // Was gar nicht erst ankommt, kann auch der naechste nicht versehentlich
+        // ausgeben - genau daran ist #293 gescheitert. Die Spaltenliste ist eine
+        // feste Aufzaehlung im Code, kein Eingabewert.
         $stmt = $db->prepare(
-            "SELECT id, name, city, state, country, membership_status, website, is_breeder
+            "SELECT contact_public FROM persons WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
+        );
+        $stmt->execute([$id]);
+        $kontaktFrei = $stmt->fetchColumn();
+
+        $spalten = 'id, name, city, state, country, membership_status, website, is_breeder, contact_public';
+        if ($kontaktFrei) {
+            $spalten .= ', email, phone, mobile';
+        }
+        $stmt = $db->prepare(
+            "SELECT {$spalten}
              FROM persons
              WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
         );
@@ -626,10 +645,17 @@ class PublicController extends BaseController {
             }
         }
 
+        // Erweiterungspunkt fuer Addons (Muster: horse.detail_sections, #56).
+        // Anlass ist die geplante Kontaktanfrage: Ein Addon soll hier ein
+        // Formular anbieten koennen, OHNE dass die Adresse dafuer oeffentlich
+        // werden muss.
+        $pluginDetailSections = $this->hooks()->applyFilters('person.detail_sections', [], $person, $horsesByRole);
+
         $this->render('public_person_detail', [
             'title' => $person['name'] . ' - ' . \App\I18n\Translator::t('meta.title_person_detail_suffix'),
             'person' => $person,
             'horsesByRole' => $horsesByRole,
+            'pluginDetailSections' => $pluginDetailSections,
         ]);
     }
 

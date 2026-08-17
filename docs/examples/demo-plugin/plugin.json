@@ -1,9 +1,9 @@
 {
     "slug": "demo-plugin",
     "name": "Demo-Plugin",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "core_compatibility": ">=0.1.0-beta.1",
-    "core_supported_max": "0.6",
+    "core_supported_max": "0.7",
     "description": "Referenz-Plugin, das alle in Phase 1 verfügbaren Hooks demonstriert (siehe docs/plugin-development.md).",
     "author": "Hengstverzeichnis Framework",
     "hooks": ["horse.after_save", "horse.detail_sections", "horse.edit_sections", "admin.dashboard_tiles"],

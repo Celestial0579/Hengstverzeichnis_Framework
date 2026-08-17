@@ -164,6 +164,7 @@ return [
     'person.no_details' => 'Zu dieser Person sind keine öffentlichen Angaben hinterlegt.',
     'meta.title_person_detail_suffix' => 'Person',
     'horse.person_unknown' => 'Züchter/Besitzer unbekannt',
+    'field.mobile' => 'Mobil',
     'station.not_found' => 'Die angeforderte Deckstation existiert nicht oder wurde aus dem Verzeichnis entfernt.',
     'meta.title_station_detail_suffix' => 'Deckstation',
 

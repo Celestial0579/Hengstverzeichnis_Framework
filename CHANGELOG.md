@@ -6,6 +6,39 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.7.0] – 2026-08-17
+
+### Hinzugefügt
+
+- **Kontaktdaten lassen sich je Datensatz freigeben.** Neu ist
+  `contact_public` bei Personen und Deckstationen. Bei **Personen** ist die
+  Vorgabe `0`: E-Mail, Telefon und Mobil bleiben intern, bis jemand sie
+  ausdrücklich freigibt. Bei **Deckstationen** ist die Vorgabe `1`, denn dort
+  waren Telefon und E-Mail seit jeher öffentlich (Geschäftsadresse) — eine
+  Vorgabe von `0` hätte bestehende Angaben stillschweigend versteckt, und eine
+  Migration darf nichts wegnehmen, was vorher da war.
+
+  Der Unterschied zum Fehler aus #293 ist nicht das Ergebnis, sondern die
+  Absicht: Dort wurde ein als „sonstige Kontaktinformationen" beschriftetes
+  Freitextfeld **versehentlich** öffentlich gerendert. Hier entscheidet die
+  Redaktion je Datensatz und sieht im Formular, was das bedeutet. Die
+  Personenseite holt die Kontaktspalten auch nur dann aus der Datenbank —
+  was gar nicht erst ankommt, kann niemand versehentlich ausgeben.
+
+- **Zwei neue Erweiterungspunkte für Addons:** `person.detail_sections` und
+  `station.detail_sections`, nach dem Muster von `horse.detail_sections`.
+  Damit kann ein Addon auf der Personen- und der Deckstationsseite einen
+  eigenen Abschnitt rendern — Anlass ist die geplante Kontaktanfrage
+  ([Addons #106](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/106)),
+  die ein Formular anbieten soll, **ohne** dass dafür eine Adresse öffentlich
+  werden muss.
+
+### Geändert
+
+- `SCHEMA_VERSION` 7 → 8. Die Migration läuft beim nächsten Seitenaufruf.
+- Referenz-Plugin und Beispiel in der Plugin-Dokumentation auf
+  `core_supported_max: "0.7"`.
+
 ## [0.6.0] – 2026-08-17
 
 ### Hinzugefügt

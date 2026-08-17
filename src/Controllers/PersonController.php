@@ -218,7 +218,8 @@ class PersonController extends BaseController {
      * zu ergänzen hätte still funktioniert und beim Speichern Daten verloren.
      */
     private const STRUCTURED_FIELDS = [
-        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email', 'membership_status'
+        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email',
+        'phone', 'mobile', 'website', 'membership_status'
     ];
 
     /**

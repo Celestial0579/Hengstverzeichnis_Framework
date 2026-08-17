@@ -443,19 +443,28 @@ class PublicController extends BaseController {
         // Fetch ownership history, person roles and associated breeding stations/studs.
         // Nur veröffentlichte Personen/Stationen (#121/#122) - unveröffentlichte
         // Namen und Kontaktdaten dürfen auf der öffentlichen Seite nicht erscheinen.
-        // Von den strukturierten Personenfeldern (#188, state seit #256) werden
-        // bewusst NUR city/state/country/membership_status selektiert -
-        // email/street/house_number/postal_code bleiben Admin-only und erreichen
-        // weder die View noch den horse.detail_sections-Hook (siehe
+        // Von den strukturierten Personenfeldern (#188, state seit #256,
+        // Kontaktfelder seit #293) werden bewusst NUR
+        // city/state/country/membership_status/website selektiert -
+        // email/phone/mobile/street/house_number/postal_code und das
+        // Freitextfeld contact_info bleiben Admin-only und erreichen weder die
+        // View noch den horse.detail_sections-Hook (siehe
         // docs/plugin-development.md).
         //
         // Die Trennlinie ist nicht die Feldanzahl, sondern die Art der Angabe:
         // Was eine Sendung zustellbar macht, bleibt intern; die grobe
         // geografische Verortung ist öffentlich. Ein Bundesland ist gröber als
         // der ohnehin sichtbare Ort - es zu verbergen wäre inkonsistent und
-        // zudem wirkungslos, weil es aus dem Ort folgt.
+        // zudem wirkungslos, weil es aus dem Ort folgt. Eine Website ist zur
+        // Veröffentlichung bestimmt und daher öffentlich.
+        //
+        // contact_info stand bis #293 in dieser Liste, obwohl das Feld im
+        // Admin-Formular ausdrücklich für Telefonnummern angeboten wird - also
+        // für zustellbare Angaben, die nach derselben Trennlinie intern
+        // gehören. Geschützt hat davor allein is_published; sobald eine
+        // Redaktion eine Person freigab, stand die Nummer öffentlich.
         $stmt = $db->prepare("
-            SELECT hp.*, p.name as person_name, p.contact_info, p.city, p.state, p.country, p.membership_status, bs.name as station_name, bs.id as station_id
+            SELECT hp.*, p.name as person_name, p.city, p.state, p.country, p.membership_status, p.website, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
             LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
             LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1

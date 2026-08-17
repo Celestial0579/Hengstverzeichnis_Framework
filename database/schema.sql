@@ -52,14 +52,21 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
 CREATE TABLE IF NOT EXISTS `persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL,
-    -- Freitext-Restfeld (z. B. Telefon); Adresse/E-Mail seit #188 strukturiert.
+    -- Freitext-Restfeld für alles, wofür es keine Spalte gibt. Adresse/E-Mail
+    -- seit #188 strukturiert, Telefon/Mobil/Website seit #293. AUSSCHLIESSLICH
+    -- Admin-only: Bis #293 wurde dieses Feld öffentlich gerendert, obwohl das
+    -- Formular ausdrücklich zu Telefonnummern einlud - also genau die Art
+    -- Angabe, die laut Trennlinie unten intern gehört.
     `contact_info` TEXT,
-    -- Strukturierte Adresse (#188, state seit #256). Öffentlich (und im
-    -- Hook-Payload) erscheinen NUR city, state, country und membership_status -
-    -- street/house_number/postal_code/email bleiben Admin-only (siehe
+    -- Strukturierte Adresse (#188, state seit #256, Kontaktfelder seit #293).
+    -- Öffentlich (und im Hook-Payload) erscheinen NUR city, state, country,
+    -- membership_status und website - street/house_number/postal_code/email/
+    -- phone/mobile/contact_info bleiben Admin-only (siehe
     -- PublicController::horseDetail und docs/plugin-development.md). Die
     -- Trennlinie ist nicht "wenige Felder", sondern: zustellbare Angaben sind
-    -- intern, grobe geografische Verortung ist öffentlich.
+    -- intern, grobe geografische Verortung ist öffentlich. Eine Website ist
+    -- zur Veröffentlichung bestimmt und deshalb öffentlich, eine Telefonnummer
+    -- ist zustellbar wie eine E-Mail-Adresse und deshalb intern.
     -- Die DSGVO-Anonymisierung nullt alle Felder.
     `street` VARCHAR(150) NULL DEFAULT NULL,
     `house_number` VARCHAR(20) NULL DEFAULT NULL,
@@ -71,6 +78,13 @@ CREATE TABLE IF NOT EXISTS `persons` (
     -- Freitext, auch Länderkürzel wie 'NO' (Altsystem-Konvention).
     `country` VARCHAR(100) NULL DEFAULT NULL,
     `email` VARCHAR(100) NULL DEFAULT NULL,
+    -- Kontaktfelder analog breeding_stations (#293). phone/mobile sind
+    -- zustellbar und damit intern, website ist zur Veröffentlichung bestimmt
+    -- und damit öffentlich - siehe die Trennlinie oben. Freitext ohne
+    -- Formatprüfung, wie bei breeding_stations.
+    `phone` VARCHAR(50) NULL DEFAULT NULL,
+    `mobile` VARCHAR(50) NULL DEFAULT NULL,
+    `website` VARCHAR(255) NULL DEFAULT NULL,
     -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
     -- (z. B. 'Mitglied', 'Nichtmitglied NO').
     `membership_status` VARCHAR(100) NULL DEFAULT NULL,

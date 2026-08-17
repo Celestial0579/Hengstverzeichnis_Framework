@@ -36,6 +36,9 @@ class PersonFieldsTest extends FunctionalTestCase {
             'country' => 'NO',
             'email' => "person-{$unique}@example.com",
             'membership_status' => 'Nichtmitglied NO',
+            'phone' => '01234 5678x',
+            'mobile' => '0170 12345x',
+            'website' => 'https://beispiel-hof.example/x',
             'contact_info' => 'Tel: 0170-0000000',
             'is_published' => '1',
         ]);
@@ -53,6 +56,9 @@ class PersonFieldsTest extends FunctionalTestCase {
         $this->assertSame('NO', $person['country']);
         $this->assertSame("person-{$unique}@example.com", $person['email']);
         $this->assertSame('Nichtmitglied NO', $person['membership_status']);
+        $this->assertSame('01234 5678x', $person['phone']);
+        $this->assertSame('0170 12345x', $person['mobile']);
+        $this->assertSame('https://beispiel-hof.example/x', $person['website']);
         $this->assertSame('Tel: 0170-0000000', $person['contact_info']);
 
         // 2. Update: Feld ändern und eines leeren (leer -> NULL).
@@ -69,17 +75,25 @@ class PersonFieldsTest extends FunctionalTestCase {
             'country' => 'NO',
             'email' => '',
             'membership_status' => 'Mitglied',
+            // Telefon/Mobil/Website (#293) gehen denselben Weg: mitgesendet
+            // bleiben sie erhalten, 'mobile' bleibt hier bewusst weg und muss
+            // damit - wie email und state - auf NULL fallen.
+            'phone' => '01234 5678x',
+            'website' => 'https://beispiel-hof.example/x',
             'contact_info' => 'Tel: 0170-0000000',
             'is_published' => '1',
         ]);
         $this->assertSame('/admin/persons?success=updated', $response->location());
-        $stmt = $db->prepare("SELECT street, state, email, membership_status FROM persons WHERE id = ?");
+        $stmt = $db->prepare("SELECT street, state, email, phone, mobile, website, membership_status FROM persons WHERE id = ?");
         $stmt->execute([$person['id']]);
         $updated = $stmt->fetch();
         $this->assertSame('Fjordallee', $updated['street']);
         $this->assertNull($updated['email'], 'Leeres Formularfeld muss NULL speichern');
         $this->assertNull($updated['state'], 'Auch Bundesland/Kanton muss beim Leeren NULL werden (#256)');
         $this->assertSame('Mitglied', $updated['membership_status']);
+        $this->assertSame('01234 5678x', $updated['phone']);
+        $this->assertSame('https://beispiel-hof.example/x', $updated['website']);
+        $this->assertNull($updated['mobile'], 'Ein nicht mitgesendetes Feld muss auch bei den neuen Spalten NULL werden');
 
         // E-Mail für die öffentliche Negativ-Prüfung und das Bundesland für die
         // Positiv-Prüfung unten wieder setzen.
@@ -118,6 +132,19 @@ class PersonFieldsTest extends FunctionalTestCase {
         $this->assertStringNotContainsString('7x', $detail->body, 'Hausnummer ist Admin-only');
         $this->assertStringNotContainsString('2496x', $detail->body, 'PLZ ist Admin-only');
         $this->assertStringNotContainsString("person-{$unique}@example.com", $detail->body, 'E-Mail ist Admin-only');
+
+        // Kern von #293: Telefon und Mobil sind zustellbare Angaben und stehen
+        // damit auf derselben Seite der Trennlinie wie die E-Mail-Adresse. Das
+        // Freitextfeld contact_info wurde bis dahin OEFFENTLICH gerendert,
+        // obwohl das Admin-Formular ausdruecklich zu Telefonnummern darin
+        // einlud - geschuetzt hat allein is_published.
+        $this->assertStringNotContainsString('01234 5678x', $detail->body, 'Telefon ist Admin-only');
+        $this->assertStringNotContainsString('0170-0000000', $detail->body, 'contact_info darf oeffentlich nicht mehr erscheinen');
+        $this->assertStringNotContainsString('Tel: ', $detail->body, 'Auch die Beschriftung aus contact_info darf nicht durchsickern');
+
+        // Die Website dagegen ist zur Veroeffentlichung bestimmt und wird als
+        // Verweis ausgegeben.
+        $this->assertStringContainsString('https://beispiel-hof.example/x', $detail->body, 'Die Website gehoert auf die oeffentliche Seite');
 
         // 4b. Länderflagge (#240): eine Person mit country='Dänemark'
         // erscheint auf der Detailseite mit 🇩🇰 und dem gespeicherten
@@ -164,5 +191,54 @@ class PersonFieldsTest extends FunctionalTestCase {
         $detail = $guest->get('/horse?id=' . $horseId);
         $this->assertStringNotContainsString('Glücksburg', $detail->body, 'Felder unveröffentlichter Personen dürfen öffentlich nicht erscheinen');
         $this->assertStringNotContainsString('Mitglied', $detail->body);
+        $this->assertStringNotContainsString('https://beispiel-hof.example/x', $detail->body, 'Auch die Website verschwindet mit der Veröffentlichung');
+    }
+
+    /**
+     * Ein Website-Freitext ist genau das - Freitext. Steht dort ein
+     * `javascript:`-Ziel, darf daraus kein Verweis werden: Das Feld pflegt der
+     * Admin-Bereich, ausgegeben wird es auf einer oeffentlichen Seite, ein
+     * Redakteurskonto genuegte sonst fuer gespeichertes JavaScript bei jedem
+     * Besucher. htmlspecialchars() allein faengt das NICHT ab, es kodiert nur
+     * den Attributwert - siehe App\Helper\ExternalUrl.
+     */
+    public function testMaliciousWebsiteSchemeIsNotLinked(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $personName = "Person Schema {$unique}";
+        $horseName = "Pferd Schema {$unique}";
+
+        $form = $admin->get('/admin/persons/create');
+        $admin->post('/admin/persons/store', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'name' => $personName,
+            'website' => 'javascript:alert(1)',
+            'is_published' => '1',
+        ]);
+        $stmt = $db->prepare("SELECT id FROM persons WHERE name = ?");
+        $stmt->execute([$personName]);
+        $personId = (int)$stmt->fetchColumn();
+        $this->assertGreaterThan(0, $personId, 'Die Person muss angelegt worden sein');
+
+        $form = $admin->get('/admin/horses/create');
+        $admin->post('/admin/horses/store', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'name' => $horseName,
+            'status' => 'active',
+            'is_published' => '1',
+            'persons[0][person_id]' => (string)$personId,
+            'persons[0][role]' => 'breeder',
+        ]);
+        $stmt = $db->prepare("SELECT id FROM horses WHERE name = ?");
+        $stmt->execute([$horseName]);
+        $horseId = (int)$stmt->fetchColumn();
+
+        $detail = $this->newClient()->get('/horse?id=' . $horseId);
+        $this->assertSame(200, $detail->statusCode);
+        // Der Wert bleibt gespeichert (Freitext-Philosophie), aber er wird
+        // nicht zum Verweisziel.
+        $this->assertStringNotContainsString('href="javascript:', $detail->body);
+        $this->assertStringNotContainsString('javascript:alert', $detail->body);
     }
 }

@@ -237,7 +237,7 @@ class GdprController extends BaseController {
             // still bestehen. Der Gegentest dazu steht in
             // tests/Functional/GdprEraseTest.php und prüft die Felder namentlich.
             $anonName = "Anonymisierte Person (#" . $personId . ")";
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, email = NULL, membership_status = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, email = NULL, phone = NULL, mobile = NULL, website = NULL, membership_status = NULL WHERE id = ?");
             $stmt->execute([$anonName, $personId]);
 
             // Automatically mark GDPR request as processed

@@ -32,7 +32,11 @@ class GdprEraseTest extends FunctionalTestCase {
 
         // Alle strukturierten PII-Felder (#188, state seit #256) befüllen - die
         // Anonymisierung unten muss jedes einzelne davon nullen.
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, state, country, email, membership_status, is_published) VALUES (?, 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'Schleswig-Holstein', 'DE', ?, 'Mitglied', 1)");
+        // phone/mobile/website (#293) gehoeren mit befuellt: Die Pruefung unten
+        // leitet die Feldliste aus dem Schema ab, eine leer gelassene neue
+        // Spalte waere also schon vor der Anonymisierung NULL und die
+        // Zusicherung damit wertlos.
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, street, house_number, postal_code, city, state, country, email, phone, mobile, website, membership_status, is_published) VALUES (?, 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'Schleswig-Holstein', 'DE', ?, '01234 56789', '0170 1234567', 'https://beispiel.example', 'Mitglied', 1)");
         $stmt->execute([$personName, $email]);
         $personId = (int)$db->lastInsertId();
 

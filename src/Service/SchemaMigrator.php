@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 5;
+    public const SCHEMA_VERSION = 6;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -778,6 +778,21 @@ final class SchemaMigrator {
         $addColumn('breeding_stations', 'city', 'VARCHAR(100) NULL DEFAULT NULL AFTER `postal_code`');
         $addColumn('breeding_stations', 'state', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
         $addColumn('breeding_stations', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `state`');
+
+        // 30. Kontaktfelder für Personen (#293, SCHEMA_VERSION 6). persons
+        // hatte als einzige Kontaktmöglichkeit neben der E-Mail-Adresse das
+        // Freitextfeld contact_info - und das Formular lud ausdrücklich zu
+        // Telefonnummern darin ein, während dasselbe Feld öffentlich
+        // gerendert wurde. Die Spalten spiegeln breeding_stations.
+        //
+        // Kein Backfill aus contact_info: Der Bestand ist beschrifteter
+        // Freitext ("Mobil: 0170 ...", "Website: ..."), eine Zerlegung wäre
+        // geraten - dieselbe Entscheidung wie in Schritt 22 und 29. Wer
+        // Altdaten überführen will, tut das instanzspezifisch; die Zielspalten
+        // gibt es ab hier.
+        $addColumn('persons', 'phone', 'VARCHAR(50) NULL DEFAULT NULL AFTER `email`');
+        $addColumn('persons', 'mobile', 'VARCHAR(50) NULL DEFAULT NULL AFTER `phone`');
+        $addColumn('persons', 'website', 'VARCHAR(255) NULL DEFAULT NULL AFTER `mobile`');
 
         // Reset-Token liegen nur noch als SHA-256-Abdruck in der Tabelle
         // (siehe AuthController::hashResetToken()). Bestehende Zeilen enthalten

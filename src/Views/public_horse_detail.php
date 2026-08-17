@@ -405,9 +405,17 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                             <?= htmlspecialchars(implode(', ', $placeParts)) ?><?php if (!empty($placeParts) && !empty($hp['membership_status'])): ?> · <?php endif; ?><?= htmlspecialchars((string)($hp['membership_status'] ?? '')) ?>
                         </div>
                     <?php endif; ?>
-                    <?php if (!empty($hp['contact_info'])): ?>
-                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
-                            <?= nl2br(htmlspecialchars($hp['contact_info'])) ?>
+                    <?php
+                        // contact_info stand hier bis #293 und ist ersatzlos
+                        // entfallen: ein Freitextfeld, in das das Admin-Formular
+                        // ausdrücklich Telefonnummern einlud, gehört nicht auf
+                        // die öffentliche Seite. Die Website ist die einzige
+                        // Kontaktangabe, die zur Veröffentlichung bestimmt ist.
+                        $personWebsite = App\Helper\ExternalUrl::hrefOrNull($hp['website'] ?? null);
+                    ?>
+                    <?php if ($personWebsite !== null): ?>
+                        <div style="font-size: 0.85rem; margin-top: 0.3rem;">
+                            <a href="<?= htmlspecialchars($personWebsite) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a>
                         </div>
                     <?php endif; ?>
                 </div>

@@ -26,8 +26,11 @@ use App\Database;
  * - Der Kopiervorgang ist additiv (überschreibt/ergänzt Dateien, löscht
  *   keine) - Migrationsschritte übernimmt wie bisher
  *   Database::ensureSchemaUpToDate() beim nächsten Request.
- * - Nur manuell im Admin-Bereich anstoßbar (siehe UpdateController) -
- *   bewusst kein unbeaufsichtigter Scheduler-Lauf als erster Schritt.
+ * - Anstoßbar manuell im Admin-Bereich (siehe UpdateController) oder seit
+ *   #290 unbeaufsichtigt über den Scheduler (registerScheduledTask()) - der
+ *   in #85 als zweiter Schritt vorgesehene Cron-Lauf. Beide Wege gehen durch
+ *   performUpdate() und damit durch dieselbe Reihenfolge samt Pflicht-Backup;
+ *   der unbeaufsichtigte Lauf ist ausdrücklich zu aktivieren.
  */
 class UpdateService {
 
@@ -489,25 +492,26 @@ class UpdateService {
 
         $settings = self::loadSettings();
         $previousAddons = json_decode((string)($settings['update_last_notified_addons'] ?? '{}'), true);
+        $previousCore = isset($settings['update_last_notified_version']) && $settings['update_last_notified_version'] !== ''
+            ? (string)$settings['update_last_notified_version']
+            : null;
         $findings = self::computeNewFindings(
-            isset($settings['update_last_notified_version']) && $settings['update_last_notified_version'] !== ''
-                ? (string)$settings['update_last_notified_version']
-                : null,
+            $previousCore,
             $availableCore,
             is_array($previousAddons) ? $previousAddons : [],
             $currentAddonUpdates
         );
 
-        // Den gemeldeten Stand IMMER fortschreiben, auch wenn nichts neu war:
-        // Verschwundene Addon-Updates müssen aus dem Merkzettel fallen, sonst
-        // gälte ein später erneut auftauchendes Update fälschlich als bekannt.
-        self::rememberNotifiedState($availableCore, $findings['nextNotifiedAddons']);
-
         if (!$findings['coreIsNew'] && $findings['newAddons'] === []) {
+            // Nichts Neues, aber der Merkzettel wird trotzdem fortgeschrieben:
+            // Verschwundene Addon-Updates müssen herausfallen, sonst gälte ein
+            // später erneut auftauchendes Update fälschlich als bekannt.
+            self::rememberNotifiedState($availableCore, $findings['nextNotifiedAddons']);
             return;
         }
 
         $recipients = self::adminRecipients();
+        $sent = 0;
         if ($recipients === []) {
             AuditLogger::log(
                 'Update verfügbar, aber kein Empfänger',
@@ -516,36 +520,53 @@ class UpdateService {
                 null,
                 'SYSTEM'
             );
-            return;
-        }
-
-        $mailer = new Mailer();
-        $autoInstall = self::isAutoInstallEnabled();
-        $sent = 0;
-        foreach ($recipients as $recipient) {
-            if ($mailer->sendUpdatesAvailableNotification(
-                $recipient,
-                $findings['coreIsNew'] ? $availableCore : null,
-                $findings['newAddons'],
-                $autoInstall
-            )) {
-                $sent++;
+        } else {
+            $mailer = new Mailer();
+            $autoInstall = self::isAutoInstallEnabled();
+            foreach ($recipients as $recipient) {
+                if ($mailer->sendUpdatesAvailableNotification(
+                    $recipient,
+                    $findings['coreIsNew'] ? $availableCore : null,
+                    $findings['newAddons'],
+                    $autoInstall
+                )) {
+                    $sent++;
+                }
             }
         }
 
-        $addonList = implode(', ', array_map(
-            static fn(array $a): string => $a['slug'] . ' ' . $a['version'],
-            $findings['newAddons']
-        ));
-        AuditLogger::log(
-            'Update verfügbar gemeldet',
-            'update',
-            'Kern: ' . ($findings['coreIsNew'] ? (string)$availableCore : '—')
-            . '; Addons: ' . ($addonList !== '' ? $addonList : '—')
-            . "; Benachrichtigt: {$sent}/" . count($recipients),
-            null,
-            'SYSTEM'
+        // Als gemeldet gilt ein Fund erst, wenn tatsächlich eine Mail
+        // rausging. Andernfalls wäre ein Ausfall des Mailservers - oder ein
+        // Admin-Konto ohne E-Mail-Adresse - endgültig: Der Fund stünde als
+        // erledigt im Merkzettel und würde nie wieder gemeldet, auch nicht
+        // nach Behebung der Ursache. Erst ein noch neueres Release löste dann
+        // wieder etwas aus. Der bereinigte Stand (verschwundene Addons) wird
+        // trotzdem geschrieben, nur die nicht zugestellten Funde bleiben offen.
+        self::rememberNotifiedState(
+            $sent > 0 || !$findings['coreIsNew'] ? $availableCore : $previousCore,
+            $sent > 0
+                ? $findings['nextNotifiedAddons']
+                : array_diff_key(
+                    $findings['nextNotifiedAddons'],
+                    array_flip(array_column($findings['newAddons'], 'slug'))
+                )
         );
+
+        if ($recipients !== []) {
+            $addonList = implode(', ', array_map(
+                static fn(array $a): string => $a['slug'] . ' ' . $a['version'],
+                $findings['newAddons']
+            ));
+            AuditLogger::log(
+                'Update verfügbar gemeldet',
+                'update',
+                'Kern: ' . ($findings['coreIsNew'] ? (string)$availableCore : '—')
+                . '; Addons: ' . ($addonList !== '' ? $addonList : '—')
+                . "; Benachrichtigt: {$sent}/" . count($recipients),
+                null,
+                'SYSTEM'
+            );
+        }
     }
 
     /**
@@ -646,7 +667,10 @@ class UpdateService {
         $core = $coreVersion ?? '';
         $stmt->execute(['update_last_notified_version', $core, $core]);
 
-        $json = (string)json_encode($addons);
+        // JSON_FORCE_OBJECT: Ein leeres PHP-Array würde sonst als "[]"
+        // abgelegt, ein gefülltes als Objekt - der Merkzettel ist aber immer
+        // eine Zuordnung slug => version, auch wenn er gerade leer ist.
+        $json = (string)json_encode($addons, JSON_FORCE_OBJECT);
         $stmt->execute(['update_last_notified_addons', $json, $json]);
     }
 

@@ -88,6 +88,13 @@ class UpdateRunTest extends TestCase {
         self::$db->exec("DELETE FROM audit_logs");
         self::$db->exec("DELETE FROM users WHERE username LIKE 'update-admin-%'");
         $this->insertAdminUser('update-admin@example.com');
+        // Katalog-Cache frisch vorbelegen: runCheckAndNotify() beginnt mit
+        // refreshOfficialCatalog(), und dessen Download kennt anders als die
+        // Release-Liste keine Übersteuerung (fester Host in
+        // GithubAddonRepository::downloadTarball()). Ohne diese Zeile riefe
+        // die Integrations-Suite bei jedem Lauf live api.github.com ab - je
+        // nach Egress mit 20 s Blockade pro Test und abhängig vom Ratelimit.
+        self::$db->exec("UPDATE addon_repos SET cached_catalog_json = '[]', cached_at = NOW() WHERE is_official = 1");
         foreach (glob(FakeS3Server::storageDir() . '/*') ?: [] as $file) {
             unlink($file);
         }
@@ -296,31 +303,30 @@ class UpdateRunTest extends TestCase {
      * Kern der Nutzeranforderung: melden, aber nur EINMAL je Fund. Der zweite
      * Lauf gegen dieselbe Release-Liste darf nichts Neues mehr finden.
      */
-    public function testAvailableUpdateIsReportedOnlyOncePerFinding(): void {
+    /**
+     * Kern der Nutzeranforderung: melden, aber nur EINMAL je Fund. Der
+     * bereits gemeldete Stand wird direkt gesetzt, weil sich ein
+     * erfolgreicher Versand ohne SMTP-Server nicht nachstellen lässt - die
+     * Dedup-Entscheidung läuft dabei durch den echten Pfad.
+     */
+    public function testAlreadyReportedVersionIsNotReportedAgain(): void {
+        $this->setSetting('update_last_notified_version', '9.9.9');
         $this->publishRelease('9.9.9');
 
         UpdateService::runCheckAndNotify();
-        $this->assertSame('9.9.9', $this->getSetting('update_last_notified_version'));
 
-        // Zweiter Lauf, unveränderte Lage: Der gemerkte Stand bleibt und es
-        // entsteht kein neuer Fund. Sichtbar an einem einzigen
-        // "Update verfügbar gemeldet"-Eintrag im Audit-Log.
+        $this->assertSame(0, $this->countAuditEntries('Update verfügbar gemeldet'));
+        $this->assertSame('9.9.9', $this->getSetting('update_last_notified_version'));
+    }
+
+    /** Eine neuere Version ist wieder ein Fund und wird erneut aufgegriffen. */
+    public function testNewerVersionIsReportedAgain(): void {
+        $this->setSetting('update_last_notified_version', '9.9.9');
+        $this->publishRelease('9.9.10');
+
         UpdateService::runCheckAndNotify();
 
         $this->assertSame(1, $this->countAuditEntries('Update verfügbar gemeldet'));
-    }
-
-    /** Eine neuere Version ist wieder ein Fund und wird erneut gemeldet. */
-    public function testNewerVersionIsReportedAgain(): void {
-        $this->publishRelease('9.9.9');
-        UpdateService::runCheckAndNotify();
-
-        FakeReleaseServer::clear();
-        $this->publishRelease('9.9.10');
-        UpdateService::runCheckAndNotify();
-
-        $this->assertSame('9.9.10', $this->getSetting('update_last_notified_version'));
-        $this->assertSame(2, $this->countAuditEntries('Update verfügbar gemeldet'));
     }
 
     /**
@@ -351,6 +357,72 @@ class UpdateRunTest extends TestCase {
 
         $this->assertSame(1, $this->countAuditEntries('Update verfügbar, aber kein Empfänger'));
         $this->assertSame(0, $this->countAuditEntries('Update verfügbar gemeldet'));
+
+        // Entscheidend: Der Fund darf NICHT als gemeldet gelten, solange
+        // niemand ihn bekommen hat - sonst wäre er endgültig verloren.
+        $this->assertNull(
+            $this->getSetting('update_last_notified_version'),
+            'Ohne Empfänger darf die Version nicht als gemeldet vermerkt werden'
+        );
+    }
+
+    /**
+     * Dasselbe für den häufigeren Fall: Empfänger vorhanden, aber der
+     * Mailversand scheitert (kein SMTP konfiguriert -> Mailer::send() liefert
+     * kontrolliert false). Ohne diese Zusicherung wäre ein Ausfallfenster des
+     * Mailservers endgültig: Der Fund stünde als erledigt im Merkzettel und
+     * käme auch nach Behebung nie wieder.
+     */
+    public function testFindingStaysOpenWhenNoMailCouldBeSent(): void {
+        $this->publishRelease('9.9.9');
+
+        UpdateService::runCheckAndNotify();
+
+        $this->assertNull(
+            $this->getSetting('update_last_notified_version'),
+            'Ein nicht zugestellter Fund muss offen bleiben'
+        );
+
+        // Sobald der Versand wieder klappt, wird derselbe Fund erneut
+        // aufgegriffen - hier nachgestellt über einen zweiten Lauf, der
+        // wieder als "neu" wertet und einen Meldeversuch protokolliert.
+        UpdateService::runCheckAndNotify();
+        $this->assertSame(2, $this->countAuditEntries('Update verfügbar gemeldet'));
+    }
+
+    /**
+     * Gegenprobe zum Fall oben: Ohne neuen Fund wird der Merkzettel sehr wohl
+     * fortgeschrieben - ein verschwundenes Addon-Update muss herausfallen,
+     * sonst gälte es beim Wiederauftauchen fälschlich als bekannt.
+     */
+    public function testRememberedStateIsPrunedWhenNothingIsNew(): void {
+        $this->setSetting('update_last_notified_addons', '{"verschwundenes-addon":"1.0.0"}');
+        // Keine Release-Fixture: kein Kern-Update, keine Addon-Updates.
+        putenv('UPDATE_RELEASES_URL=' . FakeReleaseServer::putFile('leer.json', '[]'));
+
+        UpdateService::runCheckAndNotify();
+
+        $this->assertSame('{}', $this->getSetting('update_last_notified_addons'));
+    }
+
+    /**
+     * Und der Gegenbeweis zur Dedup-Logik auf Addon-Ebene: Ein bereits
+     * gemeldetes Addon-Update taucht nicht erneut als Fund auf, bleibt aber
+     * im Merkzettel stehen, solange es verfügbar ist.
+     */
+    public function testAlreadyReportedAddonStaysInRememberedState(): void {
+        $this->seedOfficialCatalogWithAddonUpdate('1.5.0');
+        $slug = $this->installOfficialAddon();
+        $this->setSetting('update_last_notified_addons', json_encode([$slug => '1.5.0']));
+        putenv('UPDATE_RELEASES_URL=' . FakeReleaseServer::putFile('leer.json', '[]'));
+
+        UpdateService::runCheckAndNotify();
+
+        $this->assertSame(0, $this->countAuditEntries('Update verfügbar gemeldet'));
+        $this->assertSame(
+            json_encode([$slug => '1.5.0']),
+            $this->getSetting('update_last_notified_addons')
+        );
     }
 
     /**
@@ -452,6 +524,28 @@ class UpdateRunTest extends TestCase {
         $adminGroupId = self::$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
         $stmt = self::$db->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)");
         $stmt->execute([$userId, $adminGroupId]);
+    }
+
+    /**
+     * Legt einen Katalog-Cache an, der fuer das Testaddon eine neuere Version
+     * ausweist - Grundlage dafuer, dass AddonOverview::rows() ein offenes
+     * Addon-Update meldet.
+     */
+    private function seedOfficialCatalogWithAddonUpdate(string $version): void {
+        $catalog = json_encode([[
+            'slug' => 'update-run-testaddon',
+            'name' => 'Update-Lauf Testaddon',
+            'version' => $version,
+            'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '9.9',
+            'description' => '',
+            'author' => '',
+            'hooks' => [],
+        ]]);
+        $stmt = self::$db->prepare(
+            "UPDATE addon_repos SET cached_catalog_json = ?, cached_at = NOW() WHERE is_official = 1"
+        );
+        $stmt->execute([$catalog]);
     }
 
     private function setSetting(string $key, string $value): void {

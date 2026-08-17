@@ -36,6 +36,12 @@ Breaking Changes sind jederzeit möglich).
   Codeaustausch auf einem Produktivsystem wäre genau der Vorgang, den
   niemand bemerkt, bis etwas fehlt.
 
+  Ein Fund gilt erst dann als gemeldet, wenn tatsächlich eine E-Mail
+  hinausging. Andernfalls wäre ein Ausfallfenster des Mailservers — oder ein
+  Admin-Konto ohne hinterlegte Adresse — endgültig: Die Version stünde als
+  erledigt im Merkzettel und würde auch nach Behebung der Ursache nie wieder
+  gemeldet. Verschwundene Addon-Updates fallen unabhängig davon heraus.
+
 - **Wartungsmodus während des Update-Einspielens.** `Maintenance` (#232)
   existierte bislang nur für das Datenmigrations-Addon und wurde vom Kern
   nirgends genutzt. Solange ein Update einen anwesenden Admin voraussetzte,

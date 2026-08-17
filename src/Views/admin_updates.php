@@ -103,7 +103,21 @@ $addonTargetWarnings = array_values(array_filter(
                 <option value="any" <?= $autoInstallScope === 'any' ? 'selected' : '' ?>>Jede neuere Version</option>
             </select>
         </div>
-        <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;" <?= $automationPossible ? '' : 'disabled' ?>>Speichern</button>
+        <?php if (!$automationPossible): ?>
+            <!-- Deaktivierte Felder senden nichts mit. Ohne diese Ersatzwerte
+                 fiele die Reichweite beim Speichern still auf die Vorgabe
+                 zurück. Die Installation steht hier zwangsläufig auf "aus" -
+                 sie kann ohne In-Place-Recht bzw. Backup gar nicht laufen -,
+                 die Benachrichtigung bleibt davon unberührt. -->
+            <input type="hidden" name="update_auto_install_scope" value="<?= htmlspecialchars($autoInstallScope) ?>">
+        <?php endif; ?>
+        <!-- Der Knopf ist bewusst IMMER bedienbar: Die Benachrichtigung ist
+             auch dann sinnvoll (im Container-Betrieb sogar der einzig
+             nutzbare Teil), wenn nicht automatisch installiert werden kann.
+             Ein hier deaktivierter Knopf hätte genau das verhindert - die
+             Bedingungen für die Installation setzt saveAutomation() ohnehin
+             serverseitig durch. -->
+        <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">Speichern</button>
         <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
             Geprüft wird alle 3 Stunden, installiert höchstens einmal täglich - beides über den
             <a href="/admin/cron">Cron-Auslöser</a>, der dafür eingerichtet sein muss. Die E-Mail geht an
@@ -114,12 +128,14 @@ $addonTargetWarnings = array_values(array_filter(
             <?php if (!$automationPossible): ?>
                 <br><strong>
                     <?php if (!$inPlaceEnabled): ?>
-                        In dieser Installation nicht verfügbar: Die In-Place-Aktualisierung ist deaktiviert (Container-Betrieb).
-                        Benachrichtigungen über verfügbare Versionen kommen trotzdem.
+                        Automatisch installieren ist in dieser Installation nicht möglich: Die
+                        In-Place-Aktualisierung ist deaktiviert (Container-Betrieb).
                     <?php else: ?>
-                        Zuerst unter <a href="/admin/backups">Backups</a> ein externes Backup einrichten -
+                        Automatisch installieren ist erst möglich, wenn unter
+                        <a href="/admin/backups">Backups</a> ein externes Backup eingerichtet ist -
                         ohne Sicherung wird grundsätzlich nicht aktualisiert.
                     <?php endif; ?>
+                    Die Benachrichtigung lässt sich unabhängig davon einschalten.
                 </strong>
             <?php endif; ?>
         </small>

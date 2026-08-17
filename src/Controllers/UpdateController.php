@@ -9,10 +9,10 @@ use App\Service\UpdateService;
  * Class UpdateController
  *
  * Admin-Oberfläche für das automatische Update (#85, siehe
- * App\Service\UpdateService): Version anzeigen, Release-Prüfung anstoßen und
- * das Update manuell ausführen. Bewusst nur manuell (kein Scheduler-Lauf) -
- * und niemals ohne unmittelbar zuvor erfolgreiches Pflicht-Backup (#59),
- * durchgesetzt in UpdateService::performUpdate().
+ * App\Service\UpdateService): Version anzeigen, Release-Prüfung anstoßen, das
+ * Update manuell ausführen und - seit #290 - die unbeaufsichtigte Automatik
+ * konfigurieren (saveAutomation()). Kein Weg führt am Pflicht-Backup vorbei
+ * (#59), durchgesetzt in UpdateService::performUpdate().
  */
 class UpdateController extends BaseController {
 

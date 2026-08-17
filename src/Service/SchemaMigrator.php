@@ -794,6 +794,42 @@ final class SchemaMigrator {
         $addColumn('persons', 'mobile', 'VARCHAR(50) NULL DEFAULT NULL AFTER `phone`');
         $addColumn('persons', 'website', 'VARCHAR(255) NULL DEFAULT NULL AFTER `mobile`');
 
+        // Kennzeichen "diese Person züchtet": bewusst eine Eigenschaft der
+        // Person und nicht aus horse_persons.role='breeder' abgeleitet - ein
+        // Züchter soll auch dann auffindbar sein, wenn noch kein Pferd von ihm
+        // im Verzeichnis steht. Grundlage für eine spätere Zucht-Suche über
+        // Züchter und Deckstationen; der Index bedient genau diese Filterung
+        // (Muster wie die Katalog-Indizes in Schritt 23).
+        //
+        // Kein Backfill aus horse_persons, und zwar bewusst: Eine
+        // Züchter-Zuordnung ist Historie (sie trägt from_year/until_year), das
+        // Kennzeichen dagegen sagt "züchtet heute". Wer früher gezüchtet hat,
+        // wäre nach einem Backfill dauerhaft als aktiver Züchter markiert -
+        // genau die Verwechslung, die das eigene Feld vermeiden soll. Der
+        // Vorgabewert 0 lässt die Aussage offen, bis jemand sie trifft.
+        $addColumn('persons', 'is_breeder', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `membership_status`');
+        $addIndex('persons', 'idx_persons_is_breeder', '`is_breeder`, `is_published`, `deleted_at`');
+
+        // Leserecht der Gast-Gruppe für die neue öffentliche Personenseite
+        // (/person). Ohne dieses Recht liefe der Verweis von der Pferdeseite
+        // ins Leere - die Gast-Gruppe ist bewusst fail-closed und bekommt neue
+        // Bereiche nicht automatisch (siehe database/schema.sql beim Seed).
+        //
+        // Es entstehen dadurch KEINE neuen öffentlichen Daten: Die Seite zeigt
+        // ausschließlich Felder, die auf der Pferde-Detailseite ohnehin schon
+        // öffentlich sind (Ort, Bundesland, Land, Mitgliedsstatus) plus die
+        // dafür vorgesehene Website. Wer die Seite nicht möchte, nimmt der
+        // Gruppe `public` das Recht wieder weg - diese Migration setzt es
+        // dank INSERT IGNORE nicht erneut.
+        try {
+            $pdo->exec(
+                "INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
+                 SELECT `id`, 'persons', 'view' FROM `groups` WHERE `slug` = 'public'"
+            );
+        } catch (\Throwable $e) {
+            // Tabelle/Gruppe existiert im Setup-Fall noch nicht.
+        }
+
         // Reset-Token liegen nur noch als SHA-256-Abdruck in der Tabelle
         // (siehe AuthController::hashResetToken()). Bestehende Zeilen enthalten
         // noch Klartext-Token, die gegen den Abdruck nie treffen würden - sie

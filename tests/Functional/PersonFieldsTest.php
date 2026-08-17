@@ -195,6 +195,92 @@ class PersonFieldsTest extends FunctionalTestCase {
     }
 
     /**
+     * Die oeffentliche Personenseite (#293) und der Weg dorthin: Ein Besucher
+     * klickt auf der Pferdeseite den Namen an und landet auf der Person.
+     *
+     * Geprueft wird beides - dass die Seite die oeffentlichen Angaben zeigt
+     * UND dass sie die internen NICHT zeigt. Der Controller waehlt die Spalten
+     * einzeln aus; ein spaeteres 'SELECT *' waere genau der Rueckfall in den
+     * Fehler, den #293 behoben hat.
+     */
+    public function testPublicPersonPageIsReachableFromHorseAndHidesInternalFields(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $personName = "Person Seite {$unique}";
+        $horseName = "Pferd Seite {$unique}";
+
+        $form = $admin->get('/admin/persons/create');
+        $admin->post('/admin/persons/store', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'name' => $personName,
+            'city' => 'Flensburg',
+            'country' => 'DE',
+            'membership_status' => 'Mitglied',
+            'website' => 'https://zuchthof.example/x',
+            'email' => "geheim-{$unique}@example.com",
+            'phone' => '0999 111x',
+            'mobile' => '0888 222x',
+            'street' => 'Geheimweg',
+            'contact_info' => 'Interne Notiz Zebra',
+            'is_breeder' => '1',
+            'is_published' => '1',
+        ]);
+        $stmt = $db->prepare("SELECT id FROM persons WHERE name = ?");
+        $stmt->execute([$personName]);
+        $personId = (int)$stmt->fetchColumn();
+        $this->assertGreaterThan(0, $personId);
+
+        $form = $admin->get('/admin/horses/create');
+        $admin->post('/admin/horses/store', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'name' => $horseName,
+            'status' => 'active',
+            'is_published' => '1',
+            'persons[0][person_id]' => (string)$personId,
+            'persons[0][role]' => 'breeder',
+        ]);
+        $stmt = $db->prepare("SELECT id FROM horses WHERE name = ?");
+        $stmt->execute([$horseName]);
+        $horseId = (int)$stmt->fetchColumn();
+
+        $guest = $this->newClient();
+
+        // 1. Von der Pferdeseite fuehrt ein Verweis zur Person.
+        $detail = $guest->get('/horse?id=' . $horseId);
+        $this->assertSame(200, $detail->statusCode);
+        $this->assertStringContainsString('/person?id=' . $personId, $detail->body, 'Der Personenname muss verlinkt sein');
+
+        // 2. Die Personenseite zeigt die oeffentlichen Angaben ...
+        $page = $guest->get('/person?id=' . $personId);
+        $this->assertSame(200, $page->statusCode);
+        $this->assertStringContainsString($personName, $page->body);
+        $this->assertStringContainsString('Flensburg', $page->body);
+        $this->assertStringContainsString('Mitglied', $page->body);
+        $this->assertStringContainsString('https://zuchthof.example/x', $page->body);
+        // ... das Zuechter-Kennzeichen ...
+        $this->assertStringContainsString('Züchter', $page->body, 'Das Kennzeichen gehoert auf die Seite');
+        // ... und das zugeordnete Pferd.
+        $this->assertStringContainsString($horseName, $page->body);
+        $this->assertStringContainsString('/horse?id=' . $horseId, $page->body);
+
+        // 3. Und keine einzige interne Angabe.
+        $this->assertStringNotContainsString("geheim-{$unique}@example.com", $page->body, 'E-Mail ist intern');
+        $this->assertStringNotContainsString('0999 111x', $page->body, 'Telefon ist intern');
+        $this->assertStringNotContainsString('0888 222x', $page->body, 'Mobil ist intern');
+        $this->assertStringNotContainsString('Geheimweg', $page->body, 'Strasse ist intern');
+        $this->assertStringNotContainsString('Interne Notiz Zebra', $page->body, 'contact_info ist intern');
+
+        // 4. Unveroeffentlichte Personen haben keine Seite - wie bei Stationen.
+        $db->prepare("UPDATE persons SET is_published = 0 WHERE id = ?")->execute([$personId]);
+        $this->assertSame(404, $guest->get('/person?id=' . $personId)->statusCode);
+
+        // 5. Und der Verweis auf der Pferdeseite verschwindet mit ihr.
+        $detail = $guest->get('/horse?id=' . $horseId);
+        $this->assertStringNotContainsString('/person?id=' . $personId, $detail->body);
+    }
+
+    /**
      * Ein Website-Freitext ist genau das - Freitext. Steht dort ein
      * `javascript:`-Ziel, darf daraus kein Verweis werden: Das Feld pflegt der
      * Admin-Bereich, ausgegeben wird es auf einer oeffentlichen Seite, ein

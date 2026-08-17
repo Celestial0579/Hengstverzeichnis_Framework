@@ -563,6 +563,72 @@ class PublicController extends BaseController {
         ]);
     }
 
+    /**
+     * Öffentliche Personenseite (#293). Bis dahin gab es sie nicht: Personen
+     * erschienen nur als Name in der Pferde-Detailseite, ohne eigenen Ort und
+     * ohne Möglichkeit, die Pferde einer Person zusammen zu sehen - anders als
+     * bei Deckstationen, die ihre Seite längst haben.
+     *
+     * Die Spalten stehen hier bewusst EINZELN statt als `SELECT *`. Bei
+     * Deckstationen ist das anders (deren Anschrift ist eine Geschäftsadresse
+     * und vollständig öffentlich); persons enthält dagegen
+     * E-Mail/Telefon/Mobil/Straße/PLZ und das interne Freitextfeld
+     * contact_info. Ein `SELECT *` würde all das in die View reichen, und der
+     * nächste, der dort etwas ausgibt, hätte es versehentlich veröffentlicht -
+     * genau so ist #293 überhaupt entstanden. Was hier nicht steht, kann nicht
+     * verraten werden.
+     */
+    public function personDetail(): void {
+        $id = $_GET['id'] ?? null;
+        if (!$id) {
+            header("Location: /katalog");
+            exit;
+        }
+
+        if (!$this->hasPermission('persons', 'view')) {
+            $this->renderNotFound(\App\I18n\Translator::t('person.not_found'));
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "SELECT id, name, city, state, country, membership_status, website, is_breeder
+             FROM persons
+             WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
+        );
+        $stmt->execute([$id]);
+        $person = $stmt->fetch();
+
+        if (!$person) {
+            $this->renderNotFound(\App\I18n\Translator::t('person.not_found'));
+        }
+
+        // Pferde dieser Person, nach Rolle gruppiert - nur veröffentlichte,
+        // und nur wenn Gäste Pferde überhaupt sehen dürfen (wie bei Stationen).
+        $horsesByRole = [];
+        if ($this->hasPermission('horses', 'view')) {
+            $stmt = $db->prepare("
+                SELECT DISTINCT hp.role, h.id, h.name, h.ueln, h.birth_year, h.color,
+                       h.status, h.is_deceased, h.death_year, h.image_url
+                FROM horse_persons hp
+                JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
+                WHERE hp.person_id = ?
+                ORDER BY hp.role ASC, h.name ASC
+            ");
+            $stmt->execute([$id]);
+            foreach ($stmt->fetchAll() as $row) {
+                $role = (string)($row['role'] ?? '');
+                unset($row['role']);
+                $horsesByRole[$role][] = $row;
+            }
+        }
+
+        $this->render('public_person_detail', [
+            'title' => $person['name'] . ' - ' . \App\I18n\Translator::t('meta.title_person_detail_suffix'),
+            'person' => $person,
+            'horsesByRole' => $horsesByRole,
+        ]);
+    }
+
     public function impressum(): void {
         $this->render('public_impressum', [
             'title' => \App\I18n\Translator::t('meta.title_impressum') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis')

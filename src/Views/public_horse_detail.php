@@ -351,7 +351,22 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.3rem;">
                         <div>
                             <?php if (!empty($hp['person_name'])): ?>
-                                <strong><?= htmlspecialchars($hp['person_name']) ?></strong>
+                                <?php
+                                    // Verweis auf die Personenseite (#293). Der
+                                    // Block laeuft nur bei gefuelltem person_name,
+                                    // und den liefert der LEFT JOIN ausschliesslich
+                                    // fuer veroeffentlichte, nicht geloeschte
+                                    // Personen - genau die, die /person auch
+                                    // ausliefert. Ein Verweis ins Leere kann hier
+                                    // also nicht entstehen.
+                                ?>
+                                <strong>
+                                    <?php if (!empty($hp['person_id'])): ?>
+                                        <a href="/person?id=<?= (int)$hp['person_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($hp['person_name']) ?></a>
+                                    <?php else: ?>
+                                        <?= htmlspecialchars($hp['person_name']) ?>
+                                    <?php endif; ?>
+                                </strong>
                                 <?php
                                 // Länderflagge (#240): Emoji aus persons.country der
                                 // verknüpften Person; unbekanntes Land => keine Flagge.

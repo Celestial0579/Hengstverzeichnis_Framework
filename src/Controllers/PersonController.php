@@ -122,8 +122,11 @@ class PersonController extends BaseController {
         $db = Database::getInstance();
         $structuredColumns = implode(', ', self::STRUCTURED_FIELDS);
         $structuredPlaceholders = implode(', ', array_fill(0, count(self::STRUCTURED_FIELDS), '?'));
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?)");
-        $stmt->execute([$name, $contact_info, ...array_values($fields), $isPublished]);
+        // is_breeder ist ein Schalter, kein Freitext, und die Spalte ist NOT
+        // NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
+        $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_breeder, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?, ?)");
+        $stmt->execute([$name, $contact_info, ...array_values($fields), $isBreeder, $isPublished]);
         $newPersonId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Person angelegt", "persons", "Person ID {$newPersonId}: {$name}");
@@ -180,7 +183,14 @@ class PersonController extends BaseController {
             $this->render('admin_person_form', [
                 'title' => 'Person bearbeiten',
                 'person' => array_merge(
-                    ['id' => $id, 'name' => $name, 'contact_info' => $contact_info, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                    [
+                        'id' => $id,
+                        'name' => $name,
+                        'contact_info' => $contact_info,
+                        'is_published' => !empty($_POST['is_published']) ? 1 : 0,
+                        // Sonst verlöre ein Validierungsfehler das Häkchen.
+                        'is_breeder' => !empty($_POST['is_breeder']) ? 1 : 0,
+                    ],
                     $fields
                 ),
                 'error' => 'Der Name der Person ist erforderlich.',
@@ -195,13 +205,14 @@ class PersonController extends BaseController {
         $structuredSql = implode(', ', array_map(fn($f) => "{$f} = ?", self::STRUCTURED_FIELDS));
         $structuredValues = array_values($fields);
         $db = Database::getInstance();
+        $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
         if ($this->hasPermission('persons', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_published = ? WHERE id = ?");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $isPublished, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ?, is_published = ? WHERE id = ?");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $isPublished, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql} WHERE id = ?");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ? WHERE id = ?");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $id]);
         }
 
         \App\Service\AuditLogger::log("Person aktualisiert", "persons", "Person ID {$id}: {$name}");

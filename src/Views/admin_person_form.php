@@ -112,6 +112,17 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
             </small>
         </div>
 
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="is_breeder" value="1" <?= !empty($old['is_breeder'] ?? $person['is_breeder'] ?? 0) ? 'checked' : '' ?>>
+                <span>🐴 Diese Person züchtet</span>
+            </label>
+            <small style="color: var(--text-muted);">
+                Kennzeichnet die Person als Züchter - unabhängig davon, ob ihr schon Pferde
+                zugeordnet sind. Grundlage für die Zucht-Suche; wird öffentlich angezeigt.
+            </small>
+        </div>
+
         <?php if ($canPublish): ?>
         <div class="form-group">
             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">

@@ -88,6 +88,22 @@ CREATE TABLE IF NOT EXISTS `persons` (
     -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
     -- (z. B. 'Mitglied', 'Nichtmitglied NO').
     `membership_status` VARCHAR(100) NULL DEFAULT NULL,
+    -- Kennzeichen "diese Person züchtet" - eine redaktionell gepflegte
+    -- Eigenschaft der Person und ausdrücklich NICHT aus
+    -- horse_persons.role='breeder' abgeleitet.
+    --
+    -- Beide Richtungen der Ableitung wären falsch: Wer noch kein Pferd im
+    -- Verzeichnis hat, wäre nicht auffindbar, obwohl er züchtet. Und wer
+    -- früher gezüchtet hat, bliebe dauerhaft als Züchter markiert - die alten
+    -- Zuordnungen verschwinden ja nicht, sie sind Historie (mit from_year/
+    -- until_year). Das Kennzeichen sagt "züchtet heute", die Zuordnungen sagen
+    -- "hat dieses Pferd gezüchtet"; das sind verschiedene Aussagen, und nur
+    -- die erste kann sich ändern, ohne dass Daten falsch würden.
+    --
+    -- Grundlage für eine spätere Zucht-Suche (Züchter und Deckstationen
+    -- nebeneinander) - deshalb öffentlich wie membership_status und mit Index
+    -- für die Filterung.
+    `is_breeder` TINYINT(1) NOT NULL DEFAULT 0,
     -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
     -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
     -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
@@ -378,7 +394,15 @@ INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
 SELECT `id`, `module`, `action` FROM `groups`
 CROSS JOIN (
     SELECT 'horses' AS `module`, 'view' AS `action` UNION ALL
-    SELECT 'breeding_stations', 'view'
+    SELECT 'breeding_stations', 'view' UNION ALL
+    -- persons.view seit #293: Grundlage der öffentlichen Personenseite
+    -- (/person), auf die die Pferde-Detailseite verweist - dieselbe Rolle, die
+    -- breeding_stations.view für /station spielt. Neue Daten entstehen dadurch
+    -- nicht: Gezeigt werden ausschließlich die Felder, die auf der
+    -- Pferdeseite ohnehin schon öffentlich sind (Ort, Bundesland, Land,
+    -- Mitgliedsstatus) plus die dafür vorgesehene Website. Wer die Seite nicht
+    -- will, nimmt der Gruppe `public` das Recht wieder weg.
+    SELECT 'persons', 'view'
 ) AS `guest_defaults`
 WHERE `groups`.`slug` = 'public';
 

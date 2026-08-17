@@ -173,7 +173,13 @@ class GdprEraseTest extends FunctionalTestCase {
         // automatisch ungeprüft - genau so wäre `state` (#256) durchgerutscht.
         // Hier fällt jede künftige Spalte sofort auf, solange sie nicht
         // ausdrücklich als nicht-personenbezogen ausgenommen wird.
-        $nonPii = ['id', 'name', 'is_published', 'created_at', 'deleted_at'];
+        // is_breeder (#293) steht bewusst hier: Das Kennzeichen sagt "diese
+        // Person züchtet", nicht WER sie ist - an einer bereits auf
+        // "Anonymisierte Person (#id)" umbenannten Zeile identifiziert es
+        // niemanden. Die Spalte ist zudem NOT NULL und liesse sich gar nicht
+        // nullen. Genau wie is_published gehoert sie damit zum Datensatz, nicht
+        // zur Person.
+        $nonPii = ['id', 'name', 'is_published', 'is_breeder', 'created_at', 'deleted_at'];
         $piiColumns = array_values(array_diff(array_keys($person), $nonPii));
         $this->assertNotEmpty($piiColumns, 'Spaltenliste von persons konnte nicht ermittelt werden.');
         foreach ($piiColumns as $field) {

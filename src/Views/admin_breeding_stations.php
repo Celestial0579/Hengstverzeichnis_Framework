@@ -58,8 +58,9 @@ $publishFormId = 'stationPublishForm';
                         <td style="padding: 0.6rem;"><?= htmlspecialchars((string)$st['id']) ?></td>
                         <td style="padding: 0.6rem;">
                             <strong><?= htmlspecialchars((string)$st['name']) ?></strong>
-                            <?php if (!empty($st['website'])): ?>
-                                <br><a href="<?= htmlspecialchars((string)$st['website']) ?>" target="_blank" style="font-size: 0.8rem; color: var(--primary-fg);">🌐 Website</a>
+                            <?php $stWebsite = App\Helper\ExternalUrl::hrefOrNull($st['website'] ?? null); ?>
+                            <?php if ($stWebsite !== null): ?>
+                                <br><a href="<?= htmlspecialchars($stWebsite) ?>" target="_blank" rel="noopener noreferrer" style="font-size: 0.8rem; color: var(--primary-fg);">🌐 Website</a>
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.6rem;"><?= htmlspecialchars((string)($st['contact_person'] ?: '-')) ?></td>

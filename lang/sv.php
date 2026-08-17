@@ -151,6 +151,14 @@ return [
     // Hingststationens detaljsida
     'station.horses_heading' => '🐴 Hästar på denna hingststation',
     'station.no_horses' => 'För närvarande finns inga hästar från denna hingststation i registret.',
+    'field.location' => 'Ort',
+    'field.membership_status' => 'Medlemsstatus',
+    'person.is_breeder' => 'Uppfödare',
+    'person.not_found' => 'Den begärda personen finns inte eller har tagits bort ur registret.',
+    'person.horses_heading' => '🐴 Denna persons hästar',
+    'person.no_horses' => 'Det finns för närvarande inga hästar registrerade på denna person.',
+    'person.no_details' => 'Det finns inga offentliga uppgifter om denna person.',
+    'meta.title_person_detail_suffix' => 'Person',
     'station.not_found' => 'Den begärda hingststationen finns inte eller har tagits bort från registret.',
     'meta.title_station_detail_suffix' => 'Hingststation',
 

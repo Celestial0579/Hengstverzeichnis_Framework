@@ -285,10 +285,7 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         $guest = $this->newClient();
 
         // Mit horses.view (Standard der Gast-Gruppe): Detailseite öffentlich erreichbar.
-        $this->setGroupPermissions($admin, $publicGroupId, [
-            'horses' => ['view'],
-            'breeding_stations' => ['view'],
-        ]);
+        $this->setGroupPermissions($admin, $publicGroupId, self::GUEST_DEFAULT_PERMISSIONS);
         $this->assertSame(
             200,
             $guest->get($detailPath)->statusCode,
@@ -304,10 +301,7 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         );
 
         // Wiederherstellen der Standard-Lese-Rechte der Gast-Gruppe.
-        $this->setGroupPermissions($admin, $publicGroupId, [
-            'horses' => ['view'],
-            'breeding_stations' => ['view'],
-        ]);
+        $this->setGroupPermissions($admin, $publicGroupId, self::GUEST_DEFAULT_PERMISSIONS);
     }
 
     /**
@@ -401,10 +395,7 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
 
         // Standard-Lese-Rechte der Gast-Gruppe wiederherstellen, damit nachfolgende
         // Tests (z. B. testGuestGroupPermissionsCanBeModified) unbeeinflusst bleiben.
-        $this->setGroupPermissions($admin, $publicGroupId, [
-            'horses' => ['view'],
-            'breeding_stations' => ['view'],
-        ]);
+        $this->setGroupPermissions($admin, $publicGroupId, self::GUEST_DEFAULT_PERMISSIONS);
     }
 
     /**
@@ -450,10 +441,7 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         $this->assertContains('breeding_stations', $checkedModulesWithView);
 
         // Standard-Lese-Rechte der Gast-Gruppe wiederherstellen.
-        $this->setGroupPermissions($admin, $publicGroupId, [
-            'horses' => ['view'],
-            'breeding_stations' => ['view'],
-        ]);
+        $this->setGroupPermissions($admin, $publicGroupId, self::GUEST_DEFAULT_PERMISSIONS);
     }
 
     /**

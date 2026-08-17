@@ -148,6 +148,14 @@ return [
     // Breeding station detail page
     'station.horses_heading' => '🐴 Horses of this Breeding Station',
     'station.no_horses' => 'No horses of this breeding station are currently listed in the registry.',
+    'field.location' => 'Location',
+    'field.membership_status' => 'Membership status',
+    'person.is_breeder' => 'Breeder',
+    'person.not_found' => 'The requested person does not exist or has been removed from the directory.',
+    'person.horses_heading' => '🐴 Horses of this person',
+    'person.no_horses' => 'No horses of this person are currently listed in the directory.',
+    'person.no_details' => 'No public details are available for this person.',
+    'meta.title_person_detail_suffix' => 'Person',
     'station.not_found' => 'The requested breeding station does not exist or has been removed from the registry.',
     'meta.title_station_detail_suffix' => 'Breeding Station',
 

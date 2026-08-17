@@ -66,10 +66,11 @@ $statusLabels = [
                 <td style="padding: 0.6rem 0; font-weight: 500;"><a href="mailto:<?= htmlspecialchars($station['email']) ?>"><?= htmlspecialchars($station['email']) ?></a></td>
             </tr>
         <?php endif; ?>
-        <?php if (!empty($station['website'])): ?>
+        <?php $stationWebsite = App\Helper\ExternalUrl::hrefOrNull($station['website'] ?? null); ?>
+        <?php if ($stationWebsite !== null): ?>
             <tr>
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🌐 <?= htmlspecialchars(App\I18n\Translator::t('field.website')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><a href="<?= htmlspecialchars($station['website']) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></td>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><a href="<?= htmlspecialchars($stationWebsite) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></td>
             </tr>
         <?php endif; ?>
     </table>

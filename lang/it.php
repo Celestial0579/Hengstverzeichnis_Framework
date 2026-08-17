@@ -151,6 +151,14 @@ return [
     // Pagina di dettaglio della stazione di monta
     'station.horses_heading' => '🐴 Cavalli di questa stazione di monta',
     'station.no_horses' => 'Al momento non ci sono cavalli di questa stazione di monta nel registro.',
+    'field.location' => 'Località',
+    'field.membership_status' => 'Stato di socio',
+    'person.is_breeder' => 'Allevatore',
+    'person.not_found' => 'La persona richiesta non esiste o è stata rimossa dall\'elenco.',
+    'person.horses_heading' => '🐴 Cavalli di questa persona',
+    'person.no_horses' => 'Al momento non risultano cavalli di questa persona.',
+    'person.no_details' => 'Non sono disponibili informazioni pubbliche su questa persona.',
+    'meta.title_person_detail_suffix' => 'Persona',
     'station.not_found' => 'La stazione di monta richiesta non esiste o è stata rimossa dal registro.',
     'meta.title_station_detail_suffix' => 'Stazione di monta',
 

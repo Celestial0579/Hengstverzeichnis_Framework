@@ -76,6 +76,7 @@ $router->get('/horse', [App\Controllers\PublicController::class, 'horseDetail'])
 // KEIN Übergangs-Redirect - er darf nie entfernt werden.
 $router->redirect('/hengst', '/horse');
 $router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
+$router->get('/person', [App\Controllers\PublicController::class, 'personDetail']); // Requires ?id= (#293)
 
 // Pferdefotos ueber PHP statt als statische Datei (#262): setzt
 // Cross-Origin-Resource-Policy und die Referer-Pruefung durch und wendet

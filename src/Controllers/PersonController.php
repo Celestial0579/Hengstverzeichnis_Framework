@@ -23,9 +23,13 @@ class PersonController extends BaseController {
 
         $db = Database::getInstance();
         $sql = "
-            SELECT p.*, COUNT(hp.id) as horse_count
+            SELECT p.*, COUNT(h.id) as horse_count
             FROM persons p
+            -- Geloeschte Pferde nicht mitzaehlen: Die Zahl neben der Person
+            -- war bisher eine Obermenge der tatsaechlich sichtbaren
+            -- Zuordnungen (#296, Nebenbefund).
             LEFT JOIN horse_persons hp ON hp.person_id = p.id
+            LEFT JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL
             WHERE p.deleted_at IS NULL{$publishedSql}
             GROUP BY p.id
             ORDER BY p.name ASC
@@ -122,8 +126,11 @@ class PersonController extends BaseController {
         $db = Database::getInstance();
         $structuredColumns = implode(', ', self::STRUCTURED_FIELDS);
         $structuredPlaceholders = implode(', ', array_fill(0, count(self::STRUCTURED_FIELDS), '?'));
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?)");
-        $stmt->execute([$name, $contact_info, ...array_values($fields), $isPublished]);
+        // is_breeder ist ein Schalter, kein Freitext, und die Spalte ist NOT
+        // NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
+        $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_breeder, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?, ?)");
+        $stmt->execute([$name, $contact_info, ...array_values($fields), $isBreeder, $isPublished]);
         $newPersonId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Person angelegt", "persons", "Person ID {$newPersonId}: {$name}");
@@ -151,9 +158,18 @@ class PersonController extends BaseController {
             exit;
         }
 
+        // Weich geloeschte Personen werden bewusst WEITER ANGEZEIGT, aber nicht
+        // mehr gespeichert (#296). Ein Filter schon hier waere der naheliegende,
+        // aber falsche Fix: admin_gdpr.php verlinkt genau auf diese Route, und
+        // die DSGVO-Suche nimmt geloeschte Treffer ausdruecklich mit (siehe
+        // GdprController: wer Loeschung verlangt, hat Anspruch auch auf weich
+        // geloeschte Daten). Wer den Datensatz nicht mehr oeffnen kann, kann
+        // auch nicht pruefen, was noch drinsteht - genau die Luecke, die dort
+        // vermieden werden soll. Das Schreiben verhindert update().
         $this->render('admin_person_form', [
             'title' => 'Person bearbeiten',
             'person' => $person,
+            'isDeleted' => $person['deleted_at'] !== null,
             'canPublish' => $this->hasPermission('persons', 'publish')
         ]);
     }
@@ -180,7 +196,14 @@ class PersonController extends BaseController {
             $this->render('admin_person_form', [
                 'title' => 'Person bearbeiten',
                 'person' => array_merge(
-                    ['id' => $id, 'name' => $name, 'contact_info' => $contact_info, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                    [
+                        'id' => $id,
+                        'name' => $name,
+                        'contact_info' => $contact_info,
+                        'is_published' => !empty($_POST['is_published']) ? 1 : 0,
+                        // Sonst verlöre ein Validierungsfehler das Häkchen.
+                        'is_breeder' => !empty($_POST['is_breeder']) ? 1 : 0,
+                    ],
                     $fields
                 ),
                 'error' => 'Der Name der Person ist erforderlich.',
@@ -195,13 +218,34 @@ class PersonController extends BaseController {
         $structuredSql = implode(', ', array_map(fn($f) => "{$f} = ?", self::STRUCTURED_FIELDS));
         $structuredValues = array_values($fields);
         $db = Database::getInstance();
+        // Schreibschutz fuer den Papierkorb (#296): Ein Datensatz, der aus der
+        // Oberflaeche verschwunden ist, darf nicht ueber einen alten Link oder
+        // ein Lesezeichen weiter bearbeitet werden - er bliebe geloescht und
+        // bekaeme trotzdem neue Werte, ohne dass jemand es merkt. Dasselbe
+        // Muster wie beim Bulk-Publish darueber.
+        //
+        // is_breeder (#293) ist ein Schalter, kein Freitext, und die Spalte ist
+        // NOT NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
+        $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
         if ($this->hasPermission('persons', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_published = ? WHERE id = ?");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $isPublished, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ?, is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $isPublished, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql} WHERE id = ?");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $id]);
+        }
+
+        // Keine betroffene Zeile heisst: Der Datensatz liegt im Papierkorb.
+        // Nicht als Erfolg melden - sonst glaubt der Bearbeiter, gespeichert zu
+        // haben.
+        if ($stmt->rowCount() === 0) {
+            $stillDeleted = $db->prepare("SELECT 1 FROM persons WHERE id = ? AND deleted_at IS NOT NULL");
+            $stillDeleted->execute([$id]);
+            if ($stillDeleted->fetchColumn()) {
+                header("Location: /admin/persons?error=deleted");
+                exit;
+            }
         }
 
         \App\Service\AuditLogger::log("Person aktualisiert", "persons", "Person ID {$id}: {$name}");
@@ -218,7 +262,8 @@ class PersonController extends BaseController {
      * zu ergänzen hätte still funktioniert und beim Speichern Daten verloren.
      */
     private const STRUCTURED_FIELDS = [
-        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email', 'membership_status'
+        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email',
+        'phone', 'mobile', 'website', 'membership_status'
     ];
 
     /**

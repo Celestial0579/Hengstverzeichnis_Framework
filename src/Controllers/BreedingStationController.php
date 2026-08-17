@@ -186,6 +186,8 @@ class BreedingStationController extends BaseController {
         $this->render('admin_breeding_station_form', [
             'title' => 'Deckstation bearbeiten',
             'station' => $station,
+            // Siehe PersonController::edit() - anzeigen ja, speichern nein.
+            'isDeleted' => ($station['deleted_at'] ?? null) !== null,
             'canPublish' => $this->hasPermission('breeding_stations', 'publish')
         ]);
     }
@@ -234,19 +236,22 @@ class BreedingStationController extends BaseController {
         $db = Database::getInstance();
         $addressSql = implode(', ', array_map(fn($field) => "{$field} = ?", self::ADDRESS_FIELDS));
         $addressValues = array_values($addressFields);
+        // Schreibschutz fuer den Papierkorb, wie bei Personen (#296): Ein aus
+        // der Oberflaeche verschwundener Datensatz darf nicht ueber einen alten
+        // Link weiter bearbeitet werden.
         if ($this->hasPermission('breeding_stations', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
             $stmt = $db->prepare("
                 UPDATE breeding_stations
                 SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?, is_published = ?
-                WHERE id = ?
+                WHERE id = ? AND deleted_at IS NULL
             ");
             $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $isPublished, $id]);
         } else {
             $stmt = $db->prepare("
                 UPDATE breeding_stations
                 SET name = ?, contact_person = ?, {$addressSql}, address = ?, phone = ?, email = ?, website = ?
-                WHERE id = ?
+                WHERE id = ? AND deleted_at IS NULL
             ");
             $stmt->execute([$name, $contactPerson, ...$addressValues, $address, $phone, $email, $website, $id]);
         }

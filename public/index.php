@@ -179,6 +179,9 @@ $router->post('/admin/persons/store', [App\Controllers\PersonController::class, 
 $router->get('/admin/persons/edit', [App\Controllers\PersonController::class, 'edit']);
 $router->post('/admin/persons/update', [App\Controllers\PersonController::class, 'update']);
 $router->post('/admin/persons/delete', [App\Controllers\PersonController::class, 'delete']);
+// Personendubletten zusammenfuehren (#297)
+$router->get('/admin/persons/merge', [App\Controllers\PersonController::class, 'mergeForm']);
+$router->post('/admin/persons/merge', [App\Controllers\PersonController::class, 'merge']);
 $router->post('/admin/persons/publish', [App\Controllers\PersonController::class, 'bulkPublish']);
 
 // Admin Breeding Station Routes (Gestüte / Deckstationen)

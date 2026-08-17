@@ -30,6 +30,16 @@ $publishFormId = 'personPublishForm';
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['error'] ?? '') === 'merge_invalid'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Nicht zusammengeführt: Quelle oder Ziel existiert nicht (mehr) oder beide sind derselbe Datensatz.
+        </div>
+    <?php elseif (($_GET['error'] ?? '') === 'merge_failed'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Zusammenführen fehlgeschlagen - es wurde nichts geändert.
+        </div>
+    <?php endif; ?>
+
     <?php if (($_GET['error'] ?? '') === 'deleted'): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             Nicht gespeichert: Der Datensatz liegt im Papierkorb (#296). Zum
@@ -100,6 +110,10 @@ $publishFormId = 'personPublishForm';
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">
                             <?php if ($canEdit): ?>
                                 <a href="/admin/persons/edit?id=<?= $p['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
+                                <?php if ($canDelete): ?>
+                                    <?php // Zusammenfuehren legt einen Datensatz still - deshalb am Loeschrecht (#297). ?>
+                                    <a href="/admin/persons/merge?id=<?= $p['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;" title="Diese Person mit einer anderen zusammenführen">Zusammenführen</a>
+                                <?php endif; ?>
                             <?php endif; ?>
                             <?php if ($canDelete): ?>
                                 <form action="/admin/persons/delete" method="POST" data-confirm="Möchten Sie diese Person wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben." style="display:inline;">

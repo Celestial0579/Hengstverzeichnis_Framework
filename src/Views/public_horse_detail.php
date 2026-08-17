@@ -378,7 +378,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                 <?php if ($countryFlag !== null): ?>
                                     <span title="<?= htmlspecialchars((string)$hp['country']) ?>"><?= $countryFlag ?></span>
                                 <?php endif; ?>
-                            <?php else: ?>
+                            <?php elseif ($stationDisplayName !== ''): ?>
                                 <strong>
                                     <?php if (!empty($hp['station_id'])): ?>
                                         <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
@@ -388,6 +388,22 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                                         🏠 <?= htmlspecialchars($stationDisplayName) ?>
                                     <?php endif; ?>
                                 </strong>
+                            <?php elseif (!empty($hp['origin_country'])): ?>
+                                <?php
+                                    // Person unbekannt, Herkunft bekannt (#294).
+                                    // Bewusst ohne Namen: Hier steht kein Mensch,
+                                    // und genau deshalb gibt es diese Zeile - der
+                                    // Altbestand musste sich sonst mit einer
+                                    // Platzhalter-Person behelfen, die dann als
+                                    // echter Zuechtername im Katalog erschien.
+                                    $originFlag = App\Helper\CountryFlag::emoji($hp['origin_country']);
+                                ?>
+                                <strong style="color: var(--text-muted);">
+                                    <?= htmlspecialchars(App\I18n\Translator::t('horse.person_unknown')) ?>
+                                </strong>
+                                <span style="color: var(--text-muted);">
+                                    (<?= htmlspecialchars((string)$hp['origin_country']) ?><?php if ($originFlag !== null): ?> <span title="<?= htmlspecialchars((string)$hp['origin_country']) ?>"><?= $originFlag ?></span><?php endif; ?>)
+                                </span>
                             <?php endif; ?>
                         </div>
                         <span style="background: <?= $roleMeta[1] ?>; color: #fff; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: bold;">

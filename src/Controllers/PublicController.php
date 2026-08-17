@@ -477,7 +477,11 @@ class PublicController extends BaseController {
         // Zeilen, deren Person/Station nach den Sichtbarkeitsfiltern komplett
         // weggefallen ist, gar nicht erst an die View geben (leere Einträge).
         $horsePersons = array_values(array_filter($horsePersons, function ($hp) {
-            return !empty($hp['person_name']) || !empty($hp['station_name']) || !empty($hp['breeding_station_text']);
+            // origin_country (#294) haelt eine Zeile ebenfalls am Leben: "Zuechter
+            // unbekannt, kam aus Norwegen" ist eine Aussage, keine leere Zeile -
+            // ohne diese Bedingung fiele sie hier still heraus.
+            return !empty($hp['person_name']) || !empty($hp['station_name'])
+                || !empty($hp['breeding_station_text']) || !empty($hp['origin_country']);
         }));
 
         // Weitere Lebensnummern (#246): Anzeige aus der Kindtabelle; für

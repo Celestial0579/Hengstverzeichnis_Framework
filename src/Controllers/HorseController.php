@@ -985,7 +985,7 @@ class HorseController extends BaseController {
         // Formularindizes in dieser Reihenfolge. Sie greift ohnehin nur dort, wo
         // der Schluessel im Request FEHLT - ein uebermittelter Leerstring
         // loescht weiterhin bewusst.
-        $snapshotSql = "SELECT person_id, role, breeding_station_id, breeding_station_text, from_year, until_year
+        $snapshotSql = "SELECT person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year
                         FROM horse_persons WHERE horse_id = ? ORDER BY id ASC";
         $stmt = $db->prepare($snapshotSql);
         $stmt->execute([$horseId]);
@@ -996,7 +996,7 @@ class HorseController extends BaseController {
         $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
         $stmt->execute([$horseId]);
 
-        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
         $validRoles = ['breeder', 'owner', 'keeper'];
 
@@ -1019,6 +1019,12 @@ class HorseController extends BaseController {
             // komplette Zeile. maxlength im Formular ist nur clientseitig.
             if (mb_strlen($stationText) > 255) {
                 $stationText = mb_substr($stationText, 0, 255);
+            }
+            // Herkunftsland ohne bekannte Person (#294) - siehe die
+            // Gueltigkeitsregel unten. Freitext wie persons.country.
+            $originCountry = trim((string)($item['origin_country'] ?? ''));
+            if (mb_strlen($originCountry) > 100) {
+                $originCountry = mb_substr($originCountry, 0, 100);
             }
 
             // Breeders do not have a time period!
@@ -1053,10 +1059,15 @@ class HorseController extends BaseController {
             // Validation: Row must have a valid Role/Type AND at least one of Person OR Breeding Station (2 of the fields)
             $hasPerson = !empty($personId);
             $hasStation = !empty($stationId) || !empty($stationText);
+            // Dritte Alternative (#294): Ist die Person unbekannt, aber ihre
+            // Herkunft bekannt, ist das eine vollwertige Aussage - und der
+            // einzige Weg, sie OHNE eine Platzhalter-Person in der PII-Tabelle
+            // persons festzuhalten.
+            $hasOrigin = $originCountry !== '';
             $hasValidRole = in_array($role, $validRoles, true);
 
-            if ($hasValidRole && ($hasPerson || $hasStation)) {
-                $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $fromYear, $untilYear]);
+            if ($hasValidRole && ($hasPerson || $hasStation || $hasOrigin)) {
+                $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $originCountry ?: null, $fromYear, $untilYear]);
             }
         }
 

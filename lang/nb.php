@@ -159,6 +159,7 @@ return [
     'person.no_horses' => 'Det er for tiden ingen hester registrert på denne personen.',
     'person.no_details' => 'Det finnes ingen offentlige opplysninger om denne personen.',
     'meta.title_person_detail_suffix' => 'Person',
+    'horse.person_unknown' => 'Oppdretter/eier ukjent',
     'station.not_found' => 'Hingstestasjonen du ba om, finnes ikke eller er fjernet fra registeret.',
     'meta.title_station_detail_suffix' => 'Hingstestasjon',
 

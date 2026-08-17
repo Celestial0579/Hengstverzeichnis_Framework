@@ -164,6 +164,7 @@ return [
     'person.no_horses' => 'Aktuell sinn keng Päerd vun dëser Persoun am Verzeechnes.',
     'person.no_details' => 'Zu dëser Persoun sinn keng ëffentlech Angaben hannerluecht.',
     'meta.title_person_detail_suffix' => 'Persoun',
+    'horse.person_unknown' => 'Ziichter/Besëtzer onbekannt',
     'station.not_found' => 'Déi ugefrot Deckstatioun existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
     'meta.title_station_detail_suffix' => 'Deckstatioun',
 

@@ -230,6 +230,16 @@ CREATE TABLE IF NOT EXISTS `horse_persons` (
     `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
     `breeding_station_id` INT NULL,
     `breeding_station_text` VARCHAR(255) NULL,
+    -- Herkunftsland einer Zuordnung OHNE bekannte Person (#294). Das
+    -- Altsystem kannte die Aussage "der Zuechter ist nicht bekannt, aber er
+    -- kam aus Norwegen"; ohne dieses Feld muss dafuer eine Platzhalter-Person
+    -- in der PII-Tabelle persons angelegt werden, die dann als echter
+    -- Zuechtername im Katalog erscheint und durch DSGVO- und
+    -- Papierkorb-Mechanik laeuft.
+    --
+    -- Gehoert zur ZEILE, nicht zur Person: kein personenbezogenes Datum,
+    -- deshalb oeffentlich. Freitext wie persons.country, auch Kuerzel wie 'NO'.
+    `origin_country` VARCHAR(100) NULL DEFAULT NULL,
     `from_year` SMALLINT UNSIGNED NULL,
     `until_year` SMALLINT UNSIGNED NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -156,6 +156,7 @@ return [
     'person.no_horses' => 'No horses of this person are currently listed in the directory.',
     'person.no_details' => 'No public details are available for this person.',
     'meta.title_person_detail_suffix' => 'Person',
+    'horse.person_unknown' => 'Breeder/owner unknown',
     'station.not_found' => 'The requested breeding station does not exist or has been removed from the registry.',
     'meta.title_station_detail_suffix' => 'Breeding Station',
 

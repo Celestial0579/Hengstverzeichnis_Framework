@@ -52,14 +52,21 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
 CREATE TABLE IF NOT EXISTS `persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(100) NOT NULL,
-    -- Freitext-Restfeld (z. B. Telefon); Adresse/E-Mail seit #188 strukturiert.
+    -- Freitext-Restfeld für alles, wofür es keine Spalte gibt. Adresse/E-Mail
+    -- seit #188 strukturiert, Telefon/Mobil/Website seit #293. AUSSCHLIESSLICH
+    -- Admin-only: Bis #293 wurde dieses Feld öffentlich gerendert, obwohl das
+    -- Formular ausdrücklich zu Telefonnummern einlud - also genau die Art
+    -- Angabe, die laut Trennlinie unten intern gehört.
     `contact_info` TEXT,
-    -- Strukturierte Adresse (#188, state seit #256). Öffentlich (und im
-    -- Hook-Payload) erscheinen NUR city, state, country und membership_status -
-    -- street/house_number/postal_code/email bleiben Admin-only (siehe
+    -- Strukturierte Adresse (#188, state seit #256, Kontaktfelder seit #293).
+    -- Öffentlich (und im Hook-Payload) erscheinen NUR city, state, country,
+    -- membership_status und website - street/house_number/postal_code/email/
+    -- phone/mobile/contact_info bleiben Admin-only (siehe
     -- PublicController::horseDetail und docs/plugin-development.md). Die
     -- Trennlinie ist nicht "wenige Felder", sondern: zustellbare Angaben sind
-    -- intern, grobe geografische Verortung ist öffentlich.
+    -- intern, grobe geografische Verortung ist öffentlich. Eine Website ist
+    -- zur Veröffentlichung bestimmt und deshalb öffentlich, eine Telefonnummer
+    -- ist zustellbar wie eine E-Mail-Adresse und deshalb intern.
     -- Die DSGVO-Anonymisierung nullt alle Felder.
     `street` VARCHAR(150) NULL DEFAULT NULL,
     `house_number` VARCHAR(20) NULL DEFAULT NULL,
@@ -71,16 +78,41 @@ CREATE TABLE IF NOT EXISTS `persons` (
     -- Freitext, auch Länderkürzel wie 'NO' (Altsystem-Konvention).
     `country` VARCHAR(100) NULL DEFAULT NULL,
     `email` VARCHAR(100) NULL DEFAULT NULL,
+    -- Kontaktfelder analog breeding_stations (#293). phone/mobile sind
+    -- zustellbar und damit intern, website ist zur Veröffentlichung bestimmt
+    -- und damit öffentlich - siehe die Trennlinie oben. Freitext ohne
+    -- Formatprüfung, wie bei breeding_stations.
+    `phone` VARCHAR(50) NULL DEFAULT NULL,
+    `mobile` VARCHAR(50) NULL DEFAULT NULL,
+    `website` VARCHAR(255) NULL DEFAULT NULL,
     -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
     -- (z. B. 'Mitglied', 'Nichtmitglied NO').
     `membership_status` VARCHAR(100) NULL DEFAULT NULL,
+    -- Kennzeichen "diese Person züchtet" - eine redaktionell gepflegte
+    -- Eigenschaft der Person und ausdrücklich NICHT aus
+    -- horse_persons.role='breeder' abgeleitet.
+    --
+    -- Beide Richtungen der Ableitung wären falsch: Wer noch kein Pferd im
+    -- Verzeichnis hat, wäre nicht auffindbar, obwohl er züchtet. Und wer
+    -- früher gezüchtet hat, bliebe dauerhaft als Züchter markiert - die alten
+    -- Zuordnungen verschwinden ja nicht, sie sind Historie (mit from_year/
+    -- until_year). Das Kennzeichen sagt "züchtet heute", die Zuordnungen sagen
+    -- "hat dieses Pferd gezüchtet"; das sind verschiedene Aussagen, und nur
+    -- die erste kann sich ändern, ohne dass Daten falsch würden.
+    --
+    -- Grundlage für eine spätere Zucht-Suche (Züchter und Deckstationen
+    -- nebeneinander) - deshalb öffentlich wie membership_status und mit Index
+    -- für die Filterung.
+    `is_breeder` TINYINT(1) NOT NULL DEFAULT 0,
     -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
     -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
     -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
     `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL,
-    INDEX `idx_persons_deleted_name` (`deleted_at`, `name`)
+    INDEX `idx_persons_deleted_name` (`deleted_at`, `name`),
+    -- Fuer die Zucht-Suche (#293): Zuechter je Ort/Land filtern.
+    INDEX `idx_persons_is_breeder` (`is_breeder`, `is_published`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Breeding Stations (Deckstationen / Gestüte)
@@ -198,6 +230,16 @@ CREATE TABLE IF NOT EXISTS `horse_persons` (
     `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
     `breeding_station_id` INT NULL,
     `breeding_station_text` VARCHAR(255) NULL,
+    -- Herkunftsland einer Zuordnung OHNE bekannte Person (#294). Das
+    -- Altsystem kannte die Aussage "der Zuechter ist nicht bekannt, aber er
+    -- kam aus Norwegen"; ohne dieses Feld muss dafuer eine Platzhalter-Person
+    -- in der PII-Tabelle persons angelegt werden, die dann als echter
+    -- Zuechtername im Katalog erscheint und durch DSGVO- und
+    -- Papierkorb-Mechanik laeuft.
+    --
+    -- Gehoert zur ZEILE, nicht zur Person: kein personenbezogenes Datum,
+    -- deshalb oeffentlich. Freitext wie persons.country, auch Kuerzel wie 'NO'.
+    `origin_country` VARCHAR(100) NULL DEFAULT NULL,
     `from_year` SMALLINT UNSIGNED NULL,
     `until_year` SMALLINT UNSIGNED NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -364,7 +406,15 @@ INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
 SELECT `id`, `module`, `action` FROM `groups`
 CROSS JOIN (
     SELECT 'horses' AS `module`, 'view' AS `action` UNION ALL
-    SELECT 'breeding_stations', 'view'
+    SELECT 'breeding_stations', 'view' UNION ALL
+    -- persons.view seit #293: Grundlage der öffentlichen Personenseite
+    -- (/person), auf die die Pferde-Detailseite verweist - dieselbe Rolle, die
+    -- breeding_stations.view für /station spielt. Neue Daten entstehen dadurch
+    -- nicht: Gezeigt werden ausschließlich die Felder, die auf der
+    -- Pferdeseite ohnehin schon öffentlich sind (Ort, Bundesland, Land,
+    -- Mitgliedsstatus) plus die dafür vorgesehene Website. Wer die Seite nicht
+    -- will, nimmt der Gruppe `public` das Recht wieder weg.
+    SELECT 'persons', 'view'
 ) AS `guest_defaults`
 WHERE `groups`.`slug` = 'public';
 

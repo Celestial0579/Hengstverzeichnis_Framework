@@ -389,12 +389,25 @@ wird in den drei Fällen oben ebenfalls auf `null` gesetzt; ohne
 immer erhalten.
 
 **`$horsePersons`** enthält die Zeilen aus `horse_persons` (`role`, `from_year`,
-`until_year`, `breeding_station_id`, `breeding_station_text`) plus `person_name`,
-`contact_info`, `city`, `state`, `country`, `membership_status`, `station_name`,
-`station_id`. Von den strukturierten Personenfeldern (#188, `state` seit #256)
-sind das **bewusst die einzigen vier** im Payload: `email`, `street`,
-`house_number` und `postal_code` werden nie mitgeliefert — sie sind Admin-only,
-und ein Plugin darf sie auch nicht per eigener Abfrage öffentlich machen.
+`until_year`, `breeding_station_id`, `breeding_station_text`, `origin_country`) plus `person_name`,
+`city`, `state`, `country`, `membership_status`, `website`, `station_name`,
+`station_id`. Von den Personenfeldern (#188, `state` seit #256, Kontaktfelder
+seit #293) sind das **bewusst die einzigen fünf** im Payload: `email`, `phone`,
+`mobile`, `street`, `house_number`, `postal_code` und das Freitextfeld
+`contact_info` werden nie mitgeliefert — sie sind Admin-only, und ein Plugin
+darf sie auch nicht per eigener Abfrage öffentlich machen.
+
+> **Änderung in 0.6.0 (#293):** `contact_info` ist aus dem Payload **entfallen**,
+> `website` ist neu hinzugekommen. Das Freitextfeld wurde bis dahin öffentlich
+> ausgegeben, obwohl das Admin-Formular ausdrücklich zu Telefonnummern darin
+> einlud — also zu genau den zustellbaren Angaben, die nach der Trennlinie unten
+> intern gehören. Plugins, die `contact_info` aus dem Payload lesen, müssen
+> angepasst werden; einen Ersatz gibt es bewusst nicht.
+
+> **Ergänzung in 0.6.0 (#294):** `origin_country` ist neu. Es hält die Aussage
+> „Person unbekannt, Herkunft bekannt" fest und ist damit das einzige Feld
+> einer Zeile, die weder Person noch Deckstation trägt. Es gehört zur **Zeile**,
+> nicht zur Person, ist also kein personenbezogenes Datum und öffentlich.
 
 Die Trennlinie ist dabei nicht die Feldanzahl, sondern die Art der Angabe: Was
 eine Sendung zustellbar macht, bleibt intern; die grobe geografische Verortung
@@ -405,7 +418,7 @@ Geschäftsadresse ist und keine Privatperson.
 
 Dabei gilt:
 
-- `person_name`/`contact_info`/`city`/`state`/`country`/`membership_status` sind `null`,
+- `person_name`/`city`/`state`/`country`/`membership_status`/`website` sind `null`,
   wenn die Person unveröffentlicht oder gelöscht ist (#121);
 - `station_name`/`station_id` sind `null`, wenn die Station unveröffentlicht oder
   gelöscht ist (#122);

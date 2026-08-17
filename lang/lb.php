@@ -156,6 +156,15 @@ return [
     // Deckstatioun-Detailsäit
     'station.horses_heading' => '🐴 Päerd vun dëser Deckstatioun',
     'station.no_horses' => 'Momentan si keng Päerd vun dëser Deckstatioun am Verzeechnes hannerluecht.',
+    'field.location' => 'Uert',
+    'field.membership_status' => 'Memberstatus',
+    'person.is_breeder' => 'Ziichter',
+    'person.not_found' => 'Déi ugefrote Persoun existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
+    'person.horses_heading' => '🐴 Päerd vun dëser Persoun',
+    'person.no_horses' => 'Aktuell sinn keng Päerd vun dëser Persoun am Verzeechnes.',
+    'person.no_details' => 'Zu dëser Persoun sinn keng ëffentlech Angaben hannerluecht.',
+    'meta.title_person_detail_suffix' => 'Persoun',
+    'horse.person_unknown' => 'Ziichter/Besëtzer onbekannt',
     'station.not_found' => 'Déi ugefrot Deckstatioun existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
     'meta.title_station_detail_suffix' => 'Deckstatioun',
 

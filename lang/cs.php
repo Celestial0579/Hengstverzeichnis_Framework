@@ -151,6 +151,15 @@ return [
     // Detailní stránka připouštěcí stanice
     'station.horses_heading' => '🐴 Koně této připouštěcí stanice',
     'station.no_horses' => 'V rejstříku nejsou momentálně vedeni žádní koně této připouštěcí stanice.',
+    'field.location' => 'Místo',
+    'field.membership_status' => 'Členský status',
+    'person.is_breeder' => 'Chovatel',
+    'person.not_found' => 'Požadovaná osoba neexistuje nebo byla z adresáře odstraněna.',
+    'person.horses_heading' => '🐴 Koně této osoby',
+    'person.no_horses' => 'U této osoby nejsou aktuálně evidováni žádní koně.',
+    'person.no_details' => 'K této osobě nejsou k dispozici žádné veřejné údaje.',
+    'meta.title_person_detail_suffix' => 'Osoba',
+    'horse.person_unknown' => 'Chovatel/majitel neznámý',
     'station.not_found' => 'Požadovaná připouštěcí stanice neexistuje nebo byla z rejstříku odstraněna.',
     'meta.title_station_detail_suffix' => 'Připouštěcí stanice',
 

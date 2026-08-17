@@ -151,6 +151,15 @@ return [
     // Strona szczegółów stacji ogierów
     'station.horses_heading' => '🐴 Konie tej stacji ogierów',
     'station.no_horses' => 'Obecnie w rejestrze nie ma koni tej stacji ogierów.',
+    'field.location' => 'Miejscowość',
+    'field.membership_status' => 'Status członkowski',
+    'person.is_breeder' => 'Hodowca',
+    'person.not_found' => 'Żądana osoba nie istnieje lub została usunięta z katalogu.',
+    'person.horses_heading' => '🐴 Konie tej osoby',
+    'person.no_horses' => 'Obecnie nie ma koni przypisanych do tej osoby.',
+    'person.no_details' => 'Brak publicznych informacji o tej osobie.',
+    'meta.title_person_detail_suffix' => 'Osoba',
+    'horse.person_unknown' => 'Hodowca/właściciel nieznany',
     'station.not_found' => 'Żądana stacja ogierów nie istnieje lub została usunięta z rejestru.',
     'meta.title_station_detail_suffix' => 'Stacja ogierów',
 

@@ -151,6 +151,15 @@ return [
     // Oriaseman tietosivu
     'station.horses_heading' => '🐴 Tämän oriaseman hevoset',
     'station.no_horses' => 'Tämän oriaseman hevosia ei ole tällä hetkellä rekisterissä.',
+    'field.location' => 'Paikkakunta',
+    'field.membership_status' => 'Jäsenyystila',
+    'person.is_breeder' => 'Kasvattaja',
+    'person.not_found' => 'Pyydettyä henkilöä ei ole tai hänet on poistettu hakemistosta.',
+    'person.horses_heading' => '🐴 Tämän henkilön hevoset',
+    'person.no_horses' => 'Tälle henkilölle ei ole tällä hetkellä merkitty hevosia.',
+    'person.no_details' => 'Tästä henkilöstä ei ole julkisia tietoja.',
+    'meta.title_person_detail_suffix' => 'Henkilö',
+    'horse.person_unknown' => 'Kasvattaja/omistaja tuntematon',
     'station.not_found' => 'Pyydettyä oriasemaa ei ole olemassa tai se on poistettu rekisteristä.',
     'meta.title_station_detail_suffix' => 'Oriasema',
 

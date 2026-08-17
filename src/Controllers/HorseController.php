@@ -231,8 +231,14 @@ class HorseController extends BaseController {
         $dam_name = $dam_id ? null : (trim($_POST['dam_name'] ?? '') ?: null);
         $dam_ueln = $dam_id ? null : (trim($_POST['dam_ueln'] ?? '') ?: null);
 
-        // Geschlechts-Validierung der Abstammung (#166) - vor dem Bild-Upload,
-        // damit bei Ablehnung keine verwaiste Datei zurückbleibt.
+        // Abstammungs-Validierung (#166 Geschlecht, #298 Widersprüche) - vor
+        // dem Bild-Upload, damit bei Ablehnung keine verwaiste Datei
+        // zurückbleibt.
+        if ($error = $this->pedigreeContradiction($sire_id, $dam_id, $birth_year)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         if ($error = $this->parentSexMismatch($sire_id, $dam_id)) {
             header("Location: /admin/horses?error={$error}");
             exit;
@@ -428,8 +434,14 @@ class HorseController extends BaseController {
         if ($sire_id === (int)$id) $sire_id = null;
         if ($dam_id === (int)$id) $dam_id = null;
 
-        // Geschlechts-Validierung der Abstammung (#166) - vor Bild-Änderungen,
-        // damit bei Ablehnung weder Dateien gelöscht noch verwaiste angelegt werden.
+        // Abstammungs-Validierung (#166 Geschlecht, #298 Widersprüche) - vor
+        // Bild-Änderungen, damit bei Ablehnung weder Dateien gelöscht noch
+        // verwaiste angelegt werden.
+        if ($error = $this->pedigreeContradiction($sire_id, $dam_id, $birth_year)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         if ($error = $this->parentSexMismatch($sire_id, $dam_id)) {
             header("Location: /admin/horses?error={$error}");
             exit;
@@ -565,6 +577,9 @@ class HorseController extends BaseController {
 
         if ($sireId) {
             $stmt->execute([$sireId]);
+            // Nur die Stute ist ausgeschlossen. Ein Wallach als Vater ist
+            // ausdruecklich erlaubt: Ein spaeter kastrierter Hengst wird als
+            // 'gelding' gefuehrt und hat trotzdem gedeckt (#298).
             if ($stmt->fetchColumn() === 'mare') {
                 return 'sex_mismatch_sire';
             }
@@ -574,6 +589,52 @@ class HorseController extends BaseController {
             $sex = $stmt->fetchColumn();
             if ($sex === 'stallion' || $sex === 'gelding') {
                 return 'sex_mismatch_dam';
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Widersprueche in der Abstammung, die beim Speichern nie entstehen
+     * duerfen (#298). Bis dahin pruefte nichts: Erlaubt waren ein Vater, der
+     * juenger ist als sein Fohlen, und dasselbe Pferd als Vater UND Mutter.
+     * Im Altbestand der Dev-Instanz stecken davon zwoelf bzw. ein Fall - sie
+     * stammen aus der Migration, haetten aber genauso ueber das Formular
+     * entstehen koennen.
+     *
+     * Die Schwelle gab es bereits, nur an der falschen Stelle: autoLinkMatches()
+     * verknuepft Freitext-Eltern nur bei plausiblem Elternalter. Beim MANUELLEN
+     * Setzen von sire_id/dam_id griff sie nicht.
+     *
+     * Bewusst nur die harten Widersprueche, keine Altersspanne: Ein Elternteil
+     * darf nicht gleich alt oder juenger sein als sein Nachkomme - das ist
+     * unmoeglich, nicht bloss ungewoehnlich. Die 3-30-Jahre-Spanne aus dem
+     * Auto-Linking bleibt dort, wo sie hingehoert: Sie ist eine Heuristik fuer
+     * "welchen Datensatz meint dieser Freitext", kein Naturgesetz. Frueh oder
+     * spaet deckende Tiere kommen vor, und eine Eingabe abzulehnen, die richtig
+     * sein kann, waere schlimmer als sie zuzulassen.
+     *
+     * Fehlt ein Geburtsjahr, wird nicht geprueft - wie im Auto-Linking auch.
+     */
+    private function pedigreeContradiction(?int $sireId, ?int $damId, ?int $birthYear): ?string {
+        if ($sireId !== null && $damId !== null && $sireId === $damId) {
+            return 'same_sire_and_dam';
+        }
+
+        if ($birthYear === null) {
+            return null;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT birth_year FROM horses WHERE id = ?");
+        foreach (['sire' => $sireId, 'dam' => $damId] as $rolle => $parentId) {
+            if ($parentId === null) {
+                continue;
+            }
+            $stmt->execute([$parentId]);
+            $parentYear = $stmt->fetchColumn();
+            if ($parentYear !== false && $parentYear !== null && (int)$parentYear >= $birthYear) {
+                return $rolle === 'sire' ? 'sire_not_older' : 'dam_not_older';
             }
         }
         return null;
@@ -903,11 +964,39 @@ class HorseController extends BaseController {
      * Save person roles & ownership history in horse_persons table
      */
     private function saveHorsePersons(\PDO $db, int $horseId, array $personsData): void {
+        // Ein Request OHNE persons-Block meint nicht "keine Zuordnungen" - er
+        // meint "dazu sage ich nichts" (Skript-POST, Teilformular). Ohne diese
+        // Unterscheidung loeschte jeder solche Request saemtliche Zuordnungen
+        // des Pferds (#295). Der versteckte Marker persons_present trennt das
+        // vom bewussten Leeren aller Zeilen im Formular - dieselbe Loesung wie
+        // bei registrations_present (#246), siehe saveRegistrations().
+        if (!array_key_exists('persons', $_POST) && !array_key_exists('persons_present', $_POST)) {
+            return;
+        }
+
+        // Bestand VOR dem Loeschen sichern. Grund: Das Formular rendert fuer
+        // breeding_station_text bis #295 kein Feld, der Wert kommt also gar
+        // nicht zurueck - und eine Zeile ohne Person und ohne Stations-ID fiel
+        // damit ersatzlos weg. Betroffen war der gesamte Importbestand, bei dem
+        // die Station nur als Freitext vorliegt.
+        //
+        // Die Zuordnung laeuft ueber die Position: edit() rendert die Zeilen mit
+        // derselben Sortierung (ORDER BY hp.id ASC) und vergibt die
+        // Formularindizes in dieser Reihenfolge. Sie greift ohnehin nur dort, wo
+        // der Schluessel im Request FEHLT - ein uebermittelter Leerstring
+        // loescht weiterhin bewusst.
+        $snapshotSql = "SELECT person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year
+                        FROM horse_persons WHERE horse_id = ? ORDER BY id ASC";
+        $stmt = $db->prepare($snapshotSql);
+        $stmt->execute([$horseId]);
+        $vorher = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $existingTexts = array_column($vorher, 'breeding_station_text');
+
         // Clear existing relations
         $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
         $stmt->execute([$horseId]);
 
-        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
         $validRoles = ['breeder', 'owner', 'keeper'];
 
@@ -915,11 +1004,28 @@ class HorseController extends BaseController {
         $currentStationText = null;
         $highestScore = -1;
 
-        foreach ($personsData as $item) {
+        foreach ($personsData as $index => $item) {
             $personId = !empty($item['person_id']) ? (int)$item['person_id'] : null;
             $role = $item['role'] ?? 'owner';
             $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
-            $stationText = trim($item['breeding_station_text'] ?? '');
+            // Fehlender Schluessel erhaelt den Bestand, uebermittelter
+            // Leerstring loescht - dieselbe Unterscheidung wie beim COALESCE
+            // fuer horses.breeding_station in update() (#214).
+            $stationText = array_key_exists('breeding_station_text', $item)
+                ? trim((string)$item['breeding_station_text'])
+                : trim((string)($existingTexts[$index] ?? ''));
+            // Die Spalte ist VARCHAR(255); ein laengerer Text braeche im Strict
+            // Mode den ganzen Speichervorgang ab, und Verwerfen kostete die
+            // komplette Zeile. maxlength im Formular ist nur clientseitig.
+            if (mb_strlen($stationText) > 255) {
+                $stationText = mb_substr($stationText, 0, 255);
+            }
+            // Herkunftsland ohne bekannte Person (#294) - siehe die
+            // Gueltigkeitsregel unten. Freitext wie persons.country.
+            $originCountry = trim((string)($item['origin_country'] ?? ''));
+            if (mb_strlen($originCountry) > 100) {
+                $originCountry = mb_substr($originCountry, 0, 100);
+            }
 
             // Breeders do not have a time period!
             if ($role === 'breeder') {
@@ -953,11 +1059,31 @@ class HorseController extends BaseController {
             // Validation: Row must have a valid Role/Type AND at least one of Person OR Breeding Station (2 of the fields)
             $hasPerson = !empty($personId);
             $hasStation = !empty($stationId) || !empty($stationText);
+            // Dritte Alternative (#294): Ist die Person unbekannt, aber ihre
+            // Herkunft bekannt, ist das eine vollwertige Aussage - und der
+            // einzige Weg, sie OHNE eine Platzhalter-Person in der PII-Tabelle
+            // persons festzuhalten.
+            $hasOrigin = $originCountry !== '';
             $hasValidRole = in_array($role, $validRoles, true);
 
-            if ($hasValidRole && ($hasPerson || $hasStation)) {
-                $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $fromYear, $untilYear]);
+            if ($hasValidRole && ($hasPerson || $hasStation || $hasOrigin)) {
+                $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $originCountry ?: null, $fromYear, $untilYear]);
             }
+        }
+
+        // Zuordnungsaenderungen protokollieren. Bis #295 lief dieser Vorgang
+        // spurlos - er konnte Zeilen vernichten, ohne dass danach irgendwo
+        // stand, dass es sie gab. Nur bei tatsaechlicher Aenderung, sonst
+        // erzeugte jedes Speichern ohne Aenderung eine Zeile.
+        $stmt = $db->prepare($snapshotSql);
+        $stmt->execute([$horseId]);
+        $nachher = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        if ($vorher !== $nachher) {
+            \App\Service\AuditLogger::log(
+                "Pferdezuordnungen geändert",
+                "horses",
+                "Pferd ID {$horseId}: " . count($vorher) . " -> " . count($nachher) . " Zuordnungen"
+            );
         }
 
         // Aktuelle/letzte aktive Deckstation auf den Pferde-Hauptdatensatz

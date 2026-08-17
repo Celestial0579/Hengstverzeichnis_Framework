@@ -443,19 +443,28 @@ class PublicController extends BaseController {
         // Fetch ownership history, person roles and associated breeding stations/studs.
         // Nur veröffentlichte Personen/Stationen (#121/#122) - unveröffentlichte
         // Namen und Kontaktdaten dürfen auf der öffentlichen Seite nicht erscheinen.
-        // Von den strukturierten Personenfeldern (#188, state seit #256) werden
-        // bewusst NUR city/state/country/membership_status selektiert -
-        // email/street/house_number/postal_code bleiben Admin-only und erreichen
-        // weder die View noch den horse.detail_sections-Hook (siehe
+        // Von den strukturierten Personenfeldern (#188, state seit #256,
+        // Kontaktfelder seit #293) werden bewusst NUR
+        // city/state/country/membership_status/website selektiert -
+        // email/phone/mobile/street/house_number/postal_code und das
+        // Freitextfeld contact_info bleiben Admin-only und erreichen weder die
+        // View noch den horse.detail_sections-Hook (siehe
         // docs/plugin-development.md).
         //
         // Die Trennlinie ist nicht die Feldanzahl, sondern die Art der Angabe:
         // Was eine Sendung zustellbar macht, bleibt intern; die grobe
         // geografische Verortung ist öffentlich. Ein Bundesland ist gröber als
         // der ohnehin sichtbare Ort - es zu verbergen wäre inkonsistent und
-        // zudem wirkungslos, weil es aus dem Ort folgt.
+        // zudem wirkungslos, weil es aus dem Ort folgt. Eine Website ist zur
+        // Veröffentlichung bestimmt und daher öffentlich.
+        //
+        // contact_info stand bis #293 in dieser Liste, obwohl das Feld im
+        // Admin-Formular ausdrücklich für Telefonnummern angeboten wird - also
+        // für zustellbare Angaben, die nach derselben Trennlinie intern
+        // gehören. Geschützt hat davor allein is_published; sobald eine
+        // Redaktion eine Person freigab, stand die Nummer öffentlich.
         $stmt = $db->prepare("
-            SELECT hp.*, p.name as person_name, p.contact_info, p.city, p.state, p.country, p.membership_status, bs.name as station_name, bs.id as station_id
+            SELECT hp.*, p.name as person_name, p.city, p.state, p.country, p.membership_status, p.website, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
             LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
             LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
@@ -468,7 +477,11 @@ class PublicController extends BaseController {
         // Zeilen, deren Person/Station nach den Sichtbarkeitsfiltern komplett
         // weggefallen ist, gar nicht erst an die View geben (leere Einträge).
         $horsePersons = array_values(array_filter($horsePersons, function ($hp) {
-            return !empty($hp['person_name']) || !empty($hp['station_name']) || !empty($hp['breeding_station_text']);
+            // origin_country (#294) haelt eine Zeile ebenfalls am Leben: "Zuechter
+            // unbekannt, kam aus Norwegen" ist eine Aussage, keine leere Zeile -
+            // ohne diese Bedingung fiele sie hier still heraus.
+            return !empty($hp['person_name']) || !empty($hp['station_name'])
+                || !empty($hp['breeding_station_text']) || !empty($hp['origin_country']);
         }));
 
         // Weitere Lebensnummern (#246): Anzeige aus der Kindtabelle; für
@@ -551,6 +564,72 @@ class PublicController extends BaseController {
             'title' => $station['name'] . ' - ' . \App\I18n\Translator::t('meta.title_station_detail_suffix'),
             'station' => $station,
             'horses' => $horses
+        ]);
+    }
+
+    /**
+     * Öffentliche Personenseite (#293). Bis dahin gab es sie nicht: Personen
+     * erschienen nur als Name in der Pferde-Detailseite, ohne eigenen Ort und
+     * ohne Möglichkeit, die Pferde einer Person zusammen zu sehen - anders als
+     * bei Deckstationen, die ihre Seite längst haben.
+     *
+     * Die Spalten stehen hier bewusst EINZELN statt als `SELECT *`. Bei
+     * Deckstationen ist das anders (deren Anschrift ist eine Geschäftsadresse
+     * und vollständig öffentlich); persons enthält dagegen
+     * E-Mail/Telefon/Mobil/Straße/PLZ und das interne Freitextfeld
+     * contact_info. Ein `SELECT *` würde all das in die View reichen, und der
+     * nächste, der dort etwas ausgibt, hätte es versehentlich veröffentlicht -
+     * genau so ist #293 überhaupt entstanden. Was hier nicht steht, kann nicht
+     * verraten werden.
+     */
+    public function personDetail(): void {
+        $id = $_GET['id'] ?? null;
+        if (!$id) {
+            header("Location: /katalog");
+            exit;
+        }
+
+        if (!$this->hasPermission('persons', 'view')) {
+            $this->renderNotFound(\App\I18n\Translator::t('person.not_found'));
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "SELECT id, name, city, state, country, membership_status, website, is_breeder
+             FROM persons
+             WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
+        );
+        $stmt->execute([$id]);
+        $person = $stmt->fetch();
+
+        if (!$person) {
+            $this->renderNotFound(\App\I18n\Translator::t('person.not_found'));
+        }
+
+        // Pferde dieser Person, nach Rolle gruppiert - nur veröffentlichte,
+        // und nur wenn Gäste Pferde überhaupt sehen dürfen (wie bei Stationen).
+        $horsesByRole = [];
+        if ($this->hasPermission('horses', 'view')) {
+            $stmt = $db->prepare("
+                SELECT DISTINCT hp.role, h.id, h.name, h.ueln, h.birth_year, h.color,
+                       h.status, h.is_deceased, h.death_year, h.image_url
+                FROM horse_persons hp
+                JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
+                WHERE hp.person_id = ?
+                ORDER BY hp.role ASC, h.name ASC
+            ");
+            $stmt->execute([$id]);
+            foreach ($stmt->fetchAll() as $row) {
+                $role = (string)($row['role'] ?? '');
+                unset($row['role']);
+                $horsesByRole[$role][] = $row;
+            }
+        }
+
+        $this->render('public_person_detail', [
+            'title' => $person['name'] . ' - ' . \App\I18n\Translator::t('meta.title_person_detail_suffix'),
+            'person' => $person,
+            'horsesByRole' => $horsesByRole,
         ]);
     }
 

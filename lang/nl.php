@@ -151,6 +151,15 @@ return [
     // Detailpagina dekstation
     'station.horses_heading' => '🐴 Paarden van dit dekstation',
     'station.no_horses' => 'Er zijn momenteel geen paarden van dit dekstation in het register opgenomen.',
+    'field.location' => 'Plaats',
+    'field.membership_status' => 'Lidmaatschapsstatus',
+    'person.is_breeder' => 'Fokker',
+    'person.not_found' => 'De opgevraagde persoon bestaat niet of is uit het register verwijderd.',
+    'person.horses_heading' => '🐴 Paarden van deze persoon',
+    'person.no_horses' => 'Er zijn momenteel geen paarden van deze persoon in het register.',
+    'person.no_details' => 'Voor deze persoon zijn geen openbare gegevens beschikbaar.',
+    'meta.title_person_detail_suffix' => 'Persoon',
+    'horse.person_unknown' => 'Fokker/eigenaar onbekend',
     'station.not_found' => 'Het opgevraagde dekstation bestaat niet of is uit het register verwijderd.',
     'meta.title_station_detail_suffix' => 'Dekstation',
 

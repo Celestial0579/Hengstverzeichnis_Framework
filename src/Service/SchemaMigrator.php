@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 5;
+    public const SCHEMA_VERSION = 7;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -250,6 +250,7 @@ final class SchemaMigrator {
                 `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
                 `breeding_station_id` INT NULL,
                 `breeding_station_text` VARCHAR(255) NULL,
+                `origin_country` VARCHAR(100) NULL,
                 `from_year` SMALLINT UNSIGNED NULL,
                 `until_year` SMALLINT UNSIGNED NULL,
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -260,6 +261,19 @@ final class SchemaMigrator {
 
         $addColumn('horse_persons', 'breeding_station_id', 'INT NULL AFTER `role`');
         $addColumn('horse_persons', 'breeding_station_text', 'VARCHAR(255) NULL AFTER `breeding_station_id`');
+
+        // 31. Herkunftsland ohne bekannte Person (#294, SCHEMA_VERSION 7).
+        // Das Altsystem kannte "Zuechter unbekannt, kam aus Norwegen". Ohne
+        // dieses Feld muss dafuer eine Platzhalter-Person in der PII-Tabelle
+        // angelegt werden - in der Dev-Instanz betrifft das 171 von 672
+        // Zuechter-Zuordnungen, die im Katalog als Zuechtername erscheinen,
+        // obwohl dahinter kein Mensch steht.
+        //
+        // Kein Backfill: Welche Platzhalter-Person ein Land meint und welche
+        // eine echte Person mit ungluecklichem Namen ist, kann nur die
+        // jeweilige Instanz entscheiden. Dieselbe Zurueckhaltung wie in
+        // Schritt 22, 29 und 30.
+        $addColumn('horse_persons', 'origin_country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `breeding_station_text`');
 
         // person_id NULL-fähig machen (Zuordnung kann auch nur über eine
         // Deckstation erfolgen). Früher ein bei jedem Lauf wiederholtes
@@ -778,6 +792,57 @@ final class SchemaMigrator {
         $addColumn('breeding_stations', 'city', 'VARCHAR(100) NULL DEFAULT NULL AFTER `postal_code`');
         $addColumn('breeding_stations', 'state', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
         $addColumn('breeding_stations', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `state`');
+
+        // 30. Kontaktfelder für Personen (#293, SCHEMA_VERSION 6). persons
+        // hatte als einzige Kontaktmöglichkeit neben der E-Mail-Adresse das
+        // Freitextfeld contact_info - und das Formular lud ausdrücklich zu
+        // Telefonnummern darin ein, während dasselbe Feld öffentlich
+        // gerendert wurde. Die Spalten spiegeln breeding_stations.
+        //
+        // Kein Backfill aus contact_info: Der Bestand ist beschrifteter
+        // Freitext ("Mobil: 0170 ...", "Website: ..."), eine Zerlegung wäre
+        // geraten - dieselbe Entscheidung wie in Schritt 22 und 29. Wer
+        // Altdaten überführen will, tut das instanzspezifisch; die Zielspalten
+        // gibt es ab hier.
+        $addColumn('persons', 'phone', 'VARCHAR(50) NULL DEFAULT NULL AFTER `email`');
+        $addColumn('persons', 'mobile', 'VARCHAR(50) NULL DEFAULT NULL AFTER `phone`');
+        $addColumn('persons', 'website', 'VARCHAR(255) NULL DEFAULT NULL AFTER `mobile`');
+
+        // Kennzeichen "diese Person züchtet": bewusst eine Eigenschaft der
+        // Person und nicht aus horse_persons.role='breeder' abgeleitet - ein
+        // Züchter soll auch dann auffindbar sein, wenn noch kein Pferd von ihm
+        // im Verzeichnis steht. Grundlage für eine spätere Zucht-Suche über
+        // Züchter und Deckstationen; der Index bedient genau diese Filterung
+        // (Muster wie die Katalog-Indizes in Schritt 23).
+        //
+        // Kein Backfill aus horse_persons, und zwar bewusst: Eine
+        // Züchter-Zuordnung ist Historie (sie trägt from_year/until_year), das
+        // Kennzeichen dagegen sagt "züchtet heute". Wer früher gezüchtet hat,
+        // wäre nach einem Backfill dauerhaft als aktiver Züchter markiert -
+        // genau die Verwechslung, die das eigene Feld vermeiden soll. Der
+        // Vorgabewert 0 lässt die Aussage offen, bis jemand sie trifft.
+        $addColumn('persons', 'is_breeder', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `membership_status`');
+        $addIndex('persons', 'idx_persons_is_breeder', '`is_breeder`, `is_published`, `deleted_at`');
+
+        // Leserecht der Gast-Gruppe für die neue öffentliche Personenseite
+        // (/person). Ohne dieses Recht liefe der Verweis von der Pferdeseite
+        // ins Leere - die Gast-Gruppe ist bewusst fail-closed und bekommt neue
+        // Bereiche nicht automatisch (siehe database/schema.sql beim Seed).
+        //
+        // Es entstehen dadurch KEINE neuen öffentlichen Daten: Die Seite zeigt
+        // ausschließlich Felder, die auf der Pferde-Detailseite ohnehin schon
+        // öffentlich sind (Ort, Bundesland, Land, Mitgliedsstatus) plus die
+        // dafür vorgesehene Website. Wer die Seite nicht möchte, nimmt der
+        // Gruppe `public` das Recht wieder weg - diese Migration setzt es
+        // dank INSERT IGNORE nicht erneut.
+        try {
+            $pdo->exec(
+                "INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
+                 SELECT `id`, 'persons', 'view' FROM `groups` WHERE `slug` = 'public'"
+            );
+        } catch (\Throwable $e) {
+            // Tabelle/Gruppe existiert im Setup-Fall noch nicht.
+        }
 
         // Reset-Token liegen nur noch als SHA-256-Abdruck in der Tabelle
         // (siehe AuthController::hashResetToken()). Bestehende Zeilen enthalten

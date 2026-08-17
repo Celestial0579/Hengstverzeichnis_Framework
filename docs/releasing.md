@@ -51,13 +51,29 @@ gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml
 ## Ablauf für Releases
 
 1. [CHANGELOG.md](../CHANGELOG.md) um einen neuen Versionsabschnitt ergänzen
-   (PR wie gewohnt).
-2. Tag pushen (`vX.Y.Z`) auf `main`:
+   und `CORE_VERSION` in `config/config.php` heben (PR wie gewohnt; ein
+   Release-Vorbereitungs-Commit ändert nur diese zwei Dateien).
+2. **Bei einem Minor-Release zusätzlich `core_supported_max` im
+   Referenz-Plugin heben** (`docs/examples/demo-plugin/plugin.json`, samt
+   dessen `version`, und das Beispiel in
+   [plugin-development.md](plugin-development.md)).
+
+   Das ist kein Formalismus: Die Obergrenze ist seit #197 Pflicht und
+   fail-closed. Ein Plugin, das die neue Kern-Linie nicht ausdrücklich nennt,
+   wird nicht mehr geladen — beim Sprung auf 0.6.0 fielen dadurch vier
+   Funktionstests mit `error=incompatible` um, und zwar zu Recht.
+
+   **Dasselbe gilt für alle offiziellen Addons.** Sie brauchen nach einem
+   Minor-Release ein eigenes Release mit der neuen Obergrenze, sonst laden
+   sie auf dem neuen Kern nicht mehr — und die automatische Addon-Phase eines
+   Kern-Updates verweigert, solange es keinen passenden Release-Tag gibt
+   (#212, #290).
+3. Tag pushen (`vX.Y.Z`) auf `main`:
    ```bash
    git tag v0.2.0
    git push github v0.2.0
    ```
-3. Das löst `release.yml` aus:
+4. Das löst `release.yml` aus:
    - Volle Testsuite (Unit/Integration/Functional, siehe
      [development.md](development.md#tests)) als Gate – bricht ohne Release ab,
      falls etwas fehlschlägt.
@@ -70,7 +86,7 @@ gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml
      im `git archive`-Aufruf in `release.yml`; `docs/` und `security/`
      bleiben bewusst enthalten) als
      Release-Asset.
-4. Existiert für den Tag noch kein GitHub Release (z. B. weil nur der Tag
+5. Existiert für den Tag noch kein GitHub Release (z. B. weil nur der Tag
    gepusht wurde, ohne vorher über die GitHub-UI einen Release-Entwurf
    anzulegen), erstellt der Workflow einen mit angehängten Artefakten, aber
    **ohne Beschreibung** – dann Titel/Text im Nachgang manuell aus dem

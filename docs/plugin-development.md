@@ -56,7 +56,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
     "name": "Demo-Plugin",
     "version": "1.0.0",
     "core_compatibility": ">=0.1.0-beta.1",
-    "core_supported_max": "0.5",
+    "core_supported_max": "0.6",
     "description": "Kurzbeschreibung, wird im Admin-Bereich angezeigt.",
     "author": "...",
     "hooks": ["horse.after_save", "horse.detail_sections", "admin.dashboard_tiles"],

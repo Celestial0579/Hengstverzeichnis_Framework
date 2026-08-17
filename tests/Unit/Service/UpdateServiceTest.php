@@ -22,6 +22,128 @@ class UpdateServiceTest extends TestCase {
         $this->cleanupDirs = [];
     }
 
+    // ---- Reichweite der unbeaufsichtigten Installation (#290) -----------
+
+    /**
+     * Standard 'patch_only': Innerhalb der Minor-Linie sagt das
+     * Versionsschema Kompatibilität zu - dort darf ohne Aufsicht
+     * aktualisiert werden.
+     */
+    public function testAutoInstallAllowsPatchWithinSameLine(): void {
+        $this->assertTrue(UpdateService::isEligibleForAutoInstall('0.5.2', '0.5.3', 'patch_only'));
+        $this->assertTrue(UpdateService::isEligibleForAutoInstall('0.5.2', '0.5.10', 'patch_only'));
+    }
+
+    /**
+     * Ein Minor-Sprung kann laut CHANGELOG-Konvention Breaking Changes
+     * enthalten (solange 0.y.z) - der bleibt dem bewussten Klick vorbehalten.
+     */
+    public function testAutoInstallRefusesMinorAndMajorJumpsInPatchOnlyScope(): void {
+        $this->assertFalse(UpdateService::isEligibleForAutoInstall('0.5.2', '0.6.0', 'patch_only'));
+        $this->assertFalse(UpdateService::isEligibleForAutoInstall('0.5.2', '1.0.0', 'patch_only'));
+    }
+
+    public function testAutoInstallAllowsAnyNewerVersionInAnyScope(): void {
+        $this->assertTrue(UpdateService::isEligibleForAutoInstall('0.5.2', '0.6.0', 'any'));
+        $this->assertTrue(UpdateService::isEligibleForAutoInstall('0.5.2', '1.0.0', 'any'));
+    }
+
+    /**
+     * Downgrade-Sperre gilt auch hier - selbst mit 'any' darf nie eine
+     * ältere oder gleiche Version eingespielt werden.
+     */
+    public function testAutoInstallNeverDowngrades(): void {
+        $this->assertFalse(UpdateService::isEligibleForAutoInstall('0.5.2', '0.5.1', 'any'));
+        $this->assertFalse(UpdateService::isEligibleForAutoInstall('0.5.2', '0.5.2', 'any'));
+        $this->assertFalse(UpdateService::isEligibleForAutoInstall('0.5.2', '0.4.9', 'patch_only'));
+    }
+
+    /** Ein unbekannter Wert darf nie die weitere Reichweite bedeuten. */
+    public function testUnknownScopeFallsBackToPatchOnly(): void {
+        $this->assertSame('patch_only', UpdateService::normalizeAutoScope('unsinn'));
+        $this->assertFalse(UpdateService::isEligibleForAutoInstall('0.5.2', '0.6.0', 'unsinn'));
+    }
+
+    /** Das führende "v" der Release-Tags darf den Linienvergleich nicht stören. */
+    public function testAutoInstallNormalizesVersionPrefix(): void {
+        $this->assertTrue(UpdateService::isEligibleForAutoInstall('0.5.2', 'v0.5.3', 'patch_only'));
+    }
+
+    // ---- Nur neue Funde melden (#290) ----------------------------------
+
+    public function testCoreFindingIsNewOnlyOnce(): void {
+        $first = UpdateService::computeNewFindings(null, '0.6.0', [], []);
+        $this->assertTrue($first['coreIsNew']);
+
+        $second = UpdateService::computeNewFindings('0.6.0', '0.6.0', [], []);
+        $this->assertFalse($second['coreIsNew'], 'Dieselbe Version darf nicht erneut gemeldet werden');
+
+        $third = UpdateService::computeNewFindings('0.6.0', '0.6.1', [], []);
+        $this->assertTrue($third['coreIsNew'], 'Eine neuere Version ist wieder ein neuer Fund');
+    }
+
+    public function testNoCoreUpdateMeansNoFinding(): void {
+        $findings = UpdateService::computeNewFindings('0.6.0', null, [], []);
+        $this->assertFalse($findings['coreIsNew']);
+    }
+
+    public function testAddonFindingIsNewOnlyOnce(): void {
+        $current = [['slug' => 'deckanfrage', 'version' => '1.2.0']];
+
+        $first = UpdateService::computeNewFindings(null, null, [], $current);
+        $this->assertSame([['slug' => 'deckanfrage', 'version' => '1.2.0']], $first['newAddons']);
+        $this->assertSame(['deckanfrage' => '1.2.0'], $first['nextNotifiedAddons']);
+
+        $second = UpdateService::computeNewFindings(null, null, $first['nextNotifiedAddons'], $current);
+        $this->assertSame([], $second['newAddons']);
+    }
+
+    /**
+     * Erscheint für dasselbe Addon eine neuere Version, ist das wieder ein
+     * neuer Fund - sonst bliebe der zweite Sprung unbemerkt.
+     */
+    public function testNewerAddonVersionCountsAsNewFindingAgain(): void {
+        $findings = UpdateService::computeNewFindings(
+            null,
+            null,
+            ['deckanfrage' => '1.2.0'],
+            [['slug' => 'deckanfrage', 'version' => '1.3.0']]
+        );
+
+        $this->assertSame([['slug' => 'deckanfrage', 'version' => '1.3.0']], $findings['newAddons']);
+    }
+
+    /**
+     * Ein erledigtes (oder deinstalliertes) Addon fällt aus dem Merkzettel,
+     * weil der Stand vollständig neu aufgebaut wird. Sonst wüchse er
+     * unbegrenzt, und ein später erneut auftauchendes Update derselben
+     * Version würde fälschlich als "schon gemeldet" verschluckt.
+     */
+    public function testResolvedAddonDropsOutOfRememberedState(): void {
+        $findings = UpdateService::computeNewFindings(
+            null,
+            null,
+            ['deckanfrage' => '1.2.0', 'altes-addon' => '0.9.0'],
+            [['slug' => 'deckanfrage', 'version' => '1.2.0']]
+        );
+
+        $this->assertSame(['deckanfrage' => '1.2.0'], $findings['nextNotifiedAddons']);
+        $this->assertSame([], $findings['newAddons']);
+    }
+
+    /** Kern und Addons werden unabhängig voneinander bewertet. */
+    public function testCoreAndAddonFindingsAreIndependent(): void {
+        $findings = UpdateService::computeNewFindings(
+            '0.6.0',
+            '0.6.0',
+            [],
+            [['slug' => 'deckanfrage', 'version' => '1.2.0']]
+        );
+
+        $this->assertFalse($findings['coreIsNew']);
+        $this->assertCount(1, $findings['newAddons']);
+    }
+
     public function testIsNewerComparesNormalizedVersions(): void {
         $this->assertTrue(UpdateService::isNewer('v0.2.0', '0.1.0-beta.1'));
         $this->assertTrue(UpdateService::isNewer('0.1.0', '0.1.0-beta.1'));

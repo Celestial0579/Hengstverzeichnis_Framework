@@ -45,7 +45,10 @@ class AuxiliaryServer {
             return;
         }
 
-        $cmd = ['php', '-S', '127.0.0.1:' . $this->port];
+        // Zeitzone dieses Prozesses übernehmen - siehe PhpBuiltInServer,
+        // dieselbe Begründung: Test und App teilen sich die Datenbank.
+        $cmd = ['php', '-d', 'date.timezone=' . date_default_timezone_get(),
+            '-S', '127.0.0.1:' . $this->port];
         if ($this->docroot !== null) {
             $cmd[] = '-t';
             $cmd[] = $this->docroot;

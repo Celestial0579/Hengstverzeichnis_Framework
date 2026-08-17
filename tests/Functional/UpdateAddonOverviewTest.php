@@ -88,6 +88,8 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $this->createPluginDir(['core_compatibility' => '>=0.1.0-beta.1']);
         $this->seedOfficialCatalog('1.1.0');
 
+        $cachedAtBefore = $this->officialCachedAt();
+
         $page = $admin->get('/admin/updates');
         $this->assertSame(200, $page->statusCode);
         $this->assertStringContainsString(self::SLUG, $page->body);
@@ -95,6 +97,12 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $this->assertStringContainsString('<strong>1.1.0</strong>', $page->body);
         $this->assertStringContainsString('>Update</span>', $page->body);
         $this->assertStringContainsString('Katalog-Stand:', $page->body);
+
+        // Der Refresh aus #290 respektiert die TTL: Bei frisch geseedetem
+        // Cache darf die Update-Seite GitHub NICHT fragen, sonst hinge jeder
+        // Seitenaufruf an einem Netzwerkzugriff. Erkennbar daran, dass
+        // cached_at unverändert bleibt (ein Abruf würde es auf NOW() setzen).
+        $this->assertSame($cachedAtBefore, $this->officialCachedAt());
 
         // Dashboard zählt das offene Addon-Update an der Update-Kachel
         // (Badge-Kommentar wird nur bei Zähler > 0 gerendert).
@@ -192,6 +200,52 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $this->assertSame('1.0.0', $manifest['version']);
     }
 
+    /**
+     * Gegenstück zum TTL-Fall oben (#290): Ist der Cache abgelaufen, versucht
+     * die Update-Seite selbst einen Refresh. Schlägt der fehl, muss die Seite
+     * trotzdem mit 200 antworten und den (alten) Stand weiter anzeigen -
+     * ein alter Katalog ist besser als eine leere Tabelle oder ein Fehler.
+     *
+     * Der Fehlschlag wird bewusst OHNE Netzwerkzugriff erzeugt: Ein
+     * syntaktisch ungültiger Owner scheitert schon an der Validierung in
+     * GithubAddonRepository (isValidOwnerOrRepo), bevor eine Verbindung
+     * aufgebaut wird. Ein Test, der auf ein tatsächlich unerreichbares GitHub
+     * angewiesen wäre, würde je nach Umgebung mal laufen und mal minutenlang
+     * in einen Timeout hängen.
+     */
+    public function testUpdatePageStaysUsableWhenStaleCatalogCannotBeRefreshed(): void {
+        $admin = $this->authenticatedClient();
+        $this->createPluginDir(['core_compatibility' => '>=0.1.0-beta.1']);
+        $this->seedOfficialCatalog('1.1.0');
+        $this->markOfficialCatalogStale();
+
+        $db = Database::getInstance();
+        $original = $db->query("SELECT owner, repo FROM addon_repos WHERE is_official = 1 LIMIT 1")->fetch();
+        $this->assertNotFalse($original, 'Seed des offiziellen Addon-Repos muss vorhanden sein');
+        $db->exec("UPDATE addon_repos SET owner = 'un gueltig' WHERE is_official = 1");
+
+        try {
+            $page = $admin->get('/admin/updates');
+
+            $this->assertSame(200, $page->statusCode);
+            $this->assertStringContainsString('🧩 Addons', $page->body);
+            $this->assertStringContainsString(self::SLUG, $page->body);
+            // Der abgelaufene Cache bleibt erhalten und wird weiter angezeigt.
+            $this->assertStringContainsString('Katalog-Stand:', $page->body);
+            $this->assertStringContainsString('<strong>1.1.0</strong>', $page->body);
+
+            $stmt = $db->query("SELECT cached_catalog_json FROM addon_repos WHERE is_official = 1 LIMIT 1");
+            $this->assertStringContainsString(
+                '1.1.0',
+                (string)$stmt->fetchColumn(),
+                'Ein fehlgeschlagener Refresh darf den vorhandenen Cache nicht leeren'
+            );
+        } finally {
+            $stmt = $db->prepare("UPDATE addon_repos SET owner = ?, repo = ? WHERE is_official = 1");
+            $stmt->execute([$original['owner'], $original['repo']]);
+        }
+    }
+
     // ---- Helfer --------------------------------------------------------
 
     private function pluginDir(): string {
@@ -251,6 +305,20 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
             'author' => '',
             'hooks' => [],
         ]])]);
+    }
+
+    private function officialCachedAt(): ?string {
+        $value = Database::getInstance()
+            ->query("SELECT cached_at FROM addon_repos WHERE is_official = 1 LIMIT 1")
+            ->fetchColumn();
+        return is_string($value) ? $value : null;
+    }
+
+    /** Setzt cached_at über die 15-Minuten-TTL hinaus zurück. */
+    private function markOfficialCatalogStale(): void {
+        Database::getInstance()->exec(
+            "UPDATE addon_repos SET cached_at = DATE_SUB(NOW(), INTERVAL 20 MINUTE) WHERE is_official = 1"
+        );
     }
 
     private function writeReleasesFixture(string $version): void {

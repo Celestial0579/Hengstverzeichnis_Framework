@@ -269,6 +269,55 @@ final class AddonUpdateService {
         return ['ref' => $ref, 'results' => $results];
     }
 
+    /**
+     * Fasst die Ergebnisliste von updateOfficialAddonsAfterCoreUpdate() für
+     * die Anzeige zusammen. Mehrere Addons scheitern regelmäßig am selben
+     * Grund (fehlt der Release-Tag zur Ziel-Linie, trifft es alle) - die
+     * Gründe werden deshalb entdoppelt, die betroffenen Slugs aber
+     * vollständig genannt. Bewusst nicht zu EINEM Grund zusammengefasst:
+     * Unterschiedliche Ursachen dürfen nicht unter einer Meldung verschwinden.
+     *
+     * @param array<int, array{slug: string, ok: bool, error: ?string}> $results
+     * @return array{reasons: array<int, string>, slugs: array<int, string>}
+     */
+    public static function summarizeFailures(array $results): array {
+        $failed = array_filter($results, static fn(array $r): bool => !(bool)$r['ok']);
+
+        return [
+            'reasons' => array_values(array_unique(array_map(
+                static fn(array $r): string => (string)($r['error'] ?? 'Unbekannter Fehler.'),
+                $failed
+            ))),
+            'slugs' => array_values(array_column($failed, 'slug')),
+        ];
+    }
+
+    /**
+     * Frischt den Katalog-Cache des offiziellen Repos auf, sofern seine TTL
+     * abgelaufen ist (#290). Bewusst NUR das offizielle Repo - Fremd-Repos
+     * bleiben Sache des Addon-Stores, ein automatisierter Abruf dort wäre
+     * ein Netzwerkzugriff ohne Nutzen für Update-Seite und Cron-Prüfung.
+     *
+     * Fehler werden geschluckt: Der Aufrufer arbeitet danach mit dem (dann
+     * eben älteren) Cache weiter - AddonOverview::officialCatalogFromCache()
+     * hat dafür seinen eigenen Fallback. Ein nicht erreichbares GitHub darf
+     * weder die Update-Seite noch einen Cron-Lauf scheitern lassen.
+     */
+    public static function refreshOfficialCatalog(): void {
+        try {
+            $db = Database::getInstance();
+            $repoRow = $db->query(
+                "SELECT *, " . \App\Controllers\AddonStoreController::CACHE_AGE_SELECT
+                . " FROM addon_repos WHERE is_official = 1 LIMIT 1"
+            )->fetch();
+            if ($repoRow !== false) {
+                \App\Controllers\AddonStoreController::catalogForRepo($db, $repoRow, false);
+            }
+        } catch (\Throwable $e) {
+            // bewusst geschluckt, siehe PHPDoc
+        }
+    }
+
     // ---- Helfer --------------------------------------------------------
 
     private static function pluginsDir(): string {

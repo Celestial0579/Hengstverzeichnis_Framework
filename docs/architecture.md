@@ -336,8 +336,11 @@ synchron innerhalb dieses einen Requests ausführt.
     `runCronNow()`) zeigt registrierte Aufgaben samt letztem Lauf und
     erlaubt einen sofortigen manuellen Lauf - Alternative für Betreiber ohne
     Zugriff auf einen System-Cron.
-- Verbraucher: `App\Service\BackupService` (#59, siehe unten) und
-  `App\Service\DigestService` (#52, siehe unten).
+- Verbraucher: `App\Service\BackupService` (#59, siehe unten),
+  `App\Service\DigestService` (#52, siehe unten) und `App\Service\UpdateService`
+  (#290: `update.check` alle 3 h meldet neu verfügbare Versionen per E-Mail,
+  `update.auto_install` spielt sie höchstens einmal täglich ein - beides
+  Opt-in, siehe unten).
 
 ## Automatisierte externe Backups (`src/Service/BackupService.php`, `src/Service/DatabaseDumper.php`, `src/Service/BackupTarget.php`, #59, #93)
 

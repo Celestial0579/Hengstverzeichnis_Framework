@@ -19,9 +19,12 @@ use App\Plugin\PluginManager;
  *     parametrisiert; deckt den bisher stummen Skip beim Laden auf)
  *
  * Bewusst NUR aus dem Katalog-Cache (addon_repos.cached_catalog_json,
- * 15-Minuten-TTL des Stores): Dashboard und Update-Seite bleiben damit
- * netzwerkfrei und schnell; aktualisiert wird der Cache dort, wo ohnehin
- * GitHub gefragt wird (Store-Aufruf bzw. ?refresh=1).
+ * 15-Minuten-TTL): Diese Klasse fragt selbst nie GitHub. Aufgefrischt wird
+ * der Cache von ihren Aufrufern - beim Store-Aufruf bzw. ?refresh=1 für alle
+ * Repos, und seit #290 über AddonUpdateService::refreshOfficialCatalog()
+ * auch von der Update-Seite und dem Cron-Lauf für das offizielle Repo.
+ * Bleibt der Cache leer (Netz-/DB-Fehler), liefert officialCatalogFromCache()
+ * 'available' => false statt einer Falschaussage.
  */
 final class AddonOverview {
 

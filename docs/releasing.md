@@ -8,6 +8,15 @@
 > das unten beschriebene bereinigte Shared-Hosting-Zip; `config/db_config.php`,
 > `public/uploads/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
 > laufen wie gewohnt beim nächsten Request (`Database::ensureSchemaUpToDate()`).
+> Während des Einspielens setzt der Update-Lauf den Wartungsmodus (#232), damit
+> parallele Besucher nicht auf einen halb ausgetauschten Codebaum treffen.
+>
+> **Unbeaufsichtigt (#290):** Auf Wunsch prüft ein Cron-Lauf alle 3 Stunden auf
+> neue Kern- und Addon-Versionen und meldet jeden Fund einmalig per E-Mail an
+> alle Admin-Konten; zusätzlich lässt sich das Einspielen automatisieren
+> (höchstens einmal täglich, Reichweite wahlweise nur Patch-Versionen der
+> laufenden Linie oder jede neuere Version). Beides ist Opt-in unter
+> `/admin/updates` und setzt den eingerichteten Cron-Auslöser voraus.
 >
 > **Docker/Container-Betrieb (In-Place-Update abgeschaltet):** Das
 > In-Place-Update oben setzt voraus, dass der PHP-Prozess den Anwendungscode

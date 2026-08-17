@@ -53,7 +53,15 @@ class PhpBuiltInServer {
         ];
 
         self::$process = proc_open(
-            ['php', '-S', self::HOST . ':' . self::PORT, '-t', $publicDir],
+            // date.timezone ausdrücklich von diesem Prozess übernehmen: Test
+            // und App teilen sich eine Datenbank, und seit die Verbindung ihre
+            // Sitzungs-Zeitzone an PHP angleicht (Database::alignSessionTimeZone())
+            // müssen beide Seiten dieselbe Uhr benutzen. Sonst schreibt der
+            // Test Zeitstempel in einer anderen Zeitzone, als die App sie
+            // liest - das äußert sich nicht als Fehler, sondern als
+            // unerklärlich abgelaufener Cache.
+            ['php', '-d', 'date.timezone=' . date_default_timezone_get(),
+                '-S', self::HOST . ':' . self::PORT, '-t', $publicDir],
             $descriptorSpec,
             $pipes,
             __DIR__ . '/../..'

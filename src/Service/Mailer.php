@@ -361,6 +361,125 @@ class Mailer {
     }
 
     /**
+     * Meldet NEU verfügbare Updates (#290, siehe
+     * App\Service\UpdateService::runCheckAndNotify()). Wird bewusst nur bei
+     * neuen Funden versendet - eine Erinnerung an dieselbe, längst gemeldete
+     * Version alle drei Stunden wäre Lärm, den man wegfiltert, und damit
+     * genau die Meldung entwertet, auf die es ankommt.
+     *
+     * @param array<int, array{slug: string, version: string}> $newAddons
+     */
+    public function sendUpdatesAvailableNotification(
+        string $recipientEmail,
+        ?string $coreVersion,
+        array $newAddons,
+        bool $autoInstallEnabled
+    ): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $updatesUrl = $this->getBaseUrl() . 'admin/updates';
+
+        $subject = "📦 Update verfügbar - {$siteName}";
+
+        $rows = '';
+        if ($coreVersion !== null) {
+            $rows .= "
+                <tr>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee;'>Kern (Hengstverzeichnis)</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>"
+                        . htmlspecialchars($coreVersion) . "</td>
+                </tr>
+            ";
+        }
+        foreach ($newAddons as $addon) {
+            $rows .= "
+                <tr>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee;'>Addon <code>"
+                        . htmlspecialchars($addon['slug']) . "</code></td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>"
+                        . htmlspecialchars($addon['version']) . "</td>
+                </tr>
+            ";
+        }
+
+        $hint = $autoInstallEnabled
+            ? 'Die automatische Installation ist aktiviert - sofern die Version in den gewählten Rahmen fällt, wird sie beim nächsten täglichen Lauf eingespielt (mit vorherigem Pflicht-Backup).'
+            : 'Die automatische Installation ist nicht aktiviert - das Update wird erst eingespielt, wenn Sie es im Admin-Bereich anstoßen.';
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                <h2 style='color: #2a52be;'>Neue Version verfügbar</h2>
+                <p>Für <strong>{$siteName}</strong> steht Folgendes bereit:</p>
+                <table style='width: 100%; border-collapse: collapse; margin: 20px 0;'>
+                    {$rows}
+                </table>
+                <p>{$hint}</p>
+                <p style='margin: 25px 0;'><a href='{$updatesUrl}' style='background: #2a52be; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;'>Zur Update-Seite</a></p>
+                <p style='color: #888; font-size: 0.85rem; margin-top: 20px;'>Diese Nachricht wird je Fund nur einmal versendet, nicht bei jeder Prüfung erneut.</p>
+            </div>
+        ";
+
+        return $this->send($recipientEmail, $subject, $html);
+    }
+
+    /**
+     * Ergebnis eines UNBEAUFSICHTIGTEN Update-Laufs (#290/#85). Anders als
+     * bei einem manuell angestoßenen Update sitzt hier niemand davor - ohne
+     * diese Nachricht fiele ein fehlgeschlagener nächtlicher Lauf erst beim
+     * nächsten zufälligen Blick ins Audit-Log auf.
+     *
+     * @param array<int, string> $addonFailureReasons
+     */
+    public function sendAutoUpdateNotification(
+        string $recipientEmail,
+        bool $success,
+        string $fromVersion,
+        ?string $toVersion,
+        ?string $errorMessage,
+        array $addonFailureReasons = []
+    ): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $updatesUrl = $this->getBaseUrl() . 'admin/updates';
+
+        if ($success) {
+            $subject = "✅ Automatisches Update auf {$toVersion} eingespielt - {$siteName}";
+            $heading = "<h2 style='color: #1e7e34;'>Update erfolgreich eingespielt</h2>";
+            $body = "<p><strong>{$siteName}</strong> wurde automatisch von Version <strong>"
+                . htmlspecialchars($fromVersion) . "</strong> auf <strong>"
+                . htmlspecialchars((string)$toVersion) . "</strong> aktualisiert. "
+                . "Vor dem Einspielen wurde wie vorgeschrieben ein Backup ausgeführt.</p>";
+        } else {
+            $subject = "⚠️ Automatisches Update fehlgeschlagen - {$siteName}";
+            $heading = "<h2 style='color: #dc3545;'>Automatisches Update fehlgeschlagen</h2>";
+            $body = "<p>Der automatische Update-Lauf für <strong>{$siteName}</strong> (installiert: <strong>"
+                . htmlspecialchars($fromVersion) . "</strong>) wurde abgebrochen:</p>"
+                . "<div style='background: #f8f9fa; padding: 15px; border-radius: 6px; white-space: pre-wrap;'>"
+                . htmlspecialchars((string)$errorMessage) . "</div>"
+                . "<p>Die Installation läuft unverändert weiter. Bitte prüfen Sie die Ursache - "
+                . "solange sie besteht, wird jeder weitere Lauf ebenfalls scheitern.</p>";
+        }
+
+        $addonHint = '';
+        if ($addonFailureReasons !== []) {
+            $items = '';
+            foreach ($addonFailureReasons as $reason) {
+                $items .= '<li>' . htmlspecialchars($reason) . '</li>';
+            }
+            $addonHint = "<p><strong>Addons konnten nicht vollständig mitgezogen werden:</strong></p><ul>{$items}</ul>";
+        }
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                {$heading}
+                {$body}
+                {$addonHint}
+                <p style='margin: 25px 0;'><a href='{$updatesUrl}'>Update-Seite öffnen</a></p>
+            </div>
+        ";
+
+        return $this->send($recipientEmail, $subject, $html);
+    }
+
+    /**
      * Periodischer E-Mail-Digest an Admins/Editoren (#52, siehe
      * App\Service\DigestService): fasst Ereignisse zusammen, für die es
      * keine sofortige Benachrichtigung gibt (offene Blutlinien-Match-

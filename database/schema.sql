@@ -110,7 +110,9 @@ CREATE TABLE IF NOT EXISTS `persons` (
     `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL,
-    INDEX `idx_persons_deleted_name` (`deleted_at`, `name`)
+    INDEX `idx_persons_deleted_name` (`deleted_at`, `name`),
+    -- Fuer die Zucht-Suche (#293): Zuechter je Ort/Land filtern.
+    INDEX `idx_persons_is_breeder` (`is_breeder`, `is_published`, `deleted_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Breeding Stations (Deckstationen / Gestüte)

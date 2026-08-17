@@ -151,6 +151,14 @@ return [
     // Detaljside for hingstestasjon
     'station.horses_heading' => '🐴 Hester ved denne hingstestasjonen',
     'station.no_horses' => 'Ingen hester fra denne hingstestasjonen er for øyeblikket oppført i registeret.',
+    'field.location' => 'Sted',
+    'field.membership_status' => 'Medlemsstatus',
+    'person.is_breeder' => 'Oppdretter',
+    'person.not_found' => 'Den forespurte personen finnes ikke eller er fjernet fra registeret.',
+    'person.horses_heading' => '🐴 Hester til denne personen',
+    'person.no_horses' => 'Det er for tiden ingen hester registrert på denne personen.',
+    'person.no_details' => 'Det finnes ingen offentlige opplysninger om denne personen.',
+    'meta.title_person_detail_suffix' => 'Person',
     'station.not_found' => 'Hingstestasjonen du ba om, finnes ikke eller er fjernet fra registeret.',
     'meta.title_station_detail_suffix' => 'Hingstestasjon',
 

@@ -126,8 +126,11 @@ class PersonController extends BaseController {
         $db = Database::getInstance();
         $structuredColumns = implode(', ', self::STRUCTURED_FIELDS);
         $structuredPlaceholders = implode(', ', array_fill(0, count(self::STRUCTURED_FIELDS), '?'));
-        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?)");
-        $stmt->execute([$name, $contact_info, ...array_values($fields), $isPublished]);
+        // is_breeder ist ein Schalter, kein Freitext, und die Spalte ist NOT
+        // NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
+        $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
+        $stmt = $db->prepare("INSERT INTO persons (name, contact_info, {$structuredColumns}, is_breeder, is_published) VALUES (?, ?, {$structuredPlaceholders}, ?, ?)");
+        $stmt->execute([$name, $contact_info, ...array_values($fields), $isBreeder, $isPublished]);
         $newPersonId = $db->lastInsertId();
 
         \App\Service\AuditLogger::log("Person angelegt", "persons", "Person ID {$newPersonId}: {$name}");
@@ -193,7 +196,14 @@ class PersonController extends BaseController {
             $this->render('admin_person_form', [
                 'title' => 'Person bearbeiten',
                 'person' => array_merge(
-                    ['id' => $id, 'name' => $name, 'contact_info' => $contact_info, 'is_published' => !empty($_POST['is_published']) ? 1 : 0],
+                    [
+                        'id' => $id,
+                        'name' => $name,
+                        'contact_info' => $contact_info,
+                        'is_published' => !empty($_POST['is_published']) ? 1 : 0,
+                        // Sonst verlöre ein Validierungsfehler das Häkchen.
+                        'is_breeder' => !empty($_POST['is_breeder']) ? 1 : 0,
+                    ],
                     $fields
                 ),
                 'error' => 'Der Name der Person ist erforderlich.',
@@ -213,13 +223,17 @@ class PersonController extends BaseController {
         // ein Lesezeichen weiter bearbeitet werden - er bliebe geloescht und
         // bekaeme trotzdem neue Werte, ohne dass jemand es merkt. Dasselbe
         // Muster wie beim Bulk-Publish darueber.
+        //
+        // is_breeder (#293) ist ein Schalter, kein Freitext, und die Spalte ist
+        // NOT NULL - deshalb neben STRUCTURED_FIELDS gefuehrt wie is_published.
+        $isBreeder = !empty($_POST['is_breeder']) ? 1 : 0;
         if ($this->hasPermission('persons', 'publish')) {
             $isPublished = !empty($_POST['is_published']) ? 1 : 0;
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_published = ? WHERE id = ? AND deleted_at IS NULL");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $isPublished, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ?, is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $isPublished, $id]);
         } else {
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql} WHERE id = ? AND deleted_at IS NULL");
-            $stmt->execute([$name, $contact_info, ...$structuredValues, $id]);
+            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = ?, {$structuredSql}, is_breeder = ? WHERE id = ? AND deleted_at IS NULL");
+            $stmt->execute([$name, $contact_info, ...$structuredValues, $isBreeder, $id]);
         }
 
         // Keine betroffene Zeile heisst: Der Datensatz liegt im Papierkorb.
@@ -248,7 +262,8 @@ class PersonController extends BaseController {
      * zu ergänzen hätte still funktioniert und beim Speichern Daten verloren.
      */
     private const STRUCTURED_FIELDS = [
-        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email', 'membership_status'
+        'street', 'house_number', 'postal_code', 'city', 'state', 'country', 'email',
+        'phone', 'mobile', 'website', 'membership_status'
     ];
 
     /**

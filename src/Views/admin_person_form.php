@@ -89,13 +89,47 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
                 <input type="text" id="membership_status" name="membership_status" class="form-control" value="<?= htmlspecialchars($old['membership_status'] ?? $person['membership_status'] ?? '') ?>" placeholder="z. B. Mitglied / Nichtmitglied NO">
             </div>
         </div>
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="phone">Telefon</label>
+                <input type="text" id="phone" name="phone" class="form-control" value="<?= htmlspecialchars($old['phone'] ?? $person['phone'] ?? '') ?>" placeholder="z. B. 01234 56789">
+            </div>
+            <div class="form-group" style="flex: 1;">
+                <label for="mobile">Mobil</label>
+                <input type="text" id="mobile" name="mobile" class="form-control" value="<?= htmlspecialchars($old['mobile'] ?? $person['mobile'] ?? '') ?>" placeholder="z. B. 0170 1234567">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="website">Website</label>
+            <input type="text" id="website" name="website" class="form-control" value="<?= htmlspecialchars($old['website'] ?? $person['website'] ?? '') ?>" placeholder="https://www.example.de">
+            <small style="color: var(--text-muted);">Wird öffentlich als Verweis angezeigt. Verlinkt werden nur Adressen mit <code>http://</code> oder <code>https://</code>.</small>
+        </div>
+
         <p style="color: var(--text-subtle); font-size: 0.8rem; margin: -0.3rem 0 1rem 0;">
-            Öffentlich sichtbar sind nur Ort, Bundesland/Kanton, Land und Mitgliedsstatus - Straße, Hausnummer, PLZ und E-Mail bleiben intern.
+            Öffentlich sichtbar sind nur Ort, Bundesland/Kanton, Land, Mitgliedsstatus und Website -
+            Straße, Hausnummer, PLZ, E-Mail, Telefon und Mobil bleiben intern.
         </p>
 
         <div class="form-group">
-            <label for="contact_info">Sonstige Kontaktinformationen (z. B. Telefon)</label>
-            <textarea id="contact_info" name="contact_info" class="form-control" rows="3" placeholder="Tel: 01234-56789"><?= htmlspecialchars($old['contact_info'] ?? $person['contact_info'] ?? '') ?></textarea>
+            <label for="contact_info">Interne Notiz zum Kontakt</label>
+            <textarea id="contact_info" name="contact_info" class="form-control" rows="3" placeholder="Nur intern sichtbar"><?= htmlspecialchars($old['contact_info'] ?? $person['contact_info'] ?? '') ?></textarea>
+            <small style="color: var(--text-muted);">
+                Restfeld für alles ohne eigene Spalte. <strong>Nicht öffentlich.</strong>
+                Telefon, Mobil und Website haben seit #293 eigene Felder - dieses Feld lud
+                zuvor zu Telefonnummern ein und wurde zugleich öffentlich angezeigt.
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="is_breeder" value="1" <?= !empty($old['is_breeder'] ?? $person['is_breeder'] ?? 0) ? 'checked' : '' ?>>
+                <span>🐴 Diese Person züchtet</span>
+            </label>
+            <small style="color: var(--text-muted);">
+                Kennzeichnet die Person als Züchter - unabhängig davon, ob ihr schon Pferde
+                zugeordnet sind. Grundlage für die Zucht-Suche; wird öffentlich angezeigt.
+            </small>
         </div>
 
         <?php if ($canPublish): ?>

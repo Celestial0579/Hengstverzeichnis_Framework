@@ -206,6 +206,25 @@ abstract class FunctionalTestCase extends TestCase {
      *
      * @var array<string, array<int, string>>
      */
+    /**
+     * Standard-Leserechte der eingebauten Gast-Gruppe (`public`), gespiegelt
+     * aus dem Seed in database/schema.sql.
+     *
+     * An EINER Stelle, weil mehrere Tests die Rechte dieser Gruppe ersetzen und
+     * danach wiederherstellen müssen: Der Endpunkt löscht die Menge komplett und
+     * legt sie neu an. Standen die Vorgaben je Test hartkodiert da, veraltete
+     * eine davon beim nächsten neuen Gastrecht - und der Test, der es braucht,
+     * fiel weit entfernt und ohne erkennbaren Zusammenhang um. Genau das ist
+     * beim Hinzukommen von persons.view (#293) passiert.
+     *
+     * @var array<string, array<int, string>>
+     */
+    protected const GUEST_DEFAULT_PERMISSIONS = [
+        'horses' => ['view'],
+        'breeding_stations' => ['view'],
+        'persons' => ['view'],
+    ];
+
     protected const EDITOR_DEFAULT_PERMISSIONS = [
         'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
         'persons' => ['view', 'create', 'edit', 'delete', 'publish'],

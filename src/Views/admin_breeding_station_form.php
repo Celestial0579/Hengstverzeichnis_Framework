@@ -125,6 +125,18 @@ $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stat
         <?php if ($canPublish): ?>
         <div class="form-group">
             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" name="contact_public" value="1" <?= !isset($station['contact_public']) || !empty($old['contact_public'] ?? $station['contact_public']) ? 'checked' : '' ?>>
+                <span>📇 Kontaktdaten öffentlich zeigen</span>
+            </label>
+            <small style="color: var(--text-muted);">
+                Telefon und E-Mail einer Deckstation sind hier <strong>standardmäßig
+                öffentlich</strong> - es ist eine Geschäftsadresse. Ohne Häkchen bleiben
+                sie intern; Anschrift und Website erscheinen unabhängig davon.
+            </small>
+        </div>
+
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                 <input type="checkbox" name="is_published" value="1" <?= !empty($old['is_published'] ?? $station['is_published'] ?? 0) ? 'checked' : '' ?>>
                 <span>🌐 Öffentlich sichtbar (Detailseite & Katalog-Filter)</span>
             </label>
@@ -138,3 +150,13 @@ $actionUrl = $isEdit ? '/admin/breeding-stations/update' : '/admin/breeding-stat
         </div>
     </form>
 </div>
+
+<?php
+// Plugin-Abschnitte (Hook station.edit_sections). Bewusst AUSSERHALB des
+// Formulars oben: Verschachtelte <form> sind ungueltiges HTML, und die
+// Abnehmer brauchen eigene Formulare. So bleibt jeder Schreibvorgang beim
+// Plugin-Controller mit dessen eigener Berechtigungspruefung - dieselbe
+// Begruendung wie bei horse.edit_sections.
+foreach (($pluginEditSections ?? []) as $section): ?>
+    <div class="card" style="max-width: 600px; margin-top: 1.5rem;"><?= $section ?></div>
+<?php endforeach; ?>

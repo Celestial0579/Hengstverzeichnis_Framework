@@ -160,6 +160,7 @@ return [
     'person.no_details' => 'Tästä henkilöstä ei ole julkisia tietoja.',
     'meta.title_person_detail_suffix' => 'Henkilö',
     'horse.person_unknown' => 'Kasvattaja/omistaja tuntematon',
+    'field.mobile' => 'Matkapuhelin',
     'station.not_found' => 'Pyydettyä oriasemaa ei ole olemassa tai se on poistettu rekisteristä.',
     'meta.title_station_detail_suffix' => 'Oriasema',
 

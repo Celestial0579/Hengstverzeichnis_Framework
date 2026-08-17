@@ -165,6 +165,7 @@ return [
     'person.no_details' => 'Zu dëser Persoun sinn keng ëffentlech Angaben hannerluecht.',
     'meta.title_person_detail_suffix' => 'Persoun',
     'horse.person_unknown' => 'Ziichter/Besëtzer onbekannt',
+    'field.mobile' => 'Handy',
     'station.not_found' => 'Déi ugefrot Deckstatioun existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
     'meta.title_station_detail_suffix' => 'Deckstatioun',
 

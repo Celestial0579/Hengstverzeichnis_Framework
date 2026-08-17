@@ -3,7 +3,13 @@
 /**
  * @var array $station
  * @var array $horses
+ * @var array<int, string> $pluginDetailSections
  */
+$pluginDetailSections = $pluginDetailSections ?? [];
+// Vorgabe 1: Telefon und E-Mail einer Deckstation waren hier seit jeher
+// oeffentlich. Die Freigabe kann sie verbergen, nimmt aber nichts weg, was
+// vorher da war (siehe Schema-Kommentar).
+$kontaktFrei = !isset($station['contact_public']) || !empty($station['contact_public']);
 
 // Zuchtstatus seit dem Status-Split (#188) zweiwertig; der Lebensstatus
 // (is_deceased) bekommt unten ein eigenes Badge.
@@ -54,13 +60,13 @@ $statusLabels = [
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($addressText)) ?></td>
             </tr>
         <?php endif; ?>
-        <?php if (!empty($station['phone'])): ?>
+        <?php if ($kontaktFrei && !empty($station['phone'])): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📞 <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
                 <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars($station['phone']) ?></td>
             </tr>
         <?php endif; ?>
-        <?php if (!empty($station['email'])): ?>
+        <?php if ($kontaktFrei && !empty($station['email'])): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">✉️ <?= htmlspecialchars(App\I18n\Translator::t('field.email')) ?></th>
                 <td style="padding: 0.6rem 0; font-weight: 500;"><a href="mailto:<?= htmlspecialchars($station['email']) ?>"><?= htmlspecialchars($station['email']) ?></a></td>
@@ -108,3 +114,13 @@ $statusLabels = [
         </div>
     <?php endif; ?>
 </div>
+
+<?php if (!empty($pluginDetailSections)): ?>
+    <?php // Erweiterungspunkt 'station.detail_sections' - Gegenstueck zum Hook
+          // auf der Personenseite, z. B. fuer eine Kontaktanfrage. ?>
+    <div class="card" style="margin-top: 2rem;">
+        <?php foreach ($pluginDetailSections as $section): ?>
+            <div class="horse-plugin-section"><?= $section ?></div>
+        <?php endforeach; ?>
+    </div>
+<?php endif; ?>

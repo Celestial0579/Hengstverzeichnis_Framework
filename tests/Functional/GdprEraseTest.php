@@ -179,7 +179,12 @@ class GdprEraseTest extends FunctionalTestCase {
         // niemanden. Die Spalte ist zudem NOT NULL und liesse sich gar nicht
         // nullen. Genau wie is_published gehoert sie damit zum Datensatz, nicht
         // zur Person.
-        $nonPii = ['id', 'name', 'is_published', 'is_breeder', 'created_at', 'deleted_at'];
+        // contact_public gehört wie is_published und is_breeder zum Datensatz,
+        // nicht zur Person: Es sagt, ob Kontaktdaten gezeigt werden dürfen -
+        // nicht, WER jemand ist. Die Anonymisierung nullt die Kontaktdaten
+        // selbst, damit ist die Frage ohnehin gegenstandslos. Beide Spalten
+        // sind zudem NOT NULL.
+        $nonPii = ['id', 'name', 'is_published', 'is_breeder', 'contact_public', 'created_at', 'deleted_at'];
         $piiColumns = array_values(array_diff(array_keys($person), $nonPii));
         $this->assertNotEmpty($piiColumns, 'Spaltenliste von persons konnte nicht ermittelt werden.');
         foreach ($piiColumns as $field) {

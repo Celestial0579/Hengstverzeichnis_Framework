@@ -40,6 +40,10 @@ $publishFormId = 'horsePublishForm';
                 'sex_mismatch_sire' => 'Nicht gespeichert: Das als Vater gewählte Pferd ist als Stute erfasst.',
                 'sex_mismatch_dam' => 'Nicht gespeichert: Das als Mutter gewählte Pferd ist als Hengst oder Wallach erfasst.',
                 'death_before_birth' => 'Nicht gespeichert: Das Todesjahr liegt vor dem Geburtsjahr.',
+                // #298: Widersprüche in der Abstammung, die nie stimmen können.
+                'same_sire_and_dam' => 'Nicht gespeichert: Vater und Mutter dürfen nicht dasselbe Pferd sein.',
+                'sire_not_older' => 'Nicht gespeichert: Der Vater ist im selben Jahr oder später geboren als das Pferd.',
+                'dam_not_older' => 'Nicht gespeichert: Die Mutter ist im selben Jahr oder später geboren als das Pferd.',
             ];
             echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
             ?>

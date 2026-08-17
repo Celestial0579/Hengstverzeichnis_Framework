@@ -231,8 +231,14 @@ class HorseController extends BaseController {
         $dam_name = $dam_id ? null : (trim($_POST['dam_name'] ?? '') ?: null);
         $dam_ueln = $dam_id ? null : (trim($_POST['dam_ueln'] ?? '') ?: null);
 
-        // Geschlechts-Validierung der Abstammung (#166) - vor dem Bild-Upload,
-        // damit bei Ablehnung keine verwaiste Datei zurückbleibt.
+        // Abstammungs-Validierung (#166 Geschlecht, #298 Widersprüche) - vor
+        // dem Bild-Upload, damit bei Ablehnung keine verwaiste Datei
+        // zurückbleibt.
+        if ($error = $this->pedigreeContradiction($sire_id, $dam_id, $birth_year)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         if ($error = $this->parentSexMismatch($sire_id, $dam_id)) {
             header("Location: /admin/horses?error={$error}");
             exit;
@@ -428,8 +434,14 @@ class HorseController extends BaseController {
         if ($sire_id === (int)$id) $sire_id = null;
         if ($dam_id === (int)$id) $dam_id = null;
 
-        // Geschlechts-Validierung der Abstammung (#166) - vor Bild-Änderungen,
-        // damit bei Ablehnung weder Dateien gelöscht noch verwaiste angelegt werden.
+        // Abstammungs-Validierung (#166 Geschlecht, #298 Widersprüche) - vor
+        // Bild-Änderungen, damit bei Ablehnung weder Dateien gelöscht noch
+        // verwaiste angelegt werden.
+        if ($error = $this->pedigreeContradiction($sire_id, $dam_id, $birth_year)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         if ($error = $this->parentSexMismatch($sire_id, $dam_id)) {
             header("Location: /admin/horses?error={$error}");
             exit;
@@ -565,6 +577,9 @@ class HorseController extends BaseController {
 
         if ($sireId) {
             $stmt->execute([$sireId]);
+            // Nur die Stute ist ausgeschlossen. Ein Wallach als Vater ist
+            // ausdruecklich erlaubt: Ein spaeter kastrierter Hengst wird als
+            // 'gelding' gefuehrt und hat trotzdem gedeckt (#298).
             if ($stmt->fetchColumn() === 'mare') {
                 return 'sex_mismatch_sire';
             }
@@ -574,6 +589,52 @@ class HorseController extends BaseController {
             $sex = $stmt->fetchColumn();
             if ($sex === 'stallion' || $sex === 'gelding') {
                 return 'sex_mismatch_dam';
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Widersprueche in der Abstammung, die beim Speichern nie entstehen
+     * duerfen (#298). Bis dahin pruefte nichts: Erlaubt waren ein Vater, der
+     * juenger ist als sein Fohlen, und dasselbe Pferd als Vater UND Mutter.
+     * Im Altbestand der Dev-Instanz stecken davon zwoelf bzw. ein Fall - sie
+     * stammen aus der Migration, haetten aber genauso ueber das Formular
+     * entstehen koennen.
+     *
+     * Die Schwelle gab es bereits, nur an der falschen Stelle: autoLinkMatches()
+     * verknuepft Freitext-Eltern nur bei plausiblem Elternalter. Beim MANUELLEN
+     * Setzen von sire_id/dam_id griff sie nicht.
+     *
+     * Bewusst nur die harten Widersprueche, keine Altersspanne: Ein Elternteil
+     * darf nicht gleich alt oder juenger sein als sein Nachkomme - das ist
+     * unmoeglich, nicht bloss ungewoehnlich. Die 3-30-Jahre-Spanne aus dem
+     * Auto-Linking bleibt dort, wo sie hingehoert: Sie ist eine Heuristik fuer
+     * "welchen Datensatz meint dieser Freitext", kein Naturgesetz. Frueh oder
+     * spaet deckende Tiere kommen vor, und eine Eingabe abzulehnen, die richtig
+     * sein kann, waere schlimmer als sie zuzulassen.
+     *
+     * Fehlt ein Geburtsjahr, wird nicht geprueft - wie im Auto-Linking auch.
+     */
+    private function pedigreeContradiction(?int $sireId, ?int $damId, ?int $birthYear): ?string {
+        if ($sireId !== null && $damId !== null && $sireId === $damId) {
+            return 'same_sire_and_dam';
+        }
+
+        if ($birthYear === null) {
+            return null;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT birth_year FROM horses WHERE id = ?");
+        foreach (['sire' => $sireId, 'dam' => $damId] as $rolle => $parentId) {
+            if ($parentId === null) {
+                continue;
+            }
+            $stmt->execute([$parentId]);
+            $parentYear = $stmt->fetchColumn();
+            if ($parentYear !== false && $parentYear !== null && (int)$parentYear >= $birthYear) {
+                return $rolle === 'sire' ? 'sire_not_older' : 'dam_not_older';
             }
         }
         return null;

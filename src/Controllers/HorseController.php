@@ -964,6 +964,34 @@ class HorseController extends BaseController {
      * Save person roles & ownership history in horse_persons table
      */
     private function saveHorsePersons(\PDO $db, int $horseId, array $personsData): void {
+        // Ein Request OHNE persons-Block meint nicht "keine Zuordnungen" - er
+        // meint "dazu sage ich nichts" (Skript-POST, Teilformular). Ohne diese
+        // Unterscheidung loeschte jeder solche Request saemtliche Zuordnungen
+        // des Pferds (#295). Der versteckte Marker persons_present trennt das
+        // vom bewussten Leeren aller Zeilen im Formular - dieselbe Loesung wie
+        // bei registrations_present (#246), siehe saveRegistrations().
+        if (!array_key_exists('persons', $_POST) && !array_key_exists('persons_present', $_POST)) {
+            return;
+        }
+
+        // Bestand VOR dem Loeschen sichern. Grund: Das Formular rendert fuer
+        // breeding_station_text bis #295 kein Feld, der Wert kommt also gar
+        // nicht zurueck - und eine Zeile ohne Person und ohne Stations-ID fiel
+        // damit ersatzlos weg. Betroffen war der gesamte Importbestand, bei dem
+        // die Station nur als Freitext vorliegt.
+        //
+        // Die Zuordnung laeuft ueber die Position: edit() rendert die Zeilen mit
+        // derselben Sortierung (ORDER BY hp.id ASC) und vergibt die
+        // Formularindizes in dieser Reihenfolge. Sie greift ohnehin nur dort, wo
+        // der Schluessel im Request FEHLT - ein uebermittelter Leerstring
+        // loescht weiterhin bewusst.
+        $snapshotSql = "SELECT person_id, role, breeding_station_id, breeding_station_text, from_year, until_year
+                        FROM horse_persons WHERE horse_id = ? ORDER BY id ASC";
+        $stmt = $db->prepare($snapshotSql);
+        $stmt->execute([$horseId]);
+        $vorher = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $existingTexts = array_column($vorher, 'breeding_station_text');
+
         // Clear existing relations
         $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
         $stmt->execute([$horseId]);
@@ -976,11 +1004,22 @@ class HorseController extends BaseController {
         $currentStationText = null;
         $highestScore = -1;
 
-        foreach ($personsData as $item) {
+        foreach ($personsData as $index => $item) {
             $personId = !empty($item['person_id']) ? (int)$item['person_id'] : null;
             $role = $item['role'] ?? 'owner';
             $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
-            $stationText = trim($item['breeding_station_text'] ?? '');
+            // Fehlender Schluessel erhaelt den Bestand, uebermittelter
+            // Leerstring loescht - dieselbe Unterscheidung wie beim COALESCE
+            // fuer horses.breeding_station in update() (#214).
+            $stationText = array_key_exists('breeding_station_text', $item)
+                ? trim((string)$item['breeding_station_text'])
+                : trim((string)($existingTexts[$index] ?? ''));
+            // Die Spalte ist VARCHAR(255); ein laengerer Text braeche im Strict
+            // Mode den ganzen Speichervorgang ab, und Verwerfen kostete die
+            // komplette Zeile. maxlength im Formular ist nur clientseitig.
+            if (mb_strlen($stationText) > 255) {
+                $stationText = mb_substr($stationText, 0, 255);
+            }
 
             // Breeders do not have a time period!
             if ($role === 'breeder') {
@@ -1019,6 +1058,21 @@ class HorseController extends BaseController {
             if ($hasValidRole && ($hasPerson || $hasStation)) {
                 $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $fromYear, $untilYear]);
             }
+        }
+
+        // Zuordnungsaenderungen protokollieren. Bis #295 lief dieser Vorgang
+        // spurlos - er konnte Zeilen vernichten, ohne dass danach irgendwo
+        // stand, dass es sie gab. Nur bei tatsaechlicher Aenderung, sonst
+        // erzeugte jedes Speichern ohne Aenderung eine Zeile.
+        $stmt = $db->prepare($snapshotSql);
+        $stmt->execute([$horseId]);
+        $nachher = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        if ($vorher !== $nachher) {
+            \App\Service\AuditLogger::log(
+                "Pferdezuordnungen geändert",
+                "horses",
+                "Pferd ID {$horseId}: " . count($vorher) . " -> " . count($nachher) . " Zuordnungen"
+            );
         }
 
         // Aktuelle/letzte aktive Deckstation auf den Pferde-Hauptdatensatz

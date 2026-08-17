@@ -159,6 +159,7 @@ return [
     'person.no_horses' => 'Obecnie nie ma koni przypisanych do tej osoby.',
     'person.no_details' => 'Brak publicznych informacji o tej osobie.',
     'meta.title_person_detail_suffix' => 'Osoba',
+    'horse.person_unknown' => 'Hodowca/właściciel nieznany',
     'station.not_found' => 'Żądana stacja ogierów nie istnieje lub została usunięta z rejestru.',
     'meta.title_station_detail_suffix' => 'Stacja ogierów',
 

@@ -159,6 +159,7 @@ return [
     'person.no_horses' => 'Aucun cheval de cette personne n\'est actuellement répertorié.',
     'person.no_details' => 'Aucune information publique disponible pour cette personne.',
     'meta.title_person_detail_suffix' => 'Personne',
+    'horse.person_unknown' => 'Éleveur/propriétaire inconnu',
     'station.not_found' => 'La station de monte demandée n\'existe pas ou a été retirée du registre.',
     'meta.title_station_detail_suffix' => 'Station de monte',
 

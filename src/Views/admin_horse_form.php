@@ -303,6 +303,9 @@ foreach (($allBreedingStations ?? []) as $bs) {
                         <div style="flex: 2; min-width: 180px;">
                             <input type="text" name="persons[0][breeding_station_text]" class="form-control" maxlength="255" placeholder="oder Deckstation als Freitext">
                         </div>
+                        <div style="flex: 1.2; min-width: 130px;">
+                            <input type="text" name="persons[0][origin_country]" class="form-control" maxlength="100" placeholder="Herkunftsland">
+                        </div>
 
                         <div class="year-inputs" style="display: flex; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                             <input type="number" name="persons[0][from_year]" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
@@ -343,6 +346,9 @@ foreach (($allBreedingStations ?? []) as $bs) {
                             <div style="flex: 2; min-width: 180px;">
                                 <input type="text" name="persons[<?= $idx ?>][breeding_station_text]" value="<?= htmlspecialchars((string)($hp['breeding_station_text'] ?? '')) ?>" class="form-control" maxlength="255" placeholder="oder Deckstation als Freitext">
                             </div>
+                        <div style="flex: 1.2; min-width: 130px;">
+                            <input type="text" name="persons[<?= $idx ?>][origin_country]" value="<?= htmlspecialchars((string)($hp['origin_country'] ?? '')) ?>" class="form-control" maxlength="100" placeholder="Herkunftsland">
+                        </div>
 
                             <div class="year-inputs" style="display: <?= $hp['role'] === 'breeder' ? 'none' : 'flex' ?>; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                                 <input type="number" name="persons[<?= $idx ?>][from_year]" value="<?= htmlspecialchars((string)($hp['from_year'] ?? '')) ?>" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
@@ -413,6 +419,9 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 <div style="flex: 2; min-width: 180px;">
                     <input type="text" name="persons[${personRowIndex}][breeding_station_text]" class="form-control" maxlength="255" placeholder="oder Deckstation als Freitext">
                 </div>
+                        <div style="flex: 1.2; min-width: 130px;">
+                            <input type="text" name="persons[${personRowIndex}][origin_country]" class="form-control" maxlength="100" placeholder="Herkunftsland">
+                        </div>
                 <div class="year-inputs" style="display: flex; gap: 0.4rem; flex: 1.8; min-width: 160px;">
                     <input type="number" name="persons[${personRowIndex}][from_year]" placeholder="Von (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">
                     <input type="number" name="persons[${personRowIndex}][until_year]" placeholder="Bis (Jahr)" class="form-control" style="flex: 1;" min="1700" max="<?= date('Y') + 1 ?>">

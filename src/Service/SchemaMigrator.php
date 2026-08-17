@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 6;
+    public const SCHEMA_VERSION = 7;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -250,6 +250,7 @@ final class SchemaMigrator {
                 `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
                 `breeding_station_id` INT NULL,
                 `breeding_station_text` VARCHAR(255) NULL,
+                `origin_country` VARCHAR(100) NULL,
                 `from_year` SMALLINT UNSIGNED NULL,
                 `until_year` SMALLINT UNSIGNED NULL,
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -260,6 +261,19 @@ final class SchemaMigrator {
 
         $addColumn('horse_persons', 'breeding_station_id', 'INT NULL AFTER `role`');
         $addColumn('horse_persons', 'breeding_station_text', 'VARCHAR(255) NULL AFTER `breeding_station_id`');
+
+        // 31. Herkunftsland ohne bekannte Person (#294, SCHEMA_VERSION 7).
+        // Das Altsystem kannte "Zuechter unbekannt, kam aus Norwegen". Ohne
+        // dieses Feld muss dafuer eine Platzhalter-Person in der PII-Tabelle
+        // angelegt werden - in der Dev-Instanz betrifft das 171 von 672
+        // Zuechter-Zuordnungen, die im Katalog als Zuechtername erscheinen,
+        // obwohl dahinter kein Mensch steht.
+        //
+        // Kein Backfill: Welche Platzhalter-Person ein Land meint und welche
+        // eine echte Person mit ungluecklichem Namen ist, kann nur die
+        // jeweilige Instanz entscheiden. Dieselbe Zurueckhaltung wie in
+        // Schritt 22, 29 und 30.
+        $addColumn('horse_persons', 'origin_country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `breeding_station_text`');
 
         // person_id NULL-fähig machen (Zuordnung kann auch nur über eine
         // Deckstation erfolgen). Früher ein bei jedem Lauf wiederholtes

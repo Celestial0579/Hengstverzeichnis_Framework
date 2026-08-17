@@ -10,6 +10,41 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+- **Öffentliche Personenseite** `/person?id=N` (#293) als Gegenstück zu
+  `/station`. Die Pferde-Detailseite verlinkt den Personennamen jetzt dorthin —
+  beide Einträge sind vom Pferd aus anklickbar. Der Controller wählt die
+  Spalten **einzeln** aus statt `SELECT *`: `persons` führt E-Mail, Telefon,
+  Mobil, Straße und das interne `contact_info`, und was gar nicht erst in der
+  View ankommt, kann auch niemand versehentlich ausgeben. Die Gast-Gruppe
+  bekommt dafür `persons.view`; neue öffentliche Daten entstehen dadurch nicht.
+
+- **Züchter-Kennzeichen** `persons.is_breeder` (#293) als Grundlage für eine
+  spätere Zucht-Suche über Züchter und Deckstationen. Ausdrücklich **nicht**
+  aus `horse_persons.role='breeder'` abgeleitet: Wer noch kein Pferd im
+  Verzeichnis hat, wäre sonst nicht auffindbar, und wer *früher* gezüchtet hat,
+  bliebe dauerhaft markiert. Das Kennzeichen sagt „züchtet heute", die
+  Zuordnungen sagen „hat dieses Pferd gezüchtet".
+
+- **Kontaktfelder für Personen** (#293): `phone`, `mobile` und `website`,
+  analog `breeding_stations`. Telefon und Mobil sind zustellbar und damit
+  intern wie die E-Mail-Adresse; die Website ist zur Veröffentlichung bestimmt.
+
+- **Herkunftsland ohne bekannte Person** (#294): `horse_persons.origin_country`
+  als dritte Gültigkeits-Alternative neben Person und Deckstation. Das
+  Altsystem kannte „der Züchter ist nicht bekannt, aber er kam aus Norwegen" —
+  ohne dieses Feld musste dafür eine **Platzhalter-Person** in der PII-Tabelle
+  angelegt werden, die dann als echter Züchtername im Katalog erschien und
+  durch DSGVO- und Papierkorb-Mechanik lief.
+
+- **Personendubletten zusammenführen** (#297) unter `/admin/persons/merge`, mit
+  Vorschau der betroffenen Zuordnungen. Die Reihenfolge ist der Kern und stand
+  bisher nirgends: erst umhängen, **dann** die Quelle in den Papierkorb.
+  Andersherum ist es ein stiller Datenverlust — `horse_persons.person_id` trägt
+  `ON DELETE CASCADE`, und der Papierkorb löscht Personen hart.
+
+- **Freitextfeld für Deckstationen im Pferdeformular** (#295). Es fehlte, und
+  genau daran hing der Datenverlust unten.
+
 - **Unbeaufsichtigte Update-Prüfung, Benachrichtigung und Installation**
   (#290, zweite Stufe aus #85). Bisher gab es Updates nur auf Knopfdruck; das
   ursprüngliche Feature-Issue hatte den periodischen Lauf über die
@@ -52,6 +87,52 @@ Breaking Changes sind jederzeit möglich).
   ein abgebrochenes Update die Installation nicht dauerhaft auf 503 nagelt.
 
 ### Behoben
+
+- **Datenverlust: Jedes Speichern eines Pferds löschte Freitext-Zuordnungen**
+  (#295). `saveHorsePersons()` löscht alle Zeilen und baut sie aus dem Request
+  neu auf — das Formular rendert für `breeding_station_text` aber kein Feld,
+  der Wert kam also nie zurück, und eine Zeile ohne Person und ohne Stations-ID
+  galt als ungültig. Wer nur die Farbe änderte, verlor die Herkunftsangaben.
+  Betroffen war praktisch der gesamte Importbestand (482 Zeilen bei 205
+  Pferden in der Dev-Instanz), und die Angaben waren öffentlich sichtbar.
+
+  Behoben in drei Teilen: Bestandstexte werden vor dem Löschen gelesen und
+  wiederverwendet, wenn der Request den Schlüssel gar nicht enthält (ein
+  übermittelter **Leerstring** löscht weiterhin bewusst); ein Marker
+  `persons_present` trennt „dazu sage ich nichts" von „keine Zuordnungen" —
+  bisher löschte **jeder** POST ohne `persons`-Block sämtliche Zuordnungen;
+  und das Formular bekommt endlich ein Eingabefeld. Dazu ein Audit-Log: Der
+  Vorgang konnte bis hierher spurlos Daten vernichten.
+
+- **Das Freitextfeld `contact_info` stand öffentlich** (#293). Das
+  Admin-Formular lud ausdrücklich ein, Telefonnummern hineinzuschreiben
+  („Sonstige Kontaktinformationen (z. B. Telefon)"), und dasselbe Feld wurde
+  auf der Pferde-Detailseite gerendert. Damit stand eine **zustellbare** Angabe
+  auf der öffentlichen Seite der Trennlinie, die das Schema zwei Zeilen darüber
+  selbst zieht. Geschützt hat allein `is_published`: Sobald eine Redaktion eine
+  Person freigab, stand deren Telefonnummer öffentlich.
+
+- **Website-Felder wurden ohne Protokollprüfung verlinkt** (#293,
+  Nebenbefund). Sie gingen als `href` mit bloßem `htmlspecialchars()` hinaus —
+  das kodiert den Attributwert, sagt aber nichts über das Protokoll, und
+  `javascript:` übersteht es unverändert. Betroffen waren die öffentliche
+  Stationsseite und die Admin-Stationsliste. Die Prüfung, die `Markdown` für
+  Fließtext-Links längst anwendet, steht jetzt als `App\Helper\ExternalUrl` an
+  einer Stelle.
+
+- **Papierkorb-Datensätze ließen sich überschreiben** (#296). Eine in den
+  Papierkorb gelegte Person blieb über die direkte URL bearbeitbar: Sie blieb
+  gelöscht, bekam aber neue Werte, und die Oberfläche wies nicht darauf hin.
+  Gelöst als **anzeigen ja, speichern nein** — ein Filter schon in der
+  Abfrage hätte den DSGVO-Auskunftsweg gekappt, der bewusst auch weich
+  gelöschte Treffer erreichbar hält. Deckstationen hatten dasselbe Muster.
+
+- **Widersprüchliche Abstammung wurde gespeichert** (#298): ein Vater, der
+  jünger ist als sein Fohlen, oder dasselbe Pferd als Vater **und** Mutter. Die
+  Schwelle gab es bereits, nur an der falschen Stelle — beim automatischen
+  Verknüpfen von Freitext-Eltern, nicht beim manuellen Setzen. Abgelehnt wird
+  nur, was unmöglich ist; die 3–30-Jahre-Spanne bleibt eine Heuristik fürs
+  Matching, denn früh oder spät deckende Tiere kommen vor.
 
 - **Die Update-Seite zeigte veraltete Addon-Versionen** (#290). Die
   Addon-Tabelle unter `/admin/updates` liest ausschließlich den
@@ -132,6 +213,15 @@ Breaking Changes sind jederzeit möglich).
   ebenfalls nie.
 
 ### Tests
+
+- Neue Funktionstests zu allen oben genannten Fehlern, jeweils **gegengeprüft**
+  (ohne die Korrektur fallen sie um) und, wo es darauf ankommt, mit der
+  Gegenrichtung: Eine Validierung, die auch richtige Eingaben abweist, wäre
+  schlimmer als gar keine.
+- **Gast-Standardrechte an einer Stelle** (`GUEST_DEFAULT_PERMISSIONS`). Mehrere
+  Tests ersetzen die Rechte der Gast-Gruppe und stellten danach eine
+  hartkodierte Liste wieder her — beim Hinzukommen von `persons.view` fiel das
+  neue Recht dabei heraus, und ein weit entfernter Test wurde rot.
 
 - Neuer Integrationstest für den **vollständigen Update-Ablauf**
   (`tests/Integration/UpdateRunTest.php`): echtes Pflicht-Backup gegen den

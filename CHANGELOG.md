@@ -84,6 +84,53 @@ Breaking Changes sind jederzeit möglich).
   Pfade erstmals berührt, den Lauf rot gemacht. Genau das trat beim neuen
   Update-Integrationstest ein.
 
+- **Datenbank und PHP rechnen jetzt in derselben Zeitzone.** Der Cache-Fehler
+  oben war kein Einzelfall, sondern der sichtbare Teil einer Fehlerklasse:
+  Über dreißig Stellen im Kern schreiben Zeitstempel per `NOW()`/`CURDATE()`
+  in der Zeitzone des Datenbankservers, während jeder PHP-seitige Vergleich in
+  der von `date.timezone` rechnet. Solange beide zufällig übereinstimmen,
+  fällt nichts auf — im offiziellen Container tun sie das (php:8.5-apache und
+  MariaDB stehen beide auf UTC), auf klassischem Hosting mit lokal
+  eingestelltem PHP nicht.
+
+  Nachweisbare zweite Auswirkung: Die Tagesstatistik (`/api/stats`) gruppiert
+  mit `DATE(created_at)` in Datenbankzeit, bildet die Zeitraumgrenzen aber in
+  PHP-Zeit. Fallen die Datumsgrenzen auseinander, landen frisch angelegte
+  Datensätze im Kübel des Vortags — stillschweigend, es sieht wie ein
+  Zählfehler aus. Reproduziert mit auseinanderlaufenden Zeitzonen; der
+  vorhandene Test schlug dabei fehl, in der CI (Runner und Dienst-Container
+  beide UTC) konnte er es nie zeigen.
+
+  `Database::getInstance()` gleicht die Sitzungs-Zeitzone der Verbindung
+  deshalb an PHP an. Gesetzt wird der numerische Versatz, nicht der Zonenname:
+  Namen setzen die geladenen Zeitzonentabellen der Datenbank voraus, die in
+  Containern und bei Hostern regelmäßig fehlen. Ein `SET time_zone`, das die
+  Datenbank verweigert, ist bewusst nicht tödlich.
+
+  **Für Bestandsinstallationen, deren Zeitzonen bisher auseinanderliefen:**
+  Neue Zeitstempel entstehen ab dem Update in PHP-Zeit, bereits gespeicherte
+  bleiben, wie sie sind. Betroffen sind praktisch nur kurzlebige Werte
+  (Token- und Sitzungsfristen im Minutenbereich) — dort kann es einmalig zu
+  einer verfrühten oder verspäteten Fälligkeit kommen. Wo beide Seiten schon
+  vorher übereinstimmten, ändert sich nichts.
+
+- **Ein liegengebliebener Wartungsmodus sperrte die Installation dauerhaft.**
+  `performUpdate()` setzt den Marker und entfernt ihn im `finally` — bei einem
+  harten Abbruch (`E_COMPILE_ERROR`, abgelaufenes `request_terminate_timeout`,
+  getöteter Worker) läuft das nicht mehr. `Maintenance::guard()` beantwortete
+  danach **jeden** Request mit 503, bewusst auch für Admins, ohne Höchstalter
+  und ohne Notausgang außer dem Löschen der Datei per Shell. Seit das Update
+  unbeaufsichtigt laufen kann, sitzt niemand mehr davor.
+
+  `enable()` hinterlegt jetzt die Prozesskennung, und `guard()` räumt einen
+  verwaisten Marker weg. Die Bedingungen sind streng, und alle drei müssen
+  zutreffen: auswertbare Nutzlast **mit** Kennung, der Prozess läuft
+  nachweislich nicht mehr, und der Marker ist älter als 15 Minuten. Eine
+  laufende Arbeit verliert ihre Sperre damit nie — das wäre genau der Schaden,
+  gegen den es den Wartungsmodus gibt —, und ein von Hand gesetzter Marker
+  (`touch var/wartung.lock`, laut Dokumentation ein gültiger Weg) verfällt
+  ebenfalls nie.
+
 ### Tests
 
 - Neuer Integrationstest für den **vollständigen Update-Ablauf**
@@ -92,6 +139,36 @@ Breaking Changes sind jederzeit möglich).
   Fixture-Server, echte SHA256-Prüfung, echtes Anwenden in ein temporäres
   Zielverzeichnis. Bis hierher gab es für `performUpdate()` keinen einzigen
   Test — abgedeckt waren nur die Ablehnungsfälle.
+
+- **Der Mailversand der Benachrichtigung wird wirklich durchgeführt**
+  (`tests/Integration/UpdateNotificationMailTest.php`), nicht weggemockt. Die
+  übrigen Tests laufen ohne Mail-Konfiguration und konnten deshalb nur den
+  Verweigerungsfall zeigen — nie, ob im Erfolgsfall eine Mail entsteht, was
+  darin steht und ob der Merkzettel danach richtig fortgeschrieben wird. Genau
+  dort saß einer der beiden Fehler, die die Selbstprüfung dieses Zweigs
+  gefunden hat.
+
+  Abgedeckt sind **beide** Versandwege, weil beide im Einsatz sind: `smtp`
+  gegen einen neuen `FakeSmtpServer` — mit echter TLS-Strecke, denn der Mailer
+  lehnt unverschlüsselten Versand ab und prüft das Zertifikat vollständig,
+  weshalb der Testserver eine eigene Zertifizierungsstelle mitbringt — und
+  `mail` (PHPs `mail()`) über einen Unterprozess mit umgebogenem
+  `sendmail_path`, das sich zur Laufzeit nicht setzen lässt. Mitgeprüft wird
+  die Zusage „einmal je Fund": erster Lauf verschickt, zweiter schweigt, eine
+  neuere Version wird wieder gemeldet.
+
+- **Der Wartungsmodus ist über den echten HTTP-Weg geprüft**
+  (`tests/Functional/MaintenanceModeTest.php`): Ein verwaister Marker wird
+  weggeräumt und die Seite liefert wieder aus; der Marker eines **laufenden**
+  Prozesses blockiert weiter, egal wie alt er ist; ein von Hand gesetzter
+  Marker bleibt bestehen.
+
+- **Die Testserver übernehmen die Zeitzone des Testprozesses.** Test und App
+  teilen sich die Datenbank; laufen sie in verschiedenen Zeitzonen, schreibt
+  der eine Zeitstempel, die der andere falsch liest — was sich nicht als
+  Fehler zeigt, sondern etwa als unerklärlich abgelaufener Cache.
+  `PhpBuiltInServer` und `AuxiliaryServer` reichen `date.timezone` deshalb an
+  den Kindprozess durch.
 
 ## [0.5.2] – 2026-08-16
 

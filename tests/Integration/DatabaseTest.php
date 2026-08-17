@@ -258,6 +258,41 @@ class DatabaseTest extends TestCase {
     }
 
     /**
+     * Die Verbindung bringt die Zeitzone der Datenbank mit der von PHP zur
+     * Deckung (siehe Database::alignSessionTimeZone()). Ohne das rechnen die
+     * über dreißig `NOW()`/`CURDATE()`-Stellen des Kerns in einer anderen
+     * Zeitzone als jeder PHP-seitige Vergleich - eine Abweichung, die nicht
+     * als Fehler auffällt, sondern als Langsamkeit (der Katalog-Cache galt
+     * dauerhaft als abgelaufen, #290) oder als Zählfehler (die Tagesstatistik
+     * buchte in den Kübel des Vortags).
+     *
+     * Der Test greift auch dann, wenn beide Seiten zufällig übereinstimmen -
+     * er vergleicht nicht zwei Zeitzonen miteinander, sondern die Uhr der
+     * Datenbank mit der von PHP. Genau darauf kommt es an, und genau das war
+     * im offiziellen Container (beide UTC) nie zu sehen.
+     */
+    public function testConnectionAlignsDatabaseClockWithPhpClock(): void {
+        $pdo = Database::getInstance();
+
+        $dbNow = (string)$pdo->query('SELECT NOW()')->fetchColumn();
+        $delta = abs(time() - (int)strtotime($dbNow));
+
+        $this->assertLessThanOrEqual(
+            5,
+            $delta,
+            "Die Uhr der Datenbank ({$dbNow}) weicht um {$delta} s von der PHP-Uhr ("
+            . date('Y-m-d H:i:s') . ') ab - die Sitzungs-Zeitzone wurde nicht angeglichen.'
+        );
+
+        // Und die Datumsgrenze, an der die Tagesstatistik hängt.
+        $this->assertSame(
+            (new \DateTimeImmutable('today'))->format('Y-m-d'),
+            (string)$pdo->query('SELECT CURDATE()')->fetchColumn(),
+            'CURDATE() muss denselben Tag liefern wie PHP - sonst landen frische Datensätze im Kübel des Vortags.'
+        );
+    }
+
+    /**
      * Beweist den Kurzschluss (#213): Ist settings.schema_version aktuell, führt
      * ein neuer Verbindungsaufbau die Migrationsschritte NICHT mehr aus. Dazu
      * wird eine von der Migration angelegte Spalte absichtlich gedroppt - bliebe

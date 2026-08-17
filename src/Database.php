@@ -91,6 +91,8 @@ class Database {
             try {
                 self::$instance = new PDO($dsn, $user, $pass, $options);
 
+                self::alignSessionTimeZone(self::$instance);
+
                 // Datenbank-Schema bei Verbindungsaufbau automatisch auf den neuesten Stand bringen
                 self::ensureSchemaUpToDate(self::$instance);
             } catch (PDOException $e) {
@@ -102,6 +104,7 @@ class Database {
                         try {
                             $fallbackDsn = "mysql:unix_socket=$sock;dbname=$db;charset=$charset";
                             self::$instance = new PDO($fallbackDsn, $user, $pass, $options);
+                            self::alignSessionTimeZone(self::$instance);
                             self::ensureSchemaUpToDate(self::$instance);
                             $connected = true;
                             break;
@@ -150,6 +153,44 @@ class Database {
      *
      * @param PDO $pdo Aktive Datenbankverbindung
      */
+    /**
+     * Bringt die Sitzungs-Zeitzone der Datenbank mit der von PHP zur Deckung.
+     *
+     * Ohne das rechnen beide Seiten in verschiedenen Zeitzonen, und zwar
+     * unbemerkt: `NOW()`/`CURDATE()` (an über dreißig Stellen im Kern) laufen
+     * in der Zeitzone des Datenbankservers, jeder PHP-seitige Vergleich in
+     * der von `date.timezone`. Solange beide zufällig übereinstimmen, fällt
+     * nichts auf - im offiziellen Container tun sie das (php:8.5-apache steht
+     * auf UTC, der MariaDB-Container ebenfalls). Auf klassischem Hosting, wo
+     * PHP üblicherweise auf der lokalen Zeitzone steht, gehen sie auseinander.
+     *
+     * Die Folgen sind still und schwer zu finden: Der Katalog-Cache der
+     * Addon-Übersicht galt dadurch dauerhaft als abgelaufen (#290) und lud bei
+     * jedem Aufruf neu; die Tagesstatistik (`/api/stats`) buchte frisch
+     * angelegte Datensätze in den Kübel des Vortags, solange die Datumsgrenzen
+     * der beiden Zeitzonen auseinanderfielen. Beides sah nach Langsamkeit bzw.
+     * nach einem Zählfehler aus, nicht nach einem Zeitzonenproblem.
+     *
+     * Gesetzt wird der numerische Versatz (`+02:00`), nicht der Zonenname:
+     * Namen setzen die geladenen Zeitzonentabellen der Datenbank voraus
+     * (`mysql_tzinfo_to_sql`), die in Containern und bei Hostern regelmäßig
+     * fehlen - der Versatz funktioniert immer. Er wird je Verbindungsaufbau
+     * neu bestimmt und ist damit auch über den Sommerzeitwechsel korrekt.
+     *
+     * Ein Fehlschlag ist bewusst nicht tödlich: Eine Datenbank, die `SET
+     * time_zone` verweigert, soll die Anwendung nicht am Starten hindern -
+     * dann gilt wieder das bisherige Verhalten.
+     */
+    private static function alignSessionTimeZone(PDO $pdo): void {
+        try {
+            $offset = (new \DateTimeImmutable('now'))->format('P');
+            $stmt = $pdo->prepare('SET time_zone = ?');
+            $stmt->execute([$offset]);
+        } catch (\Throwable $e) {
+            // Siehe PHPDoc: lieber die alte Uneinheitlichkeit als keine App.
+        }
+    }
+
     private static function ensureSchemaUpToDate(PDO $pdo): void {
         try {
             Service\SchemaMigrator::run($pdo);

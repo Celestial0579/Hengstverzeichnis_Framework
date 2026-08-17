@@ -43,6 +43,14 @@ final class PluginPage {
 
         $content = $contentHtml;
 
+        // Dieselben Menüpunkte wie auf Kern-Seiten (Filter `layout.nav_items`,
+        // siehe BaseController::render()). Ohne diese Zeile fehlte die
+        // Navigation ausgerechnet auf der Seite, auf die der Menüpunkt zeigt -
+        // der aktive Eintrag verschwände beim Draufklicken.
+        $navItems = \App\Helper\NavItems::sanitize(
+            PluginManager::getInstance()->getHooks()->applyFilters('layout.nav_items', [])
+        );
+
         if ($embed) {
             // Minimal-Layout ohne Kopf-/Fussbereich (#260). Der eigentliche
             // Anwendungsfall sitzt hier und nicht im Kern: Ein Addon liefert das

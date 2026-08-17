@@ -7,11 +7,20 @@
  * @var bool $canDelete
  * @var bool $canPublish
  * @var int|null $publishedFilter Aktiver Filter: 1, 0 oder null (alle)
+ * @var array<string, string> $filters Geprüfte Suchparameter (BreedingStationController::index)
+ * @var bool $hasActiveFilters
+ * @var array<int, string> $countries
+ * @var int $page
+ * @var int $totalPages
+ * @var int $totalCount
  */
 $canPublish = $canPublish ?? false;
 $publishedFilter = $publishedFilter ?? null;
 $publishBase = '/admin/breeding-stations';
 $publishFormId = 'stationPublishForm';
+$filters = $filters ?? [];
+$hasActiveFilters = $hasActiveFilters ?? false;
+$resetHref = '/admin/breeding-stations' . ($publishedFilter !== null ? '?published=' . (int)$publishedFilter : '');
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;">
@@ -29,6 +38,61 @@ $publishFormId = 'stationPublishForm';
             <?= $_GET['success'] === 'created' ? '✓ Deckstation erfolgreich angelegt.' : ($_GET['success'] === 'updated' ? '✓ Deckstation aktualisiert.' : '✓ Deckstation gelöscht.') ?>
         </div>
     <?php endif; ?>
+
+    <form action="/admin/breeding-stations" method="GET" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1rem;">
+        <?php if ($publishedFilter !== null): ?><input type="hidden" name="published" value="<?= (int)$publishedFilter ?>"><?php endif; ?>
+        <div style="display: flex; gap: 0.8rem; flex-wrap: wrap; align-items: center;">
+            <div style="flex: 1; min-width: 240px;">
+                <label for="admin-station-search" class="sr-only">Deckstationen durchsuchen</label>
+                <input type="text" id="admin-station-search" name="search" class="form-control" autocomplete="off"
+                       placeholder="🔍 Name, Ansprechpartner, Ort, PLZ, Land, Kontakt …"
+                       value="<?= htmlspecialchars($filters['search'] ?? '') ?>">
+            </div>
+            <button type="submit" class="btn">Suchen</button>
+            <?php if ($hasActiveFilters): ?>
+                <a href="<?= htmlspecialchars($resetHref) ?>" class="btn btn-secondary">Zurücksetzen</a>
+            <?php endif; ?>
+            <span style="background: var(--surface-muted); border: 1px solid var(--border-color); padding: 0.3rem 0.8rem; border-radius: 12px; font-size: 0.85rem; color: var(--text-muted);">
+                <?= (int)($totalCount ?? count($stations)) ?> Treffer
+            </span>
+        </div>
+
+        <details <?= $hasActiveFilters ? 'open' : '' ?> style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.8rem;">
+            <summary style="font-weight: bold; color: var(--primary-fg); cursor: pointer; user-select: none;">Erweiterte Suche</summary>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem; margin-top: 1rem;">
+                <div class="form-group">
+                    <label for="admin-station-q-name" style="font-size: 0.85rem; font-weight: bold;">Name der Station</label>
+                    <input type="text" id="admin-station-q-name" name="q_name" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_name'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-station-q-contact" style="font-size: 0.85rem; font-weight: bold;">Ansprechpartner</label>
+                    <input type="text" id="admin-station-q-contact" name="q_contact" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_contact'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-station-q-city" style="font-size: 0.85rem; font-weight: bold;">Ort</label>
+                    <input type="text" id="admin-station-q-city" name="q_city" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_city'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-station-q-plz" style="font-size: 0.85rem; font-weight: bold;">PLZ</label>
+                    <input type="text" id="admin-station-q-plz" name="q_postal_code" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_postal_code'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-station-q-state" style="font-size: 0.85rem; font-weight: bold;">Bundesland / Kanton</label>
+                    <input type="text" id="admin-station-q-state" name="q_state" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_state'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-station-q-country" style="font-size: 0.85rem; font-weight: bold;">Land</label>
+                    <input type="text" id="admin-station-q-country" name="q_country" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_country'] ?? '') ?>" list="admin_station_country_list">
+                    <datalist id="admin_station_country_list">
+                        <?php foreach (($countries ?? []) as $countryOption): ?><option value="<?= htmlspecialchars((string)$countryOption) ?>"><?php endforeach; ?>
+                    </datalist>
+                </div>
+            </div>
+            <div style="margin-top: 0.8rem; text-align: right;">
+                <button type="submit" class="btn" style="padding: 0.5rem 1.2rem;">Filter anwenden</button>
+            </div>
+        </details>
+    </form>
 
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
@@ -96,6 +160,8 @@ $publishFormId = 'stationPublishForm';
             <?php endif; ?>
         </tbody>
     </table>
+
+    <?php require __DIR__ . '/partials/admin_pagination.php'; ?>
 
     <div style="margin-top: 2rem;">
         <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>

@@ -7,11 +7,21 @@
  * @var bool $canDelete
  * @var bool $canPublish
  * @var int|null $publishedFilter Aktiver Filter: 1, 0 oder null (alle)
+ * @var array<string, string> $filters Geprüfte Suchparameter (PersonController::index)
+ * @var bool $hasActiveFilters
+ * @var array<int, string> $countries
+ * @var array<int, string> $memberships
+ * @var int $page
+ * @var int $totalPages
+ * @var int $totalCount
  */
 $canPublish = $canPublish ?? false;
 $publishedFilter = $publishedFilter ?? null;
 $publishBase = '/admin/persons';
 $publishFormId = 'personPublishForm';
+$filters = $filters ?? [];
+$hasActiveFilters = $hasActiveFilters ?? false;
+$resetHref = '/admin/persons' . ($publishedFilter !== null ? '?published=' . (int)$publishedFilter : '');
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
@@ -26,7 +36,30 @@ $publishFormId = 'personPublishForm';
 
     <?php if (isset($_GET['success'])): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
-            Aktion erfolgreich ausgeführt.
+            <?php if (($_GET['success'] ?? '') === 'merged'): ?>
+                <?php
+                    // Zahlen aus PersonController::merge(). Bewusst benannt statt
+                    // nur "erfolgreich": Nur so sieht der Bearbeiter, ob die
+                    // Paarrichtung stimmte - siehe Kommentar dort.
+                    $mUmgehaengt = max(0, (int)($_GET['merged_moved'] ?? 0));
+                    $mVerworfen = max(0, (int)($_GET['merged_dropped'] ?? 0));
+                    $mErgaenzt = max(0, (int)($_GET['merged_filled'] ?? 0));
+                ?>
+                Zusammengeführt:
+                <?= $mUmgehaengt ?> Zuordnung<?= $mUmgehaengt === 1 ? '' : 'en' ?> umgehängt,
+                <?= $mVerworfen ?> doppelte verworfen,
+                <?= $mErgaenzt ?> leere<?= $mErgaenzt === 1 ? 's Feld' : ' Felder' ?> aus dem
+                aufgegebenen Datensatz ergänzt.
+                <?php if ($mErgaenzt >= 3): ?>
+                    <br><strong>Zur Kontrolle:</strong> Der aufgegebene Datensatz war deutlich
+                    reichhaltiger als der behaltene. Das ist meist ein Zeichen dafür, dass die
+                    beiden vertauscht waren - der behaltene trägt dann den falschen Namen.
+                    Rückgängig machen lässt es sich über den
+                    <a href="/admin/trash">Papierkorb</a>.
+                <?php endif; ?>
+            <?php else: ?>
+                Aktion erfolgreich ausgeführt.
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
@@ -47,6 +80,76 @@ $publishFormId = 'personPublishForm';
             wiederherstellen.
         </div>
     <?php endif; ?>
+
+    <form action="/admin/persons" method="GET" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1rem;">
+        <?php if ($publishedFilter !== null): ?><input type="hidden" name="published" value="<?= (int)$publishedFilter ?>"><?php endif; ?>
+        <div style="display: flex; gap: 0.8rem; flex-wrap: wrap; align-items: center;">
+            <div style="flex: 1; min-width: 240px;">
+                <label for="admin-person-search" class="sr-only">Personen durchsuchen</label>
+                <input type="text" id="admin-person-search" name="search" class="form-control" autocomplete="off"
+                       placeholder="🔍 Name, Ort, PLZ, Land, E-Mail, Telefon, Notiz …"
+                       value="<?= htmlspecialchars($filters['search'] ?? '') ?>">
+            </div>
+            <button type="submit" class="btn">Suchen</button>
+            <?php if ($hasActiveFilters): ?>
+                <a href="<?= htmlspecialchars($resetHref) ?>" class="btn btn-secondary">Zurücksetzen</a>
+            <?php endif; ?>
+            <span style="background: var(--surface-muted); border: 1px solid var(--border-color); padding: 0.3rem 0.8rem; border-radius: 12px; font-size: 0.85rem; color: var(--text-muted);">
+                <?= (int)($totalCount ?? count($persons)) ?> Treffer
+            </span>
+        </div>
+
+        <details <?= $hasActiveFilters ? 'open' : '' ?> style="margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.8rem;">
+            <summary style="font-weight: bold; color: var(--primary-fg); cursor: pointer; user-select: none;">Erweiterte Suche</summary>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem; margin-top: 1rem;">
+                <div class="form-group">
+                    <label for="admin-person-q-name" style="font-size: 0.85rem; font-weight: bold;">Name</label>
+                    <input type="text" id="admin-person-q-name" name="q_name" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_name'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-person-q-city" style="font-size: 0.85rem; font-weight: bold;">Ort</label>
+                    <input type="text" id="admin-person-q-city" name="q_city" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_city'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-person-q-plz" style="font-size: 0.85rem; font-weight: bold;">PLZ</label>
+                    <input type="text" id="admin-person-q-plz" name="q_postal_code" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_postal_code'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-person-q-state" style="font-size: 0.85rem; font-weight: bold;">Bundesland / Kanton</label>
+                    <input type="text" id="admin-person-q-state" name="q_state" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_state'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-person-q-country" style="font-size: 0.85rem; font-weight: bold;">Land</label>
+                    <input type="text" id="admin-person-q-country" name="q_country" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_country'] ?? '') ?>" list="admin_person_country_list">
+                    <datalist id="admin_person_country_list">
+                        <?php foreach (($countries ?? []) as $countryOption): ?><option value="<?= htmlspecialchars((string)$countryOption) ?>"><?php endforeach; ?>
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label for="admin-person-q-email" style="font-size: 0.85rem; font-weight: bold;">E-Mail</label>
+                    <input type="text" id="admin-person-q-email" name="q_email" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_email'] ?? '') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="admin-person-q-membership" style="font-size: 0.85rem; font-weight: bold;">Mitgliedsstatus</label>
+                    <input type="text" id="admin-person-q-membership" name="q_membership" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_membership'] ?? '') ?>" list="admin_person_membership_list">
+                    <datalist id="admin_person_membership_list">
+                        <?php foreach (($memberships ?? []) as $membershipOption): ?><option value="<?= htmlspecialchars((string)$membershipOption) ?>"><?php endforeach; ?>
+                    </datalist>
+                </div>
+                <div class="form-group" style="display: flex; align-items: flex-end;">
+                    <?php // persons.is_breeder ist redaktionell gepflegt und NICHT aus
+                          // horse_persons.role='breeder' abgeleitet - siehe schema.sql. ?>
+                    <label style="font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                        <input type="checkbox" name="q_breeder_only" value="1" <?= ($filters['q_breeder_only'] ?? '') === '1' ? 'checked' : '' ?>>
+                        Nur Züchter
+                    </label>
+                </div>
+            </div>
+            <div style="margin-top: 0.8rem; text-align: right;">
+                <button type="submit" class="btn" style="padding: 0.5rem 1.2rem;">Filter anwenden</button>
+            </div>
+        </details>
+    </form>
 
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
@@ -128,6 +231,8 @@ $publishFormId = 'personPublishForm';
             <?php endif; ?>
         </tbody>
     </table>
+
+    <?php require __DIR__ . '/partials/admin_pagination.php'; ?>
 
     <div style="margin-top: 2rem;">
         <a href="/admin" class="btn btn-secondary">Zurück zum Dashboard</a>

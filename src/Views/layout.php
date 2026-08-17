@@ -203,6 +203,25 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
                 <li>
                     <a href="/katalog" class="nav-link <?= $currentPath === '/katalog' || $currentPath === '/horse' || $currentPath === '/hengst' ? 'active' : '' ?>">🐴 <?= htmlspecialchars($t('nav.catalog')) ?></a>
                 </li>
+                <?php
+                    // Menüpunkte aus Addons (Filter `layout.nav_items`, gesetzt in
+                    // BaseController::render()). Sie stehen NACH den festen Punkten
+                    // des Kerns und VOR dem Anmelde-Knopf: Ein Addon soll den
+                    // Katalog nicht verdrängen können, und der Zugang zum Backend
+                    // bleibt dort, wo Benutzer ihn gewohnt sind.
+                    //
+                    // Beschriftung und Symbol sind schon gekürzt und einzeilig
+                    // (NavItems::sanitize), das href ist ein geprüfter
+                    // seiteneigener Pfad - escaped wird hier trotzdem beides.
+                ?>
+                <?php foreach ($navItems ?? [] as $navItem): ?>
+                    <li>
+                        <a href="<?= htmlspecialchars($navItem['url']) ?>"
+                           class="nav-link <?= \App\Helper\NavItems::isActive($navItem['url'], $currentPath) ? 'active' : '' ?>">
+                            <?= htmlspecialchars($navItem['icon'] . ' ' . $navItem['label']) ?>
+                        </a>
+                    </li>
+                <?php endforeach; ?>
                 <li style="margin-left: 0.5rem;">
                     <?php if ($isLoggedIn): ?>
                         <a href="/admin" class="btn btn-nav">

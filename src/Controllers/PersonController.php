@@ -12,6 +12,20 @@ class PersonController extends BaseController {
         $this->checkAuth();
     }
 
+    /** Zeilen je Seite der Verwaltungsliste, wie bei den Pferden. */
+    public const PER_PAGE = 50;
+
+    /**
+     * Suchparameter der Personenliste - zugleich die Weißliste für
+     * Blätter-Links und den Redirect nach einer Bulk-Aktion.
+     *
+     * @var array<int, string>
+     */
+    public const FILTER_KEYS = [
+        'search', 'q_name', 'q_city', 'q_postal_code', 'q_state', 'q_country',
+        'q_email', 'q_membership', 'q_breeder_only',
+    ];
+
     public function index(): void {
         $this->requirePermission('persons', 'view');
 
@@ -19,33 +33,123 @@ class PersonController extends BaseController {
         // alle Personen angezeigt; nur die exakten Werte '1'/'0' filtern, alles andere
         // wird als "alle" behandelt.
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
-        $publishedSql = $publishedFilter === null ? '' : ' AND p.is_published = ?';
 
-        $db = Database::getInstance();
-        $sql = "
-            SELECT p.*, COUNT(h.id) as horse_count
-            FROM persons p
-            -- Geloeschte Pferde nicht mitzaehlen: Die Zahl neben der Person
-            -- war bisher eine Obermenge der tatsaechlich sichtbaren
-            -- Zuordnungen (#296, Nebenbefund).
-            LEFT JOIN horse_persons hp ON hp.person_id = p.id
-            LEFT JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL
-            WHERE p.deleted_at IS NULL{$publishedSql}
-            GROUP BY p.id
-            ORDER BY p.name ASC
-        ";
-        if ($publishedFilter === null) {
-            $stmt = $db->query($sql);
-        } else {
-            $stmt = $db->prepare($sql);
-            $stmt->execute([$publishedFilter]);
+        // Die Verwaltung sieht unveröffentlichte Personen - anders als der
+        // öffentliche Bereich, wo genau das ein Existenz-Orakel wäre (#121).
+        // Gelöschte bleiben auch hier draußen, die stehen im Papierkorb.
+        $filters = self::readListFilters(self::FILTER_KEYS);
+
+        $where = ['p.deleted_at IS NULL'];
+        $params = [];
+
+        if ($publishedFilter !== null) {
+            $where[] = 'p.is_published = ?';
+            $params[] = $publishedFilter;
         }
+
+        // Allgemeiner Begriff quer über alle Textfelder, die eine Person
+        // identifizieren - inklusive des Freitext-Restfelds contact_info, denn
+        // in der Verwaltung ist genau das oft der einzige Ort, an dem eine
+        // Telefonnummer oder ein Hinweis steht.
+        $search = $filters['search'] ?? '';
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $where[] = "(
+                p.name LIKE ? OR
+                p.city LIKE ? OR
+                p.postal_code LIKE ? OR
+                p.state LIKE ? OR
+                p.country LIKE ? OR
+                p.street LIKE ? OR
+                p.email LIKE ? OR
+                p.phone LIKE ? OR
+                p.mobile LIKE ? OR
+                p.membership_status LIKE ? OR
+                p.contact_info LIKE ?
+            )";
+            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like);
+        }
+
+        foreach ([
+            'q_name' => 'p.name',
+            'q_city' => 'p.city',
+            'q_postal_code' => 'p.postal_code',
+            'q_state' => 'p.state',
+            'q_country' => 'p.country',
+            'q_email' => 'p.email',
+            'q_membership' => 'p.membership_status',
+        ] as $key => $column) {
+            $value = $filters[$key] ?? '';
+            if ($value !== '') {
+                $where[] = "{$column} LIKE ?";
+                $params[] = '%' . $value . '%';
+            }
+        }
+
+        // "Nur Züchter" liest das redaktionell gepflegte Kennzeichen
+        // persons.is_breeder - ausdrücklich NICHT die Zuordnungen mit
+        // role='breeder' (siehe database/schema.sql, das sind verschiedene
+        // Aussagen). Nur der Wert '1' zählt; alles andere gilt als nicht
+        // gesetzt und wird auch nicht in Links weitergetragen.
+        if (($filters['q_breeder_only'] ?? '') === '1') {
+            $where[] = 'p.is_breeder = 1';
+        } else {
+            unset($filters['q_breeder_only']);
+        }
+
+        $whereSql = implode(' AND ', $where);
+        $db = Database::getInstance();
+
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM persons p WHERE {$whereSql}");
+        $countStmt->execute($params);
+        $totalPersons = (int)$countStmt->fetchColumn();
+
+        $totalPages = max(1, (int)ceil($totalPersons / self::PER_PAGE));
+        $page = min(self::requestInt('page', 1, 1), $totalPages);
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        // horse_count als Unterabfrage statt über GROUP BY: Mit LIMIT/OFFSET
+        // müsste sonst erst gruppiert und dann geschnitten werden, und die
+        // COUNT(*)-Abfrage oben zählte Gruppen statt Zeilen.
+        // Geloeschte Pferde nicht mitzaehlen: Die Zahl neben der Person war
+        // bisher eine Obermenge der tatsaechlich sichtbaren Zuordnungen
+        // (#296, Nebenbefund).
+        $stmt = $db->prepare("
+            SELECT p.*, (
+                SELECT COUNT(*)
+                FROM horse_persons hp
+                JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL
+                WHERE hp.person_id = p.id
+            ) AS horse_count
+            FROM persons p
+            WHERE {$whereSql}
+            ORDER BY p.name ASC
+            LIMIT ? OFFSET ?
+        ");
+        $index = 1;
+        foreach ($params as $value) {
+            $stmt->bindValue($index++, $value);
+        }
+        $stmt->bindValue($index++, self::PER_PAGE, \PDO::PARAM_INT);
+        $stmt->bindValue($index, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
         $persons = $stmt->fetchAll();
+
+        $countries = $db->query("SELECT DISTINCT country FROM persons WHERE country IS NOT NULL AND country != '' AND deleted_at IS NULL ORDER BY country ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $memberships = $db->query("SELECT DISTINCT membership_status FROM persons WHERE membership_status IS NOT NULL AND membership_status != '' AND deleted_at IS NULL ORDER BY membership_status ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_persons', [
             'title' => 'Personen verwalten',
             'persons' => $persons,
             'publishedFilter' => $publishedFilter,
+            'filters' => $filters,
+            'hasActiveFilters' => $filters !== [],
+            'countries' => $countries,
+            'memberships' => $memberships,
+            'page' => $page,
+            'totalPages' => $totalPages,
+            'totalCount' => $totalPersons,
+            'perPage' => self::PER_PAGE,
             'canCreate' => $this->hasPermission('persons', 'create'),
             'canEdit' => $this->hasPermission('persons', 'edit'),
             'canDelete' => $this->hasPermission('persons', 'delete'),
@@ -83,7 +187,11 @@ class PersonController extends BaseController {
             );
         }
 
-        header("Location: /admin/persons?success=published" . self::publishedFilterQuery($_POST['published'] ?? null));
+        // Zurück zur Liste, wie der Benutzer sie verlassen hat (Suche + Seite),
+        // siehe partials/publish_bulk_bar.php.
+        header("Location: /admin/persons?success=published"
+            . self::publishedFilterQuery($_POST['published'] ?? null)
+            . self::listFilterQuery($_POST, [...self::FILTER_KEYS, 'page']));
         exit;
     }
 
@@ -424,7 +532,18 @@ class PersonController extends BaseController {
             . count($fill) . " Feld(er) ergänzt"
         );
 
-        header("Location: /admin/persons?success=merged");
+        // Die Zahlen wandern mit in die Liste, nicht nur ins Audit-Log. Der
+        // Fall, gegen den das hilft: Wer die Paarrichtung verdreht, verliert
+        // dank NULL-Fill zwar keine Daten - aber der ueberlebende Datensatz
+        // traegt dann den falschen Namen, und ein "Aktion erfolgreich"
+        // verraet davon nichts. Viele ergaenzte Felder sind das Zeichen, dass
+        // der aufgegebene Satz der reichhaltigere war (beobachtet bei der
+        // Datenmigration: bei vier von zehn Paaren stand die Adresse
+        // ausgerechnet im aufgegebenen Satz).
+        header("Location: /admin/persons?success=merged"
+            . "&merged_moved=" . $umgehaengt
+            . "&merged_dropped=" . $verworfen
+            . "&merged_filled=" . count($fill));
         exit;
     }
 

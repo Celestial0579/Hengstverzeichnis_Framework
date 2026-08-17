@@ -4,6 +4,7 @@
 namespace App\Controllers;
 
 use App\Database;
+use App\Service\HorseSearchFilter;
 
 class HorseController extends BaseController {
 
@@ -18,29 +19,83 @@ class HorseController extends BaseController {
         $this->checkAuth();
     }
 
+    /**
+     * Zeilen je Seite der Verwaltungsliste. Die Liste lud bis dahin den
+     * KOMPLETTEN Bestand ohne LIMIT - in der Dev-Instanz über 3200 Pferde auf
+     * einer einzigen Seite.
+     */
+    public const PER_PAGE = 50;
+
     public function index(): void {
         $this->requirePermission('horses', 'view');
 
         // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
         // BaseController::normalizePublishedFilter(). Der normalisierte Wert (0/1)
-        // wird als gebundener Parameter übergeben statt in die Abfrage interpoliert.
+        // geht als gebundener Parameter in den Filterbaustein.
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
-        $publishedSql = $publishedFilter === null ? '' : ' AND is_published = ?';
+
+        // Dieselbe Filterlogik wie der öffentliche Katalog, aber OHNE dessen
+        // Sichtbarkeitsgrenzen ($nurOeffentlich = false): Die Verwaltung muss
+        // gerade die unveröffentlichten Züchter, Stationen und Elterntiere
+        // finden können - das ist ihre Aufgabe. Gelöschte bleiben draußen, die
+        // stehen im Papierkorb.
+        $filter = HorseSearchFilter::fromRequest($_GET, false, $publishedFilter);
+        $whereSql = $filter->whereSql();
+        $params = $filter->params();
+        $joinSql = $filter->joinSql();
 
         $db = Database::getInstance();
-        $sql = "SELECT id, name, ueln, birth_year, status, is_deceased, is_published, image_url FROM horses WHERE deleted_at IS NULL{$publishedSql} ORDER BY name ASC";
-        if ($publishedFilter === null) {
-            $stmt = $db->query($sql);
-        } else {
-            $stmt = $db->prepare($sql);
-            $stmt->execute([$publishedFilter]);
+
+        $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
+        $countStmt->execute($params);
+        $totalHorses = (int)$countStmt->fetchColumn();
+
+        $totalPages = max(1, (int)ceil($totalHorses / self::PER_PAGE));
+        // Seitenzahl validiert statt gecastet (BaseController::requestInt) und
+        // auf den vorhandenen Bereich geklemmt - eine Seite 999 zeigt sonst
+        // eine leere Tabelle ohne Hinweis darauf, warum.
+        $page = min(self::requestInt('page', 1, 1), $totalPages);
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        $stmt = $db->prepare("
+            SELECT h.id, h.name, h.ueln, h.birth_year, h.status, h.is_deceased, h.is_published, h.image_url
+            {$joinSql}
+            WHERE {$whereSql}
+            ORDER BY h.name ASC
+            LIMIT ? OFFSET ?
+        ");
+        $index = 1;
+        foreach ($params as $value) {
+            $stmt->bindValue($index++, $value);
         }
+        $stmt->bindValue($index++, self::PER_PAGE, \PDO::PARAM_INT);
+        $stmt->bindValue($index, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
         $horses = $stmt->fetchAll();
+
+        // Auswahllisten der Detailfilter. Anders als im Katalog ohne
+        // is_published-Einschränkung - siehe oben.
+        $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_horses', [
             'title' => 'Pferde verwalten',
             'horses' => $horses,
             'publishedFilter' => $publishedFilter,
+            // Nur die vom Filterbaustein tatsächlich gelesenen (und geprüften)
+            // Werte gehen ins Formular und in die Links zurück.
+            'filters' => $filter->activeParams(),
+            'hasActiveFilters' => $filter->hasActiveFilters(),
+            'colors' => $colors,
+            'breeds' => $breeds,
+            'stations' => $stations,
+            'persons' => $persons,
+            'page' => $page,
+            'totalPages' => $totalPages,
+            'totalCount' => $totalHorses,
+            'perPage' => self::PER_PAGE,
             'canCreate' => $this->hasPermission('horses', 'create'),
             'canEdit' => $this->hasPermission('horses', 'edit'),
             'canDelete' => $this->hasPermission('horses', 'delete'),
@@ -78,7 +133,13 @@ class HorseController extends BaseController {
             );
         }
 
-        header("Location: /admin/horses?success=published" . self::publishedFilterQuery($_POST['published'] ?? null));
+        // Zurück zur Liste, wie der Benutzer sie verlassen hat: Suche, Seite und
+        // Veröffentlichungs-Filter reisen als versteckte Felder mit (siehe
+        // partials/publish_bulk_bar.php) und werden hier gegen eine Weißliste
+        // wieder zum Query-String zusammengesetzt.
+        header("Location: /admin/horses?success=published"
+            . self::publishedFilterQuery($_POST['published'] ?? null)
+            . self::listFilterQuery($_POST, [...HorseSearchFilter::FILTER_KEYS, 'page']));
         exit;
     }
 

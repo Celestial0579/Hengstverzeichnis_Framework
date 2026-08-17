@@ -16,11 +16,13 @@
  * @var bool $notifyEnabled  E-Mail bei neu verfügbaren Updates (#290)
  * @var bool $autoInstallEnabled  Unbeaufsichtigte Installation aktiviert (#290)
  * @var string $autoInstallScope  'patch_only' oder 'any'
+ * @var bool $mailDeliverable  Kann diese Installation Mail versenden (Mailer::isDeliverable())
  */
 $inPlaceEnabled = $inPlaceEnabled ?? true;
 $addonRows = $addonRows ?? [];
 $addonCatalogAvailable = $addonCatalogAvailable ?? false;
 $notifyEnabled = $notifyEnabled ?? false;
+$mailDeliverable = $mailDeliverable ?? true;
 $autoInstallEnabled = $autoInstallEnabled ?? false;
 $autoInstallScope = $autoInstallScope ?? 'patch_only';
 // Ohne Backup bzw. ohne In-Place-Recht kann die Automatik nicht laufen -
@@ -117,6 +119,27 @@ $addonTargetWarnings = array_values(array_filter(
              Ein hier deaktivierter Knopf hätte genau das verhindert - die
              Bedingungen für die Installation setzt saveAutomation() ohnehin
              serverseitig durch. -->
+        <?php if (!$mailDeliverable && ($notifyEnabled || $autoInstallEnabled)): ?>
+            <!-- Die Zusage dieser Automatik ist "du erfaehrst, was passiert
+                 ist". Ohne Mailversand ist sie formal eingeschaltet und
+                 praktisch wirkungslos: Ein automatisches Update liefe stumm
+                 durch, nachlesbar nur im Audit-Log, in das niemand schaut,
+                 der nichts ahnt. Deshalb steht das hier und nicht bloss in
+                 den Mail-Einstellungen. -->
+            <div style="background: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.7rem; border-radius: 4px; margin-bottom: 0.6rem; font-size: 0.9rem;">
+                <strong>Es geht keine E-Mail raus.</strong>
+                Diese Installation hat keinen vollständigen Mailversand (unter
+                <a href="/admin/mail-settings">E-Mail-Einstellungen</a> fehlen SMTP-Server oder
+                -Benutzer).
+                <?php if ($autoInstallEnabled): ?>
+                    Die automatische Installation läuft trotzdem - sie würde also
+                    <strong>unbemerkt</strong> aktualisieren. Nachlesbar wäre das nur im
+                    <a href="/admin/logs?category=update">Audit-Log</a>.
+                <?php else: ?>
+                    Die Benachrichtigung über verfügbare Updates erreicht deshalb niemanden.
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <button type="submit" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">Speichern</button>
         <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
             Geprüft wird alle 3 Stunden, installiert höchstens einmal täglich - beides über den

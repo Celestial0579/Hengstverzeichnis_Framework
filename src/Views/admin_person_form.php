@@ -20,7 +20,16 @@ $actionUrl = $isEdit ? '/admin/persons/update' : '/admin/persons/store';
         </div>
     <?php endif; ?>
 
-    <form action="<?= $actionUrl ?>" method="POST" style="margin-top: 1.5rem;">
+    <?php if (!empty($isDeleted ?? false)): ?>
+    <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+        <strong>Dieser Datensatz liegt im Papierkorb.</strong>
+        Er wird hier nur angezeigt, damit sich pruefen laesst, welche Daten noch
+        gespeichert sind (etwa fuer eine DSGVO-Auskunft). <strong>Speichern ist
+        nicht moeglich</strong> - dazu muss er zuerst unter
+        <a href="/admin/trash">Papierkorb</a> wiederhergestellt werden.
+    </div>
+<?php endif; ?>
+<form action="<?= $actionUrl ?>" method="POST" style="margin-top: 1.5rem;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
         <?php if ($isEdit): ?>

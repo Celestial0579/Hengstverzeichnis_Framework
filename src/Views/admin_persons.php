@@ -30,6 +30,14 @@ $publishFormId = 'personPublishForm';
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['error'] ?? '') === 'deleted'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Nicht gespeichert: Der Datensatz liegt im Papierkorb (#296). Zum
+            Bearbeiten zuerst unter <a href="/admin/trash">Papierkorb</a>
+            wiederherstellen.
+        </div>
+    <?php endif; ?>
+
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
 

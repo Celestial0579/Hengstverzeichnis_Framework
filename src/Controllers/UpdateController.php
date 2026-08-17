@@ -70,6 +70,9 @@ class UpdateController extends BaseController {
             // diesen Hinweis merkt der Betreiber erst, dass nichts ankommt,
             // wenn ein Update laengst still eingespielt wurde.
             'mailDeliverable' => \App\Service\Mailer::isDeliverable($this->settings),
+            // Zweite Ebene: Der Transport kann stehen und die Mail trotzdem
+            // niemanden erreichen, wenn alle Admin-Adressen ins Leere gehen.
+            'adminRecipientReachable' => UpdateService::hasReachableAdminRecipient(),
         ]);
     }
 

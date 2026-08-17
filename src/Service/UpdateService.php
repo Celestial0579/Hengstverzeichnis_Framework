@@ -699,6 +699,50 @@ class UpdateService {
         return array_values(array_filter(array_map('strval', $rows)));
     }
 
+    /**
+     * Steht unter den Admin-Adressen ueberhaupt eine, die erreichbar sein
+     * KANN? Fuer die Anzeige gedacht, nicht als Versand-Schranke.
+     *
+     * Der Anlass ist ein Befund von der Entwicklungsinstanz dieses Hosts:
+     * SMTP war korrekt eingerichtet, die Benachrichtigung eingeschaltet - und
+     * trotzdem erreichte keine Mail einen Menschen. Von vier Admin-Konten
+     * zeigten drei auf `@migration.invalid` (Altbestand einer Datenmigration)
+     * und das vierte auf eine externe Adresse, die der Mailstack dieses Hosts
+     * bewusst nicht zustellt. `Mailer::isDeliverable()` sagte korrekt "ja",
+     * denn der TRANSPORT stand; die Luecke lag eine Ebene weiter, bei den
+     * Empfaengern.
+     *
+     * Geprueft wird nur, was sich sicher sagen laesst: Die Endung `.invalid`
+     * ist nach RFC 2606 reserviert und ausdruecklich niemals zustellbar. Eine
+     * Adresse, die nicht offensichtlich ins Leere geht, gilt hier als
+     * erreichbar - ob sie es wirklich ist, weiss erst die Warteschlange des
+     * Mailservers, und eine Vermutung darueber waere schlechter als keine.
+     */
+    public static function hasReachableAdminRecipient(): bool {
+        foreach (self::adminRecipients() as $adresse) {
+            if (!self::istOffensichtlichUnzustellbar($adresse)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Reservierte, per Norm nicht zustellbare Endungen (RFC 2606, RFC 6761). */
+    private static function istOffensichtlichUnzustellbar(string $adresse): bool {
+        $at = strrpos($adresse, '@');
+        if ($at === false) {
+            return true;
+        }
+        $domain = strtolower(rtrim(substr($adresse, $at + 1), '.'));
+
+        foreach (['.invalid', '.test', '.example', '.localhost'] as $endung) {
+            if ($domain === ltrim($endung, '.') || str_ends_with($domain, $endung)) {
+                return true;
+            }
+        }
+        return $domain === '' || !str_contains($domain, '.');
+    }
+
     private static function inPlaceAllowed(): bool {
         return !defined('UPDATE_IN_PLACE') || UPDATE_IN_PLACE;
     }

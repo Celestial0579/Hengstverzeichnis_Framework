@@ -150,6 +150,16 @@ class PersonController extends BaseController {
             'totalPages' => $totalPages,
             'totalCount' => $totalPersons,
             'perPage' => self::PER_PAGE,
+            // Ergebniszahlen des Zusammenfuehrens (siehe merge()), als geprüfte
+            // Ganzzahlen. Sie stehen im Redirect und damit in der Anfrage - die
+            // Bereinigung gehoert deshalb hierher und nicht in die View: Ein
+            // Cast mitten in einer Ausgabe ist fuer eine statische Analyse
+            // keine erkennbare Bereinigung, siehe requestInt().
+            'mergeReport' => [
+                self::requestInt('merged_moved', 0, 0),
+                self::requestInt('merged_dropped', 0, 0),
+                self::requestInt('merged_filled', 0, 0),
+            ],
             'canCreate' => $this->hasPermission('persons', 'create'),
             'canEdit' => $this->hasPermission('persons', 'edit'),
             'canDelete' => $this->hasPermission('persons', 'delete'),

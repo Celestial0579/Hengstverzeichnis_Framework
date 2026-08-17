@@ -90,6 +90,21 @@ Breaking Changes sind jederzeit möglich).
   nur im Audit-Log. `/admin/updates` sagt das jetzt deutlich, mit
   ausdrücklichem Hinweis auf das unbemerkte Aktualisieren.
 
+  Eine Ebene tiefer sitzt derselbe Fehler noch einmal: Der Transport kann
+  stehen und die Mail trotzdem niemanden erreichen. Auf derselben Instanz
+  zeigten drei von vier Admin-Konten auf `@migration.invalid` aus einer
+  Altdatenmigration — eine Endung, die nach RFC 2606 reserviert und niemals
+  zustellbar ist. `UpdateService::hasReachableAdminRecipient()` prüft das
+  jetzt und meldet es getrennt vom Transport. Bewusst nur, was sich sicher
+  sagen lässt: reservierte Endungen und offensichtlich kaputte Adressen. Ob
+  eine plausible Adresse wirklich ankommt, weiß erst die Warteschlange des
+  Mailservers — eine Prüfung, die das behauptete, wäre selbst wieder der
+  Fehler, den sie finden soll.
+
+  **Grenze beider Hinweise:** Sie stehen unter `/admin/updates` und helfen
+  dem, der ohnehin nachsieht — nicht dem, der sich auf die Automatik
+  verlässt.
+
 - **Das Zusammenführen von Personen nennt sein Ergebnis.** Bisher stand dort
   nur „Aktion erfolgreich ausgeführt", die Zahlen allein im Audit-Log. Wer
   Quelle und Ziel vertauscht, verliert dank NULL-Fill zwar keine Daten — der

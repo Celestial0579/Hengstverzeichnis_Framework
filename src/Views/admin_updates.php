@@ -17,12 +17,14 @@
  * @var bool $autoInstallEnabled  Unbeaufsichtigte Installation aktiviert (#290)
  * @var string $autoInstallScope  'patch_only' oder 'any'
  * @var bool $mailDeliverable  Kann diese Installation Mail versenden (Mailer::isDeliverable())
+ * @var bool $adminRecipientReachable  Gibt es ueberhaupt eine erreichbare Admin-Adresse
  */
 $inPlaceEnabled = $inPlaceEnabled ?? true;
 $addonRows = $addonRows ?? [];
 $addonCatalogAvailable = $addonCatalogAvailable ?? false;
 $notifyEnabled = $notifyEnabled ?? false;
 $mailDeliverable = $mailDeliverable ?? true;
+$adminRecipientReachable = $adminRecipientReachable ?? true;
 $autoInstallEnabled = $autoInstallEnabled ?? false;
 $autoInstallScope = $autoInstallScope ?? 'patch_only';
 // Ohne Backup bzw. ohne In-Place-Recht kann die Automatik nicht laufen -
@@ -119,6 +121,24 @@ $addonTargetWarnings = array_values(array_filter(
              Ein hier deaktivierter Knopf hätte genau das verhindert - die
              Bedingungen für die Installation setzt saveAutomation() ohnehin
              serverseitig durch. -->
+        <?php if ($mailDeliverable && !$adminRecipientReachable && ($notifyEnabled || $autoInstallEnabled)): ?>
+            <!-- Der Transport steht, aber es gibt niemanden, den die Mail
+                 erreichen koennte. Beobachtet auf der Entwicklungsinstanz
+                 dieses Hosts: drei von vier Admin-Konten trugen
+                 @migration.invalid aus einer Altdatenmigration. Die Endung
+                 ist nach RFC 2606 reserviert und nie zustellbar - die
+                 Benachrichtigung ging also formal raus und kam nirgends an. -->
+            <div style="background: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.7rem; border-radius: 4px; margin-bottom: 0.6rem; font-size: 0.9rem;">
+                <strong>Kein erreichbarer Empfänger.</strong>
+                Der Mailversand ist eingerichtet, aber unter den
+                <a href="/admin/users">Admin-Konten</a> steht keine Adresse, die zugestellt
+                werden könnte - alle zeigen auf reservierte Endungen wie <code>.invalid</code>
+                oder <code>.test</code>, die es per Norm nicht gibt.
+                <?php if ($autoInstallEnabled): ?>
+                    Die automatische Installation liefe damit <strong>unbemerkt</strong>.
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
         <?php if (!$mailDeliverable && ($notifyEnabled || $autoInstallEnabled)): ?>
             <!-- Die Zusage dieser Automatik ist "du erfaehrst, was passiert
                  ist". Ohne Mailversand ist sie formal eingeschaltet und

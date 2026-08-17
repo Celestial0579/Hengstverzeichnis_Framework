@@ -54,6 +54,12 @@ class PublicController extends BaseController {
 
         if ($this->hasPermission('horses', 'view')) {
             // Echte SQL-Pagination statt "alle Treffer laden" (#125).
+            // Fehlalarm - dieselbe Lage wie in HorseController::index(), wo
+            // die ausführliche Begründung steht: whereSql()/joinSql()
+            // bestehen nur aus Literalen, die Werte sind gebunden, und
+            // HorseSearchFilterSqlSafetyTest nagelt das mit einem
+            // Injektionsversuch in jedem Parameter fest.
+            // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
             $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
             $countStmt->execute($params);
             $totalHorses = (int)$countStmt->fetchColumn();
@@ -69,6 +75,8 @@ class PublicController extends BaseController {
             // is_published = 1 AND deleted_at IS NULL eingeschränkt, "bs.id IS NULL"
             // heißt dort also exakt: nicht öffentlich sichtbar. Freitext ohne
             // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
+            // Siehe die Begründung an der COUNT-Abfrage oben.
+            // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
             $sql = "
                 SELECT
                     h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
@@ -138,6 +146,22 @@ class PublicController extends BaseController {
             include __DIR__ . '/../Views/public_catalog_cards.php';
             $cardsHtml = ob_get_clean();
 
+            // JSON_HEX_*: Die Antwort trägt zwar Content-Type
+            // application/json, enthält in cards_html aber fertiges HTML.
+            // Schreibt ein Aufrufer sie je unmaskiert in ein <script>-Element
+            // oder schnüffelt ein alter Browser den Typ, beendet ein "</" im
+            // Rumpf sonst das Skript. Die Flags kodieren < > & ' " als \uXXXX;
+            // JSON_UNESCAPED_UNICODE hält Umlaute trotzdem lesbar.
+            //
+            // Der Fehlalarm der Regel echoed-request dazu: Sie verlangt
+            // htmlentities() um die Ausgabe. Das wäre hier falsch - es
+            // zerstörte das JSON, und der Empfänger ist JavaScript, kein
+            // HTML-Parser. Der zuständige Kodierer IST json_encode; die
+            // eigentliche Fluchtgefahr, das Einbetten in HTML, decken die
+            // Flags oben ab. Die Karten in cards_html sind zuvor in
+            // public_catalog_cards.php escaped worden, dieselbe Teilansicht
+            // wie im normalen Seitenaufruf.
+            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
             echo json_encode([
                 'success' => true,
                 'count' => $totalHorses,
@@ -146,7 +170,7 @@ class PublicController extends BaseController {
                 'page' => (int)$page,
                 'total_pages' => (int)$totalPages,
                 'has_more' => (int)$page < (int)$totalPages,
-            ]);
+            ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE);
             exit;
         }
 

@@ -14,6 +14,7 @@
  * @var int $page
  * @var int $totalPages
  * @var int $totalCount
+ * @var array{0:int,1:int,2:int} $mergeReport Umgehängt, verworfen, ergänzt (nach dem Zusammenführen)
  */
 $canPublish = $canPublish ?? false;
 $publishedFilter = $publishedFilter ?? null;
@@ -21,6 +22,7 @@ $publishBase = '/admin/persons';
 $publishFormId = 'personPublishForm';
 $filters = $filters ?? [];
 $hasActiveFilters = $hasActiveFilters ?? false;
+$mergeReport = $mergeReport ?? [0, 0, 0];
 $resetHref = '/admin/persons' . ($publishedFilter !== null ? '?published=' . (int)$publishedFilter : '');
 ?>
 <div class="card">
@@ -38,12 +40,10 @@ $resetHref = '/admin/persons' . ($publishedFilter !== null ? '?published=' . (in
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?php if (($_GET['success'] ?? '') === 'merged'): ?>
                 <?php
-                    // Zahlen aus PersonController::merge(). Bewusst benannt statt
-                    // nur "erfolgreich": Nur so sieht der Bearbeiter, ob die
-                    // Paarrichtung stimmte - siehe Kommentar dort.
-                    $mUmgehaengt = max(0, (int)($_GET['merged_moved'] ?? 0));
-                    $mVerworfen = max(0, (int)($_GET['merged_dropped'] ?? 0));
-                    $mErgaenzt = max(0, (int)($_GET['merged_filled'] ?? 0));
+                    // Die drei Zahlen kommen als geprüfte Ganzzahlen aus
+                    // PersonController::index() (requestInt), nicht aus $_GET -
+                    // eine View liest hier grundsätzlich keine Anfrage.
+                    [$mUmgehaengt, $mVerworfen, $mErgaenzt] = $mergeReport;
                 ?>
                 Zusammengeführt:
                 <?= $mUmgehaengt ?> Zuordnung<?= $mUmgehaengt === 1 ? '' : 'en' ?> umgehängt,

@@ -46,6 +46,21 @@ class HorseController extends BaseController {
 
         $db = Database::getInstance();
 
+        // Fehlalarm, und zwar ein erklärbarer: Die Analyse sieht, dass
+        // HorseSearchFilter aus $_GET gebaut wird, und hält alles für
+        // verseucht, was danach aus ihm herauskommt. Tatsächlich enthalten
+        // whereSql() und joinSql() ausschließlich Literale des Quelltexts;
+        // jeder Wert aus der Anfrage steckt hinter einem Platzhalter in
+        // params(). Das ist nicht bloß behauptet, sondern festgenagelt:
+        // HorseSearchFilterSqlSafetyTest schickt in JEDEN Parameter einen
+        // Injektionsversuch und verlangt, dass die Klausel danach
+        // byte-identisch zu der mit harmlosen Werten ist.
+        //
+        // Vor dieser Änderung stand dieselbe Interpolation in derselben
+        // Methode und schlug nicht an - nicht weil sie sicherer war, sondern
+        // weil die Fragmente in derselben Funktion entstanden. Verschoben hat
+        // sich die Sichtbarkeit für das Werkzeug, nicht das Risiko.
+        // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
         $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
         $countStmt->execute($params);
         $totalHorses = (int)$countStmt->fetchColumn();
@@ -57,6 +72,8 @@ class HorseController extends BaseController {
         $page = min(self::requestInt('page', 1, 1), $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
+        // Siehe die Begründung an der COUNT-Abfrage oben.
+        // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
         $stmt = $db->prepare("
             SELECT h.id, h.name, h.ueln, h.birth_year, h.status, h.is_deceased, h.is_published, h.image_url
             {$joinSql}

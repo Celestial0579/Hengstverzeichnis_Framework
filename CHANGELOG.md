@@ -6,7 +6,7 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [0.7.0] – 2026-08-17
+## [0.7.0] – 2026-08-18
 
 ### Hinzugefügt
 

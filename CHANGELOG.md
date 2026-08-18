@@ -18,10 +18,15 @@ Breaking Changes sind jederzeit möglich).
   aufklappbarer Block mit Detailfiltern und 50 Zeilen je Seite.
 
   Bei den **Pferden** sind es dieselben Filter wie im öffentlichen Katalog,
-  denn beide nutzen seit dieser Änderung denselben Baustein
-  (`App\Service\HorseSearchFilter`) — zwei Fassungen dieser Logik wären
-  auseinandergelaufen, und die zurückbleibende wäre die mit den
-  Sichtbarkeitsregeln gewesen. **Personen** lassen sich zusätzlich nach Ort,
+  denn beide nutzen seit dieser Änderung dieselben Bausteine — zwei Fassungen
+  dieser Logik wären auseinandergelaufen, und die zurückbleibende wäre die mit
+  den Sichtbarkeitsregeln gewesen. Es sind bewusst **zwei**:
+  `App\Service\HorseSearchCriteria` liest die Anfrage und bindet die Werte,
+  `App\Service\HorseSearchSql` erzeugt Klausel und JOINs und bekommt die
+  Anfragewerte gar nicht erst zu sehen; über die Grenze geht nur ein
+  `App\Service\HorseSearchCondition`. Eine Klasse, die beides täte, hielte den
+  nächsten Missgriff („hier reicht doch schnell ein Spaltenname aus dem
+  Request") stets in Reichweite. **Personen** lassen sich zusätzlich nach Ort,
   PLZ, Bundesland/Kanton, Land, E-Mail, Mitgliedsstatus und dem Kennzeichen
   „nur Züchter" filtern, **Deckstationen** nach Ansprechpartner und Anschrift.
 

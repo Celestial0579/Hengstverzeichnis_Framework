@@ -4,7 +4,8 @@
 namespace App\Controllers;
 
 use App\Database;
-use App\Service\HorseSearchFilter;
+use App\Service\HorseSearchCriteria;
+use App\Service\HorseSearchSql;
 
 class HorseController extends BaseController {
 
@@ -39,28 +40,29 @@ class HorseController extends BaseController {
         // gerade die unveröffentlichten Züchter, Stationen und Elterntiere
         // finden können - das ist ihre Aufgabe. Gelöschte bleiben draußen, die
         // stehen im Papierkorb.
-        $filter = HorseSearchFilter::fromRequest($_GET, false, $publishedFilter);
-        $whereSql = $filter->whereSql();
-        $params = $filter->params();
-        $joinSql = $filter->joinSql();
+        //
+        // Zwei Bausteine statt einem: HorseSearchSql erzeugt die Klausel und
+        // bekommt die Anfrage nie zu sehen; HorseSearchCriteria liest die
+        // Anfrage und erzeugt kein SQL. Über applyTo() geht ausschließlich,
+        // WELCHE Bedingungen gelten - als Aufzählungsfälle, in denen kein
+        // Anfragewert stecken kann. Die Werte selbst kommen als gebundene
+        // Parameter aus params(). Anlass war der Semgrep-Fund
+        // tainted-sql-string an genau dieser Interpolation: Er war sachlich
+        // ein Fehlalarm, zeigte aber auf die Bauform dahinter - eine Klasse,
+        // die die Anfrage liest UND SQL baut, hat den nächsten Missgriff
+        // immer in Reichweite. Jetzt gibt es diese Reichweite nicht mehr, und
+        // die Klausel unten besteht nachweislich nur aus Literalen des
+        // Quelltexts.
+        $sql = new HorseSearchSql(false);
+        $criteria = HorseSearchCriteria::fromRequest($_GET, false, $publishedFilter);
+        $criteria->applyTo($sql);
+
+        $whereSql = $sql->whereSql();
+        $joinSql = $sql->joinSql();
+        $params = $criteria->params();
 
         $db = Database::getInstance();
 
-        // Fehlalarm, und zwar ein erklärbarer: Die Analyse sieht, dass
-        // HorseSearchFilter aus $_GET gebaut wird, und hält alles für
-        // verseucht, was danach aus ihm herauskommt. Tatsächlich enthalten
-        // whereSql() und joinSql() ausschließlich Literale des Quelltexts;
-        // jeder Wert aus der Anfrage steckt hinter einem Platzhalter in
-        // params(). Das ist nicht bloß behauptet, sondern festgenagelt:
-        // HorseSearchFilterSqlSafetyTest schickt in JEDEN Parameter einen
-        // Injektionsversuch und verlangt, dass die Klausel danach
-        // byte-identisch zu der mit harmlosen Werten ist.
-        //
-        // Vor dieser Änderung stand dieselbe Interpolation in derselben
-        // Methode und schlug nicht an - nicht weil sie sicherer war, sondern
-        // weil die Fragmente in derselben Funktion entstanden. Verschoben hat
-        // sich die Sichtbarkeit für das Werkzeug, nicht das Risiko.
-        // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
         $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
         $countStmt->execute($params);
         $totalHorses = (int)$countStmt->fetchColumn();
@@ -72,8 +74,6 @@ class HorseController extends BaseController {
         $page = min(self::requestInt('page', 1, 1), $totalPages);
         $offset = ($page - 1) * self::PER_PAGE;
 
-        // Siehe die Begründung an der COUNT-Abfrage oben.
-        // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
         $stmt = $db->prepare("
             SELECT h.id, h.name, h.ueln, h.birth_year, h.status, h.is_deceased, h.is_published, h.image_url
             {$joinSql}
@@ -103,8 +103,8 @@ class HorseController extends BaseController {
             'publishedFilter' => $publishedFilter,
             // Nur die vom Filterbaustein tatsächlich gelesenen (und geprüften)
             // Werte gehen ins Formular und in die Links zurück.
-            'filters' => $filter->activeParams(),
-            'hasActiveFilters' => $filter->hasActiveFilters(),
+            'filters' => $criteria->activeParams(),
+            'hasActiveFilters' => $criteria->hasActiveFilters(),
             'colors' => $colors,
             'breeds' => $breeds,
             'stations' => $stations,
@@ -156,7 +156,7 @@ class HorseController extends BaseController {
         // wieder zum Query-String zusammengesetzt.
         header("Location: /admin/horses?success=published"
             . self::publishedFilterQuery($_POST['published'] ?? null)
-            . self::listFilterQuery($_POST, [...HorseSearchFilter::FILTER_KEYS, 'page']));
+            . self::listFilterQuery($_POST, [...HorseSearchCriteria::FILTER_KEYS, 'page']));
         exit;
     }
 

@@ -11,9 +11,11 @@ use Tests\Support\HttpClient;
  * (Pferde, Personen, Deckstationen).
  *
  * Der eigentliche Prüfstein ist die GRENZE zwischen den beiden Kontexten:
- * Pferde- und Katalogsuche teilen sich seit dieser Änderung einen Baustein
- * (App\Service\HorseSearchFilter), der die Sichtbarkeitsregeln des
- * öffentlichen Katalogs (#121/#122/#151) an einem einzigen Schalter führt.
+ * Pferde- und Katalogsuche teilen sich seit dieser Änderung dieselben
+ * Bausteine (App\Service\HorseSearchCriteria zum Lesen der Anfrage,
+ * App\Service\HorseSearchSql zum Erzeugen der Klausel), die die
+ * Sichtbarkeitsregeln des öffentlichen Katalogs (#121/#122/#151) an einem
+ * einzigen Schalter führen.
  * Jede Zusicherung existiert deshalb doppelt: Der Admin MUSS den
  * unveröffentlichten Datensatz finden, der anonyme Katalog darf ihn WEITERHIN
  * NICHT finden. Fiele der Schalter irgendwann weg, würde genau eine der

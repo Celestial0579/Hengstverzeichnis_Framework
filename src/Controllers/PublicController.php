@@ -34,16 +34,29 @@ class PublicController extends BaseController {
     public function catalog(): void {
         $db = Database::getInstance();
 
-        // Suchlogik gemeinsam mit der Pferdeverwaltung (HorseSearchFilter).
+        // Suchlogik gemeinsam mit der Pferdeverwaltung, aufgeteilt in zwei
+        // Bausteine: HorseSearchSql erzeugt Klausel und JOINs und bekommt die
+        // Anfrage nie zu sehen, HorseSearchCriteria liest die Anfrage und
+        // erzeugt kein SQL. Über applyTo() geht nur, WELCHE Bedingungen
+        // gelten; die Werte kommen gebunden aus params(). Warum das so
+        // auseinandergezogen ist, steht ausführlich in
+        // HorseSearchCondition - kurz: Lesen und Erzeugen in einer Klasse
+        // hielt den nächsten Missgriff immer in Reichweite, und Semgrep
+        // meldete die Interpolation unten folgerichtig als
+        // tainted-sql-string.
+        //
         // $nurOeffentlich = true haelt die Sichtbarkeitsgrenzen des Katalogs
         // aufrecht: verknuepfte Personen, Stationen und Elterntiere zaehlen nur
         // veroeffentlicht, sonst waere der Filter ein Existenz-Orakel
-        // (#121/#122/#151). Der Admin bekommt denselben Baustein mit false.
-        $filter = \App\Service\HorseSearchFilter::fromRequest($_GET, true);
-        $params = $filter->params();
-        $whereSql = $filter->whereSql();
-        $joinSql = $filter->joinSql();
-        $personAggregateJoin = $filter->personAggregateJoin();
+        // (#121/#122/#151). Der Admin bekommt dieselben Bausteine mit false.
+        $sql = new \App\Service\HorseSearchSql(true);
+        $criteria = \App\Service\HorseSearchCriteria::fromRequest($_GET, true);
+        $criteria->applyTo($sql);
+
+        $params = $criteria->params();
+        $whereSql = $sql->whereSql();
+        $joinSql = $sql->joinSql();
+        $personAggregateJoin = $sql->personAggregateJoin();
 
         // Gast-Gruppe ohne horses.view sieht keinerlei Pferde (leerer Katalog),
         // sonst würde die Rechte-Entziehung wirkungslos bleiben.
@@ -54,12 +67,6 @@ class PublicController extends BaseController {
 
         if ($this->hasPermission('horses', 'view')) {
             // Echte SQL-Pagination statt "alle Treffer laden" (#125).
-            // Fehlalarm - dieselbe Lage wie in HorseController::index(), wo
-            // die ausführliche Begründung steht: whereSql()/joinSql()
-            // bestehen nur aus Literalen, die Werte sind gebunden, und
-            // HorseSearchFilterSqlSafetyTest nagelt das mit einem
-            // Injektionsversuch in jedem Parameter fest.
-            // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
             $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
             $countStmt->execute($params);
             $totalHorses = (int)$countStmt->fetchColumn();
@@ -75,9 +82,7 @@ class PublicController extends BaseController {
             // is_published = 1 AND deleted_at IS NULL eingeschränkt, "bs.id IS NULL"
             // heißt dort also exakt: nicht öffentlich sichtbar. Freitext ohne
             // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
-            // Siehe die Begründung an der COUNT-Abfrage oben.
-            // nosemgrep: php.lang.security.injection.tainted-sql-string.tainted-sql-string
-            $sql = "
+            $cardsSql = "
                 SELECT
                     h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
                     (SELECT GROUP_CONCAT(hr.registration_number ORDER BY hr.sort_order ASC, hr.id ASC SEPARATOR ' / ')
@@ -96,7 +101,7 @@ class PublicController extends BaseController {
                 LIMIT ? OFFSET ?
             ";
 
-            $stmt = $db->prepare($sql);
+            $stmt = $db->prepare($cardsSql);
             $paramIndex = 1;
             foreach ($params as $value) {
                 $stmt->bindValue($paramIndex++, $value);
@@ -151,17 +156,21 @@ class PublicController extends BaseController {
             // Schreibt ein Aufrufer sie je unmaskiert in ein <script>-Element
             // oder schnüffelt ein alter Browser den Typ, beendet ein "</" im
             // Rumpf sonst das Skript. Die Flags kodieren < > & ' " als \uXXXX;
-            // JSON_UNESCAPED_UNICODE hält Umlaute trotzdem lesbar.
+            // JSON_UNESCAPED_UNICODE hält Umlaute trotzdem lesbar. Der
+            // zuständige Kodierer für diese Antwort IST json_encode - der
+            // Empfänger ist JavaScript, kein HTML-Parser; ein htmlentities()
+            // darüber zerstörte das JSON, statt es sicherer zu machen. Die
+            // Karten in cards_html sind zuvor in public_catalog_cards.php
+            // escaped worden, dieselbe Teilansicht wie im normalen
+            // Seitenaufruf.
             //
-            // Der Fehlalarm der Regel echoed-request dazu: Sie verlangt
-            // htmlentities() um die Ausgabe. Das wäre hier falsch - es
-            // zerstörte das JSON, und der Empfänger ist JavaScript, kein
-            // HTML-Parser. Der zuständige Kodierer IST json_encode; die
-            // eigentliche Fluchtgefahr, das Einbetten in HTML, decken die
-            // Flags oben ab. Die Karten in cards_html sind zuvor in
-            // public_catalog_cards.php escaped worden, dieselbe Teilansicht
-            // wie im normalen Seitenaufruf.
-            // nosemgrep: php.lang.security.injection.echoed-request.echoed-request
+            // Hier stand bis zur Trennung von Lesen und Erzeugen ein
+            // echoed-request-Fund. Er hatte mit dieser Zeile nie etwas zu tun:
+            // Die Analyse verfolgte $_GET über die zusammengesetzte
+            // COUNT-Abfrage bis in $totalHorses und damit bis hierher. Mit
+            // einer Klausel, die nicht mehr aus der Anfrage stammt, endet die
+            // Kette an ihrem Anfang - der Fund ist ohne Zutun an dieser Stelle
+            // verschwunden.
             echo json_encode([
                 'success' => true,
                 'count' => $totalHorses,

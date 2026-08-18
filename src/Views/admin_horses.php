@@ -7,7 +7,7 @@
  * @var bool $canDelete
  * @var bool $canPublish
  * @var int|null $publishedFilter Aktiver Filter: 1, 0 oder null (alle)
- * @var array<string, string> $filters Geprüfte Suchparameter (HorseSearchFilter)
+ * @var array<string, string> $filters Geprüfte Suchparameter (HorseSearchCriteria)
  * @var bool $hasActiveFilters
  * @var array<int, string> $colors
  * @var array<int, string> $breeds

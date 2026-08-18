@@ -107,6 +107,19 @@ abstract class BaseController {
         // Globale Einstellungen automatisch in jeder View bereitstellen
         $settings = $this->settings;
 
+        // Plugin-Hook: zusätzliche Menüpunkte in der öffentlichen Navigation.
+        // Erwartetes Format je Eintrag: ['url' => string, 'label' => string,
+        // 'icon' => string], gleiche Form wie admin.dashboard_tiles.
+        //
+        // Hier und nicht in layout.php, weil das Layout eine View ist und
+        // keinen Zugriff auf den HookManager hat - und weil die Navigation
+        // auf JEDER Seite steht, also genau einmal an einer Stelle
+        // aufgebaut gehört. NavItems::sanitize() wirft dabei alles weg, was
+        // kein seiteneigener absoluter Pfad ist (siehe dort).
+        $navItems = \App\Helper\NavItems::sanitize(
+            $this->hooks()->applyFilters('layout.nav_items', [])
+        );
+
         // Inhalt der spezifischen View im Ausgabepuffer abfangen
         ob_start();
         $viewFile = __DIR__ . "/../Views/{$view}.php";
@@ -463,5 +476,94 @@ abstract class BaseController {
     protected static function publishedFilterQuery($value): string {
         $filter = self::normalizePublishedFilter($value);
         return $filter === null ? '' : '&published=' . $filter;
+    }
+
+    /**
+     * Liest die Textparameter einer Admin-Listensuche aus $_GET und liefert
+     * NUR die tatsächlich gesetzten zurück (getrimmt; Nicht-Strings, etwa
+     * ?search[]=x, gelten als nicht gesetzt statt in einen TypeError zu
+     * laufen).
+     *
+     * Das Ergebnis dient drei Zwecken zugleich: Es steuert die WHERE-Klausel,
+     * es füllt die Formularfelder wieder, und es wandert in die Blätter- und
+     * Filter-Links. Genau deshalb liegt es an EINER Stelle - liefen die drei
+     * auseinander, verlöre der Benutzer beim Klicken still seine Suche.
+     *
+     * @param array<int, string> $keys
+     * @return array<string, string>
+     */
+    protected static function readListFilters(array $keys): array {
+        $filters = [];
+        foreach ($keys as $key) {
+            $value = $_GET[$key] ?? '';
+            if (!is_string($value)) {
+                continue;
+            }
+            $value = trim($value);
+            if ($value !== '') {
+                $filters[$key] = $value;
+            }
+        }
+        return $filters;
+    }
+
+    /**
+     * Baut das Query-Suffix einer Admin-Liste ("&search=Bella&page=2") aus einer
+     * Parameterquelle ($_GET für Links, $_POST für den Redirect nach einer
+     * Bulk-Aktion) - ausschließlich aus den ausdrücklich erlaubten Schlüsseln.
+     *
+     * Die Weißliste ist der Punkt: Der Rückgabewert landet in einem
+     * Location-Header. Alles andere wäre eine offene Tür für beliebige
+     * Fremdparameter, und http_build_query allein kodiert zwar korrekt, sagt
+     * aber nichts darüber, WAS da kodiert wird.
+     *
+     * @param array<string, mixed> $source
+     * @param array<int, string> $allowedKeys
+     */
+    protected static function listFilterQuery(array $source, array $allowedKeys): string {
+        $params = [];
+        foreach ($allowedKeys as $key) {
+            $value = $source[$key] ?? null;
+            if (!is_string($value) && !is_int($value)) {
+                continue;
+            }
+            $value = trim((string)$value);
+            if ($value !== '') {
+                $params[$key] = $value;
+            }
+        }
+        return $params === [] ? '' : '&' . http_build_query($params);
+    }
+
+    /**
+     * Ganzzahliger Anfrageparameter - validiert, nicht umgedeutet.
+     *
+     * Ersetzt das Muster "(int)($_GET['x'] ?? n)". Zwei Gruende:
+     *
+     * Fachlich lehnt filter_var ab, was keine Zahl IST, statt sie
+     * umzudeuten: "abc" wurde zu 0, "3x" zu 3. Der Standardwert steht jetzt
+     * an einer Stelle und gilt fuer fehlend UND unbrauchbar gleichermassen.
+     *
+     * Und die Bereinigung ist von aussen sichtbar. Ein Cast mitten im
+     * Ausdruck ist fuer eine statische Analyse keine erkennbare Bereinigung -
+     * die Seitenzahl floss deshalb als "Nutzerdaten" bis in die
+     * JSON-Ausgabe des Katalog-Nachladens und liess dort eine XSS-Regel
+     * anschlagen. Der Befund war inhaltlich falsch (ausgegeben wird eine
+     * Ganzzahl in einem JSON-Rumpf), die Ursache aber echt. Statt die Meldung
+     * abzuschalten, ist die Zusage jetzt hinter einer Methode mit
+     * int-Rueckgabetyp nachpruefbar - fuer Menschen wie fuer Werkzeuge.
+     *
+     * Steht hier statt im PublicController, weil seit der Pagination der
+     * Admin-Listen auch diese eine geprueft Seitenzahl brauchen - eine
+     * zweite Fassung waere genau die Sorte Kopie, die irgendwann anders
+     * validiert als das Original.
+     */
+    protected static function requestInt(string $name, int $default, ?int $min = null): int {
+        $optionen = ['default' => $default];
+        if ($min !== null) {
+            $optionen['min_range'] = $min;
+        }
+        $wert = filter_var($_GET[$name] ?? $default, FILTER_VALIDATE_INT, ['options' => $optionen]);
+        return is_int($wert) ? $wert : $default;
     }
 }

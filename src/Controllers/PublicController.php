@@ -7,33 +7,9 @@ use App\Database;
 
 class PublicController extends BaseController {
 
-    /**
-     * Ganzzahliger Anfrageparameter - validiert, nicht umgedeutet.
-     *
-     * Ersetzt das Muster "(int)($_GET['x'] ?? n)". Zwei Gruende:
-     *
-     * Fachlich lehnt filter_var ab, was keine Zahl IST, statt sie
-     * umzudeuten: "abc" wurde zu 0, "3x" zu 3. Der Standardwert steht jetzt
-     * an einer Stelle und gilt fuer fehlend UND unbrauchbar gleichermassen.
-     *
-     * Und die Bereinigung ist von aussen sichtbar. Ein Cast mitten im
-     * Ausdruck ist fuer eine statische Analyse keine erkennbare Bereinigung -
-     * die Seitenzahl floss deshalb als "Nutzerdaten" bis in die
-     * JSON-Ausgabe des Katalog-Nachladens und liess dort eine XSS-Regel
-     * anschlagen. Der Befund war inhaltlich falsch (ausgegeben wird eine
-     * Ganzzahl in einem JSON-Rumpf), die Ursache aber echt. Statt die Meldung
-     * abzuschalten, ist die Zusage jetzt hinter einer Methode mit
-     * int-Rueckgabetyp nachpruefbar - fuer Menschen wie fuer Werkzeuge.
-     */
-    private static function requestInt(string $name, int $default, ?int $min = null): int {
-        $optionen = ['default' => $default];
-        if ($min !== null) {
-            $optionen['min_range'] = $min;
-        }
-        $wert = filter_var($_GET[$name] ?? $default, FILTER_VALIDATE_INT, ['options' => $optionen]);
-        return is_int($wert) ? $wert : $default;
-    }
-
+    // requestInt() liegt seit der Admin-Pagination im BaseController - dort
+    // brauchen es die Verwaltungslisten genauso, und zwei Fassungen einer
+    // Eingabepruefung sind eine zuviel.
 
     public function index(): void {
         // Fetch some recent or featured horses for the homepage - nur veröffentlichte
@@ -58,184 +34,29 @@ class PublicController extends BaseController {
     public function catalog(): void {
         $db = Database::getInstance();
 
-        // Query parameters
-        $search = trim($_GET['search'] ?? '');
-        $qName = trim($_GET['q_name'] ?? '');
-        $qUeln = trim($_GET['q_ueln'] ?? '');
-        $birthYearFrom = !empty($_GET['birth_year_from']) ? self::requestInt('birth_year_from', 0) : null;
-        $birthYearTo = !empty($_GET['birth_year_to']) ? self::requestInt('birth_year_to', 0) : null;
-        $qColor = trim($_GET['q_color'] ?? '');
-        // Geschlechtsfilter (#165): Whitelist gegen die ENUM-Werte, alles andere
-        // gilt als "kein Filter".
-        $qSex = in_array($_GET['q_sex'] ?? '', ['stallion', 'mare', 'gelding'], true) ? $_GET['q_sex'] : '';
-        $qBreed = trim($_GET['q_breed'] ?? '');
-        // Status-Filter nach dem Split (#188): active/inactive filtern den
-        // Zuchtstatus; der Wert 'deceased' bleibt als Kompatibilitäts-Mapping
-        // auf is_deceased erhalten (Bookmarks/geteilte Filter-URLs), alles
-        // andere gilt als "kein Filter".
-        $qStatus = in_array($_GET['q_status'] ?? '', ['active', 'inactive', 'deceased'], true) ? $_GET['q_status'] : '';
-        $qBreeder = trim($_GET['q_breeder'] ?? '');
-        $qOwner = trim($_GET['q_owner'] ?? '');
-        $qStation = trim($_GET['q_station'] ?? '');
-        $qSire = trim($_GET['q_sire'] ?? '');
-        $qDam = trim($_GET['q_dam'] ?? '');
+        // Suchlogik gemeinsam mit der Pferdeverwaltung, aufgeteilt in zwei
+        // Bausteine: HorseSearchSql erzeugt Klausel und JOINs und bekommt die
+        // Anfrage nie zu sehen, HorseSearchCriteria liest die Anfrage und
+        // erzeugt kein SQL. Über applyTo() geht nur, WELCHE Bedingungen
+        // gelten; die Werte kommen gebunden aus params(). Warum das so
+        // auseinandergezogen ist, steht ausführlich in
+        // HorseSearchCondition - kurz: Lesen und Erzeugen in einer Klasse
+        // hielt den nächsten Missgriff immer in Reichweite, und Semgrep
+        // meldete die Interpolation unten folgerichtig als
+        // tainted-sql-string.
+        //
+        // $nurOeffentlich = true haelt die Sichtbarkeitsgrenzen des Katalogs
+        // aufrecht: verknuepfte Personen, Stationen und Elterntiere zaehlen nur
+        // veroeffentlicht, sonst waere der Filter ein Existenz-Orakel
+        // (#121/#122/#151). Der Admin bekommt dieselben Bausteine mit false.
+        $sql = new \App\Service\HorseSearchSql(true);
+        $criteria = \App\Service\HorseSearchCriteria::fromRequest($_GET, true);
+        $criteria->applyTo($sql);
 
-        // Öffentliche Sichtbarkeit: nur veröffentlichte Pferde (is_published),
-        // unabhängig vom Lebenszyklus-Status. Ob Gäste den Bereich überhaupt sehen
-        // dürfen, entscheidet zusätzlich die Leseberechtigung der Gast-Gruppe (siehe
-        // $canViewHorses unten).
-        $where = ["h.deleted_at IS NULL", "h.is_published = 1"];
-        $params = [];
-
-        // General search term across horse name, ueln, foreign_ueln, registrations (#246), sire, dam, station, breeder, owner.
-        // Personen über EXISTS statt über die früheren p_breeder/p_owner-JOINs
-        // (siehe unten, #125) und nur veröffentlichte Personen (#121).
-        if (!empty($search)) {
-            $like = '%' . $search . '%';
-            $where[] = "(
-                h.name LIKE ? OR
-                h.ueln LIKE ? OR
-                h.foreign_ueln LIKE ? OR
-                h.sire_name LIKE ? OR
-                h.sire_ueln LIKE ? OR
-                h.dam_name LIKE ? OR
-                h.dam_ueln LIKE ? OR
-                sire.name LIKE ? OR
-                sire.ueln LIKE ? OR
-                sire.foreign_ueln LIKE ? OR
-                dam.name LIKE ? OR
-                dam.ueln LIKE ? OR
-                dam.foreign_ueln LIKE ? OR
-                bs.name LIKE ? OR
-                (h.breeding_station_id IS NULL AND h.breeding_station LIKE ?) OR
-                EXISTS (
-                    SELECT 1 FROM horse_persons hps
-                    JOIN persons ps ON ps.id = hps.person_id AND ps.deleted_at IS NULL AND ps.is_published = 1
-                    WHERE hps.horse_id = h.id AND ps.name LIKE ?
-                ) OR
-                EXISTS (
-                    SELECT 1 FROM horse_registrations hreg
-                    WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?
-                )
-            )";
-            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like);
-        }
-
-        if (!empty($qName)) {
-            $where[] = "h.name LIKE ?";
-            $params[] = '%' . $qName . '%';
-        }
-
-        if (!empty($qUeln)) {
-            // Seit #246 auch über die weiteren Lebensnummern (horse_registrations)
-            // des Pferds selbst - die foreign_ueln-Spalten bleiben als
-            // Kompatibilitäts-Fallback mit durchsucht.
-            $like = '%' . $qUeln . '%';
-            $where[] = "(h.ueln LIKE ? OR h.foreign_ueln LIKE ? OR h.sire_ueln LIKE ? OR h.dam_ueln LIKE ? OR sire.ueln LIKE ? OR sire.foreign_ueln LIKE ? OR dam.ueln LIKE ? OR dam.foreign_ueln LIKE ? OR EXISTS (SELECT 1 FROM horse_registrations hreg WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?))";
-            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
-        }
-
-        if ($birthYearFrom !== null) {
-            $where[] = "h.birth_year >= ?";
-            $params[] = $birthYearFrom;
-        }
-
-        if ($birthYearTo !== null) {
-            $where[] = "h.birth_year <= ?";
-            $params[] = $birthYearTo;
-        }
-
-        if (!empty($qColor)) {
-            $where[] = "h.color LIKE ?";
-            $params[] = '%' . $qColor . '%';
-        }
-
-        if ($qSex !== '') {
-            $where[] = "h.sex = ?";
-            $params[] = $qSex;
-        }
-
-        if (!empty($qBreed)) {
-            $where[] = "h.breed LIKE ?";
-            $params[] = '%' . $qBreed . '%';
-        }
-
-        if ($qStatus === 'deceased') {
-            $where[] = "h.is_deceased = 1";
-        } elseif ($qStatus !== '') {
-            $where[] = "h.status = ?";
-            $params[] = $qStatus;
-        }
-
-        // Züchter-/Besitzer-Filter nur gegen veröffentlichte, nicht gelöschte
-        // Personen - sonst bleibt der Filter ein Existenz-Orakel für
-        // unveröffentlichte Personennamen (#121).
-        if (!empty($qBreeder)) {
-            $where[] = "EXISTS (
-                SELECT 1 FROM horse_persons hpb
-                JOIN persons pb ON pb.id = hpb.person_id AND pb.deleted_at IS NULL AND pb.is_published = 1
-                WHERE hpb.horse_id = h.id AND hpb.role = 'breeder' AND pb.name LIKE ?
-            )";
-            $params[] = '%' . $qBreeder . '%';
-        }
-
-        if (!empty($qOwner)) {
-            $where[] = "EXISTS (
-                SELECT 1 FROM horse_persons hpo
-                JOIN persons po ON po.id = hpo.person_id AND po.deleted_at IS NULL AND po.is_published = 1
-                WHERE hpo.horse_id = h.id AND hpo.role = 'owner' AND po.name LIKE ?
-            )";
-            $params[] = '%' . $qOwner . '%';
-        }
-
-        // Stations-Filter nur gegen öffentlich sichtbare Stationen: bs ist bereits auf
-        // is_published/deleted_at eingeschränkt, und der denormalisierte Text zählt nur
-        // ohne breeding_station_id (echter Freitext). Sonst bliebe der Filter ein
-        // Existenz-Orakel für Namen unveröffentlichter Stationen (#151, analog #121).
-        if (!empty($qStation)) {
-            $where[] = "(bs.name LIKE ? OR (h.breeding_station_id IS NULL AND h.breeding_station LIKE ?))";
-            $params[] = '%' . $qStation . '%';
-            $params[] = '%' . $qStation . '%';
-        }
-
-        if (!empty($qSire)) {
-            $where[] = "(sire.name LIKE ? OR h.sire_name LIKE ?)";
-            $params[] = '%' . $qSire . '%';
-            $params[] = '%' . $qSire . '%';
-        }
-
-        if (!empty($qDam)) {
-            $where[] = "(dam.name LIKE ? OR h.dam_name LIKE ?)";
-            $params[] = '%' . $qDam . '%';
-            $params[] = '%' . $qDam . '%';
-        }
-
-        $whereSql = implode(' AND ', $where);
-
-        // Basis-JOINs, die sowohl die COUNT- als auch die Daten-Query brauchen
-        // (bs/sire/dam werden in den WHERE-Filtern referenziert). Die Deckstation
-        // nur, wenn veröffentlicht und nicht gelöscht (#122); alle JOINs sind 1:1,
-        // daher keine Zeilen-Vervielfachung mehr und kein DISTINCT nötig (#125).
-        $joinSql = "
-            FROM horses h
-            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
-            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
-            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
-        ";
-
-        // Züchter/Besitzer aggregiert statt über multiplizierende JOINs (#125):
-        // ein Pferd mit mehreren Züchtern/Besitzern erzeugt so genau EINE
-        // Katalogkarte. Nur veröffentlichte, nicht gelöschte Personen (#121).
-        $personAggregateJoin = "
-            LEFT JOIN (
-                SELECT hp.horse_id,
-                       GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
-                       GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
-                FROM horse_persons hp
-                JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL AND p.is_published = 1
-                GROUP BY hp.horse_id
-            ) hpx ON hpx.horse_id = h.id
-        ";
+        $params = $criteria->params();
+        $whereSql = $sql->whereSql();
+        $joinSql = $sql->joinSql();
+        $personAggregateJoin = $sql->personAggregateJoin();
 
         // Gast-Gruppe ohne horses.view sieht keinerlei Pferde (leerer Katalog),
         // sonst würde die Rechte-Entziehung wirkungslos bleiben.
@@ -261,7 +82,7 @@ class PublicController extends BaseController {
             // is_published = 1 AND deleted_at IS NULL eingeschränkt, "bs.id IS NULL"
             // heißt dort also exakt: nicht öffentlich sichtbar. Freitext ohne
             // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
-            $sql = "
+            $cardsSql = "
                 SELECT
                     h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
                     (SELECT GROUP_CONCAT(hr.registration_number ORDER BY hr.sort_order ASC, hr.id ASC SEPARATOR ' / ')
@@ -280,7 +101,7 @@ class PublicController extends BaseController {
                 LIMIT ? OFFSET ?
             ";
 
-            $stmt = $db->prepare($sql);
+            $stmt = $db->prepare($cardsSql);
             $paramIndex = 1;
             foreach ($params as $value) {
                 $stmt->bindValue($paramIndex++, $value);
@@ -330,6 +151,26 @@ class PublicController extends BaseController {
             include __DIR__ . '/../Views/public_catalog_cards.php';
             $cardsHtml = ob_get_clean();
 
+            // JSON_HEX_*: Die Antwort trägt zwar Content-Type
+            // application/json, enthält in cards_html aber fertiges HTML.
+            // Schreibt ein Aufrufer sie je unmaskiert in ein <script>-Element
+            // oder schnüffelt ein alter Browser den Typ, beendet ein "</" im
+            // Rumpf sonst das Skript. Die Flags kodieren < > & ' " als \uXXXX;
+            // JSON_UNESCAPED_UNICODE hält Umlaute trotzdem lesbar. Der
+            // zuständige Kodierer für diese Antwort IST json_encode - der
+            // Empfänger ist JavaScript, kein HTML-Parser; ein htmlentities()
+            // darüber zerstörte das JSON, statt es sicherer zu machen. Die
+            // Karten in cards_html sind zuvor in public_catalog_cards.php
+            // escaped worden, dieselbe Teilansicht wie im normalen
+            // Seitenaufruf.
+            //
+            // Hier stand bis zur Trennung von Lesen und Erzeugen ein
+            // echoed-request-Fund. Er hatte mit dieser Zeile nie etwas zu tun:
+            // Die Analyse verfolgte $_GET über die zusammengesetzte
+            // COUNT-Abfrage bis in $totalHorses und damit bis hierher. Mit
+            // einer Klausel, die nicht mehr aus der Anfrage stammt, endet die
+            // Kette an ihrem Anfang - der Fund ist ohne Zutun an dieser Stelle
+            // verschwunden.
             echo json_encode([
                 'success' => true,
                 'count' => $totalHorses,
@@ -338,7 +179,7 @@ class PublicController extends BaseController {
                 'page' => (int)$page,
                 'total_pages' => (int)$totalPages,
                 'has_more' => (int)$page < (int)$totalPages,
-            ]);
+            ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE);
             exit;
         }
 

@@ -12,35 +12,120 @@ class BreedingStationController extends BaseController {
         $this->checkAuth();
     }
 
+    /** Zeilen je Seite der Verwaltungsliste, wie bei Pferden und Personen. */
+    public const PER_PAGE = 50;
+
+    /**
+     * Suchparameter der Stationsliste - zugleich die Weißliste für
+     * Blätter-Links und den Redirect nach einer Bulk-Aktion.
+     *
+     * @var array<int, string>
+     */
+    public const FILTER_KEYS = [
+        'search', 'q_name', 'q_contact', 'q_city', 'q_postal_code', 'q_state', 'q_country',
+    ];
+
     public function index(): void {
         $this->requirePermission('breeding_stations', 'view');
 
         // Optionaler Veröffentlichungs-Filter (?published=1|0), siehe
         // BaseController::normalizePublishedFilter().
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
-        $publishedSql = $publishedFilter === null ? '' : ' AND bs.is_published = ?';
 
-        $db = Database::getInstance();
-        $sql = "
-            SELECT bs.*, COUNT(h.id) as horse_count
-            FROM breeding_stations bs
-            LEFT JOIN horses h ON h.breeding_station_id = bs.id AND h.deleted_at IS NULL
-            WHERE bs.deleted_at IS NULL{$publishedSql}
-            GROUP BY bs.id
-            ORDER BY bs.name ASC
-        ";
-        if ($publishedFilter === null) {
-            $stmt = $db->query($sql);
-        } else {
-            $stmt = $db->prepare($sql);
-            $stmt->execute([$publishedFilter]);
+        // Wie bei Pferden und Personen: Die Verwaltung sieht unveröffentlichte
+        // Stationen (im öffentlichen Bereich wäre das ein Existenz-Orakel,
+        // #151), gelöschte nicht.
+        $filters = self::readListFilters(self::FILTER_KEYS);
+
+        $where = ['bs.deleted_at IS NULL'];
+        $params = [];
+
+        if ($publishedFilter !== null) {
+            $where[] = 'bs.is_published = ?';
+            $params[] = $publishedFilter;
         }
+
+        // Allgemeiner Begriff quer über Name, Ansprechpartner, Anschrift und
+        // Kontaktwege - inklusive der alten Freitext-Adresse, in der bei
+        // Altbestand die gesamte Anschrift steht.
+        $search = $filters['search'] ?? '';
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $where[] = "(
+                bs.name LIKE ? OR
+                bs.contact_person LIKE ? OR
+                bs.street LIKE ? OR
+                bs.postal_code LIKE ? OR
+                bs.city LIKE ? OR
+                bs.state LIKE ? OR
+                bs.country LIKE ? OR
+                bs.address LIKE ? OR
+                bs.email LIKE ? OR
+                bs.phone LIKE ?
+            )";
+            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like, $like);
+        }
+
+        foreach ([
+            'q_name' => 'bs.name',
+            'q_contact' => 'bs.contact_person',
+            'q_city' => 'bs.city',
+            'q_postal_code' => 'bs.postal_code',
+            'q_state' => 'bs.state',
+            'q_country' => 'bs.country',
+        ] as $key => $column) {
+            $value = $filters[$key] ?? '';
+            if ($value !== '') {
+                $where[] = "{$column} LIKE ?";
+                $params[] = '%' . $value . '%';
+            }
+        }
+
+        $whereSql = implode(' AND ', $where);
+        $db = Database::getInstance();
+
+        $countStmt = $db->prepare("SELECT COUNT(*) FROM breeding_stations bs WHERE {$whereSql}");
+        $countStmt->execute($params);
+        $totalStations = (int)$countStmt->fetchColumn();
+
+        $totalPages = max(1, (int)ceil($totalStations / self::PER_PAGE));
+        $page = min(self::requestInt('page', 1, 1), $totalPages);
+        $offset = ($page - 1) * self::PER_PAGE;
+
+        // horse_count als Unterabfrage statt über GROUP BY - sonst zählte das
+        // COUNT(*) oben Gruppen statt Zeilen und die Seitenzahl wäre falsch.
+        $stmt = $db->prepare("
+            SELECT bs.*, (
+                SELECT COUNT(*) FROM horses h
+                WHERE h.breeding_station_id = bs.id AND h.deleted_at IS NULL
+            ) AS horse_count
+            FROM breeding_stations bs
+            WHERE {$whereSql}
+            ORDER BY bs.name ASC
+            LIMIT ? OFFSET ?
+        ");
+        $index = 1;
+        foreach ($params as $value) {
+            $stmt->bindValue($index++, $value);
+        }
+        $stmt->bindValue($index++, self::PER_PAGE, \PDO::PARAM_INT);
+        $stmt->bindValue($index, $offset, \PDO::PARAM_INT);
+        $stmt->execute();
         $stations = $stmt->fetchAll();
+
+        $countries = $db->query("SELECT DISTINCT country FROM breeding_stations WHERE country IS NOT NULL AND country != '' AND deleted_at IS NULL ORDER BY country ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_breeding_stations', [
             'title' => 'Deckstationen verwalten',
             'stations' => $stations,
             'publishedFilter' => $publishedFilter,
+            'filters' => $filters,
+            'hasActiveFilters' => $filters !== [],
+            'countries' => $countries,
+            'page' => $page,
+            'totalPages' => $totalPages,
+            'totalCount' => $totalStations,
+            'perPage' => self::PER_PAGE,
             'canCreate' => $this->hasPermission('breeding_stations', 'create'),
             'canEdit' => $this->hasPermission('breeding_stations', 'edit'),
             'canDelete' => $this->hasPermission('breeding_stations', 'delete'),
@@ -78,7 +163,11 @@ class BreedingStationController extends BaseController {
             );
         }
 
-        header("Location: /admin/breeding-stations?success=published" . self::publishedFilterQuery($_POST['published'] ?? null));
+        // Zurück zur Liste, wie der Benutzer sie verlassen hat (Suche + Seite),
+        // siehe partials/publish_bulk_bar.php.
+        header("Location: /admin/breeding-stations?success=published"
+            . self::publishedFilterQuery($_POST['published'] ?? null)
+            . self::listFilterQuery($_POST, [...self::FILTER_KEYS, 'page']));
         exit;
     }
 

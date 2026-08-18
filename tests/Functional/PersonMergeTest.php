@@ -47,7 +47,23 @@ class PersonMergeTest extends FunctionalTestCase {
             'source_id' => (string)$quelleId,
             'target_id' => (string)$zielId,
         ]);
-        $this->assertSame('/admin/persons?success=merged', $response->location(), "Zusammenführen fehlgeschlagen: {$response->body}");
+        // Die Zahlen stehen im Redirect, damit die Liste sie nennen kann statt
+        // nur "erfolgreich" - sie sind der einzige Hinweis darauf, ob die
+        // Paarrichtung stimmte (siehe PersonController::merge()).
+        $this->assertSame(
+            '/admin/persons?success=merged&merged_moved=2&merged_dropped=0&merged_filled=3',
+            $response->location(),
+            "Zusammenführen fehlgeschlagen: {$response->body}"
+        );
+
+        $liste = $admin->get($response->location());
+        $this->assertStringContainsString('2 Zuordnungen umgehängt', $liste->body);
+        $this->assertStringContainsString('3 leere Felder aus dem', $liste->body);
+        $this->assertStringContainsString(
+            'Der aufgegebene Datensatz war deutlich',
+            $liste->body,
+            'Ab drei ergänzten Feldern gehört der Hinweis auf eine verdrehte Paarrichtung dazu.'
+        );
 
         // 1. Die Zuordnungen hängen jetzt am Ziel - und sind NICHT verloren.
         $stmt = $db->prepare("SELECT horse_id, role FROM horse_persons WHERE person_id = ? ORDER BY horse_id ASC");

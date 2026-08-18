@@ -263,6 +263,30 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `captcha.render` | Filter | Beim Rendern eines geschützten öffentlichen Formulars, wenn der Admin diesen Anbieter gewählt hat | `function(string $html, string $provider, string $context): string` — fertiges Formular**fragment**, wird **unescaped** ausgegeben. `$provider` ist der gewählte Slug (nur reagieren, wenn er der eigene ist), `$context` derzeit `'dsgvo'` |
 | `captcha.verify` | Filter | Beim Absenden eines geschützten Formulars, vor jeder Verarbeitung | `function(?string $verdict, string $provider, string $context, array $input): ?string` — eine der Konstanten `Captcha::OK`/`WRONG`/`EXPIRED`/`TOO_FAST`, oder `null` für „nicht zuständig" |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
+| `layout.nav_items` | Filter | Beim Rendern **jeder** öffentlichen Seite, inklusive Plugin-Seiten über `PluginPage::render()` | `function(array $items): array` — jedes Element wie bei den Dashboard-Kacheln: `['url' => string, 'label' => string, 'icon' => string]`. Ergänzt Menüpunkte in der öffentlichen Navigation, hinter „Verzeichnis" und vor dem Anmelde-Knopf. Siehe den Kasten unten — die Einträge werden geprüft, nicht bloß escaped |
+
+**Was `layout.nav_items` annimmt — und was es wegwirft.** Die Navigation steht
+auf *jeder* öffentlichen Seite; ein Fehler dort wirkt überall. Anders als bei
+den `*_sections`-Hooks liefert ein Addon hier deshalb **keinen fertigen
+HTML-String**, sondern Daten, die der Kern prüft
+(`App\Helper\NavItems::sanitize()`):
+
+- Die `url` muss ein **seiteneigener absoluter Pfad** sein: `/plugin/zucht-suche`
+  oder `/plugin/zucht-suche?art=stationen`. Abgelehnt werden `javascript:`,
+  `data:`, absolute Fremd-URLs, protokollrelative Adressen (`//fremd.example` —
+  beginnt mit einem Schrägstrich, führt aber auf einen fremden Host), relative
+  Pfade, `..`, Backslashes und Steuerzeichen.
+- Das `label` wird auf eine Zeile gebracht und auf 40 Zeichen gekürzt; ohne
+  Beschriftung entfällt der Eintrag. Ein fehlendes `icon` wird zu `🧩`.
+- Höchstens **5** Einträge insgesamt über alle Addons hinweg. Wer mehr braucht,
+  baut eine eigene Übersichtsseite und verlinkt die.
+
+Ein verworfener Eintrag verschwindet still — er ist ein Programmierfehler des
+Addons, kein Zustand, über den ein Besucher etwas erfahren müsste. Beim
+Entwickeln also darauf achten, dass der Pfad mit `/` beginnt.
+
+Der Kern markiert den aktiven Eintrag selbst, verglichen wird nur der Pfad
+ohne Query — `?art=stationen` bleibt derselbe Menüpunkt.
 
 **Performance-Hinweis zu `catalog.card_sections`:** Der Filter läuft einmal
 pro gerenderter Karte der aktuellen Katalogseite — der Katalog paginiert

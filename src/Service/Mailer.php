@@ -38,6 +38,46 @@ class Mailer {
     }
 
     /**
+     * Kann diese Installation ueberhaupt Mail versenden? Prueft NUR die
+     * Konfiguration, nimmt keine Verbindung auf und verschickt nichts.
+     *
+     * Gedacht fuer Stellen, die eine Zusage an den Mailversand knuepfen und
+     * das dem Betreiber sagen sollten, BEVOR er sich darauf verlaesst - allen
+     * voran die Update-Automatik: "wer automatisch einspielen laesst, muss
+     * erfahren, was passiert ist" ist wertlos, wenn keine Mail rausgeht.
+     *
+     * Der Anlass ist ein echter Befund von der Dev-Instanz dieses Hosts: Dort
+     * war die Automatik samt Benachrichtigung eingeschaltet, aber in den
+     * Settings stand keine einzige smtp_*-Zeile. Formal war die Bedingung
+     * erfuellt, praktisch waere jedes automatische Update stumm geblieben -
+     * sichtbar nur im Audit-Log, in das niemand schaut, der nichts ahnt.
+     *
+     * Bewusst dieselben Bedingungen wie in send()/sendViaSmtp(), nur ohne
+     * Nebenwirkung; wer dort etwas aendert, zieht hier nach. Reine Funktion,
+     * damit sie sich isoliert festnageln laesst.
+     *
+     * @param array<string, mixed> $config Settings-Array wie in $this->config
+     */
+    public static function isDeliverable(array $config): bool {
+        $driver = $config['mail_driver'] ?? 'smtp';
+
+        // PHP mail() braucht keine eigene Konfiguration - ob der MTA des
+        // Systems tatsaechlich zustellt, laesst sich von hier aus nicht
+        // sagen, und eine Vermutung waere schlechter als keine Aussage.
+        if ($driver === 'mail') {
+            return true;
+        }
+
+        $verschluesselung = strtolower(trim((string)($config['smtp_encryption'] ?? 'tls')));
+        if (!in_array($verschluesselung, ['ssl', 'tls'], true)) {
+            return false;
+        }
+
+        return trim((string)($config['smtp_host'] ?? '')) !== ''
+            && trim((string)($config['smtp_user'] ?? '')) !== '';
+    }
+
+    /**
      * Send an email using SMTP (SSL/TLS enforced) or PHP mail()
      */
     public function send(string $toEmail, string $subject, string $htmlBody, string $textBody = ''): bool {

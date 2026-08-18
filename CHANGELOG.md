@@ -10,6 +10,51 @@ Breaking Changes sind jederzeit möglich).
 
 ### Hinzugefügt
 
+
+- **Suche und Seitenblättern in den drei Verwaltungslisten** (Pferde,
+  Personen, Deckstationen). Bisher gab es dort gar keine Suche, und jede
+  Liste lud den kompletten Bestand ohne `LIMIT` — in der Entwicklungsinstanz
+  über 3200 Pferde auf einer Seite. Jetzt: ein allgemeiner Suchbegriff, ein
+  aufklappbarer Block mit Detailfiltern und 50 Zeilen je Seite.
+
+  Bei den **Pferden** sind es dieselben Filter wie im öffentlichen Katalog,
+  denn beide nutzen seit dieser Änderung dieselben Bausteine — zwei Fassungen
+  dieser Logik wären auseinandergelaufen, und die zurückbleibende wäre die mit
+  den Sichtbarkeitsregeln gewesen. Es sind bewusst **zwei**:
+  `App\Service\HorseSearchCriteria` liest die Anfrage und bindet die Werte,
+  `App\Service\HorseSearchSql` erzeugt Klausel und JOINs und bekommt die
+  Anfragewerte gar nicht erst zu sehen; über die Grenze geht nur ein
+  `App\Service\HorseSearchCondition`. Eine Klasse, die beides täte, hielte den
+  nächsten Missgriff („hier reicht doch schnell ein Spaltenname aus dem
+  Request") stets in Reichweite. **Personen** lassen sich zusätzlich nach Ort,
+  PLZ, Bundesland/Kanton, Land, E-Mail, Mitgliedsstatus und dem Kennzeichen
+  „nur Züchter" filtern, **Deckstationen** nach Ansprechpartner und Anschrift.
+
+  Der Unterschied zwischen beiden Kontexten hängt an einem einzigen Schalter:
+  Der Katalog schränkt verknüpfte Personen, Stationen und Elterntiere überall
+  auf `is_published = 1` ein (#121/#122/#151, sonst wäre der Filter ein
+  Existenz-Orakel für depublizierte Namen), die Verwaltung tut das
+  ausdrücklich nicht — wer freigeben soll, muss das Unveröffentlichte auch
+  finden. Beide Hälften dieser Zusicherung sind getestet. Gelöschte
+  Datensätze bleiben in beiden Fällen draußen, dafür gibt es den Papierkorb.
+
+- **Menüpunkte aus Addons in der öffentlichen Navigation.** Neuer Filter
+  `layout.nav_items`. Die Navigation war fest verdrahtet; ein Addon konnte
+  sich nur über eine Dashboard-Kachel und Textlinks auf Detailseiten
+  behelfen. Anlass ist die Zucht-Suche
+  ([Addons #107](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/107)),
+  die als eigener Menüpunkt „Zucht" neben dem Verzeichnis stehen soll.
+
+  Anders als bei den `*_sections`-Hooks liefert ein Addon hier **keinen
+  fertigen HTML-String**, sondern Daten, die der Kern prüft
+  (`App\Helper\NavItems`): nur seiteneigene absolute Pfade, höchstens fünf
+  Einträge, Beschriftung einzeilig und gekürzt. Abgewiesen werden
+  `javascript:`, `data:`, fremde Domains, protokollrelative Adressen
+  (`//fremd.example` — beginnt mit einem Schrägstrich, führt aber auf einen
+  fremden Host), `..`, Backslashes und Steuerzeichen. Der Grund für die
+  strengere Behandlung: Die Navigation steht auf jeder öffentlichen Seite,
+  ein Fehler dort wirkt überall.
+
 - **Kontaktdaten lassen sich je Datensatz freigeben.** Neu ist
   `contact_public` bei Personen und Deckstationen. Bei **Personen** ist die
   Vorgabe `0`: E-Mail, Telefon und Mobil bleiben intern, bis jemand sie
@@ -32,6 +77,48 @@ Breaking Changes sind jederzeit möglich).
   ([Addons #106](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/106)),
   die ein Formular anbieten soll, **ohne** dass dafür eine Adresse öffentlich
   werden muss.
+
+### Behoben
+
+
+- Die Leiste „Alle / Veröffentlicht / Nicht veröffentlicht" baute ihre Links
+  ohne die übrigen Parameter. Ein Klick warf damit alles weg, was der
+  Benutzer vorher eingestellt hatte; jetzt reisen Suche und Seite mit — auch
+  über die Massen-Veröffentlichung hinweg.
+
+- **Die Update-Automatik warnt, wenn ihre Benachrichtigung nicht zugestellt
+  werden kann.** „Wer automatisch einspielen lässt, muss erfahren, was
+  passiert ist" war die Bedingung des Entwurfs aus 0.6.0 — geprüft wurde
+  aber nie, ob überhaupt Mail rausgeht. Auf einer Instanz mit eingeschalteter
+  Automatik und ohne SMTP-Konfiguration war die Bedingung damit formal
+  erfüllt und praktisch wirkungslos: Ein Update liefe stumm durch, nachlesbar
+  nur im Audit-Log. `/admin/updates` sagt das jetzt deutlich, mit
+  ausdrücklichem Hinweis auf das unbemerkte Aktualisieren.
+
+  Eine Ebene tiefer sitzt derselbe Fehler noch einmal: Der Transport kann
+  stehen und die Mail trotzdem niemanden erreichen. Auf derselben Instanz
+  zeigten drei von vier Admin-Konten auf `@migration.invalid` aus einer
+  Altdatenmigration — eine Endung, die nach RFC 2606 reserviert und niemals
+  zustellbar ist. `UpdateService::hasReachableAdminRecipient()` prüft das
+  jetzt und meldet es getrennt vom Transport. Bewusst nur, was sich sicher
+  sagen lässt: reservierte Endungen und offensichtlich kaputte Adressen. Ob
+  eine plausible Adresse wirklich ankommt, weiß erst die Warteschlange des
+  Mailservers — eine Prüfung, die das behauptete, wäre selbst wieder der
+  Fehler, den sie finden soll.
+
+  **Grenze beider Hinweise:** Sie stehen unter `/admin/updates` und helfen
+  dem, der ohnehin nachsieht — nicht dem, der sich auf die Automatik
+  verlässt.
+
+- **Das Zusammenführen von Personen nennt sein Ergebnis.** Bisher stand dort
+  nur „Aktion erfolgreich ausgeführt", die Zahlen allein im Audit-Log. Wer
+  Quelle und Ziel vertauscht, verliert dank NULL-Fill zwar keine Daten — der
+  überlebende Datensatz trägt dann aber den falschen Namen, und das fiel
+  nirgends auf. Die Liste nennt jetzt umgehängte Zuordnungen, verworfene
+  Doppel und ergänzte Felder; ab drei ergänzten Feldern weist sie
+  ausdrücklich darauf hin, dass die Paarrichtung wahrscheinlich verdreht war.
+  (Anlass: Bei einer Datenmigration auf diesem Host trug in vier von zehn
+  Paaren ausgerechnet der aufgegebene Datensatz die Adresse.)
 
 ### Geändert
 

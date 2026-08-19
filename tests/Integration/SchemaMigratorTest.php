@@ -162,6 +162,29 @@ class SchemaMigratorTest extends TestCase {
         $this->assertSame(1, self::$pdo->query("SHOW COLUMNS FROM `horses` LIKE 'is_deceased'")->rowCount());
         $this->assertSame(0, self::$pdo->query("SHOW COLUMNS FROM `users` LIKE 'role'")->rowCount());
 
+        // Reihenfolge-Regression (#309): persons.contact_public wurde mit
+        // `AFTER is_breeder` ergänzt, is_breeder aber erst einen Schritt
+        // SPÄTER angelegt - auf jeder Installation ohne is_breeder scheiterte
+        // das ALTER, der Fehler wurde verschluckt und schema_version trotzdem
+        // hochgesetzt. Genau dieses Alt-Schema läuft hier durch, deshalb ist
+        // die Prüfung hier und nicht in DatabaseTest (das gegen die aktuelle
+        // schema.sql aufbaut, in der beide Spalten schon stehen).
+        $this->assertSame(
+            1,
+            self::$pdo->query("SHOW COLUMNS FROM `persons` LIKE 'is_breeder'")->rowCount(),
+            'persons.is_breeder fehlt nach der Migration'
+        );
+        $this->assertSame(
+            1,
+            self::$pdo->query("SHOW COLUMNS FROM `persons` LIKE 'contact_public'")->rowCount(),
+            'persons.contact_public fehlt nach der Migration (#309: AFTER-Klausel lief vor der referenzierten Spalte)'
+        );
+        $this->assertSame(
+            1,
+            self::$pdo->query("SHOW COLUMNS FROM `breeding_stations` LIKE 'contact_public'")->rowCount(),
+            'breeding_stations.contact_public fehlt nach der Migration'
+        );
+
         // Der Einmal-Backfill hat den Bestand korrekt überführt.
         $rows = self::$pdo->query("SELECT name, status, is_published, is_deceased FROM horses ORDER BY id")->fetchAll();
         $byName = array_column($rows, null, 'name');

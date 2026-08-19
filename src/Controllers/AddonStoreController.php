@@ -102,11 +102,26 @@ class AddonStoreController extends BaseController {
             $forceRefresh
         );
 
-        if ($cacheFresh && $repoRow['cached_catalog_json'] !== null) {
-            $decoded = json_decode((string)$repoRow['cached_catalog_json'], true);
+        if ($cacheFresh) {
+            $decoded = $repoRow['cached_catalog_json'] !== null
+                ? json_decode((string)$repoRow['cached_catalog_json'], true)
+                : null;
             if (is_array($decoded)) {
                 return ['ok' => true, 'plugins' => $decoded, 'error' => null];
             }
+
+            // Frischer Zeitstempel OHNE brauchbaren Katalog heisst: Der letzte
+            // Abruf ist gescheitert (#319). Vorher wurde cached_at in diesem
+            // Fall gar nicht fortgeschrieben, jeder Aufruf versuchte es also
+            // erneut - bei nicht erreichbarem GitHub hing die Seite dann bis zu
+            // TIMEOUT_SECONDS, und zwar bei JEDEM Aufruf. Ein Fehlschlag gilt
+            // jetzt genauso lange wie ein Erfolg; wer es sofort erneut
+            // versuchen will, nimmt den ausdruecklichen Knopf ($forceRefresh).
+            return [
+                'ok' => false,
+                'plugins' => [],
+                'error' => 'Der letzte Abruf des Katalogs ist gescheitert. Naechster Versuch nach Ablauf des Zwischenspeichers oder ueber "Katalog jetzt auffrischen".',
+            ];
         }
 
         $result = GithubAddonRepository::fetchCatalog(
@@ -118,6 +133,13 @@ class AddonStoreController extends BaseController {
         if ($result['ok']) {
             $stmt = $db->prepare("UPDATE addon_repos SET cached_catalog_json = ?, cached_at = NOW() WHERE id = ?");
             $stmt->execute([json_encode($result['plugins']), $repoRow['id']]);
+        } else {
+            // Auch der Fehlschlag wird gestempelt (#319) - siehe oben. Der
+            // zuletzt erfolgreich geholte Katalog bleibt dabei ABSICHTLICH
+            // stehen: Ein veralteter Stand ist brauchbarer als gar keiner, und
+            // die Anzeige nennt sein Datum ohnehin.
+            $stmt = $db->prepare("UPDATE addon_repos SET cached_at = NOW() WHERE id = ?");
+            $stmt->execute([$repoRow['id']]);
         }
 
         return $result;

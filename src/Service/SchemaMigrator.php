@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 8;
+    public const SCHEMA_VERSION = 9;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -130,16 +130,29 @@ final class SchemaMigrator {
      */
     private static function migrate(PDO $pdo, array &$performed): void {
         // Helper-Funktion zum schrittweisen Hinzufügen fehlender Spalten
+        // Der try/catch umfasst BEWUSST nur die Existenzprüfung, nicht das
+        // ALTER (#309): Scheitert schon SHOW COLUMNS, gibt es die Tabelle
+        // hier noch nicht - das ist der reguläre Setup-/Restore-Fall und kein
+        // Fehler. Ist die Tabelle dagegen nachweislich da und die Spalte
+        // fehlt, dann ist ein Fehlschlag des ALTER ein echter Fehler und muss
+        // nach oben durchschlagen: run() persistiert die neue
+        // schema_version erst NACH vollständigem Durchlauf, ein geworfener
+        // Schritt lässt den alten Stand stehen und wird beim nächsten Lauf
+        // wiederholt. Genau das fehlte, als contact_public mit einer
+        // AFTER-Klausel auf eine noch nicht angelegte Spalte verwies: Das
+        // ALTER scheiterte still, die Version wurde trotzdem hochgesetzt, und
+        // die Spalte fehlte danach dauerhaft.
         $addColumn = function ($table, $column, $definition) use ($pdo, &$performed) {
             try {
                 $stmt = $pdo->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
-                if ($stmt && $stmt->rowCount() === 0) {
-                    $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
-                    $performed[] = "Spalte {$table}.{$column} ergänzt";
-                }
             } catch (\Throwable $e) {
-                // Table doesn't exist yet or column check failed
+                return; // Tabelle existiert noch nicht (Setup-/Restore-Fall)
             }
+            if (!$stmt || $stmt->rowCount() !== 0) {
+                return; // Spalte ist schon da - idempotenter No-Op
+            }
+            $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+            $performed[] = "Spalte {$table}.{$column} ergänzt";
         };
 
         // Helper für neue Tabellen: SHOW TABLES vor dem CREATE TABLE IF NOT
@@ -283,7 +296,10 @@ final class SchemaMigrator {
         // E-Mail seit jeher oeffentlich (Geschaeftsadresse) - eine 0 wuerde
         // bestehende Angaben stillschweigend verstecken, und eine Migration
         // darf nichts wegnehmen, was vorher da war.
-        $addColumn('persons', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_breeder`');
+        // persons.contact_public steht NICHT hier, sondern unten bei Schritt 30
+        // direkt hinter persons.is_breeder - seine AFTER-Klausel verweist auf
+        // genau diese Spalte, und migrate() läuft strikt von oben nach unten
+        // (#309).
         $addColumn('breeding_stations', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER `website`');
 
         // person_id NULL-fähig machen (Zuordnung kann auch nur über eine
@@ -834,6 +850,18 @@ final class SchemaMigrator {
         // Vorgabewert 0 lässt die Aussage offen, bis jemand sie trifft.
         $addColumn('persons', 'is_breeder', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `membership_status`');
         $addIndex('persons', 'idx_persons_is_breeder', '`is_breeder`, `is_published`, `deleted_at`');
+
+        // Ausdrückliche Freigabe der Kontaktdaten einer Person (Schritt 32,
+        // hierher gezogen). Der Vorgabewert 0 ist bewusst anders als bei den
+        // Deckstationen: Bei persons war die Veröffentlichung bis #293 ein
+        // Versehen, dort ist 0 richtig; bei breeding_stations sind Telefon und
+        // E-Mail seit jeher öffentlich (Geschäftsadresse), und eine Migration
+        // darf nichts wegnehmen, was vorher da war.
+        //
+        // Die Zeile MUSS hinter is_breeder stehen: Die AFTER-Klausel nennt
+        // diese Spalte, und auf einer Installation mit schema_version < 6 gibt
+        // es sie vorher nicht. Genau daran scheiterte #309.
+        $addColumn('persons', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_breeder`');
 
         // Leserecht der Gast-Gruppe für die neue öffentliche Personenseite
         // (/person). Ohne dieses Recht liefe der Verweis von der Pferdeseite

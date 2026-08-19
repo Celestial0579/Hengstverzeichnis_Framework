@@ -390,6 +390,13 @@ class PersonController extends BaseController {
      * Bewusst nur auffuellen und nie ueberschreiben: Das Ziel ist der Datensatz,
      * den der Bearbeiter behalten will.
      */
+    /**
+     * Hoechstzahl der im Merge-Formular angebotenen Ziel-Personen (#312).
+     * Wie GdprController::SEARCH_LIMIT: ein Auswahlfeld ist kein Ort fuer
+     * einen vollstaendigen Personenbestand - wer mehr braucht, sucht.
+     */
+    public const MERGE_CANDIDATE_LIMIT = 50;
+
     private const MERGE_FILL_FIELDS = [
         'contact_info', 'street', 'house_number', 'postal_code', 'city', 'state',
         'country', 'email', 'phone', 'mobile', 'website', 'membership_status',
@@ -421,17 +428,44 @@ class PersonController extends BaseController {
         $stmt->execute([$id]);
         $assignments = $stmt->fetchAll();
 
+        // Kandidaten gedeckelt und durchsuchbar statt Gesamtbestand (#312):
+        // Ohne LIMIT wurde jede Person des Bestands zu einem <option> - bei
+        // 20.000 Datensaetzen rund 1,1 MB Markup und ein Auswahlfeld, das
+        // mobile Browser sekundenlang aufbauen. Dasselbe Muster wie in der
+        // Personenliste (#306) und im GdprController (#266).
+        //
+        // Eine Zeile mehr holen als angezeigt wird: nur so laesst sich
+        // ehrlich sagen, ob die Liste abgeschnitten ist. Eine gedeckelte
+        // Liste, die sich als vollstaendig ausgibt, ist schlimmer als eine
+        // lange - wer sein Ziel nicht findet, haelt es fuer nicht vorhanden.
+        $suche = trim((string)($_GET['q'] ?? ''));
+        $bedingungen = ['id <> ?', 'deleted_at IS NULL'];
+        $werte = [$id];
+        if ($suche !== '') {
+            $like = '%' . $suche . '%';
+            $bedingungen[] = '(name LIKE ? OR city LIKE ? OR postal_code LIKE ?)';
+            array_push($werte, $like, $like, $like);
+        }
         $stmt = $db->prepare(
             "SELECT id, name, city, postal_code FROM persons
-             WHERE id <> ? AND deleted_at IS NULL ORDER BY name ASC"
+             WHERE " . implode(' AND ', $bedingungen) . "
+             ORDER BY name ASC LIMIT " . (self::MERGE_CANDIDATE_LIMIT + 1)
         );
-        $stmt->execute([$id]);
+        $stmt->execute($werte);
+        $candidates = $stmt->fetchAll();
+        $abgeschnitten = count($candidates) > self::MERGE_CANDIDATE_LIMIT;
+        if ($abgeschnitten) {
+            array_pop($candidates);
+        }
 
         $this->render('admin_person_merge', [
             'title' => 'Personen zusammenführen',
             'source' => $source,
             'assignments' => $assignments,
-            'candidates' => $stmt->fetchAll(),
+            'candidates' => $candidates,
+            'search' => $suche,
+            'truncated' => $abgeschnitten,
+            'candidateLimit' => self::MERGE_CANDIDATE_LIMIT,
         ]);
     }
 
@@ -480,9 +514,24 @@ class PersonController extends BaseController {
         $db->beginTransaction();
         try {
             // 1. Zuordnungen umhaengen - aber keine exakten Doppel erzeugen.
-            //    Gleiches Pferd, gleiche Rolle UND gleicher Zeitraum ist
-            //    dieselbe Aussage; unterschiedliche Zeitraeume sind dagegen
-            //    echte Historie und muessen beide erhalten bleiben.
+            //    Gleiches Pferd, gleiche Rolle, gleicher Zeitraum UND gleiche
+            //    Fachangaben sind dieselbe Aussage; alles andere ist echte
+            //    Historie und muss erhalten bleiben.
+            //
+            //    Die drei Fachspalten gehoeren zwingend in den Vergleich
+            //    (#310): Schritt 2 loescht hart, was hier stehenbleibt. Ohne
+            //    sie galt eine Zeile mit Deckstation oder Herkunftsland als
+            //    "exaktes Doppel" einer leeren Zeile und war danach
+            //    unwiederbringlich weg - und bei role='breeder' trifft das
+            //    zwangslaeufig zu, weil HorseController::saveHorsePersons()
+            //    from_year/until_year dort hart auf NULL setzt. Der Merge
+            //    verspricht ausdruecklich, nie zu ueberschreiben, sondern nur
+            //    aufzufuellen; das ist die Stelle, an der das Versprechen
+            //    einzuloesen ist.
+            //
+            //    <=> statt = ist wesentlich: Die Spalten sind NULL-faehig, und
+            //    NULL = NULL waere NULL, also nie wahr - jede Zeile ohne
+            //    Angabe gaelte als verschieden.
             $stmt = $db->prepare(
                 "UPDATE horse_persons AS quelle
                  SET person_id = ?
@@ -494,6 +543,9 @@ class PersonController extends BaseController {
                          AND ziel.role = quelle.role
                          AND (ziel.from_year <=> quelle.from_year)
                          AND (ziel.until_year <=> quelle.until_year)
+                         AND (ziel.breeding_station_id <=> quelle.breeding_station_id)
+                         AND (ziel.breeding_station_text <=> quelle.breeding_station_text)
+                         AND (ziel.origin_country <=> quelle.origin_country)
                    )"
             );
             $stmt->execute([$targetId, $sourceId, $targetId]);

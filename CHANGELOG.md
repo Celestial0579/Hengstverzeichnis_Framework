@@ -6,6 +6,141 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.7.1] – 2026-08-19
+
+Reine Fehlerbehebung: die vierzehn Befunde des Codescans vom 2026-08-18
+(#309–#322). Keine neuen Funktionen, keine Schemaerweiterung über die eine
+nachgeholte Spalte hinaus — Addons der Linie 0.7 laufen unverändert weiter
+(`core_supported_max` vergleicht Major.Minor).
+
+### Sicherheit
+
+- **`/media/horse-image` verlangt eine gültige Sitzung** (#314). Die Route
+  hob die `is_published`-Sperre allein anhand der Anwesenheit von
+  `$_SESSION['user_id']` auf und rief `checkAuth()` an keiner Stelle auf.
+  Damit galt hier keine der Sitzungsprüfungen des übrigen Backends:
+  gelöschtes oder deaktiviertes Konto, `session_version` nach einem
+  Passwortwechsel (#113), User-Agent-Fingerprint, Inaktivitäts-Timeout. Ein
+  Angreifer mit einem gestohlenen Cookie flog auf `/admin/horses` sofort auf
+  `/login`, konnte über diese Route aber weiter jedes Foto abrufen — auch
+  die unveröffentlichter und nach DSGVO-Widerspruch depublizierter Pferde.
+
+- **Zugriffsabhängige Bilder sind nicht mehr zwischenspeicherbar** (#315).
+  Jede 200er-Antwort trug `Cache-Control: public, max-age=1 Jahr`. Für einen
+  gemeinsamen Zwischenspeicher (nginx `proxy_cache`, Varnish, CDN) war die
+  URL damit eine statische Ressource: Öffnete ein Redakteur die
+  Bearbeitungsseite eines unveröffentlichten Pferds, lag dessen Foto danach
+  ein Jahr im Cache und ging von dort an jeden Gast. Der unveröffentlichte
+  Zweig trägt jetzt `private, no-store`.
+
+- **Deckstationen im Personenblock von `/horse` folgen den Rechten** (#316).
+  Die Zuordnungsabfrage holte `bs.name`/`bs.id` ein zweites Mal und war von
+  den Guards aus #122/#151 nicht erfasst. Wer der Gast-Gruppe
+  `breeding_stations.view` entzogen hatte, bekam auf `/station?id=7` korrekt
+  404 — im Block „Zucht & Personen" stand die Station trotzdem, samt Link
+  auf genau diese Seite. Zweiter Weg: Bei depublizierter Station fiel die
+  Anzeige auf `horse_persons.breeding_station_text` zurück, wo bei Import und
+  Formular derselbe Name noch einmal steht.
+
+### Behoben
+
+- **`persons.contact_public` fehlte nach dem Update dauerhaft** (#309,
+  kritisch). `SchemaMigrator::migrate()` ergänzte die Spalte mit
+  `AFTER is_breeder`, legte `is_breeder` aber erst rund 550 Zeilen später an
+  — in derselben, strikt von oben nach unten laufenden Methode. Auf jeder
+  Installation ohne `is_breeder` (schema_version < 6) scheiterte das ALTER,
+  der Fehler wurde verschluckt, und `schema_version` wurde trotzdem auf 8
+  gesetzt. Folge: jedes Speichern einer Person warf eine PDOException, die
+  öffentliche Personenseite endete mit HTTP 500. Betroffen waren
+  Bestandsinstallationen, die von 0.5.x direkt auf 0.7.0 gingen.
+
+  `$addColumn` verschluckt Fehler jetzt nur noch bei der Existenzprüfung;
+  steht die Tabelle nachweislich, schlägt ein Fehlschlag des ALTER nach oben
+  durch und der Schritt wird beim nächsten Lauf wiederholt.
+  `SCHEMA_VERSION` 8 → 9, damit betroffene Instanzen die Spalte nachziehen.
+
+- **Personen-Merge verwarf Zuordnungen mit Deckstation oder Herkunftsland**
+  (#310). Der Dublettenschlüssel verglich nur `horse_id`, `role`,
+  `from_year` und `until_year`; was dadurch als „exaktes Doppel" galt, wurde
+  hart gelöscht. Bei `role='breeder'` sind `from_year`/`until_year`
+  zwangsläufig NULL — zwei Züchter-Zuordnungen desselben Pferds stimmten in
+  allen vier Spalten also immer überein, und die Deckstation bzw. das
+  Herkunftsland war nach dem Zusammenführen unwiederbringlich weg.
+
+- **Pferde im Papierkorb waren weiter beschreibbar** (#322). Der
+  Schreibschutz aus #296 kam für Personen und Deckstationen, der
+  `HorseController` blieb unangetastet. Ein Speichern am gelöschten
+  Datensatz setzte `is_published`, löschte über `remove_image` die Bilddatei
+  physisch von der Platte und baute `horse_persons` und
+  `horse_registrations` neu auf. Der Guard sitzt bewusst vor der
+  Bildbehandlung — ein `AND deleted_at IS NULL` am UPDATE allein käme zu
+  spät.
+
+- **Zuordnungen werden atomar gespeichert** (#317). `saveHorsePersons()`
+  löschte erst alle Zeilen und fügte sie dann einzeln neu ein. Schlug ein
+  INSERT fehl, war das DELETE bereits festgeschrieben: Das Pferd stand ohne
+  jede Zuordnung da, der Request endete mit 500, und weil die Ausnahme auch
+  das Änderungs-Protokoll übersprang, blieb nicht einmal ein Hinweis darauf,
+  dass es die Zuordnungen gab. Unbekannte `person_id`/`breeding_station_id`
+  werden jetzt vor dem INSERT auf NULL gesetzt, DELETE und INSERTs stehen in
+  einer Transaktion.
+
+### Geändert
+
+- **Pferdefotos laufen nicht mehr durch den kompletten Bootstrap** (#311).
+  Eine Katalogseite zeigt 24 Karten und löste damit 24 zusätzliche
+  PHP-Requests aus; jeder fuhr `PluginManager::boot()` (stat()et rekursiv
+  jede Datei jedes aktivierten Plugins), `SetupController::needsSetup()` mit
+  Dreifach-JOIN und die Registrierung der drei Cron-Aufgaben. Die
+  Zugriffsentscheidung bleibt vollständig im `MediaController` — nur der
+  Bootstrap entfällt. Die Sitzung wird ausserdem unmittelbar nach der
+  Prüfung freigegeben statt erst beim Ausliefern.
+
+- **Endlos-Nachladen im Katalog ohne wiederholtes `COUNT(*)`** (#320). Der
+  Zähler lief über den dreifachen Selbst-JOIN bei jedem Scrollschritt,
+  obwohl der Client die Zahl längst hat; beim Durchscrollen von 3200 Pferden
+  sind das gut 130 Wiederholungen. Die Züchter-/Besitzernamen werden
+  zusätzlich erst nach dem LIMIT aufgelöst statt über eine materialisierte
+  Ableitung über den Gesamtbestand.
+
+- **Merge-Formular mit gedeckelter Suche** (#312). `mergeForm()` holte den
+  kompletten Personenbestand ohne LIMIT in ein `<select>` — bei 20.000
+  Personen rund 1,1 MB Markup je Seitenaufruf. Jetzt Suchfeld über Name, Ort
+  und PLZ mit 50 Treffern; die Maske sagt ausdrücklich, wenn sie kürzt.
+
+- **DSGVO-Personensuche zweistufig** (#318). Erst die Präfixsuche, und nur
+  wenn sie den Deckel nicht füllt, die teure Enthält-Suche; `horse_count`
+  kommt als Unterabfrage statt aus JOIN und GROUP BY. Mindestlänge 2 → 3.
+
+- **`/admin/updates` lädt nicht mehr das komplette Addon-Tarball** (#319).
+  Der Katalog wird vom nächtlichen Lauf warm gehalten; wer den Stand sofort
+  braucht, klickt „Katalog jetzt auffrischen". Ein fehlgeschlagener Abruf
+  wird jetzt ebenfalls gestempelt — vorher versuchte es jeder Seitenaufruf
+  erneut und hing bei nicht erreichbarem GitHub bis zu 20 s.
+
+  Wie weit das reichte, zeigte sich beim Zusammenführen dieser Reihe: Die
+  Functional-Suite selbst fiel auf `main` reproduzierbar mit
+  `Operation timed out after 10002 milliseconds` auf `/admin/updates` um,
+  und weil `php -S` einthreadig ist, riss die hängende Anfrage die
+  nachfolgende gleich mit — einmal traf es sogar `/login`. Der synchrone
+  Abruf machte damit nicht nur eine Anzeigeseite langsam, sondern die
+  Testläufe des Repos von der Erreichbarkeit und Drosselung von GitHub
+  abhängig.
+
+- **Die drei Sperren der Update-Automatik in sinnvoller Reihenfolge** (#313).
+  Die Container-Prüfung (`UPDATE_IN_PLACE=false`) stand hinter der
+  Backup-Sperre und war damit praktisch unerreichbar: Der Betreiber einer
+  Container-Installation bekam die Aufforderung, ein externes Backup
+  einzurichten — und danach dieselbe Ablehnung aus einem anderen Grund.
+
+### Tests
+
+- Verweigerungsfälle, die bisher fehlten: CSRF und Löschrecht beim
+  Personen-Merge (#321), CSRF, Admin-Pflicht und alle drei Sperren der
+  Update-Automatik (#313). Jeder Ablehnungsfall belegt zusätzlich
+  datenbankseitig, dass nichts geschrieben wurde — ein 403 sagt nur, was die
+  Antwort war, nicht was vorher schon passiert ist.
+
 ## [0.7.0] – 2026-08-18
 
 ### Hinzugefügt

@@ -189,6 +189,87 @@ class GdprManualMatchingTest extends FunctionalTestCase {
         );
     }
 
+    /**
+     * #318: Zwei Zeichen lösen keine Suche mehr aus.
+     *
+     * Ein Fragment wie "an" trifft bei 20.000 Personen praktisch den gesamten
+     * Bestand. Der Deckel schneidet die ANTWORT auf 50 Zeilen zurecht, die
+     * Datenbank hat den Rest aber vorher trotzdem angefasst - und für die
+     * Zuordnung einer DSGVO-Anfrage ist so ein Treffer ohnehin wertlos.
+     */
+    public function testTwoCharactersNoLongerTriggerASearch(): void {
+        $marker = 'Ab' . uniqid();
+        $this->seedPerson($marker . ' Kurzsuche');
+
+        $this->assertSame([], $this->search('Ab'), 'Zwei Zeichen dürfen keine Trefferliste mehr auslösen.');
+        $this->assertNotSame([], $this->search(substr($marker, 0, 5)), 'Ab drei Zeichen muss die Suche wieder greifen.');
+    }
+
+    /**
+     * #318: Die Suche läuft jetzt zweistufig - erst Präfix, dann bei Bedarf
+     * die teure Enthält-Suche. Beide Mengen müssen ankommen, und der
+     * Präfixtreffer gehört nach vorn: Wer mit dem Suchbegriff BEGINNT, ist der
+     * wahrscheinlichere Treffer.
+     */
+    public function testPrefixHitsComeFirstButSubstringHitsStillArrive(): void {
+        $marker = 'Zwei' . uniqid();
+
+        // Beginnt mit dem Suchbegriff -> Präfixstufe.
+        $vorn = $this->seedPerson($marker . ' Praefixtreffer');
+        // Enthält ihn nur -> zweite Stufe.
+        $hinten = $this->seedPerson('Enthaelt ' . $marker . ' mittendrin');
+
+        $treffer = $this->search($marker);
+        $ids = array_column($treffer, 'id');
+
+        $this->assertContains($vorn, $ids, 'Der Präfixtreffer fehlt.');
+        $this->assertContains($hinten, $ids, 'Der Enthält-Treffer fehlt - die zweite Stufe greift nicht.');
+        $this->assertSame(
+            $vorn,
+            $ids[0],
+            'Der Präfixtreffer gehört an die erste Stelle.'
+        );
+        $this->assertSame(
+            count($ids),
+            count(array_unique($ids)),
+            'Kein Treffer darf doppelt vorkommen - die beiden Stufen überschneiden sich.'
+        );
+    }
+
+    /**
+     * #318: horse_count kommt jetzt aus einer Unterabfrage statt aus
+     * LEFT JOIN + GROUP BY. Die Zahl muss dieselbe bleiben, sonst hätte der
+     * Umbau die Zuordnungsanzeige der DSGVO-Maske still verfälscht.
+     */
+    public function testHorseCountSurvivesTheQueryRewrite(): void {
+        $db = Database::getInstance();
+        $marker = 'Zaehlprobe' . uniqid();
+
+        $ohne = $this->seedPerson($marker . ' ohne Pferde');
+        $mit = $this->seedPerson($marker . ' mit zwei Pferden');
+
+        $pferdIds = [];
+        foreach (['A', 'B'] as $suffix) {
+            $db->prepare("INSERT INTO horses (name, sex, is_published, created_at) VALUES (?, 'stallion', 0, NOW())")
+               ->execute(["{$marker} Pferd {$suffix}"]);
+            $pferdIds[] = (int)$db->lastInsertId();
+        }
+        foreach ($pferdIds as $pferdId) {
+            $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'owner')")
+               ->execute([$pferdId, $mit]);
+        }
+
+        try {
+            $treffer = array_column($this->search($marker), null, 'id');
+            $this->assertSame(0, $treffer[$ohne]['horse_count'] ?? null);
+            $this->assertSame(2, $treffer[$mit]['horse_count'] ?? null);
+        } finally {
+            foreach ($pferdIds as $pferdId) {
+                $db->prepare("DELETE FROM horses WHERE id = ?")->execute([$pferdId]);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------
 
     private function adminClient(): \Tests\Support\HttpClient {

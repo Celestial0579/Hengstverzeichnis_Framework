@@ -365,18 +365,26 @@ $addonTargetWarnings = array_values(array_filter(
                 <?php endforeach; ?>
             </tbody>
         </table>
-        <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
-            <?php if ($addonCatalogAvailable): ?>
-                Katalog-Stand: <?= htmlspecialchars((string)($addonCatalogCachedAt ?? 'unbekannt')) ?> —
-                aktualisiert sich beim Aufruf des <a href="/admin/plugins/store">Addon-Stores</a>
-                (dort werden Addon-Updates auch eingespielt).
-            <?php else: ?>
-                Noch kein Katalog-Stand des offiziellen Addon-Repos vorhanden — einmal den
-                <a href="/admin/plugins/store">Addon-Store</a> aufrufen, dann erscheinen
-                hier auch verfügbare Addon-Versionen.
-            <?php endif; ?>
-        </small>
     <?php endif; ?>
+
+    <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">
+        <?php if ($addonCatalogAvailable): ?>
+            Katalog-Stand: <?= htmlspecialchars((string)($addonCatalogCachedAt ?? 'unbekannt')) ?> —
+            wird vom nächtlichen Update-Lauf und beim Aufruf des
+            <a href="/admin/plugins/store">Addon-Stores</a> aufgefrischt
+            (dort werden Addon-Updates auch eingespielt).
+            <a href="/admin/updates?refresh=1">Katalog jetzt auffrischen</a>.
+        <?php else: ?>
+            Noch kein Katalog-Stand des offiziellen Addon-Repos vorhanden —
+            <a href="/admin/updates?refresh=1">Katalog jetzt auffrischen</a> oder einmal den
+            <a href="/admin/plugins/store">Addon-Store</a> aufrufen, dann erscheinen
+            hier auch verfügbare Addon-Versionen.
+        <?php endif; ?>
+        <?php // Der Abruf lädt und entpackt das komplette Repo-Tarball von
+              // GitHub. Bis #319 lief er bei JEDEM Aufruf dieser reinen
+              // Anzeigeseite mit; jetzt nur noch auf ausdrücklichen Klick
+              // und im nächtlichen Lauf. ?>
+    </small>
 
     <?php if ($inPlaceEnabled): ?>
         <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border-color);">

@@ -69,11 +69,24 @@ class MediaController extends BaseController {
             $this->sendStatus(404);
         }
 
-        $stmt = Database::getInstance()->prepare(
-            "SELECT id, image_url, is_published FROM horses WHERE id = ? AND deleted_at IS NULL"
-        );
-        $stmt->execute([$id]);
-        $horse = $stmt->fetch();
+        // Datenbankfehler enden hier als 404, nicht als 500.
+        //
+        // Seit dem Kurzschluss in public/index.php (#311) laeuft diese Route
+        // an der Setup-Weiche vorbei - auf einer noch nicht eingerichteten
+        // Installation gibt es die Tabelle horses also gar nicht, und eine
+        // PDOException wuerde jedes <img> mit einem Serverfehler beantworten.
+        // "Kein Bild" ist die richtige Antwort auf eine Bildanfrage, in beiden
+        // Faellen. Protokolliert wird der Fehler von PHP weiterhin.
+        try {
+            $stmt = Database::getInstance()->prepare(
+                "SELECT id, image_url, is_published FROM horses WHERE id = ? AND deleted_at IS NULL"
+            );
+            $stmt->execute([$id]);
+            $horse = $stmt->fetch();
+        } catch (\Throwable $e) {
+            error_log('MediaController: Bildabfrage fehlgeschlagen: ' . $e->getMessage());
+            $this->sendStatus(404);
+        }
 
         if (!$horse || empty($horse['image_url'])) {
             $this->sendStatus(404);

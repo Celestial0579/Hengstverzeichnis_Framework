@@ -98,10 +98,11 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $this->assertStringContainsString('>Update</span>', $page->body);
         $this->assertStringContainsString('Katalog-Stand:', $page->body);
 
-        // Der Refresh aus #290 respektiert die TTL: Bei frisch geseedetem
-        // Cache darf die Update-Seite GitHub NICHT fragen, sonst hinge jeder
-        // Seitenaufruf an einem Netzwerkzugriff. Erkennbar daran, dass
-        // cached_at unverändert bleibt (ein Abruf würde es auf NOW() setzen).
+        // Die Update-Seite fragt GitHub gar nicht mehr (#319): Der Abruf lädt
+        // und entpackt das komplette Repo-Tarball und hing damit vor jedem
+        // Seitenaufbau. Er passiert jetzt nur noch im nächtlichen Lauf und auf
+        // ausdrücklichen Klick (?refresh=1). Erkennbar daran, dass cached_at
+        // unverändert bleibt - ein Abruf würde es auf NOW() setzen.
         $this->assertSame($cachedAtBefore, $this->officialCachedAt());
 
         // Dashboard zählt das offene Addon-Update an der Update-Kachel
@@ -201,10 +202,16 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
     }
 
     /**
-     * Gegenstück zum TTL-Fall oben (#290): Ist der Cache abgelaufen, versucht
-     * die Update-Seite selbst einen Refresh. Schlägt der fehl, muss die Seite
-     * trotzdem mit 200 antworten und den (alten) Stand weiter anzeigen -
-     * ein alter Katalog ist besser als eine leere Tabelle oder ein Fehler.
+     * Gegenstück zum TTL-Fall oben: Schlägt ein Refresh fehl, muss die Seite
+     * trotzdem mit 200 antworten und den (alten) Stand weiter anzeigen - ein
+     * alter Katalog ist besser als eine leere Tabelle oder ein Fehler.
+     *
+     * Seit #319 löst der blosse Seitenaufruf keinen Refresh mehr aus (er lud
+     * und entpackte dafür das komplette Repo-Tarball, synchron vor dem ersten
+     * Byte HTML). Der Fall wird deshalb über den ausdrücklichen Knopf
+     * `?refresh=1` gefahren - dort, wo der Abruf jetzt stattfindet. Ein
+     * abgelaufener Cache OHNE diesen Klick darf die Seite ebenso wenig stören,
+     * und auch das steht unten.
      *
      * Der Fehlschlag wird bewusst OHNE Netzwerkzugriff erzeugt: Ein
      * syntaktisch ungültiger Owner scheitert schon an der Validierung in
@@ -225,7 +232,12 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $db->exec("UPDATE addon_repos SET owner = 'un gueltig' WHERE is_official = 1");
 
         try {
-            $page = $admin->get('/admin/updates');
+            // Ohne Klick: kein Abruf, kein Problem.
+            $ohneKlick = $admin->get('/admin/updates');
+            $this->assertSame(200, $ohneKlick->statusCode);
+            $this->assertStringContainsString('<strong>1.1.0</strong>', $ohneKlick->body);
+
+            $page = $admin->get('/admin/updates?refresh=1');
 
             $this->assertSame(200, $page->statusCode);
             $this->assertStringContainsString('🧩 Addons', $page->body);

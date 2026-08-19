@@ -239,33 +239,48 @@ class PersonMergeTest extends FunctionalTestCase {
 
         // Direkt in die Tabelle: Der Weg über das Formular kostet 55
         // HTTP-Runden und beweist hier nichts zusätzlich.
+        //
+        // Und danach wieder weg: Die Testdatenbank ist über die ganze Suite
+        // geteilt, und die Personenliste blättert seit #306 bei 50 Zeilen um.
+        // 55 zurückgelassene Datensätze schieben einen fremden Test von
+        // Seite 1 - genau das ist in der CI passiert, wo die Datenbank frisch
+        // ist und die Zahl deshalb wirklich zählt.
         $grenze = \App\Controllers\PersonController::MERGE_CANDIDATE_LIMIT;
         $ins = $db->prepare("INSERT INTO persons (name) VALUES (?)");
+        $angelegt = [];
         for ($i = 1; $i <= $grenze + 5; $i++) {
             $ins->execute([sprintf('Deckel Kandidat %02d %s', $i, $unique)]);
+            $angelegt[] = (int)$db->lastInsertId();
         }
 
-        $seite = $admin->get('/admin/persons/merge?id=' . $quelleId);
-        $this->assertSame(200, $seite->statusCode);
-        $this->assertCount(
-            $grenze,
-            $this->zielOptionen($seite->body),
-            'Das Auswahlfeld darf höchstens MERGE_CANDIDATE_LIMIT Ziele anbieten'
-        );
-        $this->assertStringContainsString(
-            'Die Liste ist auf',
-            $seite->body,
-            'Eine gekürzte Liste muss das sagen, sonst hält man sie für vollständig'
-        );
+        try {
+            $seite = $admin->get('/admin/persons/merge?id=' . $quelleId);
+            $this->assertSame(200, $seite->statusCode);
+            $this->assertCount(
+                $grenze,
+                $this->zielOptionen($seite->body),
+                'Das Auswahlfeld darf höchstens MERGE_CANDIDATE_LIMIT Ziele anbieten'
+            );
+            $this->assertStringContainsString(
+                'Die Liste ist auf',
+                $seite->body,
+                'Eine gekürzte Liste muss das sagen, sonst hält man sie für vollständig'
+            );
 
-        // Mit Suchbegriff bleibt genau der eine Treffer übrig - und der
-        // Kürzungshinweis verschwindet, weil nichts mehr gekürzt wird.
-        $gesucht = sprintf('Deckel Kandidat %02d %s', 7, $unique);
-        $gefiltert = $admin->get('/admin/persons/merge?id=' . $quelleId . '&q=' . urlencode($gesucht));
-        $optionen = $this->zielOptionen($gefiltert->body);
-        $this->assertCount(1, $optionen, "Die Suche muss genau einen Treffer liefern, Body: {$gefiltert->body}");
-        $this->assertStringContainsString($gesucht, $optionen[0]);
-        $this->assertStringNotContainsString('Die Liste ist auf', $gefiltert->body);
+            // Mit Suchbegriff bleibt genau der eine Treffer übrig - und der
+            // Kürzungshinweis verschwindet, weil nichts mehr gekürzt wird.
+            $gesucht = sprintf('Deckel Kandidat %02d %s', 7, $unique);
+            $gefiltert = $admin->get('/admin/persons/merge?id=' . $quelleId . '&q=' . urlencode($gesucht));
+            $optionen = $this->zielOptionen($gefiltert->body);
+            $this->assertCount(1, $optionen, "Die Suche muss genau einen Treffer liefern, Body: {$gefiltert->body}");
+            $this->assertStringContainsString($gesucht, $optionen[0]);
+            $this->assertStringNotContainsString('Die Liste ist auf', $gefiltert->body);
+        } finally {
+            $weg = $db->prepare("DELETE FROM persons WHERE id = ?");
+            foreach ($angelegt as $id) {
+                $weg->execute([$id]);
+            }
+        }
     }
 
     /**

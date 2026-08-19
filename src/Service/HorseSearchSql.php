@@ -41,6 +41,16 @@ namespace App\Service;
  */
 final class HorseSearchSql {
 
+    /**
+     * Wie viele Pferde-IDs personNamesSql() erwartet.
+     *
+     * Muss mit PublicController::CATALOG_PER_PAGE uebereinstimmen - genau das
+     * prueft HorseSearchSqlSafetyTest, denn ein auseinandergelaufenes Paar
+     * hiesse entweder abgeschnittene Namen auf den letzten Karten oder
+     * unnoetige Platzhalter.
+     */
+    public const PERSON_NAMES_BATCH = 24;
+
     /** @var array<int, HorseSearchCondition> in Anmeldereihenfolge */
     private array $conditions = [];
 
@@ -125,6 +135,44 @@ final class HorseSearchSql {
                 JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
                 GROUP BY hp.horse_id
             ) hpx ON hpx.horse_id = h.id
+        ";
+    }
+
+    /**
+     * Die Zuechter-/Besitzernamen fuer eine BEREITS ermittelte Seite von
+     * Pferden (#320) - dieselbe Sichtbarkeitsregel wie personAggregateJoin(),
+     * nur nachgelagert statt in der paginierten Abfrage.
+     *
+     * Der Grund fuer die zweite Abfrage: personAggregateJoin() enthaelt ein
+     * GROUP BY und laesst sich deshalb nicht in die aeussere Abfrage
+     * hineinziehen. MySQL materialisiert die abgeleitete Tabelle ueber die
+     * GESAMTE horse_persons/persons-Menge, obwohl am Ende 24 Zeilen
+     * uebrigbleiben. Beim Endlos-Scrollen wurde dieser Aufbau je
+     * Nachladeschritt wiederholt.
+     *
+     * Die Regel selbst steht weiterhin nur hier und nicht im Aufrufer: Sie
+     * entscheidet, ob unveroeffentlichte Personennamen oeffentlich werden
+     * (#121), und zwei Fassungen davon waeren genau die Sorte Doppelung, die
+     * irgendwann auseinanderlaeuft.
+     *
+     * OHNE PARAMETER, und das ist keine Bequemlichkeit: HorseSearchSqlSafetyTest
+     * prueft per Reflection, dass in diese Klasse ausser HorseSearchCondition
+     * und bool nichts hineinpasst - damit hier gar keine Tuer entsteht, durch
+     * die ein Anfragewert in die Klausel kaeme. Auch ein harmlos wirkendes
+     * `int $anzahl` waere so eine Tuer, und die Regel lebt davon, dass sie
+     * keine Ausnahmen kennt. Die Zahl der Platzhalter steht deshalb fest;
+     * kuerzere Seiten fuellt der Aufrufer mit 0 auf (die ID 0 gibt es nicht).
+     */
+    public function personNamesSql(): string {
+        $platzhalter = implode(', ', array_fill(0, self::PERSON_NAMES_BATCH, '?'));
+        return "
+            SELECT hp.horse_id,
+                   GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
+                   GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
+            FROM horse_persons hp
+            JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
+            WHERE hp.horse_id IN ({$platzhalter})
+            GROUP BY hp.horse_id
         ";
     }
 

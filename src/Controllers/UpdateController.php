@@ -42,11 +42,26 @@ class UpdateController extends BaseController {
             ? (string)$checkResult['latest']
             : null;
 
-        // Katalog-Cache des OFFIZIELLEN Repos hier selbst auffrischen (#290),
-        // bevor die Addon-Übersicht daraus gebaut wird - sonst zeigt die
-        // Update-Seite einen beliebig veralteten Stand, solange niemand den
-        // Addon-Store aufruft.
-        \App\Service\AddonUpdateService::refreshOfficialCatalog();
+        // Der Katalog des offiziellen Repos wird hier NICHT mehr bei jedem
+        // Seitenaufruf geholt (#319).
+        //
+        // refreshOfficialCatalog() landet bei GithubAddonRepository::
+        // fetchCatalog(): Download des kompletten Repo-Tarballs von
+        // api.github.com (bis MAX_TARBALL_BYTES = 20 MB), Entpacken per
+        // PharData in ein temporaeres Verzeichnis, scandir ueber alle
+        // plugins/*/plugin.json, rekursives Loeschen - dazu ein zweiter
+        // API-Aufruf fuer bestReleaseTagForCoreLine(). Alles synchron, bevor
+        // ein Byte HTML rausgeht. Im Stoerfall haengt die reine Anzeigeseite
+        // an zwei Zeitgrenzen von je 20 s und laeuft dann in
+        // max_execution_time, ohne dass der Admin die Ursache sieht.
+        //
+        // Warm gehalten wird der Katalog vom ohnehin vorhandenen Cron-Lauf
+        // (UpdateService::runCheckAndNotify() ruft dieselbe Methode auf). Wer
+        // den Stand sofort braucht, klickt "Katalog jetzt auffrischen" -
+        // dann, und nur dann, wird die TTL uebergangen.
+        if (isset($_GET['refresh'])) {
+            \App\Service\AddonUpdateService::refreshOfficialCatalog(true);
+        }
 
         $addonCatalog = \App\Service\AddonOverview::officialCatalogFromCache();
 
@@ -90,6 +105,25 @@ class UpdateController extends BaseController {
         $enabled = !empty($_POST['update_auto_install']) ? '1' : '0';
         $scope = UpdateService::normalizeAutoScope((string)($_POST['update_auto_install_scope'] ?? ''));
 
+        // Reihenfolge der drei Sperren: erst die Eigenschaft der INSTALLATION,
+        // dann die der Konfiguration (#313).
+        //
+        // Im Container gehört der Anwendungscode root und PHP läuft als
+        // www-data; die In-Place-Aktualisierung ist dort abgeschaltet, und
+        // daran ändert keine Einstellung etwas. Stand diese Prüfung hinter der
+        // Backup-Sperre, bekam der Betreiber einer Container-Installation die
+        // Aufforderung, ein externes Backup einzurichten - und danach dieselbe
+        // Ablehnung aus einem ganz anderen Grund. Die unerreichbare Sperre war
+        // zugleich nicht prüfbar, was der Grund ist, dass sie überhaupt
+        // auffiel.
+        if ($enabled === '1' && !UPDATE_IN_PLACE) {
+            header("Location: /admin/updates?error=" . urlencode(
+                'Die In-Place-Aktualisierung ist in dieser Installation deaktiviert (Container-Betrieb) - '
+                . 'eine automatische Installation ist damit nicht möglich. Über verfügbare Versionen wird '
+                . 'weiterhin per E-Mail informiert.'));
+            exit;
+        }
+
         // Automatisch installieren ohne zu benachrichtigen wäre ein stiller
         // Codeaustausch - die Kombination wird gar nicht erst gespeichert.
         if ($enabled === '1' && $notify === '0') {
@@ -106,14 +140,6 @@ class UpdateController extends BaseController {
             header("Location: /admin/updates?error=" . urlencode(
                 'Automatische Updates lassen sich erst aktivieren, wenn ein externes Backup eingerichtet ist - '
                 . 'ein Update ohne vorheriges Backup wird grundsätzlich nicht ausgeführt.'));
-            exit;
-        }
-
-        if ($enabled === '1' && !UPDATE_IN_PLACE) {
-            header("Location: /admin/updates?error=" . urlencode(
-                'Die In-Place-Aktualisierung ist in dieser Installation deaktiviert (Container-Betrieb) - '
-                . 'eine automatische Installation ist damit nicht möglich. Über verfügbare Versionen wird '
-                . 'weiterhin per E-Mail informiert.'));
             exit;
         }
 

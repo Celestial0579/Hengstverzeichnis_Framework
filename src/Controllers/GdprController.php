@@ -24,6 +24,14 @@ class GdprController extends BaseController {
      */
     private const SEARCH_LIMIT = 50;
 
+    /**
+     * Kürzeste Eingabe, ab der gesucht wird (#318). Muss mit MIN_LENGTH in
+     * public/js/gdpr-person-search.js übereinstimmen - der Wert steht an zwei
+     * Stellen, weil der Client gar nicht erst anfragen soll und der Server
+     * sich nicht darauf verlassen darf.
+     */
+    private const MIN_SEARCH_LENGTH = 3;
+
     public function index(): void {
         $db = Database::getInstance();
 
@@ -155,14 +163,16 @@ class GdprController extends BaseController {
         header('X-Content-Type-Options: nosniff');
 
         $q = trim((string)($_GET['q'] ?? ''));
-        // Ab zwei Zeichen: Ein einzelner Buchstabe liefert bei einem
-        // Namensbestand ohnehin nur den willkürlichen Anfang der Liste.
-        if (mb_strlen($q) < 2) {
+        // Ab drei Zeichen (#318, vorher zwei). Ein Zweibuchstaben-Fragment wie
+        // "an" trifft praktisch den gesamten Bestand - der Deckel schneidet die
+        // Antwort dann auf 50 Zeilen zurecht, die Datenbank hat aber alles
+        // andere vorher trotzdem angefasst. Für die Zuordnung einer
+        // DSGVO-Anfrage ist ein solcher Treffer ohnehin wertlos, und
+        // MIN_LENGTH im Skript daneben ist auf denselben Wert gesetzt.
+        if (mb_strlen($q) < self::MIN_SEARCH_LENGTH) {
             echo json_encode([]);
             exit;
         }
-
-        $like = '%' . $q . '%';
         // BEWUSST OHNE deleted_at-Filter, wie schon der Automatch oben: Ein
         // weich gelöschter Datensatz ist aus der Oberfläche verschwunden, seine
         // personenbezogenen Daten stehen aber unverändert in der Tabelle. Wer
@@ -170,19 +180,68 @@ class GdprController extends BaseController {
         // ausblenden, entstünde genau die Lücke, die niemandem auffällt: kein
         // Treffer, Anfrage abgehakt, Daten weiter da. Die Oberfläche kennzeichnet
         // solche Treffer.
-        $stmt = Database::getInstance()->prepare(
-            'SELECT p.id, p.name, p.contact_info, p.email, p.deleted_at, COUNT(hp.id) AS horse_count
-             FROM persons p
-             LEFT JOIN horse_persons hp ON hp.person_id = p.id
-             WHERE p.name LIKE ? OR p.contact_info LIKE ? OR p.email LIKE ?
-             GROUP BY p.id
-             ORDER BY p.name ASC, p.id ASC
-             LIMIT ' . self::SEARCH_LIMIT
-        );
-        $stmt->execute([$like, $like, $like]);
+        // Zwei Stufen statt einer teuren Abfrage (#318).
+        //
+        // Vorher lief je Tastendruck: LEFT JOIN auf horse_persons, GROUP BY
+        // über alle Treffer, ORDER BY in einer temporären Tabelle - und erst
+        // GANZ ZULETZT das LIMIT 50. Bei 20.000 Personen und einem Fragment
+        // wie "an" hiess das: rund 15.000 Zeilen joinen, gruppieren und
+        // sortieren, um 50 auszugeben. Der Debounce löst beim Tippen eines
+        // Namens drei bis vier solcher Läufe aus, und der AbortController im
+        // Browser bricht nur die ANTWORT ab - die Abfrage läuft im Server zu
+        // Ende.
+        //
+        // Zwei Änderungen, die zusammengehören:
+        //
+        // 1. horse_count kommt als Unterabfrage je ausgegebener Zeile statt
+        //    aus JOIN und GROUP BY. Sie läuft damit für höchstens
+        //    SEARCH_LIMIT Zeilen und nutzt den Fremdschlüssel-Index auf
+        //    horse_persons.person_id; die temporäre Tabelle für die
+        //    Gruppierung entfällt ersatzlos.
+        //
+        // 2. Zuerst die Präfixsuche, die den Bestand wirklich eingrenzt. Nur
+        //    wenn sie den Deckel nicht füllt, kommt die teure
+        //    Enthält-Suche über Name, Kontaktfeld und E-Mail dazu. Wer nach
+        //    "Mueller" sucht, bezahlt sie gar nicht mehr; wer nach einem
+        //    Namensteil sucht, bekommt sie weiterhin.
+        //
+        // BEWUSST OHNE deleted_at-Filter, wie schon der Automatch: siehe die
+        // Begründung oben.
+        $sql = 'SELECT p.id, p.name, p.contact_info, p.email, p.deleted_at,
+                       (SELECT COUNT(*) FROM horse_persons hp WHERE hp.person_id = p.id) AS horse_count
+                  FROM persons p
+                 WHERE %s
+                 ORDER BY p.name ASC, p.id ASC
+                 LIMIT ' . self::SEARCH_LIMIT;
+
+        $db = Database::getInstance();
+
+        $stmt = $db->prepare(sprintf($sql, 'p.name LIKE ?'));
+        $stmt->execute([$q . '%']);
+        $rows = $stmt->fetchAll();
+
+        if (count($rows) < self::SEARCH_LIMIT) {
+            $like = '%' . $q . '%';
+            $stmt = $db->prepare(sprintf($sql, '(p.name LIKE ? OR p.contact_info LIKE ? OR p.email LIKE ?)'));
+            $stmt->execute([$like, $like, $like]);
+
+            // Nach ID zusammenführen: Die Präfixtreffer stehen zwangsläufig
+            // auch in der Enthält-Menge, und sie sollen die vorderen Plätze
+            // behalten - ein Treffer, der mit dem Suchbegriff BEGINNT, ist der
+            // wahrscheinlichere.
+            $bekannt = array_column($rows, 'id');
+            foreach ($stmt->fetchAll() as $row) {
+                if (count($rows) >= self::SEARCH_LIMIT) {
+                    break;
+                }
+                if (!in_array($row['id'], $bekannt, false)) {
+                    $rows[] = $row;
+                }
+            }
+        }
 
         $results = [];
-        foreach ($stmt->fetchAll() as $row) {
+        foreach ($rows as $row) {
             $results[] = [
                 'id' => (int)$row['id'],
                 'name' => (string)$row['name'],

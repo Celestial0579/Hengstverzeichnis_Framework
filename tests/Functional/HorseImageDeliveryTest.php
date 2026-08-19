@@ -185,7 +185,160 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
         );
     }
 
+    /**
+     * #314: Eine ungültig gewordene Sitzung hebt is_published nicht mehr auf.
+     *
+     * Vorher genügte die blosse Anwesenheit von $_SESSION['user_id'], und
+     * MediaController rief checkAuth() nirgends auf. Ein Angreifer mit einem
+     * gestohlenen Cookie flog auf /admin/horses sofort auf /login, konnte
+     * hier aber weiter jedes Foto abrufen - auch die unveröffentlichter oder
+     * nach DSGVO-Widerspruch depublizierter Pferde.
+     *
+     * Der Vorher-Nachher-Aufbau ist der Kern: Erst wird belegt, dass dieses
+     * Konto das Bild WIRKLICH bekommt. Ohne diesen Schritt liesse sich der
+     * Test auch mit einem fehlenden Recht bestehen - er bewiese dann etwas
+     * ganz anderes als das, was draufsteht.
+     */
+    public function testInvalidatedSessionNoLongerUnlocksUnpublishedPhoto(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $id = $this->seedHorseWithPhoto(false);
+        $url = '/media/horse-image?id=' . $id;
+
+        $groupId = $this->createCustomGroup($admin, "Bildleser {$unique}");
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+        $email = "bildleser-{$unique}@example.com";
+        $leser = $this->createAndLoginEditor($admin, "bildleser{$unique}", $email, [$groupId]);
+
+        $this->assertSame(
+            200,
+            $leser->get($url)->statusCode,
+            'Vorbedingung: Dieses Konto muss das Bild mit gültiger Sitzung bekommen'
+        );
+
+        // Der Infostealer-Fall: Das Konto wird gelöscht, der Angreifer hält
+        // das alte Sitzungscookie.
+        $db->prepare("UPDATE users SET deleted_at = NOW() WHERE email = ?")->execute([$email]);
+
+        $nachher = $leser->get($url);
+        $this->assertNotSame(
+            200,
+            $nachher->statusCode,
+            'Ein gelöschtes Konto darf über sein altes Sitzungscookie kein unveröffentlichtes Foto mehr bekommen'
+        );
+        $this->assertStringNotContainsString(
+            "\x89PNG",
+            $nachher->body,
+            'Es darf kein Bildinhalt zurückkommen'
+        );
+    }
+
+    /**
+     * #314, zweiter Weg: Passwortwechsel erhöht users.session_version (#113).
+     * Die Invalidierung lebte ausschliesslich in checkAuth() - eine Route, die
+     * checkAuth() nicht aufruft, hat sie nie gesehen.
+     */
+    public function testSessionVersionBumpAlsoLocksThePhotoRoute(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $id = $this->seedHorseWithPhoto(false);
+        $url = '/media/horse-image?id=' . $id;
+
+        $groupId = $this->createCustomGroup($admin, "Bildleser PW {$unique}");
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+        $email = "bildleser-pw-{$unique}@example.com";
+        $leser = $this->createAndLoginEditor($admin, "bildleserpw{$unique}", $email, [$groupId]);
+
+        $this->assertSame(200, $leser->get($url)->statusCode, 'Vorbedingung: gültige Sitzung sieht das Bild');
+
+        $db->prepare("UPDATE users SET session_version = session_version + 1 WHERE email = ?")->execute([$email]);
+
+        $this->assertNotSame(
+            200,
+            $leser->get($url)->statusCode,
+            'Nach einem Passwortwechsel darf die alte Sitzung das Foto nicht mehr bekommen'
+        );
+    }
+
+    /**
+     * #315: Die Cache-Direktive folgt der Sichtbarkeit.
+     *
+     * Ein gemeinsam genutzter Zwischenspeicher (nginx proxy_cache, Varnish,
+     * CDN) sah bei `public, max-age=1 Jahr` eine statische, für alle gleiche
+     * Ressource. Öffnete ein Redakteur die Bearbeitungsseite eines
+     * unveröffentlichten Pferds, lag dessen Foto danach ein Jahr im Cache und
+     * ging von dort an jeden Gast - PHP wurde nie wieder gefragt.
+     */
+    public function testUnpublishedPhotoIsNotCacheableWhilePublishedOneIs(): void {
+        $admin = $this->authenticatedClient();
+
+        $unveroeffentlicht = $admin->get('/media/horse-image?id=' . $this->seedHorseWithPhoto(false));
+        $this->assertSame(200, $unveroeffentlicht->statusCode);
+        $cacheControl = (string)$unveroeffentlicht->header('Cache-Control');
+        $this->assertStringContainsString(
+            'no-store',
+            $cacheControl,
+            'Ein zugriffsabhängiges Foto darf nirgends zwischengespeichert werden'
+        );
+        $this->assertStringNotContainsString(
+            'public',
+            $cacheControl,
+            'public gibt die Antwort für einen gemeinsamen Cache frei - genau das darf hier nicht passieren'
+        );
+
+        $veroeffentlicht = $this->newClient()->get('/media/horse-image?id=' . $this->seedHorseWithPhoto(true));
+        $this->assertSame(200, $veroeffentlicht->statusCode);
+        $this->assertStringContainsString(
+            'public, max-age=',
+            (string)$veroeffentlicht->header('Cache-Control'),
+            'Ein veröffentlichtes Foto soll weiterhin lange und gemeinsam zwischengespeichert werden'
+        );
+    }
+
+    /**
+     * Dieselbe Verwechslung in der anderen Richtung: Ein 404 gilt nur für
+     * DIESEN Abrufer. Ohne no-store darf ein gemeinsamer Cache ihn heuristisch
+     * aufbewahren und anschliessend einem Berechtigten ausliefern.
+     *
+     * EHRLICHKEITSHINWEIS zu diesem Fall: Er wäre auch ohne die Zeile in
+     * sendStatus() grün, weil PHPs session.cache_limiter ('nocache', der
+     * Standard) bei jedem session_start() bereits
+     * `Cache-Control: no-store, no-cache, must-revalidate` setzt. Der Test ist
+     * damit kein Gate für diese eine Zeile, sondern hält die beobachtbare
+     * Zusicherung fest - unabhängig davon, welcher der beiden Mechanismen sie
+     * gerade liefert. Genau deshalb steht der Header trotzdem ausdrücklich
+     * da: Der Kurzschluss aus #311 macht es denkbar, dass für diesen Pfad
+     * eines Tages gar keine Sitzung mehr gestartet wird, und dann fiele die
+     * stillschweigende Absicherung weg, ohne dass irgendetwas rot würde.
+     */
+    public function testRejectionsAreNotCacheable(): void {
+        $abgelehnt = $this->newClient()->get('/media/horse-image?id=' . $this->seedHorseWithPhoto(false));
+        $this->assertSame(404, $abgelehnt->statusCode);
+        $this->assertStringContainsString('no-store', (string)$abgelehnt->header('Cache-Control'));
+
+        $fremderReferer = $this->newClient()->get(
+            '/media/horse-image?id=' . $this->seedHorseWithPhoto(true),
+            ['Referer' => 'https://fremde-seite.example/pferde']
+        );
+        $this->assertSame(403, $fremderReferer->statusCode);
+        $this->assertStringContainsString('no-store', (string)$fremderReferer->header('Cache-Control'));
+    }
+
     // ------------------------------------------------------------------
+
+    private function createCustomGroup(\Tests\Support\HttpClient $admin, string $name): int {
+        $groupsPage = $admin->get('/admin/groups');
+        $response = $admin->post('/admin/groups/create', [
+            'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
+            'name' => $name,
+        ]);
+        preg_match('/group=(\d+)/', (string)$response->location(), $matches);
+        $this->assertNotEmpty($matches, "Konnte neue Gruppen-ID nicht ermitteln, Body: {$response->body}");
+        return (int)$matches[1];
+    }
+
 
     private function seedHorseWithPhoto(bool $published): int {
         $dir = __DIR__ . '/../../public/uploads/horses';

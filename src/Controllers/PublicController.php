@@ -52,9 +52,15 @@ class PublicController extends BaseController {
             return $horses;
         }
 
+        // Auf die feste Losgroesse auffuellen: personNamesSql() kommt bewusst
+        // ohne Parameter aus (siehe dort), erwartet also immer gleich viele
+        // Platzhalter. Die Pferde-ID 0 gibt es nicht, die Fuellwerte treffen
+        // also nichts.
         $ids = array_map(static fn(array $h): int => (int)$h['id'], $horses);
-        $stmt = $db->prepare($sql->personNamesSql(count($ids)));
-        $stmt->execute($ids);
+        $gebunden = array_pad($ids, \App\Service\HorseSearchSql::PERSON_NAMES_BATCH, 0);
+
+        $stmt = $db->prepare($sql->personNamesSql());
+        $stmt->execute($gebunden);
 
         $namen = [];
         foreach ($stmt->fetchAll() as $zeile) {

@@ -41,6 +41,16 @@ namespace App\Service;
  */
 final class HorseSearchSql {
 
+    /**
+     * Wie viele Pferde-IDs personNamesSql() erwartet.
+     *
+     * Muss mit PublicController::CATALOG_PER_PAGE uebereinstimmen - genau das
+     * prueft HorseSearchSqlSafetyTest, denn ein auseinandergelaufenes Paar
+     * hiesse entweder abgeschnittene Namen auf den letzten Karten oder
+     * unnoetige Platzhalter.
+     */
+    public const PERSON_NAMES_BATCH = 24;
+
     /** @var array<int, HorseSearchCondition> in Anmeldereihenfolge */
     private array $conditions = [];
 
@@ -145,10 +155,16 @@ final class HorseSearchSql {
      * (#121), und zwei Fassungen davon waeren genau die Sorte Doppelung, die
      * irgendwann auseinanderlaeuft.
      *
-     * @param int $anzahl Zahl der Pferde-IDs, fuer die Platzhalter noetig sind
+     * OHNE PARAMETER, und das ist keine Bequemlichkeit: HorseSearchSqlSafetyTest
+     * prueft per Reflection, dass in diese Klasse ausser HorseSearchCondition
+     * und bool nichts hineinpasst - damit hier gar keine Tuer entsteht, durch
+     * die ein Anfragewert in die Klausel kaeme. Auch ein harmlos wirkendes
+     * `int $anzahl` waere so eine Tuer, und die Regel lebt davon, dass sie
+     * keine Ausnahmen kennt. Die Zahl der Platzhalter steht deshalb fest;
+     * kuerzere Seiten fuellt der Aufrufer mit 0 auf (die ID 0 gibt es nicht).
      */
-    public function personNamesSql(int $anzahl): string {
-        $platzhalter = implode(', ', array_fill(0, max(1, $anzahl), '?'));
+    public function personNamesSql(): string {
+        $platzhalter = implode(', ', array_fill(0, self::PERSON_NAMES_BATCH, '?'));
         return "
             SELECT hp.horse_id,
                    GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,

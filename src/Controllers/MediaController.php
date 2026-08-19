@@ -79,13 +79,51 @@ class MediaController extends BaseController {
             $this->sendStatus(404);
         }
 
+        // Angemeldet ist, wer eine GÜLTIGE Sitzung hat - nicht, wer irgendwann
+        // einmal eine hatte (#314).
+        //
+        // Vorher genügte hier die blosse Anwesenheit von $_SESSION['user_id'].
+        // Damit galt keine der Sitzungsprüfungen, die im übrigen Backend
+        // greifen: gelöschtes oder deaktiviertes Konto, session_version nach
+        // einem Passwortwechsel (#113), User-Agent-Fingerprint,
+        // Inaktivitäts-Timeout. Ein Angreifer mit einem alten Sitzungscookie
+        // flog auf /admin/horses sofort auf /login, konnte über diese Route
+        // aber weiter jedes Foto abrufen - auch die unveröffentlichter oder
+        // nach DSGVO-Widerspruch depublizierter Pferde.
+        //
+        // checkAuth() ist bewusst dieselbe Methode wie überall sonst: Eine
+        // eigene, schlankere Sitzungsprüfung für Bilder wäre eine zweite
+        // Fassung derselben Regel, und die Lücke von #113 lebte genau davon,
+        // dass die Invalidierung nur an einer Stelle stand. Ihre
+        // Fehlerantworten sind Weiterleitungen auf /login; für ein <img> ist
+        // das ein kaputtes Bild und damit dasselbe Ergebnis wie ein 404, nur
+        // mit dem zusätzlichen Effekt, dass die tote Sitzung tatsächlich
+        // beendet wird.
+        $angemeldet = false;
+        if (!empty($_SESSION['user_id'])) {
+            $this->checkAuth();
+            $angemeldet = true;
+        }
+
+        // Sitzung so früh wie möglich freigeben (#311).
+        //
+        // PHPs Standard-Sitzungsspeicher hält die Sitzungsdatei bis zum Ende
+        // des Requests exklusiv gesperrt; eine Katalogseite fordert zwei
+        // Dutzend Bilder über diesen Endpunkt an, die sich sonst
+        // hintereinander aufreihen statt parallel zu laufen. Ab hier wird
+        // nichts mehr in die Sitzung geschrieben - checkAuth() ist durch, und
+        // die folgenden Prüfungen lesen nur noch.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
         // Sichtbarkeit wie auf der Detailseite: Ein unveröffentlichtes Pferd ist
         // für Gäste nicht vorhanden - sein Foto also auch nicht. Angemeldete
         // Benutzer mit horses.view sehen es (Verwaltungslisten, Bearbeitungsform).
         if (!$this->hasPermission('horses', 'view')) {
             $this->sendStatus(404);
         }
-        if (empty($horse['is_published']) && empty($_SESSION['user_id'])) {
+        if (empty($horse['is_published']) && !$angemeldet) {
             $this->sendStatus(404);
         }
 
@@ -100,7 +138,7 @@ class MediaController extends BaseController {
             $this->sendStatus(403);
         }
 
-        $this->stream($path);
+        $this->stream($path, !empty($horse['is_published']));
     }
 
     /**
@@ -164,7 +202,7 @@ class MediaController extends BaseController {
         return strtolower($refererHost) === $ownHost;
     }
 
-    private function stream(string $path): void {
+    private function stream(string $path, bool $oeffentlich): void {
         $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         $size = filesize($path);
         $mtime = filemtime($path);
@@ -175,7 +213,30 @@ class MediaController extends BaseController {
         // Die eigentliche Sperre gegen fremde Einbettung - vom Browser
         // durchgesetzt und von der einbettenden Seite nicht umgehbar.
         header('Cross-Origin-Resource-Policy: same-origin');
-        header('Cache-Control: public, max-age=' . self::CACHE_SECONDS);
+        // Die Cache-Direktive folgt der tatsächlichen Sichtbarkeit (#315).
+        //
+        // Vorher trug JEDE 200er-Antwort `public, max-age=1 Jahr`. Für einen
+        // gemeinsam genutzten Zwischenspeicher (nginx proxy_cache, Varnish,
+        // CDN) war die URL damit eine statische, für alle gleiche Ressource:
+        // Öffnete ein angemeldeter Redakteur die Bearbeitungsseite eines
+        // UNVERÖFFENTLICHTEN Pferds, legte der Proxy dessen Foto mit Status 200
+        // und einem Jahr Frist ab und lieferte es anschliessend an jeden
+        // nicht angemeldeten Besucher aus - PHP wurde gar nicht mehr gefragt,
+        // die Prüfung oben also nie wieder erreicht. Genau der im
+        // Klassenkommentar beworbene Nebeneffekt fiel damit aus.
+        //
+        // Kein `Vary: Cookie` im öffentlichen Zweig, und das ist Absicht: Die
+        // Antwort auf ein veröffentlichtes Foto ist für jeden Client
+        // byteweise dieselbe, ein gemeinsamer Cache-Eintrag ist also richtig -
+        // dafür steht `public`. Ein Vary auf Cookie würde ihn zerlegen, denn
+        // config.php startet für JEDEN Besucher eine Sitzung und setzt damit
+        // ein Cookie; jeder Besucher bekäme seinen eigenen Eintrag und die
+        // Jahresfrist wäre wertlos. Das Problem dieses Befunds sind die
+        // unveröffentlichten Fotos, und die verlassen den Server jetzt gar
+        // nicht mehr zwischenspeicherbar.
+        header('Cache-Control: ' . ($oeffentlich
+            ? 'public, max-age=' . self::CACHE_SECONDS
+            : 'private, no-store'));
         header('ETag: ' . $etag);
         header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
 
@@ -191,23 +252,6 @@ class MediaController extends BaseController {
 
         header('Content-Length: ' . $size);
 
-        // Sitzung freigeben, BEVOR die Datei ausgeliefert wird.
-        //
-        // PHPs Standard-Sitzungsspeicher hält die Sitzungsdatei bis zum Ende
-        // des Requests exklusiv gesperrt. Solange dieser Request die Datei
-        // liest und schreibt, wartet JEDER weitere Request desselben
-        // Besuchers - und eine Katalogseite fordert zwei Dutzend Bilder an,
-        // die alle über diesen Endpunkt laufen. Statt parallel ausgeliefert
-        // zu werden, reihen sie sich hintereinander auf; der Browser wartet
-        // auf einen Server, der nur auf sein eigenes Schloss wartet.
-        //
-        // Ab hier wird nichts mehr in die Sitzung geschrieben, das Schließen
-        // ist also folgenlos - die Sichtbarkeitsprüfung oben ist längst
-        // gelaufen.
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_write_close();
-        }
-
         // Ausgabepuffer leeren, sonst hält PHP die gesamte Datei im Speicher,
         // bevor das erste Byte den Server verlässt.
         while (ob_get_level() > 0) {
@@ -220,6 +264,20 @@ class MediaController extends BaseController {
     private function sendStatus(int $code): void {
         http_response_code($code);
         header('Content-Type: text/plain; charset=utf-8');
+        // Eine Ablehnung ist immer zugriffsabhängig: Der 404 für Gäste und der
+        // 403 gegen eine fremde einbettende Seite gelten nur für DIESEN
+        // Abrufer, ein gemeinsamer Zwischenspeicher dürfte den 404 sonst
+        // heuristisch aufbewahren und anschliessend einem Berechtigten
+        // ausliefern - dieselbe Verwechslung wie bei den 200ern, nur in die
+        // andere Richtung.
+        //
+        // Heute käme dasselbe Ergebnis auch ohne diese Zeile zustande, weil
+        // PHPs session.cache_limiter ('nocache') bei jedem session_start()
+        // bereits no-store setzt. Darauf soll sich hier aber nichts verlassen:
+        // Der Kurzschluss aus #311 macht es denkbar, dass für diesen Pfad
+        // eines Tages keine Sitzung mehr gestartet wird - und dann fiele die
+        // Zusicherung still weg.
+        header('Cache-Control: private, no-store');
         echo $code === 403 ? 'Forbidden' : 'Not Found';
         exit;
     }

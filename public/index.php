@@ -40,6 +40,39 @@ use App\Plugin\PluginManager;
 // aktivierte Plugins. Muss vor der Routen-Registrierung laufen, damit
 // Controller-Hooks (siehe BaseController::hooks()) und ggf. zusätzliche
 // Plugin-Routen (siehe unten, nach den Kern-Routen) zur Verfügung stehen.
+// Anfragepfad einmal bestimmen - er entscheidet weiter unten ueber die
+// Setup-Weiterleitung und direkt hier ueber den Kurzschluss der
+// Bildauslieferung.
+$requestUri = $_SERVER['REQUEST_URI'] ?? '/';
+$parsedPath = strtok($requestUri, '?');
+
+// Pferdefotos am teuren Bootstrap vorbei (#311).
+//
+// Eine Katalogseite zeigt CATALOG_PER_PAGE = 24 Karten und loest damit 24
+// zusaetzliche PHP-Requests aus; beim Endlos-Scrollen ueber den ganzen Bestand
+// werden daraus Tausende. Jeder einzelne durchlief bisher PluginManager::boot()
+// - das stat()et rekursiv JEDE Datei JEDES aktivierten Plugins fuer den
+// Verzeichnisstempel -, dazu SetupController::needsSetup() mit seinem
+// Dreifach-JOIN und die Registrierung der drei Cron-Aufgaben. Nichts davon
+// traegt zu einer Bildantwort bei.
+//
+// WICHTIG: Hier wird nur der Bootstrap uebersprungen, NICHT die Pruefung. Die
+// Zugriffsentscheidung (Recht horses.view, is_published, gueltige Sitzung,
+// Referer) bleibt vollstaendig in MediaController::horseImage() - eine zweite,
+// schlankere Fassung derselben Entscheidung waere genau die Stelle, an der die
+// beiden Fassungen eines Tages auseinanderlaufen.
+//
+// Nach Maintenance::guard(), damit ein laufender Datenmigrations-Import auch
+// hier greift: waehrend die Datenbank ersetzt wird, ist keine Antwort besser
+// als eine aus halb aufgebauten Tabellen. Vor der Setup-Weiche, die damit fuer
+// diesen Pfad entfaellt - auf einer noch nicht eingerichteten Instanz gibt es
+// keine Pferde, die Route antwortet also ohnehin mit 404 statt mit einer
+// Weiterleitung auf /setup.
+if ($parsedPath === '/media/horse-image') {
+    (new App\Controllers\MediaController())->horseImage();
+    exit;
+}
+
 $pluginManager = PluginManager::getInstance();
 $pluginManager->boot();
 
@@ -58,10 +91,7 @@ $router = new Router();
 $router->get('/setup', [App\Controllers\SetupController::class, 'showSetup']);
 $router->post('/setup', [App\Controllers\SetupController::class, 'processSetup']);
 
-// Auto-redirect to /setup if no admin account exists
-$requestUri = $_SERVER['REQUEST_URI'] ?? '/';
-$parsedPath = strtok($requestUri, '?');
-
+// Auto-redirect to /setup if no admin account exists ($parsedPath steht oben)
 if ($parsedPath !== '/setup' && SetupController::needsSetup()) {
     header("Location: /setup");
     exit;

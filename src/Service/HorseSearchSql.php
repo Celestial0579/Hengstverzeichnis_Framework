@@ -129,6 +129,38 @@ final class HorseSearchSql {
     }
 
     /**
+     * Die Zuechter-/Besitzernamen fuer eine BEREITS ermittelte Seite von
+     * Pferden (#320) - dieselbe Sichtbarkeitsregel wie personAggregateJoin(),
+     * nur nachgelagert statt in der paginierten Abfrage.
+     *
+     * Der Grund fuer die zweite Abfrage: personAggregateJoin() enthaelt ein
+     * GROUP BY und laesst sich deshalb nicht in die aeussere Abfrage
+     * hineinziehen. MySQL materialisiert die abgeleitete Tabelle ueber die
+     * GESAMTE horse_persons/persons-Menge, obwohl am Ende 24 Zeilen
+     * uebrigbleiben. Beim Endlos-Scrollen wurde dieser Aufbau je
+     * Nachladeschritt wiederholt.
+     *
+     * Die Regel selbst steht weiterhin nur hier und nicht im Aufrufer: Sie
+     * entscheidet, ob unveroeffentlichte Personennamen oeffentlich werden
+     * (#121), und zwei Fassungen davon waeren genau die Sorte Doppelung, die
+     * irgendwann auseinanderlaeuft.
+     *
+     * @param int $anzahl Zahl der Pferde-IDs, fuer die Platzhalter noetig sind
+     */
+    public function personNamesSql(int $anzahl): string {
+        $platzhalter = implode(', ', array_fill(0, max(1, $anzahl), '?'));
+        return "
+            SELECT hp.horse_id,
+                   GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
+                   GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
+            FROM horse_persons hp
+            JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
+            WHERE hp.horse_id IN ({$platzhalter})
+            GROUP BY hp.horse_id
+        ";
+    }
+
+    /**
      * Der SQL-Ausschnitt einer einzelnen Bedingung. Jeder Zweig liefert
      * ausschließlich Literale dieser Datei; die einzigen Stellen, an denen
      * etwas eingesetzt wird, sind die beiden privaten Helfer weiter unten -

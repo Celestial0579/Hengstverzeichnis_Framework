@@ -166,6 +166,82 @@ class CatalogLoadMoreTest extends FunctionalTestCase {
     // ------------------------------------------------------------------
 
     /** @return array<string, mixed> */
+    /**
+     * #320: Beim Nachladen faellt das COUNT(*) weg - und die Antwort sagt das,
+     * statt eine Zahl zu erfinden.
+     *
+     * Das COUNT lief ueber den dreifachen Selbst-JOIN und bei jedem
+     * Scrollschritt erneut, obwohl der Client die Zahl laengst hat und sie
+     * sich zwischen zwei Seiten derselben Treffermenge nicht aendert. Beim
+     * Durchscrollen eines Bestands von 3200 Pferden sind das gut 130
+     * Wiederholungen derselben Abfrage.
+     *
+     * has_more darf davon NICHT abhaengen: Es kommt jetzt daher, dass eine
+     * Zeile mehr geholt wird als angezeigt - dieselbe Auskunft, ohne den
+     * Zaehler.
+     */
+    public function testAppendSkipsTheHitCountButStillReportsWhetherMoreFollows(): void {
+        $ersteSeite = $this->ajax(['search' => $this->marker, 'append' => 1]);
+
+        $this->assertNull($ersteSeite['count'], 'Beim Anhaengen wird die Trefferzahl nicht ermittelt');
+        $this->assertNull($ersteSeite['count_text'], 'Und dann darf auch kein Text dazu behauptet werden');
+        $this->assertTrue($ersteSeite['has_more'], 'Nach Seite 1 von 2 muss es weitergehen');
+        $this->assertCount(24, $this->horseNamesIn($ersteSeite['cards_html']));
+
+        $letzteSeite = $this->ajax(['search' => $this->marker, 'page' => 2, 'append' => 1]);
+        $this->assertNull($letzteSeite['count']);
+        $this->assertFalse($letzteSeite['has_more'], 'Auf der letzten Seite darf has_more nicht gesetzt sein');
+        $this->assertCount(self::SEEDED - 24, $this->horseNamesIn($letzteSeite['cards_html']));
+
+        // Der volle Weg (Filterwechsel, kein append) liefert sie weiterhin -
+        // sonst wuesste der Client die Zahl nie.
+        $ersetzend = $this->ajax(['search' => $this->marker]);
+        $this->assertSame(self::SEEDED, $ersetzend['count']);
+        $this->assertNotNull($ersetzend['count_text']);
+    }
+
+    /**
+     * #320: Die Zuechter-/Besitzernamen werden jetzt in einer zweiten Abfrage
+     * NACH dem LIMIT aufgeloest statt ueber eine materialisierte Ableitung in
+     * der paginierten Abfrage. Auf der Karte muss davon nichts fehlen - und
+     * die Sichtbarkeitsregel (#121) muss dieselbe geblieben sein: ein
+     * unveroeffentlichter Zuechter erscheint nicht.
+     */
+    public function testPersonNamesOnCardsSurviveTheSecondQueryAndKeepTheirVisibilityRule(): void {
+        $db = Database::getInstance();
+        $unique = uniqid();
+
+        $db->prepare("INSERT INTO persons (name, is_published) VALUES (?, 1)")
+           ->execute(["Sichtbarer Zuechter {$unique}"]);
+        $sichtbar = (int)$db->lastInsertId();
+        $db->prepare("INSERT INTO persons (name, is_published) VALUES (?, 0)")
+           ->execute(["Verborgener Besitzer {$unique}"]);
+        $verborgen = (int)$db->lastInsertId();
+
+        $pferdId = $this->seededHorseIds[0];
+        $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'breeder')")
+           ->execute([$pferdId, $sichtbar]);
+        $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'owner')")
+           ->execute([$pferdId, $verborgen]);
+
+        try {
+            $data = $this->ajax(['search' => $this->marker]);
+            $this->assertStringContainsString(
+                "Sichtbarer Zuechter {$unique}",
+                $data['cards_html'],
+                'Der Zuechtername gehoert weiterhin auf die Karte'
+            );
+            $this->assertStringNotContainsString(
+                "Verborgener Besitzer {$unique}",
+                $data['cards_html'],
+                'Ein unveroeffentlichter Name darf im oeffentlichen Katalog nicht erscheinen (#121)'
+            );
+        } finally {
+            $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?")->execute([$pferdId]);
+            $db->prepare("DELETE FROM persons WHERE id IN (?, ?)")->execute([$sichtbar, $verborgen]);
+        }
+    }
+
     private function ajax(array $query): array {
         $query['ajax'] = 1;
         $response = $this->newClient()->get('/katalog?' . http_build_query($query));

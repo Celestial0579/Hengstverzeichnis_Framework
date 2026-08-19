@@ -31,6 +31,45 @@ class PublicController extends BaseController {
     /** Kartengröße je Katalogseite (SQL-seitige Pagination, #125). */
     private const CATALOG_PER_PAGE = 24;
 
+    /**
+     * Zuechter- und Besitzernamen fuer eine bereits ermittelte Kartenseite
+     * nachladen (#320).
+     *
+     * Zwei Abfragen statt einer sind hier billiger als es klingt: Die zweite
+     * laeuft ueber hoechstens CATALOG_PER_PAGE Pferde-IDs und nutzt den Index
+     * auf horse_persons.horse_id, waehrend die eingebettete Variante bei jedem
+     * Aufruf eine Temp-Tabelle ueber den GESAMTEN Bestand aufbaute.
+     *
+     * Die Sichtbarkeitsregel steckt bewusst nicht hier, sondern in
+     * HorseSearchSql::personNamesSql() - dieselbe Klasse, die sie auch fuer
+     * die eingebettete Fassung haelt.
+     *
+     * @param array<int, array<string, mixed>> $horses
+     * @return array<int, array<string, mixed>>
+     */
+    private function attachPersonNames(\PDO $db, \App\Service\HorseSearchSql $sql, array $horses): array {
+        if ($horses === []) {
+            return $horses;
+        }
+
+        $ids = array_map(static fn(array $h): int => (int)$h['id'], $horses);
+        $stmt = $db->prepare($sql->personNamesSql(count($ids)));
+        $stmt->execute($ids);
+
+        $namen = [];
+        foreach ($stmt->fetchAll() as $zeile) {
+            $namen[(int)$zeile['horse_id']] = $zeile;
+        }
+
+        foreach ($horses as $i => $horse) {
+            $treffer = $namen[(int)$horse['id']] ?? null;
+            $horses[$i]['breeder_name'] = $treffer['breeder_name'] ?? null;
+            $horses[$i]['owner_name'] = $treffer['owner_name'] ?? null;
+        }
+
+        return $horses;
+    }
+
     public function catalog(): void {
         $db = Database::getInstance();
 
@@ -56,7 +95,6 @@ class PublicController extends BaseController {
         $params = $criteria->params();
         $whereSql = $sql->whereSql();
         $joinSql = $sql->joinSql();
-        $personAggregateJoin = $sql->personAggregateJoin();
 
         // Gast-Gruppe ohne horses.view sieht keinerlei Pferde (leerer Katalog),
         // sonst würde die Rechte-Entziehung wirkungslos bleiben.
@@ -65,14 +103,29 @@ class PublicController extends BaseController {
         $totalPages = 1;
         $page = self::requestInt('page', 1, 1);
 
+        // Nachladen (#264) heisst: Der Client hat die Trefferzahl schon und
+        // braucht nur die naechsten Karten. Das COUNT(*) lief trotzdem bei
+        // jedem Scrollschritt mit - ueber den dreifachen Selbst-JOIN, und beim
+        // Durchscrollen des ganzen Bestands sind das gut 130 Wiederholungen
+        // derselben Zahl (#320). $totalHorses bleibt in diesem Fall null; die
+        // AJAX-Antwort sagt das ausdruecklich, statt eine erfundene Zahl zu
+        // liefern.
+        $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['ajax']);
+        // Nur im AJAX-Nachladeweg. Ein direkter Aufruf von /katalog?append=1
+        // rendert die volle Seite, und die braucht die Trefferzahl.
+        $anhaengen = $isAjax && !empty($_GET['append']);
+
         if ($this->hasPermission('horses', 'view')) {
             // Echte SQL-Pagination statt "alle Treffer laden" (#125).
-            $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
-            $countStmt->execute($params);
-            $totalHorses = (int)$countStmt->fetchColumn();
-
-            $totalPages = max(1, (int)ceil($totalHorses / self::CATALOG_PER_PAGE));
-            $page = min($page, $totalPages);
+            if ($anhaengen) {
+                $totalHorses = null;
+            } else {
+                $countStmt = $db->prepare("SELECT COUNT(*) {$joinSql} WHERE {$whereSql}");
+                $countStmt->execute($params);
+                $totalHorses = (int)$countStmt->fetchColumn();
+                $totalPages = max(1, (int)ceil($totalHorses / self::CATALOG_PER_PAGE));
+                $page = min($page, $totalPages);
+            }
             $offset = ($page - 1) * self::CATALOG_PER_PAGE;
 
             // h.breeding_station ist bei gesetzter breeding_station_id die
@@ -91,11 +144,8 @@ class PublicController extends BaseController {
                          THEN NULL ELSE h.breeding_station END AS breeding_station,
                     bs.name as station_name,
                     sire.name as linked_sire_name, h.sire_name as unlinked_sire_name,
-                    dam.name as linked_dam_name, h.dam_name as unlinked_dam_name,
-                    hpx.breeder_name,
-                    hpx.owner_name
+                    dam.name as linked_dam_name, h.dam_name as unlinked_dam_name
                 {$joinSql}
-                {$personAggregateJoin}
                 WHERE {$whereSql}
                 ORDER BY h.name ASC
                 LIMIT ? OFFSET ?
@@ -106,10 +156,29 @@ class PublicController extends BaseController {
             foreach ($params as $value) {
                 $stmt->bindValue($paramIndex++, $value);
             }
-            $stmt->bindValue($paramIndex++, self::CATALOG_PER_PAGE, \PDO::PARAM_INT);
+            // Eine Zeile mehr holen als angezeigt wird: Damit steht auch ohne
+            // COUNT(*) fest, ob es weitergeht - dieselbe Auskunft, die der
+            // Client zum Weiterscrollen braucht, nur ohne den teuren Zaehler.
+            $stmt->bindValue($paramIndex++, self::CATALOG_PER_PAGE + 1, \PDO::PARAM_INT);
             $stmt->bindValue($paramIndex, $offset, \PDO::PARAM_INT);
             $stmt->execute();
             $horses = $stmt->fetchAll();
+
+            $hatWeitere = count($horses) > self::CATALOG_PER_PAGE;
+            if ($hatWeitere) {
+                array_pop($horses);
+            }
+            if ($anhaengen) {
+                $totalPages = $hatWeitere ? $page + 1 : $page;
+            }
+
+            // Zuechter- und Besitzernamen ERST JETZT aufloesen, fuer die 24
+            // Pferde dieser Seite (#320). Als JOIN in der Abfrage darueber
+            // enthielt die Ableitung ein GROUP BY, liess sich deshalb nicht
+            // hineinziehen und wurde ueber die gesamte
+            // horse_persons/persons-Menge materialisiert - je Scrollschritt
+            // erneut, obwohl 24 Zeilen gebraucht werden.
+            $horses = $this->attachPersonNames($db, $sql, $horses);
         }
 
         // Query-String der aktiven Filter (ohne page) für die Pagination-Links.
@@ -132,8 +201,6 @@ class PublicController extends BaseController {
         foreach ($horses as $horse) {
             $cardSections[$horse['id']] = $this->hooks()->applyFilters('catalog.card_sections', [], $horse);
         }
-
-        $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || isset($_GET['ajax']);
 
         if ($isAjax) {
             header('Content-Type: application/json; charset=utf-8');
@@ -173,8 +240,11 @@ class PublicController extends BaseController {
             // verschwunden.
             echo json_encode([
                 'success' => true,
+                // Beim Nachladen bewusst null: Die Zahl wurde nicht ermittelt
+                // (siehe oben), und eine erfundene waere schlimmer als keine.
+                // Der Client behaelt die aus dem letzten vollen Lauf.
                 'count' => $totalHorses,
-                'count_text' => \App\I18n\Translator::t($totalHorses === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => $totalHorses]),
+                'count_text' => $totalHorses === null ? null : \App\I18n\Translator::t($totalHorses === 1 ? 'catalog.hit_count_one' : 'catalog.hit_count_other', ['count' => $totalHorses]),
                 'cards_html' => $cardsHtml,
                 'page' => (int)$page,
                 'total_pages' => (int)$totalPages,
@@ -314,6 +384,38 @@ class PublicController extends BaseController {
         ");
         $stmt->execute([$id]);
         $horsePersons = $stmt->fetchAll();
+
+        // Dieselbe Regel wie oben fuer $horse, jetzt auch fuer die
+        // Zuordnungszeilen (#316).
+        //
+        // Der Null-Block weiter oben betrifft ausschliesslich das
+        // $horse-Array. Diese Abfrage holt bs.name/bs.id ein ZWEITES Mal und
+        // wurde davon nicht erfasst: Wer der Gast-Gruppe
+        // breeding_stations.view entzogen hatte, bekam auf /station?id=7
+        // korrekt 404 und in der Katalog-Filterliste keine Stationen mehr -
+        // im Block "Zucht & Personen" von /horse?id=42 stand die Station
+        // trotzdem, samt Link auf genau diese 404-Seite.
+        //
+        // Der Freitext braucht dieselbe Behandlung wie horses.breeding_station
+        // seit #151: Bei GESETZTER breeding_station_id ist er die
+        // denormalisierte Kopie des Stationsnamens (das Formular rendert beide
+        // Felder nebeneinander, saveHorsePersons speichert beide). Faellt
+        // station_name weg - weil der JOIN auf is_published/deleted_at
+        // einschraenkt oder weil das Recht fehlt -, stuende sonst weiterhin
+        // der Name der depublizierten Station da, nur aus der anderen Spalte.
+        // Freitext OHNE Stations-ID (CSV-Import, Zeile ohne Datensatz) bleibt
+        // unangetastet, er benennt keinen verborgenen Datensatz.
+        $stationenSichtbar = $this->hasPermission('breeding_stations', 'view');
+        $horsePersons = array_map(static function (array $hp) use ($stationenSichtbar): array {
+            if (!$stationenSichtbar) {
+                $hp['station_name'] = null;
+                $hp['station_id'] = null;
+            }
+            if (!empty($hp['breeding_station_id']) && empty($hp['station_name'])) {
+                $hp['breeding_station_text'] = null;
+            }
+            return $hp;
+        }, $horsePersons);
 
         // Zeilen, deren Person/Station nach den Sichtbarkeitsfiltern komplett
         // weggefallen ist, gar nicht erst an die View geben (leere Einträge).

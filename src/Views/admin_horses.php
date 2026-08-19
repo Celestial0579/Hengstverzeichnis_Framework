@@ -58,6 +58,8 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                 'same_sire_and_dam' => 'Nicht gespeichert: Vater und Mutter dürfen nicht dasselbe Pferd sein.',
                 'sire_not_older' => 'Nicht gespeichert: Der Vater ist im selben Jahr oder später geboren als das Pferd.',
                 'dam_not_older' => 'Nicht gespeichert: Die Mutter ist im selben Jahr oder später geboren als das Pferd.',
+                // #296/#322: Schreibschutz fuer den Papierkorb.
+                'deleted' => 'Nicht gespeichert: Der Datensatz liegt im Papierkorb. Zum Bearbeiten zuerst unter Papierkorb wiederherstellen.',
             ];
             echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
             ?>

@@ -208,6 +208,30 @@ class HorseSearchSqlSafetyTest extends TestCase {
     }
 
     /**
+     * Zweite Naht derselben Art: personNamesSql() kommt ohne Parameter aus
+     * (die Regel oben lässt keinen int zu) und emittiert deshalb eine FESTE
+     * Zahl Platzhalter. Läuft sie von der Seitengrösse des Katalogs weg,
+     * fehlten auf den letzten Karten die Namen oder es blieben Platzhalter
+     * ohne Wert - beides still. Also bricht es hier ab.
+     */
+    public function testPersonNamesBatchMatchesTheCatalogPageSize(): void {
+        $seitengroesse = (new \ReflectionClass(\App\Controllers\PublicController::class))
+            ->getConstant('CATALOG_PER_PAGE');
+
+        $this->assertSame(
+            $seitengroesse,
+            HorseSearchSql::PERSON_NAMES_BATCH,
+            'PERSON_NAMES_BATCH und PublicController::CATALOG_PER_PAGE müssen übereinstimmen.'
+        );
+
+        $this->assertSame(
+            HorseSearchSql::PERSON_NAMES_BATCH,
+            substr_count((new HorseSearchSql(true))->personNamesSql(), '?'),
+            'personNamesSql() muss genau PERSON_NAMES_BATCH Platzhalter emittieren.'
+        );
+    }
+
+    /**
      * Die Aufteilung kostet eine Naht: Beide Hälften tragen den Schalter
      * $nurOeffentlich. Ein auseinandergelaufenes Paar hieße im öffentlichen
      * Katalog fehlende Sichtbarkeitsgrenzen (#121/#122/#151) - also bricht es

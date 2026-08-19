@@ -32,6 +32,12 @@ document.addEventListener('DOMContentLoaded', function () {
     let currentPage = readPageFromUrl();
     let totalPages = 1;
     let loading = false;
+    // Zuletzt bekannte Trefferzahl. Sie kommt aus dem vollen Seitenaufruf bzw.
+    // aus einem Filterwechsel; das Nachladen liefert sie NICHT mehr mit, weil
+    // der Server das COUNT(*) dafuer nicht mehr faehrt (#320). Die Zahl aendert
+    // sich beim Nachladen auch nicht - es ist dieselbe Treffermenge, nur eine
+    // Seite weiter.
+    let totalHorses = 0;
 
     function readPageFromUrl() {
         const value = parseInt(new URLSearchParams(window.location.search).get('page') || '1', 10);
@@ -65,7 +71,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return grid.querySelectorAll('.card').length;
     }
 
-    function updateLoadMoreArea(totalHorses) {
+    function updateLoadMoreArea() {
         if (!loadMoreArea) {
             return;
         }
@@ -128,12 +134,17 @@ document.addEventListener('DOMContentLoaded', function () {
                     return;
                 }
                 grid.innerHTML = data.cards_html;
-                badge.textContent = data.count_text;
+                if (data.count_text != null) {
+                    badge.textContent = data.count_text;
+                }
+                if (data.count != null) {
+                    totalHorses = data.count;
+                }
 
                 currentPage = data.page || 1;
                 totalPages = data.total_pages || 1;
                 hideServerPagination();
-                updateLoadMoreArea(data.count);
+                updateLoadMoreArea();
 
                 const newUrl = window.location.pathname + (queryString ? '?' + queryString : '');
                 window.history.pushState({ path: newUrl }, '', newUrl);
@@ -199,7 +210,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
                 currentPage = data.page || (currentPage + 1);
                 totalPages = data.total_pages || totalPages;
-                updateLoadMoreArea(data.count);
+                // data.count ist beim Nachladen null (#320) - die zuletzt
+                // bekannte Zahl bleibt stehen.
+                if (data.count != null) {
+                    totalHorses = data.count;
+                }
+                updateLoadMoreArea();
 
                 // Die Adresszeile folgt der zuletzt geladenen Seite, damit ein
                 // Neuladen oder ein geteilter Link in der Naehe wieder einsetzt.
@@ -272,10 +288,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // auf der Seite steht.
     if (loadMoreArea && loadMoreArea.dataset.totalPages) {
         totalPages = parseInt(loadMoreArea.dataset.totalPages, 10) || 1;
-        const totalHorses = parseInt(loadMoreArea.dataset.totalHorses, 10) || cardCount();
+        totalHorses = parseInt(loadMoreArea.dataset.totalHorses, 10) || cardCount();
         if (totalPages > 1) {
             hideServerPagination();
-            updateLoadMoreArea(totalHorses);
+            updateLoadMoreArea();
         }
     }
 });

@@ -376,6 +376,14 @@ class HorseController extends BaseController {
             exit;
         }
 
+        // Das Formular eines Papierkorb-Datensatzes wird weiterhin
+        // ausgeliefert (etwa fuer eine DSGVO-Auskunft), sagt aber jetzt, dass
+        // Speichern nicht geht - wie admin_person_form und
+        // admin_breeding_station_form seit #296. Ohne den Hinweis fuellt
+        // jemand das Formular aus und bekommt erst beim Absenden eine
+        // Fehlermeldung.
+        $isDeleted = $horse['deleted_at'] !== null;
+
         $allHorses = $this->parentOptions($db, [
             $horse['sire_id'] ?? null,
             $horse['dam_id'] ?? null,
@@ -435,6 +443,7 @@ class HorseController extends BaseController {
             'horsePersons' => $horsePersons,
             'horseRegistrations' => $horseRegistrations,
             'canPublish' => $this->hasPermission('horses', 'publish'),
+            'isDeleted' => $isDeleted,
             'pluginEditSections' => $pluginEditSections
         ]);
     }
@@ -526,9 +535,37 @@ class HorseController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT image_url, status, is_published FROM horses WHERE id = ?");
+        $stmt = $db->prepare("SELECT image_url, status, is_published, deleted_at FROM horses WHERE id = ?");
         $stmt->execute([$id]);
         $existing = $stmt->fetch();
+
+        if (!$existing) {
+            header("Location: /admin/horses");
+            exit;
+        }
+
+        // Schreibschutz fuer den Papierkorb (#296, fuer Pferde nachgezogen mit
+        // #322). Personen und Deckstationen hatten ihn, die Pferde nicht -
+        // obwohl hier am meisten daran haengt.
+        //
+        // Der Guard steht bewusst VOR der Bildbehandlung und vor
+        // saveHorsePersons()/saveRegistrations(): Ein UPDATE mit
+        // "AND deleted_at IS NULL" allein liefe zu spaet. remove_image loescht
+        // die Bilddatei mit unlink() physisch von der Platte, und die beiden
+        // save-Methoden bauen die Kindtabellen komplett neu auf - all das
+        // waere am geloeschten Datensatz laengst passiert, bevor das UPDATE
+        // ueberhaupt null Zeilen meldet. Ein spaeteres "Wiederherstellen" im
+        // Papierkorb brachte dann einen stillschweigend veraenderten Datensatz
+        // zurueck.
+        //
+        // Der Fall braucht keine Boshaftigkeit: Redakteur A legt Pferd 42 in
+        // den Papierkorb, Redakteur B hat /admin/horses/edit?id=42 noch offen
+        // und speichert.
+        if ($existing['deleted_at'] !== null) {
+            header("Location: /admin/horses?error=deleted");
+            exit;
+        }
+
         $currentImageUrl = $existing['image_url'] ?? null;
 
         // Veröffentlichung (öffentliche Sichtbarkeit) ist unabhängig vom Status und
@@ -567,7 +604,7 @@ class HorseController extends BaseController {
         // foreign_ueln analog (#246), aber per CASE statt COALESCE: ein
         // übermittelter Leerstring soll NULL speichern (wie früher `?: null`),
         // nicht den Leerstring selbst.
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ?");
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
@@ -802,10 +839,29 @@ class HorseController extends BaseController {
             $numbers[] = $number;
         }
 
-        $db->prepare("DELETE FROM horse_registrations WHERE horse_id = ?")->execute([$horseId]);
-        $insert = $db->prepare("INSERT INTO horse_registrations (horse_id, registration_number, sort_order) VALUES (?, ?, ?)");
-        foreach ($numbers as $sortOrder => $number) {
-            $insert->execute([$horseId, $number, $sortOrder]);
+        // Dasselbe DELETE-vor-INSERT-Muster wie in saveHorsePersons und
+        // deshalb dieselbe Klammer (#317): Scheitert ein INSERT, stuende das
+        // Pferd sonst ohne jede weitere Lebensnummer da.
+        $eigeneTransaktion = !$db->inTransaction();
+        if ($eigeneTransaktion) {
+            $db->beginTransaction();
+        }
+
+        try {
+            $db->prepare("DELETE FROM horse_registrations WHERE horse_id = ?")->execute([$horseId]);
+            $insert = $db->prepare("INSERT INTO horse_registrations (horse_id, registration_number, sort_order) VALUES (?, ?, ?)");
+            foreach ($numbers as $sortOrder => $number) {
+                $insert->execute([$horseId, $number, $sortOrder]);
+            }
+
+            if ($eigeneTransaktion) {
+                $db->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($eigeneTransaktion && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
         }
 
         return $numbers;
@@ -1041,6 +1097,24 @@ class HorseController extends BaseController {
     /**
      * Save person roles & ownership history in horse_persons table
      */
+    /**
+     * Gibt es die Zeile noch? (#317)
+     *
+     * Die Tabelle kommt ueber eine Positivliste in die Abfrage und nie aus
+     * einem Aufrufwert - ein Tabellenname laesst sich nicht als Parameter
+     * binden, und ein durchgereichter String waere genau die Stelle, an der
+     * das eines Tages jemand tut.
+     */
+    private function rowExists(\PDO $db, string $table, int $id): bool {
+        $tabelle = match ($table) {
+            'persons' => 'persons',
+            'breeding_stations' => 'breeding_stations',
+        };
+        $stmt = $db->prepare("SELECT 1 FROM `{$tabelle}` WHERE id = ?");
+        $stmt->execute([$id]);
+        return (bool)$stmt->fetchColumn();
+    }
+
     private function saveHorsePersons(\PDO $db, int $horseId, array $personsData): void {
         // Ein Request OHNE persons-Block meint nicht "keine Zuordnungen" - er
         // meint "dazu sage ich nichts" (Skript-POST, Teilformular). Ohne diese
@@ -1070,83 +1144,130 @@ class HorseController extends BaseController {
         $vorher = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         $existingTexts = array_column($vorher, 'breeding_station_text');
 
-        // Clear existing relations
-        $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
-        $stmt->execute([$horseId]);
+        // DELETE und INSERTs gehoeren zusammen (#317).
+        //
+        // Ohne Klammer war das Loeschen bereits festgeschrieben, sobald ein
+        // INSERT scheiterte - das Pferd stand danach ganz ohne Personen- und
+        // Stationszuordnungen da, obwohl der Bearbeiter nur speichern wollte.
+        // Der Ausloeser braucht keine Boshaftigkeit: Redakteur A hat das
+        // Bearbeitungsformular offen, Admin B leert waehrenddessen den
+        // Papierkorb (TrashController::emptyTrash() loescht Personen HART),
+        // und A speichert. Das INSERT laeuft in den Fremdschluessel, PDO wirft
+        // (ERRMODE_EXCEPTION), der Request endet mit 500 - und auch das
+        // Aenderungs-Protokoll unten kommt nicht mehr dazu. Es blieb nicht
+        // einmal ein Hinweis darauf, dass es die Zuordnungen gab.
+        //
+        // inTransaction() abgefragt, weil PDO ein verschachteltes
+        // beginTransaction() mit einer Ausnahme quittiert: Ein Aufrufer (oder
+        // ein Plugin am Hook horse.before_save) koennte laengst eine
+        // Transaktion offen haben, und dann traegt sie die Atomizitaet
+        // ohnehin.
+        $eigeneTransaktion = !$db->inTransaction();
+        if ($eigeneTransaktion) {
+            $db->beginTransaction();
+        }
 
-        $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        try {
+            // Clear existing relations
+            $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
+            $stmt->execute([$horseId]);
 
-        $validRoles = ['breeder', 'owner', 'keeper'];
+            $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
-        $currentStationId = null;
-        $currentStationText = null;
-        $highestScore = -1;
+            $validRoles = ['breeder', 'owner', 'keeper'];
 
-        foreach ($personsData as $index => $item) {
-            $personId = !empty($item['person_id']) ? (int)$item['person_id'] : null;
-            $role = $item['role'] ?? 'owner';
-            $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
-            // Fehlender Schluessel erhaelt den Bestand, uebermittelter
-            // Leerstring loescht - dieselbe Unterscheidung wie beim COALESCE
-            // fuer horses.breeding_station in update() (#214).
-            $stationText = array_key_exists('breeding_station_text', $item)
-                ? trim((string)$item['breeding_station_text'])
-                : trim((string)($existingTexts[$index] ?? ''));
-            // Die Spalte ist VARCHAR(255); ein laengerer Text braeche im Strict
-            // Mode den ganzen Speichervorgang ab, und Verwerfen kostete die
-            // komplette Zeile. maxlength im Formular ist nur clientseitig.
-            if (mb_strlen($stationText) > 255) {
-                $stationText = mb_substr($stationText, 0, 255);
-            }
-            // Herkunftsland ohne bekannte Person (#294) - siehe die
-            // Gueltigkeitsregel unten. Freitext wie persons.country.
-            $originCountry = trim((string)($item['origin_country'] ?? ''));
-            if (mb_strlen($originCountry) > 100) {
-                $originCountry = mb_substr($originCountry, 0, 100);
-            }
+            $currentStationId = null;
+            $currentStationText = null;
+            $highestScore = -1;
 
-            // Breeders do not have a time period!
-            if ($role === 'breeder') {
-                $fromYear = null;
-                $untilYear = null;
-            } else {
-                $fromYear = !empty($item['from_year']) ? (int)$item['from_year'] : null;
-                $untilYear = !empty($item['until_year']) ? (int)$item['until_year'] : null;
-            }
+            foreach ($personsData as $index => $item) {
+                $personId = !empty($item['person_id']) ? (int)$item['person_id'] : null;
+                $role = $item['role'] ?? 'owner';
+                $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
+                // Unbekannte IDs auf NULL statt in den Fremdschluessel laufen
+                // lassen (#317). Die Auswahl im Formular ist beim Oeffnen der
+                // Seite eingefroren; was dort stand, kann inzwischen hart
+                // geloescht sein. Eine Zeile ohne Person ist ein Verlust, ein
+                // abgebrochener Speichervorgang ohne JEDE Zuordnung waere ein
+                // groesserer - und die Zeile faellt unten ohnehin weg, wenn ausser
+                // der verwaisten ID nichts mehr in ihr steht.
+                if ($personId !== null && !$this->rowExists($db, 'persons', $personId)) {
+                    $personId = null;
+                }
+                if ($stationId !== null && !$this->rowExists($db, 'breeding_stations', $stationId)) {
+                    $stationId = null;
+                }
+                // Fehlender Schluessel erhaelt den Bestand, uebermittelter
+                // Leerstring loescht - dieselbe Unterscheidung wie beim COALESCE
+                // fuer horses.breeding_station in update() (#214).
+                $stationText = array_key_exists('breeding_station_text', $item)
+                    ? trim((string)$item['breeding_station_text'])
+                    : trim((string)($existingTexts[$index] ?? ''));
+                // Die Spalte ist VARCHAR(255); ein laengerer Text braeche im Strict
+                // Mode den ganzen Speichervorgang ab, und Verwerfen kostete die
+                // komplette Zeile. maxlength im Formular ist nur clientseitig.
+                if (mb_strlen($stationText) > 255) {
+                    $stationText = mb_substr($stationText, 0, 255);
+                }
+                // Herkunftsland ohne bekannte Person (#294) - siehe die
+                // Gueltigkeitsregel unten. Freitext wie persons.country.
+                $originCountry = trim((string)($item['origin_country'] ?? ''));
+                if (mb_strlen($originCountry) > 100) {
+                    $originCountry = mb_substr($originCountry, 0, 100);
+                }
 
-            // Calculate score to identify the current/latest active breeding station
-            if ($stationId || $stationText) {
-                // If until_year IS NULL, the entry is currently active -> boost score with 99999 + from_year
-                $calcFrom = $fromYear ?: 0;
-                $score = ($untilYear === null && $role !== 'breeder') ? (99999 + $calcFrom) : ($untilYear ?: $calcFrom);
+                // Breeders do not have a time period!
+                if ($role === 'breeder') {
+                    $fromYear = null;
+                    $untilYear = null;
+                } else {
+                    $fromYear = !empty($item['from_year']) ? (int)$item['from_year'] : null;
+                    $untilYear = !empty($item['until_year']) ? (int)$item['until_year'] : null;
+                }
 
-                if ($score >= $highestScore) {
-                    $highestScore = $score;
-                    if ($stationId) {
-                        $currentStationId = $stationId;
-                        $stStmt = $db->prepare("SELECT name FROM breeding_stations WHERE id = ?");
-                        $stStmt->execute([$stationId]);
-                        $currentStationText = $stStmt->fetchColumn() ?: null;
-                    } else {
-                        $currentStationId = null;
-                        $currentStationText = $stationText;
+                // Calculate score to identify the current/latest active breeding station
+                if ($stationId || $stationText) {
+                    // If until_year IS NULL, the entry is currently active -> boost score with 99999 + from_year
+                    $calcFrom = $fromYear ?: 0;
+                    $score = ($untilYear === null && $role !== 'breeder') ? (99999 + $calcFrom) : ($untilYear ?: $calcFrom);
+
+                    if ($score >= $highestScore) {
+                        $highestScore = $score;
+                        if ($stationId) {
+                            $currentStationId = $stationId;
+                            $stStmt = $db->prepare("SELECT name FROM breeding_stations WHERE id = ?");
+                            $stStmt->execute([$stationId]);
+                            $currentStationText = $stStmt->fetchColumn() ?: null;
+                        } else {
+                            $currentStationId = null;
+                            $currentStationText = $stationText;
+                        }
                     }
+                }
+
+                // Validation: Row must have a valid Role/Type AND at least one of Person OR Breeding Station (2 of the fields)
+                $hasPerson = !empty($personId);
+                $hasStation = !empty($stationId) || !empty($stationText);
+                // Dritte Alternative (#294): Ist die Person unbekannt, aber ihre
+                // Herkunft bekannt, ist das eine vollwertige Aussage - und der
+                // einzige Weg, sie OHNE eine Platzhalter-Person in der PII-Tabelle
+                // persons festzuhalten.
+                $hasOrigin = $originCountry !== '';
+                $hasValidRole = in_array($role, $validRoles, true);
+
+                if ($hasValidRole && ($hasPerson || $hasStation || $hasOrigin)) {
+                    $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $originCountry ?: null, $fromYear, $untilYear]);
                 }
             }
 
-            // Validation: Row must have a valid Role/Type AND at least one of Person OR Breeding Station (2 of the fields)
-            $hasPerson = !empty($personId);
-            $hasStation = !empty($stationId) || !empty($stationText);
-            // Dritte Alternative (#294): Ist die Person unbekannt, aber ihre
-            // Herkunft bekannt, ist das eine vollwertige Aussage - und der
-            // einzige Weg, sie OHNE eine Platzhalter-Person in der PII-Tabelle
-            // persons festzuhalten.
-            $hasOrigin = $originCountry !== '';
-            $hasValidRole = in_array($role, $validRoles, true);
-
-            if ($hasValidRole && ($hasPerson || $hasStation || $hasOrigin)) {
-                $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $originCountry ?: null, $fromYear, $untilYear]);
+            if ($eigeneTransaktion) {
+                $db->commit();
             }
+        } catch (\Throwable $e) {
+            if ($eigeneTransaktion && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
         }
 
         // Zuordnungsaenderungen protokollieren. Bis #295 lief dieser Vorgang

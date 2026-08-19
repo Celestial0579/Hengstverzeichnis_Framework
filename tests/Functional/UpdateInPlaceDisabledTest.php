@@ -112,6 +112,41 @@ class UpdateInPlaceDisabledTest extends FunctionalTestCase {
     }
 
     /**
+     * #313, dritte Sperre: Im Container-Modus laesst sich die unbeaufsichtigte
+     * Installation gar nicht erst einschalten.
+     *
+     * Der Grund ist derselbe wie beim direkten Update: Im Container gehoert
+     * der Anwendungscode root, PHP laeuft als www-data - ein durch den
+     * Web-Prozess ueberschreibbarer Codebaum waere ein RCE-Verstaerker. Eine
+     * eingeschaltete Automatik erzeugte hier nur eine taegliche Fehlermail,
+     * und ein Wegfall der Sperre bliebe ohne diesen Fall unbemerkt.
+     */
+    public function testAutoInstallCannotBeEnabledInContainerMode(): void {
+        $admin = $this->containerAdmin();
+
+        $response = $admin->post('/admin/updates/automation', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'update_notify' => '1',
+            'update_auto_install' => '1',
+        ]);
+
+        $location = (string)$response->location();
+        $this->assertStringStartsWith('/admin/updates?error=', $location);
+        $this->assertStringContainsString('deaktiviert', urldecode($location));
+
+        $stmt = \App\Database::getInstance()->prepare(
+            'SELECT setting_value FROM settings WHERE setting_key = ?'
+        );
+        $stmt->execute(['update_auto_install']);
+        $wert = $stmt->fetchColumn();
+        $this->assertSame(
+            '0',
+            $wert === false ? '0' : (string)$wert,
+            'Die Automatik darf im Container-Modus nicht in den Einstellungen landen'
+        );
+    }
+
+    /**
      * CSRF-Schutz gilt auch im Container-Modus (die Ablehnung darf den
      * Token-Check nicht aushebeln).
      */

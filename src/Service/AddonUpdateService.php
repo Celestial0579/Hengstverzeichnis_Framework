@@ -303,7 +303,7 @@ final class AddonUpdateService {
      * hat dafür seinen eigenen Fallback. Ein nicht erreichbares GitHub darf
      * weder die Update-Seite noch einen Cron-Lauf scheitern lassen.
      */
-    public static function refreshOfficialCatalog(): void {
+    public static function refreshOfficialCatalog(bool $force = false): void {
         try {
             $db = Database::getInstance();
             $repoRow = $db->query(
@@ -311,7 +311,7 @@ final class AddonUpdateService {
                 . " FROM addon_repos WHERE is_official = 1 LIMIT 1"
             )->fetch();
             if ($repoRow !== false) {
-                \App\Controllers\AddonStoreController::catalogForRepo($db, $repoRow, false);
+                \App\Controllers\AddonStoreController::catalogForRepo($db, $repoRow, $force);
             }
         } catch (\Throwable $e) {
             // bewusst geschluckt, siehe PHPDoc

@@ -13,7 +13,8 @@
 (function () {
     'use strict';
 
-    var MIN_LENGTH = 2;
+    // Muss mit GdprController::MIN_SEARCH_LENGTH uebereinstimmen (#318).
+    var MIN_LENGTH = 3;
     var DEBOUNCE_MS = 250;
 
     document.querySelectorAll('.gdpr-manual-search').forEach(function (container) {

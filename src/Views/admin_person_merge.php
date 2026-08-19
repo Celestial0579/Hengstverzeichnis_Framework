@@ -10,6 +10,9 @@
  * @var array $source
  * @var array<int, array<string, mixed>> $assignments
  * @var array<int, array<string, mixed>> $candidates
+ * @var string $search
+ * @var bool $truncated
+ * @var int $candidateLimit
  */
 $roleLabels = [
     'breeder' => 'Züchter',
@@ -55,10 +58,24 @@ $roleLabels = [
         </ul>
         <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: -0.8rem;">
             Ist bei der behaltenen Person bereits dieselbe Zuordnung vorhanden
-            (gleiches Pferd, gleiche Rolle, gleicher Zeitraum), wird sie nicht doppelt
-            angelegt. Abweichende Zeiträume bleiben beide erhalten — sie sind Historie.
+            (gleiches Pferd, gleiche Rolle, gleicher Zeitraum sowie gleiche Deckstation
+            und gleiches Herkunftsland), wird sie nicht doppelt angelegt. Weicht auch nur
+            eine dieser Angaben ab, bleiben beide erhalten — sie sind Historie.
         </p>
     <?php endif; ?>
+
+    <form action="/admin/persons/merge" method="GET" style="margin-top: 1.5rem;">
+        <input type="hidden" name="id" value="<?= (int)$source['id'] ?>">
+        <div class="form-group">
+            <label for="q">Ziel-Person suchen</label>
+            <div style="display: flex; gap: 0.5rem;">
+                <input type="text" id="q" name="q" class="form-control"
+                       value="<?= htmlspecialchars((string)$search) ?>"
+                       placeholder="Name, Ort oder PLZ">
+                <button type="submit" class="btn btn-secondary">Suchen</button>
+            </div>
+        </div>
+    </form>
 
     <form action="/admin/persons/merge" method="POST" style="margin-top: 1.5rem;"
           data-confirm="Diese Person wirklich aufgeben und ihre Zuordnungen auf die gewählte Person umhängen?">
@@ -79,6 +96,12 @@ $roleLabels = [
             <small style="color: var(--text-muted);">
                 Leere Felder der behaltenen Person werden aus dem aufgegebenen Datensatz
                 ergänzt. Bereits gefüllte Felder bleiben unverändert.
+                <?php if ($truncated): ?>
+                    <br><strong>Die Liste ist auf <?= (int)$candidateLimit ?> Einträge gekürzt</strong> —
+                    es gibt weitere Treffer. Bitte oben suchen, um die gewünschte Person einzugrenzen.
+                <?php elseif ($candidates === [] && $search !== ''): ?>
+                    <br><strong>Kein Treffer für „<?= htmlspecialchars((string)$search) ?>".</strong>
+                <?php endif; ?>
             </small>
         </div>
 

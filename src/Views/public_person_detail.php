@@ -81,13 +81,13 @@ $personWebsite = App\Helper\ExternalUrl::hrefOrNull($person['website'] ?? null);
         <?php if (!empty($person['phone'])): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">☎️ <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$person['phone']) ?></td>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$person['phone']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$person['phone']) ?></a><?php else: ?><?= htmlspecialchars((string)$person['phone']) ?><?php endif; ?></td>
             </tr>
         <?php endif; ?>
         <?php if (!empty($person['mobile'])): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📱 <?= htmlspecialchars(App\I18n\Translator::t('field.mobile')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$person['mobile']) ?></td>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$person['mobile']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$person['mobile']) ?></a><?php else: ?><?= htmlspecialchars((string)$person['mobile']) ?><?php endif; ?></td>
             </tr>
         <?php endif; ?>
         <?php if ($personWebsite !== null): ?>

@@ -343,7 +343,20 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                 $roleMeta = $roleLabels[$hp['role']] ?? [App\I18n\Translator::t('field.owner'), '#6c757d'];
                 $yearsText = '';
                 if ($hp['role'] !== 'breeder' && ($hp['from_year'] || $hp['until_year'])) {
-                    $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . ($hp['until_year'] ?: App\I18n\Translator::t('horse.years_until_today')) . ')';
+                    // Ein offenes until_year heisst "laeuft noch". Bei einem
+                    // gestorbenen Pferd ist das falsch (#334): Dort stand bisher
+                    // "bis heute" und behauptete damit eine laufende Aufstallung.
+                    // An die Stelle tritt das Todesjahr, wenn es bekannt ist,
+                    // sonst "?" - geraten wird nichts. is_deceased und death_year
+                    // liegen der View ohnehin vor (PublicController).
+                    if ($hp['until_year']) {
+                        $bisText = (string)$hp['until_year'];
+                    } elseif (!empty($horse['is_deceased'])) {
+                        $bisText = !empty($horse['death_year']) ? (string)(int)$horse['death_year'] : '?';
+                    } else {
+                        $bisText = App\I18n\Translator::t('horse.years_until_today');
+                    }
+                    $yearsText = ' (' . ($hp['from_year'] ?: '?') . ' - ' . $bisText . ')';
                 }
                 $stationDisplayName = $hp['station_name'] ?? $hp['breeding_station_text'] ?? '';
             ?>

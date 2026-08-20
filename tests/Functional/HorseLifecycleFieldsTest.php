@@ -67,6 +67,40 @@ class HorseLifecycleFieldsTest extends FunctionalTestCase {
         $this->assertSame('/admin/horses?error=death_before_birth', $response->location());
         $this->assertSame(0, $idByName($deceasedName), 'Abgelehnter Speichervorgang darf kein Pferd anlegen');
 
+        // 2b. Ein Halterzeitraum, der NACH dem Todesjahr beginnt, wird
+        // ebenfalls abgelehnt (#334). Fuer Geburts- und Todesjahr gab es diese
+        // Pruefung laengst, fuer die Abstammung auch - fuer die Zeitraeume in
+        // horse_persons fehlte sie, und im Bestand standen dadurch
+        // Halterzeitraeume nach dem Tod des Pferdes.
+        $response = $admin->post('/admin/horses/store', [
+            'csrf_token' => $csrf,
+            'name' => $deceasedName,
+            'birth_year' => '1994',
+            'death_year' => '2017',
+            'persons_present' => '1',
+            'persons' => [
+                ['role' => 'keeper', 'breeding_station_text' => 'Hof nach dem Tod', 'from_year' => '2019'],
+            ],
+        ]);
+        $this->assertSame('/admin/horses?error=period_after_death', $response->location());
+        $this->assertSame(0, $idByName($deceasedName), 'Abgelehnter Speichervorgang darf kein Pferd anlegen');
+
+        // Ein Zeitraum, der VOR dem Todesjahr endet, bleibt selbstverstaendlich
+        // erlaubt - sonst waere die Pruefung eine Sperre gegen den Normalfall.
+        $unverfaenglich = $deceasedName . '-ok';
+        $response = $admin->post('/admin/horses/store', [
+            'csrf_token' => $csrf,
+            'name' => $unverfaenglich,
+            'birth_year' => '1994',
+            'death_year' => '2017',
+            'persons_present' => '1',
+            'persons' => [
+                ['role' => 'keeper', 'breeding_station_text' => 'Hof zu Lebzeiten', 'from_year' => '2009', 'until_year' => '2016'],
+            ],
+        ]);
+        $this->assertSame('/admin/horses?success=created', $response->location());
+        $this->assertGreaterThan(0, $idByName($unverfaenglich));
+
         // 3. Ein gesetztes Todesjahr impliziert is_deceased=1, auch ohne
         // angehakte Checkbox; der Zuchtstatus bleibt davon unabhängig 'active'.
         $response = $admin->post('/admin/horses/store', [

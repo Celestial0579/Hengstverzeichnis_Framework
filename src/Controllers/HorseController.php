@@ -322,6 +322,12 @@ class HorseController extends BaseController {
             exit;
         }
 
+        // Zeitraum nach dem Todesjahr (#334) - ebenfalls vor dem Bild-Upload.
+        if ($error = $this->personPeriodAfterDeath((array)($_POST['persons'] ?? []), $death_year)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         // Handle Photo Upload
         $imageUrl = $this->handleImageUpload($_FILES['horse_image'] ?? null);
 
@@ -534,6 +540,13 @@ class HorseController extends BaseController {
             exit;
         }
 
+        // Zeitraum nach dem Todesjahr (#334) - vor den Bild-Änderungen, aus
+        // demselben Grund wie die Prüfungen darüber.
+        if ($error = $this->personPeriodAfterDeath((array)($_POST['persons'] ?? []), $death_year)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+
         $db = Database::getInstance();
         $stmt = $db->prepare("SELECT image_url, status, is_published, deleted_at FROM horses WHERE id = ?");
         $stmt->execute([$id]);
@@ -731,6 +744,44 @@ class HorseController extends BaseController {
      *
      * Fehlt ein Geburtsjahr, wird nicht geprueft - wie im Auto-Linking auch.
      */
+    /**
+     * Prüft die Zeiträume der Personen-/Stationszeilen gegen das Todesjahr
+     * (#334).
+     *
+     * Für Geburts- und Todesjahr gibt es diese Prüfung längst
+     * (death_before_birth), für die Abstammung ebenso
+     * (pedigreeContradiction, parentSexMismatch) - für die Zeiträume in
+     * horse_persons fehlte das Gegenstück. Im Bestand standen dadurch
+     * Halterzeiträume, die NACH dem Todesjahr des Pferdes beginnen.
+     *
+     * Geprüft wird bewusst nur gegen ein bekanntes Todesjahr: Ist keines
+     * erfasst, gibt es nichts zu widersprechen. Und geprüft wird nur der
+     * Beginn und das Ende gegen dieses eine Jahr - alles Weitere (Zeiträume,
+     * die sich überschneiden, Lücken) ist eine fachliche Bewertung und gehört
+     * in die Plausibilitätsprüfung, nicht in den Speicherpfad.
+     *
+     * @param array<int, array<string, mixed>> $personsData Rohdaten aus $_POST
+     */
+    private function personPeriodAfterDeath(array $personsData, ?int $deathYear): ?string {
+        if ($deathYear === null) {
+            return null;
+        }
+
+        foreach ($personsData as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            foreach (['from_year', 'until_year'] as $feld) {
+                $jahr = $this->parseYear((string)($item[$feld] ?? ''));
+                if ($jahr !== null && $jahr > $deathYear) {
+                    return 'period_after_death';
+                }
+            }
+        }
+
+        return null;
+    }
+
     private function pedigreeContradiction(?int $sireId, ?int $damId, ?int $birthYear): ?string {
         if ($sireId !== null && $damId !== null && $sireId === $damId) {
             return 'same_sire_and_dam';

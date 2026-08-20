@@ -53,22 +53,65 @@ final class DatabaseDumper {
      * damit die Wiederherstellungsreihenfolge unabhängig von
      * Fremdschlüssel-Abhängigkeiten funktioniert.
      *
-     * @param callable(string): void $write Erhält den Dump in Chunks
-     *                                      (typisch: eine SQL-Anweisung samt
-     *                                      abschließendem Zeilenumbruch).
+     * TABELLENAUSWAHL (#342). $tables = null heißt weiterhin "alles" - das ist
+     * der Bestandsaufruf und muss es bleiben, weil das automatische Backup
+     * (#59) genau das will: eine vollständige Sicherung, aus der sich die
+     * Instanz wiederherstellen lässt.
+     *
+     * Wozu die Auswahl dann? Für den Export im Datenmigrations-Addon
+     * (Addons#121). Der nimmt heute zwangsläufig ALLES mit - also auch
+     * `users` mit den Passwort-Hashes, den 2FA-Geheimnissen und den
+     * Backup-Codes, dazu `api_keys`. Wer nur seine Pferde und Kontakte zu
+     * einer anderen Instanz tragen will, verschickt damit die
+     * Anmeldedaten seines Vereins gleich mit, ohne es zu merken.
+     *
+     * Die Auswahl ist eine POSITIVLISTE und wird gegen die tatsächlich
+     * vorhandenen Tabellen abgeglichen: Ein Name, den es nicht gibt, wird
+     * still übergangen (eine Instanz ohne ein bestimmtes Addon hat dessen
+     * Tabellen nicht), und ein Name, der nicht aus SHOW TABLES stammt, kommt
+     * gar nicht erst in die Abfrage - der Tabellenname geht unquotiert in
+     * SQL, und ein durchgereichter Aufrufwert wäre genau die Stelle, an der
+     * das eines Tages jemand ausnutzt.
+     *
+     * @param callable(string): void $write  Erhält den Dump in Chunks
+     *                                       (typisch: eine SQL-Anweisung samt
+     *                                       abschließendem Zeilenumbruch).
+     * @param string[]|null          $tables Positivliste der zu sichernden
+     *                                       Tabellen; null = alle.
      */
-    public static function dumpTo(callable $write): void {
+    public static function dumpTo(callable $write, ?array $tables = null): void {
         $pdo = Database::getInstance();
         $dbName = $pdo->query('SELECT DATABASE()')->fetchColumn();
 
-        $write('-- Automatisches Backup (#59) - ' . gmdate('Y-m-d H:i:s') . " UTC\n");
-        $write('-- Datenbank: ' . $dbName . "\n");
-        $write("SET FOREIGN_KEY_CHECKS=0;\n");
-        $write("SET NAMES utf8mb4;\n\n");
-
         // SHOW TABLES vollständig einlesen, BEVOR unten unbuffered gearbeitet
         // wird - die Tabellenliste ist klein, die Daten sind es nicht.
-        $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+        $vorhanden = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+
+        if ($tables === null) {
+            $tables = $vorhanden;
+            $auswahlHinweis = '';
+        } else {
+            // Schnittmenge, Reihenfolge aus SHOW TABLES (stabile Dumps).
+            $gewuenscht = array_flip(array_map('strval', $tables));
+            $tables = array_values(array_filter(
+                $vorhanden,
+                static fn($t) => isset($gewuenscht[$t])
+            ));
+            $auswahlHinweis = sprintf(
+                "-- Auswahl (#342): %d von %d Tabellen - dies ist KEINE vollständige Sicherung.\n",
+                count($tables),
+                count($vorhanden)
+            );
+        }
+
+        $write('-- Automatisches Backup (#59) - ' . gmdate('Y-m-d H:i:s') . " UTC\n");
+        $write('-- Datenbank: ' . $dbName . "\n");
+        // Der Hinweis steht bewusst IM Dump: Wer eine Teilsicherung Monate
+        // später vor sich hat, sieht sonst eine gültige .sql-Datei und hält
+        // sie für ein Backup.
+        $write($auswahlHinweis);
+        $write("SET FOREIGN_KEY_CHECKS=0;\n");
+        $write("SET NAMES utf8mb4;\n\n");
 
         $wasBuffered = $pdo->getAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY);
         $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, false);

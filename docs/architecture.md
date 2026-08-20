@@ -84,8 +84,7 @@ und ggf. `requireAdmin()` auf, außer bei öffentlichen Controllern):
 | `SetupController` | Ersteinrichtungs-Wizard (DB-Verbindung, Verbandsname, erster Admin-Account) |
 | `AdminController` | Dashboard, Verbandseinstellungen, Systemeinstellungen, Mail-/SMTP-Einstellungen, System-Reset, Audit-Log-Ansicht |
 | `HorseController` | Pferde-CRUD, Bild-Upload, automatische Blutlinien-Verknüpfung, Match-/Merge-Vorschlagswerkzeug |
-| `PersonController` | CRUD für Personen (Züchter/Besitzer/Halter) |
-| `BreedingStationController` | CRUD für Deckstationen/Gestüte |
+| `ContactController` | CRUD für Kontakte - Personen wie Deckstationen (#336). Bis v0.7 waren das zwei Controller auf zwei Tabellen; die Trennung erzeugte laufend Fälle, die niemand entscheiden kann (ein Hof, den zwei Privatleute betreiben, ist beides) |
 | `UserController` | Admin-only Benutzerverwaltung (anlegen, bearbeiten, löschen, 2FA zurücksetzen) |
 | `GdprController` | Verwaltung eingegangener DSGVO-Anfragen (Status, Anonymisierung, Löschung) |
 | `TrashController` | Papierkorb: Wiederherstellen/endgültig Löschen von Soft-Deletes |
@@ -253,7 +252,7 @@ Löschen/Veröffentlichen) plus ein fest verdrahteter Admin-Sonderfall.
 - `BaseController::hasPermission()`/`requirePermission()`: Prüfung fail-closed
   (fehlende Zuordnung oder DB-Fehler → Zugriff verweigert), Admin-Bypass über
   `isAdmin()`/`GroupMembership::isAdmin()`. Eingesetzt in
-  `HorseController`/`PersonController`/`BreedingStationController` anstelle
+  `HorseController`/`ContactController` anstelle
   eines reinen `checkAuth()`.
 - Benutzerverwaltung, Gruppenverwaltung selbst, DSGVO, System-/Mail-
   Einstellungen, Papierkorb-Vollzugriff und Plugin-Aktivierung bleiben

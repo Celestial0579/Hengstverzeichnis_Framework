@@ -19,6 +19,13 @@ use App\Database;
  * /dsgvo eingereicht: Der öffentliche Weg ist seit #258 rate-limitiert, und
  * alle Functional-Tests teilen sich 127.0.0.1 (siehe DsgvoFormHelper). Dieser
  * Test braucht den öffentlichen Weg nicht - geprüft wird die Verwaltungsseite.
+ *
+ * Seit #336 sucht der Endpunkt in `contacts` statt in `persons`. Die
+ * Zusicherungen dieses Tests bleiben dieselben - der Endpunkt heisst weiter
+ * /admin/gdpr/search-persons und liefert weiter dieselben Felder. Nur zwei
+ * Dinge sind neu und deshalb eigens geprüft: Der Weg zum Datensatz führt nach
+ * /admin/contacts/edit, und `horse_count` zählt ausdrücklich NUR den
+ * Personen-Steckplatz der Zuordnung.
  */
 class GdprManualMatchingTest extends FunctionalTestCase {
 
@@ -33,7 +40,7 @@ class GdprManualMatchingTest extends FunctionalTestCase {
             $db->prepare("DELETE FROM gdpr_requests WHERE id = ?")->execute([$id]);
         }
         foreach ($this->seededPersonIds as $id) {
-            $db->prepare("DELETE FROM persons WHERE id = ?")->execute([$id]);
+            $db->prepare("DELETE FROM contacts WHERE id = ?")->execute([$id]);
         }
         $this->seededRequestIds = $this->seededPersonIds = [];
         parent::tearDown();
@@ -51,7 +58,7 @@ class GdprManualMatchingTest extends FunctionalTestCase {
         $card = $this->cardFor($body, $requestId);
 
         $this->assertStringContainsString(
-            'Keine direkten Personeneinträge',
+            'Keine direkten Kontakteinträge',
             $card,
             'Testaufbau kaputt: Es sollte gerade KEIN Automatch-Treffer entstehen.'
         );
@@ -91,7 +98,7 @@ class GdprManualMatchingTest extends FunctionalTestCase {
             'Die Auskunftsanfrage bekommt keinen Automatch-Treffer - vor #266 lief für "info" gar keine Suche.'
         );
         $this->assertStringContainsString(
-            '/admin/persons/edit?id=' . $personId,
+            '/admin/contacts/edit?id=' . $personId,
             $card,
             'Für die Auskunft fehlt der Weg zum Datensatz.'
         );
@@ -155,7 +162,7 @@ class GdprManualMatchingTest extends FunctionalTestCase {
         $marker = 'Weichgeloescht' . uniqid();
         $personId = $this->seedPerson($marker . ' Person');
         Database::getInstance()
-            ->prepare("UPDATE persons SET deleted_at = NOW() WHERE id = ?")
+            ->prepare("UPDATE contacts SET deleted_at = NOW() WHERE id = ?")
             ->execute([$personId]);
 
         $hits = $this->search($marker);
@@ -240,13 +247,23 @@ class GdprManualMatchingTest extends FunctionalTestCase {
      * #318: horse_count kommt jetzt aus einer Unterabfrage statt aus
      * LEFT JOIN + GROUP BY. Die Zahl muss dieselbe bleiben, sonst hätte der
      * Umbau die Zuordnungsanzeige der DSGVO-Maske still verfälscht.
+     *
+     * #336 hat der Zuordnung einen ZWEITEN Steckplatz gegeben
+     * (horse_persons.station_contact_id). Der Zähler nimmt ihn bewusst NICHT
+     * mit: Er beantwortet "an wie vielen Pferden hängt dieser MENSCH als
+     * Züchter/Besitzer/Halter", und daran schätzt ein Bearbeiter die
+     * Tragweite einer Löschung ab. Ein Kontakt, der bei einem Pferd nur die
+     * Deckstation ist, wäre in dieser Zahl eine falsche Auskunft - und weil
+     * beide Steckplätze jetzt auf dieselbe Tabelle zeigen, ist das genau die
+     * Verwechslung, die jemand beim nächsten Umbau "korrigiert".
      */
-    public function testHorseCountSurvivesTheQueryRewrite(): void {
+    public function testHorseCountCountsOnlyThePersonSlot(): void {
         $db = Database::getInstance();
         $marker = 'Zaehlprobe' . uniqid();
 
         $ohne = $this->seedPerson($marker . ' ohne Pferde');
         $mit = $this->seedPerson($marker . ' mit zwei Pferden');
+        $nurStation = $this->seedPerson($marker . ' nur als Deckstation');
 
         $pferdIds = [];
         foreach (['A', 'B'] as $suffix) {
@@ -255,14 +272,34 @@ class GdprManualMatchingTest extends FunctionalTestCase {
             $pferdIds[] = (int)$db->lastInsertId();
         }
         foreach ($pferdIds as $pferdId) {
-            $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'owner')")
+            $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'owner')")
                ->execute([$pferdId, $mit]);
+        }
+        // Derselbe Zuordnungsblock, aber der Kontakt steht im Stations-
+        // Steckplatz - bei BEIDEN Pferden, damit ein versehentliches
+        // Mitzählen als 2 auffiele und nicht als Rundungsrauschen.
+        foreach ($pferdIds as $pferdId) {
+            $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role, station_contact_id) VALUES (?, NULL, 'keeper', ?)")
+               ->execute([$pferdId, $nurStation]);
         }
 
         try {
             $treffer = array_column($this->search($marker), null, 'id');
             $this->assertSame(0, $treffer[$ohne]['horse_count'] ?? null);
             $this->assertSame(2, $treffer[$mit]['horse_count'] ?? null);
+            $this->assertSame(
+                0,
+                $treffer[$nurStation]['horse_count'] ?? null,
+                'Der Stations-Steckplatz darf nicht mitgezählt werden - die Zahl meint Menschen, nicht Orte.'
+            );
+            // Auffindbar bleibt ein solcher Kontakt trotzdem: Er steht in
+            // derselben Tabelle und kann derselbe Mensch sein. Nur seine
+            // Zuordnungszahl ist 0.
+            $this->assertArrayHasKey(
+                $nurStation,
+                $treffer,
+                'Ein Kontakt ohne Personen-Zuordnung muss für eine Löschanfrage auffindbar bleiben.'
+            );
         } finally {
             foreach ($pferdIds as $pferdId) {
                 $db->prepare("DELETE FROM horses WHERE id = ?")->execute([$pferdId]);
@@ -314,7 +351,7 @@ class GdprManualMatchingTest extends FunctionalTestCase {
 
     private function seedPerson(string $name, ?string $email = null): int {
         $db = Database::getInstance();
-        $db->prepare("INSERT INTO persons (name, email, is_published) VALUES (?, ?, 1)")
+        $db->prepare("INSERT INTO contacts (name, email, is_published) VALUES (?, ?, 1)")
            ->execute([$name, $email]);
         $id = (int)$db->lastInsertId();
         $this->seededPersonIds[] = $id;

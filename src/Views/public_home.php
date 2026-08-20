@@ -2,8 +2,15 @@
 // src/Views/public_home.php
 /**
  * @var array $featuredHorses
+ * @var array $homeSectionsTop    Addon-Fragmente über der Pferdeliste (#356)
+ * @var array $homeSectionsBottom Addon-Fragmente darunter (#356)
  */
 
+// Die Fragmente werden UNESCAPED ausgegeben - dasselbe Verfahren wie bei
+// horse.detail_sections. Das Addon ist selbst für die XSS-Vermeidung seines
+// eigenen HTML verantwortlich (siehe docs/plugin-development.md).
+$homeSectionsTop = $homeSectionsTop ?? [];
+$homeSectionsBottom = $homeSectionsBottom ?? [];
 ?>
 <div class="text-center" style="padding: 4rem 0;">
     <h1 style="font-size: 3rem; margin-bottom: 1rem;">
@@ -19,6 +26,10 @@
     <a href="/katalog" class="btn" style="font-size: 1.1rem; padding: 1rem 2rem;"><?= htmlspecialchars(App\I18n\Translator::t('home.cta_catalog')) ?></a>
 </div>
 
+<?php foreach ($homeSectionsTop as $abschnitt): ?>
+    <div class="mt-2"><?= $abschnitt ?></div>
+<?php endforeach; ?>
+
 <div class="mt-2">
     <h2 class="text-center mb-2"><?= htmlspecialchars(App\I18n\Translator::t('home.latest_entries')) ?></h2>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">
@@ -33,3 +44,7 @@
         <?php endforeach; ?>
     </div>
 </div>
+
+<?php foreach ($homeSectionsBottom as $abschnitt): ?>
+    <div class="mt-2"><?= $abschnitt ?></div>
+<?php endforeach; ?>

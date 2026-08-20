@@ -6,6 +6,197 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.8.0-beta.1] – 2026-08-20
+
+**Breaking Change.** `persons` und `breeding_stations` sind eine Kontaktliste
+geworden. Addons der Linie 0.7 sind nach dem Update **fail-closed unsichtbar**,
+bis ein Addons-Release der Linie 0.8 installiert ist — das ist gewollt und
+nicht behebbar, ohne den Schutz aufzugeben (`core_supported_max` vergleicht
+Major.Minor).
+
+**Vor dem Update sichern.** Der Umbau fasst jeden Kontakt und jede Zuordnung
+an. Ein Rückweg ist gebaut und einmal gegangen (`database/rollback-336.php`),
+aber er kostet alles, was nach dem Update entstanden ist.
+
+### Geändert (Breaking)
+
+- **Eine Kontaktliste statt zweier Tabellen** (#336). `persons` und
+  `breeding_stations` werden `contacts`. Was ein Kontakt für ein bestimmtes
+  Pferd *ist* — Züchter, Halter, Besitzer, Deckstation — steht seitdem
+  ausschließlich an der Zuordnung, nicht mehr in der Wahl der Tabelle.
+
+  Der Anlass ist keine Aufräumlust: Beim Bereinigen der Deckstationsdaten
+  blieben **134 Freitexte** übrig, bei denen „Deckstation oder Person?" nicht
+  beantwortbar war — und die Frage ist es auch nicht, weil ein Hof, den zwei
+  Privatleute betreiben, beides ist. Sie verschwindet nicht durch eine bessere
+  Heuristik, sondern dadurch, dass man sie nicht mehr stellen muss.
+
+  **Was mit dem Datenschutz passiert.** Bis v0.7 schützte die Trennung selbst:
+  Die öffentliche Personenseite wählte eine Positivliste von Spalten, die
+  Stationsseite ein `SELECT *`. Ab v0.8 ist der Schutz ein Feld je Datensatz —
+  deshalb gilt für **alle** Kontakte die strengere der beiden Regeln:
+  `contact_public` und `is_published` haben die Vorgabe 0, und kein öffentlicher
+  Pfad macht `SELECT *` auf `contacts`. Migrierte Deckstationen behalten ihren
+  Bestandswert; eine Migration darf nichts wegnehmen, was vorher da war.
+
+  **Rechte wandern als Schnittmenge, nicht als Vereinigung.** Wer nur
+  `persons.view` *oder* nur `breeding_stations.view` hatte, hat `contacts.view`
+  **nicht**. Die andere Richtung hätte Gruppen Zugriff auf personenbezogene
+  Daten gegeben, den sie nie hatten. Die alten Zeilen liegen als JSON in
+  `settings.migration_336_rechte_vorher` — ohne sie wäre der Rechte-Teil der
+  einzige unumkehrbare Schritt.
+
+  **Namensgleiche Kontakte werden NICHT automatisch zusammengeführt.** Das
+  Issue skizziert es so; es wird bewusst anders gemacht. Zusammenführen ist
+  nicht umkehrbar, verschiebt Pferdezuordnungen und senkt die Sichtbarkeit des
+  Ergebnisses stillschweigend. Die Migration meldet die Fälle stattdessen und
+  übergibt sie einem Menschen.
+
+  **`horse_persons` behält ZWEI Steckplätze**, entgegen der Skizze im Issue.
+  Eine Zuordnungszeile sagt zwei Dinge gleichzeitig — wer (in der Rolle aus
+  `role`) und wo (an welcher Deckstation); das Formular rendert je Zeile beide
+  Auswahlen, und `role` kennt nur `breeder|owner|keeper`. Sie zusammenzulegen
+  hätte „Besitzer P, an Station S, von 2010 bis 2015" auf die Hälfte reduziert.
+  Aus `person_id` wird `contact_id`, aus `breeding_station_id` wird
+  `station_contact_id`; beide zeigen auf `contacts`.
+
+- **`contact_id_map` bleibt dauerhaft** (#336). Keine Migrationshilfe, sondern
+  Teil des Schemas. Addons speichern Verweise auf Kontakte, und mindestens
+  eines tut das ohne Fremdschlüssel — `plugin_kontaktanfrage_optout` hält
+  `(target_type, target_id)`. Person 5 und Station 5 gab es beide; ohne diese
+  Tabelle zeigte jede gespeicherte Zeile auf einen falschen Kontakt, und beim
+  Opt-out hieße das: Wer Kontaktanfragen abbestellt hat, ist wieder erreichbar,
+  und jemand anderes ist stumm geschaltet.
+
+- **Alte Adressen leiten dauerhaft um.** `/person?id=` und `/station?id=`
+  antworten mit 301 auf `/kontakt?id=`, aufgelöst über `contact_id_map` — die
+  Adressen stehen in Suchmaschinen. Eine unbekannte Kennung liefert 404 und
+  wird **nicht** auf den Katalog umgeleitet: Eine tote Kennung darf nicht wie
+  ein Treffer aussehen.
+
+- **Hook-Namen.** Neu sind `contact.detail_sections`, `contact.edit_sections`,
+  `contact.after_save` und `contact.deleted` (#347). Die alten Namen `person.*`
+  und `station.*` feuern in v0.8 **zusätzlich** mit denselben Argumenten und
+  entfallen in v0.9.0. Ein Addon, das beide alten Paare registriert hat,
+  bekommt seit dem Zusammenlegen denselben Datensatz zweimal — das ist der
+  Grund, die Aliasse nicht dauerhaft zu führen.
+
+### Hinzugefügt
+
+- **Addon-Daten lassen sich beim Deinstallieren entfernen** (#338).
+  Deaktivieren und Deinstallieren sind ab jetzt zwei Dinge: Deaktivieren ist
+  umkehrbar und lässt alles stehen, Deinstallieren fragt nach den Daten. Bis
+  v0.7 verschwand ein Addon aus der Übersicht und liess alles liegen — darunter
+  Kontaktanfragen mit Namen und E-Mail-Adressen, während der Betreiber annahm,
+  er sei sie los.
+
+  Ein Addon erklärt in seiner `plugin.json` unter `owns`, was ihm gehört
+  (Tabellen, Verzeichnisse, Einstellungsschlüssel). Der Kern zählt vor dem
+  Löschen zusammen, was tatsächlich verschwände — `1.284 Datensätze`, nicht
+  `3 Tabellen` — und erst danach kommt die Frage. Was die Prüfungen nicht
+  durchlassen (fremde Tabellen, Verzeichnisse ausserhalb der Installation,
+  geschützte Orte), wird nicht gelöscht und ausdrücklich angezeigt.
+
+- **Ein Suchendpunkt für Pferde im Adminbereich** (#341) samt
+  wiederverwendbarem Suchfeld (`/js/horse-search.js`). Sieben Addons brachten je
+  eine eigene Kopie mit; nur eine davon maskierte die SQL-Platzhalter `%` und
+  `_`, und keine behandelte den Wettlauf zwischen zwei schnellen Anfragen.
+
+- **Erweiterungspunkte auf der Startseite** (#356): `home.sections_top` und
+  `home.sections_bottom`. Ausgerechnet die meistbesuchte Seite hatte bis v0.7
+  keinen einzigen.
+
+- **Veto gegen das Veröffentlichen** (#335): Der Filter
+  `horse.publish_blockers` lässt ein Addon verhindern, dass ein widersprüchlicher
+  Datensatz öffentlich wird — **ohne** das Speichern anzutasten. Wer seine
+  halbfertige Eingabe nicht speichern kann, kommt nie an den Punkt, an dem er
+  den Widerspruch auflöst. `horse.before_save` bleibt deshalb ein `doAction`.
+
+- **Captcha-Kontexte sind anmeldbar** (#351). Bis v0.7 kannte `$context` nur
+  `'dsgvo'`; die öffentlichen Formulare dieses Systems liegen aber überwiegend
+  in Addons. Ein unbekannter Kontext schaltet den Schutz **nicht** ab, sondern
+  erzwingt den eingebauten — ein Tippfehler macht ein Formular höchstens
+  strenger, nie ungeschützter.
+
+- **Ein schmaler Weg zum Protokoll für Addons** (#352):
+  `App\Plugin\PluginAudit::log()`. Die Kategorie ist der Slug, der Slug wird
+  geprüft (ein Addon kann nicht unter fremdem Namen protokollieren), und der
+  Bezug ist ein eigenes Argument — „Dokument gelöscht" ohne Angabe, welches,
+  hilft hinterher niemandem.
+
+- **Der Datenbank-Export kann eine Tabellenauswahl** (#342).
+  `DatabaseDumper::dumpTo()` nimmt optional eine Positivliste; `null` bleibt
+  „alles", weil das automatische Backup genau das braucht. Grundlage für einen
+  Export, der nicht länger zwangsläufig Passwort-Hashes, 2FA-Geheimnisse und
+  API-Schlüssel mitnimmt.
+
+- **Dubletten lassen sich entscheiden, nicht nur annehmen** (#355). Bis v0.7
+  konnte man einen Vorschlag verknüpfen — die Aussage „das sind zwei
+  verschiedene Pferde" wurde nirgends gespeichert. Also erschien dasselbe Paar
+  bei jedem Aufruf wieder, und der E-Mail-Digest zählte es dauerhaft als offen;
+  wer einmal geprüft und verworfen hatte, prüfte beim nächsten Mal erneut.
+
+  Jetzt trägt jedes Paar eine dauerhafte Entscheidung (*zusammengeführt* ·
+  *verschieden* · *unklar*) mit Urheber, Zeitpunkt und optionalem Beleg.
+  „Verschieden" blendet dauerhaft aus — und ist **widerrufbar**, denn eine
+  falsch gesetzte Trennung darf nicht endgültig sein. Ein Label ändert nichts
+  am Bestand; Zusammenführen bleibt eine Einbahnstraße mit Vorschau.
+
+  Neu ist auch die Vorschlagssuche **für Kontakte** — die gab es für Personen
+  nie und für Deckstationen erst recht nicht. Bei der Bereinigung enthielten
+  41 Deckstationen acht Dubletten, die von Hand gefunden werden mussten: Im
+  Produkt gab es keine Stelle, die sie zeigt. Platzhalter wie
+  „Nichtmitglied NO" nehmen bewusst **nicht** teil — sie unterscheiden sich nur
+  im Länderkürzel, und jede Ähnlichkeitsmetrik hielte sie für denselben Kontakt.
+
+- **Suchfelder, die es längst hätte geben müssen** (#346): Halter-Rolle,
+  Stockmaß, Todesjahr, Geburtsdatum und Beschreibung. Die Spalten gab es im
+  Bestand seit Langem, durchsuchen ließ sich nichts davon. Dazu ein
+  Erweiterungspunkt für Addon-Filter (`horse.search_ids`) — bewusst als
+  **ID-Liste**, nicht als SQL-Ausschnitt: Die ganze Bauart dieser Klassen
+  beruht darauf, dass kein Anfragewert je in einen SQL-String gerät, und ein
+  Addon, das SQL beisteuern darf, macht diese Zusicherung dauerhaft zunichte.
+
+- **`HV_TEST_PORT`**: Framework- und Addon-Testsuite benutzten denselben
+  Testserver-Port und brachen sich gegenseitig ab. Der Abbruch bei belegtem
+  Port bleibt — ein Lauf gegen eine fremde Instanz ist kein Ergebnis —, aber es
+  gibt jetzt einen Ausweg, der nicht „warte, bis der andere fertig ist" heisst.
+
+- **`HV_TEST_DB_PREFIX`**: Zwei Integrationstests legen Wegwerf-Datenbanken mit
+  festen Namen an (`hengst_…`). In der CI ist das folgenlos, auf einem
+  gemeinsam genutzten Entwicklungshost scheitern damit alle Tests der Klasse an
+  fehlenden Rechten — und der naheliegende Ausweg (dem Benutzer die Rechte
+  geben) verändert die Umgebung für alle und muss hinterher zurückgenommen
+  werden. Ohne die Variable bleibt alles wie bisher.
+
+### Behoben
+
+- **Ohne Kontaktfreigabe stand der Ort zweimal untereinander** auf der
+  öffentlichen Kontaktseite — einmal als Verortung, einmal als vermeintliche
+  Anschrift. Die PLZ fehlt ohne Freigabe, die Adresszeile bestand dann allein
+  aus dem Ort.
+
+- **`contacts` konnte sich nicht selbst heilen.** Vor #336 hatte jede Spalte
+  von `persons` und `breeding_stations` ihren eigenen Migrationsschritt —
+  deshalb fing eine Installation, der eine Spalte abhandengekommen war, sich
+  beim nächsten Lauf wieder ein. Für die neue Tabelle fehlte das Gegenstück,
+  und `CREATE TABLE IF NOT EXISTS` ergänzt keine fehlende Spalte.
+
+### Nicht enthalten
+
+- **Sprachen als Sprach-Addons** (#344) ist nach v0.9.0 gewandert. Ein halber
+  Stand wäre dort kein Teilziel, sondern ein Rückschritt: „Sprache aus `lang/`
+  entfernt" heißt ohne den Addon-Unterbau schlicht, dass es die Sprache nicht
+  mehr gibt — und das träfe genau die Benutzer, die kein Deutsch und kein
+  Englisch lesen. Der Kern behält in v0.8.0 alle dreizehn Sprachen.
+
+- **Galerie als Kernmodul** (#339) und der daran hängende Addon-Umbau
+  (Addons#116) sind nach v0.9.0 gewandert. Die Mechanik, mit der ein
+  Kern-Update ein abgelöstes Addon entfernen darf, ist gebaut und dokumentiert;
+  `UpdateService::ABGELOESTE_ADDONS` ist aber **leer**. Ein Eintrag ohne den
+  Kern-Ersatz wäre kein halbes Feature, sondern ein Schaden — das Update
+  entfernte das Addon, und die Betreiber stünden ganz ohne Galerie da.
+
 ## [0.7.2] – 2026-08-20
 
 Vier Fehlerbehebungen ohne Schemaänderung. Addons der Linie 0.7 laufen

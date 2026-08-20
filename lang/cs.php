@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Požadovaný kůň neexistuje nebo byl z rejstříku odstraněn.',
     'meta.title_horse_detail_suffix' => 'Podrobnosti',
 
-    // Detailní stránka připouštěcí stanice
+    // Blok připouštěcí stanice na stránce kontaktu (#336)
     'station.horses_heading' => '🐴 Koně této připouštěcí stanice',
     'station.no_horses' => 'V rejstříku nejsou momentálně vedeni žádní koně této připouštěcí stanice.',
     'field.location' => 'Místo',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Mobil',
     'station.not_found' => 'Požadovaná připouštěcí stanice neexistuje nebo byla z rejstříku odstraněna.',
     'meta.title_station_detail_suffix' => 'Připouštěcí stanice',
+
+    // Detailní stránka kontaktu (#336)
+    'contact.not_found' => 'Požadovaný kontakt neexistuje nebo byl z adresáře odstraněn.',
+    'contact.no_details' => 'K tomuto kontaktu nejsou k dispozici žádné veřejné údaje.',
+    'contact.horses_heading' => '🐴 Koně tohoto kontaktu',
+    'contact.no_horses' => 'K tomuto kontaktu nejsou v rejstříku aktuálně evidováni žádní koně.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Impresum / ochrana osobních údajů / GDPR (statické zástupné texty)
     'legal.impressum_title' => 'Impresum',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Správa koní',
     'admin.dashboard.tile_persons' => 'Správa osob',
     'admin.dashboard.tile_breeding_stations' => 'Správa připouštěcích stanic',
+    'admin.dashboard.tile_contacts' => 'Správa kontaktů',
     'admin.dashboard.tile_matches' => 'Sloučit krevní linie',
     'admin.dashboard.tile_trash' => 'Koš',
     'admin.dashboard.system_heading' => 'Systémová nastavení a konfigurace',

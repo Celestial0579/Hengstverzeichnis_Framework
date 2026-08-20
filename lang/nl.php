@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Het opgevraagde paard bestaat niet of is uit het register verwijderd.',
     'meta.title_horse_detail_suffix' => 'Details',
 
-    // Detailpagina dekstation
+    // Dekstation-blok op de contactpagina (#336)
     'station.horses_heading' => '🐴 Paarden van dit dekstation',
     'station.no_horses' => 'Er zijn momenteel geen paarden van dit dekstation in het register opgenomen.',
     'field.location' => 'Plaats',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Mobiel',
     'station.not_found' => 'Het opgevraagde dekstation bestaat niet of is uit het register verwijderd.',
     'meta.title_station_detail_suffix' => 'Dekstation',
+
+    // Detailpagina contact (#336)
+    'contact.not_found' => 'Het opgevraagde contact bestaat niet of is uit het register verwijderd.',
+    'contact.no_details' => 'Voor dit contact zijn geen openbare gegevens beschikbaar.',
+    'contact.horses_heading' => '🐴 Paarden van dit contact',
+    'contact.no_horses' => 'Er zijn momenteel geen paarden aan dit contact gekoppeld in het register.',
+    'meta.title_contact_detail_suffix' => 'Contact',
 
     // Colofon / Privacyverklaring / AVG (statische plaatshouderteksten)
     'legal.impressum_title' => 'Colofon',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Paarden beheren',
     'admin.dashboard.tile_persons' => 'Personen beheren',
     'admin.dashboard.tile_breeding_stations' => 'Dekstations beheren',
+    'admin.dashboard.tile_contacts' => 'Contacten beheren',
     'admin.dashboard.tile_matches' => 'Bloedlijnen samenvoegen',
     'admin.dashboard.tile_trash' => 'Prullenbak',
     'admin.dashboard.system_heading' => 'Systeeminstellingen & configuratie',

@@ -29,7 +29,14 @@ use PHPUnit\Framework\TestCase;
  */
 class DumpAndRestoreTest extends TestCase {
 
-    private const TARGET_DB = 'hengst_dumper_restore_target';
+    /**
+     * Name der Wegwerf-Datenbank. Ueber HV_TEST_DB_PREFIX umstellbar, damit
+     * die Suite auch mit einem Datenbank-Benutzer laeuft, der nur auf einem
+     * eigenen Namensraum Rechte hat - siehe Tests\Support\WegwerfDatenbank.
+     */
+    private static function zielDatenbank(): string {
+        return \Tests\Support\WegwerfDatenbank::name('dumper_restore_target');
+    }
 
     private static PDO $adminPdo;
     private static PDO $source;
@@ -68,19 +75,19 @@ class DumpAndRestoreTest extends TestCase {
         $stmt->execute(['site_name', "Reiter's Verband \"Süd\" \\ Test"]);
         $stmt->execute(['primary_color', null]);
 
-        $stmt = self::$source->prepare("INSERT INTO persons (name, contact_info) VALUES (?, ?)");
+        $stmt = self::$source->prepare("INSERT INTO contacts (name, contact_info) VALUES (?, ?)");
         $stmt->execute(['Müller, Anna "die Schnelle"', "Zeile1\nZeile2"]);
 
         // Zweite, komplett leere Datenbank als Restore-Ziel.
         $adminDsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";charset=utf8mb4";
         self::$adminPdo = new PDO($adminDsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-        self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::TARGET_DB . "`");
-        self::$adminPdo->exec("CREATE DATABASE `" . self::TARGET_DB . "` CHARACTER SET utf8mb4");
+        self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::zielDatenbank() . "`");
+        self::$adminPdo->exec("CREATE DATABASE `" . self::zielDatenbank() . "` CHARACTER SET utf8mb4");
     }
 
     public static function tearDownAfterClass(): void {
         if (isset(self::$adminPdo)) {
-            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::TARGET_DB . "`");
+            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::zielDatenbank() . "`");
         }
     }
 
@@ -92,7 +99,7 @@ class DumpAndRestoreTest extends TestCase {
         $this->assertStringContainsString('INSERT INTO `settings`', $sql);
 
         $target = new PDO(
-            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::TARGET_DB . ";charset=utf8mb4",
+            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::zielDatenbank() . ";charset=utf8mb4",
             DB_USER,
             DB_PASS,
             [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
@@ -122,9 +129,9 @@ class DumpAndRestoreTest extends TestCase {
         $restoredPrimaryColor = $target->query("SELECT setting_value FROM settings WHERE setting_key = 'primary_color'")->fetchColumn();
         $this->assertNull($restoredPrimaryColor);
 
-        $restoredPersonName = $target->query("SELECT name, contact_info FROM persons LIMIT 1")->fetch();
-        $this->assertSame('Müller, Anna "die Schnelle"', $restoredPersonName['name']);
-        $this->assertSame("Zeile1\nZeile2", $restoredPersonName['contact_info']);
+        $restoredKontaktName = $target->query("SELECT name, contact_info FROM contacts LIMIT 1")->fetch();
+        $this->assertSame('Müller, Anna "die Schnelle"', $restoredKontaktName['name']);
+        $this->assertSame("Zeile1\nZeile2", $restoredKontaktName['contact_info']);
     }
 
     /**
@@ -176,11 +183,11 @@ class DumpAndRestoreTest extends TestCase {
 
             // Frisches Restore-Ziel (unabhängig von der Reihenfolge der Tests
             // in dieser Klasse).
-            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::TARGET_DB . "`");
-            self::$adminPdo->exec("CREATE DATABASE `" . self::TARGET_DB . "` CHARACTER SET utf8mb4");
+            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::zielDatenbank() . "`");
+            self::$adminPdo->exec("CREATE DATABASE `" . self::zielDatenbank() . "` CHARACTER SET utf8mb4");
 
             $target = new PDO(
-                "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::TARGET_DB . ";charset=utf8mb4",
+                "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::zielDatenbank() . ";charset=utf8mb4",
                 DB_USER,
                 DB_PASS,
                 [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
@@ -196,7 +203,7 @@ class DumpAndRestoreTest extends TestCase {
             $restoredSiteName = $target->query("SELECT setting_value FROM settings WHERE setting_key = 'site_name'")->fetchColumn();
             $this->assertSame("Reiter's Verband \"Süd\" \\ Test", $restoredSiteName);
 
-            $restoredPerson = $target->query("SELECT name, contact_info FROM persons LIMIT 1")->fetch();
+            $restoredPerson = $target->query("SELECT name, contact_info FROM contacts LIMIT 1")->fetch();
             $this->assertSame('Müller, Anna "die Schnelle"', $restoredPerson['name']);
             $this->assertSame("Zeile1\nZeile2", $restoredPerson['contact_info']);
         } finally {

@@ -23,8 +23,9 @@ class AdminController extends BaseController {
             'title' => 'Admin Dashboard',
             'pluginTiles' => $pluginTiles,
             'canViewHorses' => $this->hasPermission('horses', 'view'),
-            'canViewPersons' => $this->hasPermission('persons', 'view'),
-            'canViewBreedingStations' => $this->hasPermission('breeding_stations', 'view')
+            // Eine Kachel statt der frueheren zwei (#336): Personen und
+            // Deckstationen sind ein Bereich, also auch ein Recht.
+            'canViewContacts' => $this->hasPermission('contacts', 'view')
         ]);
     }
 
@@ -518,11 +519,18 @@ class AdminController extends BaseController {
         $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
         $db->exec("TRUNCATE TABLE horse_persons;");
         $db->exec("TRUNCATE TABLE horse_registrations;");
-        $db->exec("TRUNCATE TABLE breeding_stations;");
         $db->exec("TRUNCATE TABLE password_resets;");
         $db->exec("TRUNCATE TABLE gdpr_requests;");
         $db->exec("TRUNCATE TABLE horses;");
-        $db->exec("TRUNCATE TABLE persons;");
+        // contact_id_map MUSS mit contacts zusammen geleert werden (#336):
+        // Die Tabelle bildet alte Personen-/Stationskennungen auf Kontakte ab.
+        // Bliebe sie stehen, zeigten ihre Zeilen nach dem Reset auf Kennungen,
+        // die eine frisch eingerichtete Installation neu vergibt - die alten
+        // Adressen /person?id= und /station?id= landeten dann bei einem
+        // fremden Kontakt. TRUNCATE feuert kein ON DELETE CASCADE, das
+        // Aufraeumen passiert hier also nicht von selbst.
+        $db->exec("TRUNCATE TABLE contact_id_map;");
+        $db->exec("TRUNCATE TABLE contacts;");
         $db->exec("TRUNCATE TABLE user_groups;");
         $db->exec("TRUNCATE TABLE users;");
         $db->exec("TRUNCATE TABLE settings;");

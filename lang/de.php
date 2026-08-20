@@ -152,7 +152,9 @@ return [
     'horse.not_found' => 'Das angeforderte Pferd existiert nicht oder wurde aus dem Verzeichnis entfernt.',
     'meta.title_horse_detail_suffix' => 'Details',
 
-    // Deckstation-Detailseite
+    // Deckstations-Block der Kontaktseite (#336): Die eigene
+    // Stationsseite gibt es nicht mehr, die Rolle schon - deshalb
+    // behalten diese beiden Schlüssel Namen und Wortlaut.
     'station.horses_heading' => '🐴 Pferde dieser Deckstation',
     'station.no_horses' => 'Aktuell sind keine Pferde dieser Deckstation im Verzeichnis hinterlegt.',
     'field.location' => 'Ort',
@@ -167,6 +169,21 @@ return [
     'field.mobile' => 'Mobil',
     'station.not_found' => 'Die angeforderte Deckstation existiert nicht oder wurde aus dem Verzeichnis entfernt.',
     'meta.title_station_detail_suffix' => 'Deckstation',
+
+    // Kontakt-Detailseite (#336): `persons` und `breeding_stations` sind zu
+    // einer Liste zusammengefasst. Ein Kontakt kann eine Person ODER ein
+    // Betrieb sein - „Person" wäre für einen Zuchtbetrieb schlicht falsch,
+    // deshalb reden die Schlüssel dieses Bereichs von „Kontakt".
+    // Was oben stehen bleibt, bleibt mit Absicht: `person.not_found` und
+    // `station.not_found` beschriften die 404-Meldung der alten Adressen
+    // /person und /station (die als 301 weiterleiten, siehe
+    // docs/kontaktliste-umstellung.md), und Feldbeschriftungen wie
+    // `person.is_breeder` werden ohnehin nicht umbenannt.
+    'contact.not_found' => 'Der angeforderte Kontakt existiert nicht oder wurde aus dem Verzeichnis entfernt.',
+    'contact.no_details' => 'Zu diesem Kontakt sind keine öffentlichen Angaben hinterlegt.',
+    'contact.horses_heading' => '🐴 Pferde dieses Kontakts',
+    'contact.no_horses' => 'Aktuell sind diesem Kontakt keine Pferde im Verzeichnis zugeordnet.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Impressum / Datenschutz / DSGVO (statische Platzhaltertexte)
     'legal.impressum_title' => 'Impressum',
@@ -263,6 +280,10 @@ return [
     'admin.dashboard.tile_horses' => 'Pferde verwalten',
     'admin.dashboard.tile_persons' => 'Personen verwalten',
     'admin.dashboard.tile_breeding_stations' => 'Deckstationen verwalten',
+    // Eine Kachel statt zweier (#336). tile_persons und
+    // tile_breeding_stations bleiben stehen, solange die alten
+    // Admin-Seiten noch erreichbar sind.
+    'admin.dashboard.tile_contacts' => 'Kontakte verwalten',
     'admin.dashboard.tile_matches' => 'Blutlinien zusammenführen',
     'admin.dashboard.tile_trash' => 'Papierkorb',
     'admin.dashboard.system_heading' => 'Systemeinstellungen & Konfiguration',

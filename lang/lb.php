@@ -153,7 +153,7 @@ return [
     'horse.not_found' => 'Dat ugefrote Päerd existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
     'meta.title_horse_detail_suffix' => 'Detailer',
 
-    // Deckstatioun-Detailsäit
+    // Deckstatioun-Block op der Kontaktsäit (#336)
     'station.horses_heading' => '🐴 Päerd vun dëser Deckstatioun',
     'station.no_horses' => 'Momentan si keng Päerd vun dëser Deckstatioun am Verzeechnes hannerluecht.',
     'field.location' => 'Uert',
@@ -168,6 +168,13 @@ return [
     'field.mobile' => 'Handy',
     'station.not_found' => 'Déi ugefrot Deckstatioun existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
     'meta.title_station_detail_suffix' => 'Deckstatioun',
+
+    // Kontakt-Detailsäit (#336)
+    'contact.not_found' => 'De ugefroene Kontakt existéiert net oder gouf aus dem Verzeechnes ewechgeholl.',
+    'contact.no_details' => 'Zu dësem Kontakt sinn keng ëffentlech Angaben hannerluecht.',
+    'contact.horses_heading' => '🐴 Päerd vun dësem Kontakt',
+    'contact.no_horses' => 'Aktuell sinn dësem Kontakt keng Päerd am Verzeechnes zougeuerdent.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Impressum / Dateschutz / DSGVO (statesch Plazhaltertexter)
     'legal.impressum_title' => 'Impressum',
@@ -264,6 +271,7 @@ return [
     'admin.dashboard.tile_horses' => 'Päerd verwalten',
     'admin.dashboard.tile_persons' => 'Persoune verwalten',
     'admin.dashboard.tile_breeding_stations' => 'Deckstatioune verwalten',
+    'admin.dashboard.tile_contacts' => 'Kontakter verwalten',
     'admin.dashboard.tile_matches' => 'Bluttlinnen zesummeféieren',
     'admin.dashboard.tile_trash' => 'Pabeierkuerf',
     'admin.dashboard.system_heading' => 'Systemastellungen & Konfiguratioun',

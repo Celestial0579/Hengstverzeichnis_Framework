@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Pyydettyä hevosta ei ole olemassa tai se on poistettu rekisteristä.',
     'meta.title_horse_detail_suffix' => 'Tiedot',
 
-    // Oriaseman tietosivu
+    // Oriasema-osio kontaktin sivulla (#336)
     'station.horses_heading' => '🐴 Tämän oriaseman hevoset',
     'station.no_horses' => 'Tämän oriaseman hevosia ei ole tällä hetkellä rekisterissä.',
     'field.location' => 'Paikkakunta',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Matkapuhelin',
     'station.not_found' => 'Pyydettyä oriasemaa ei ole olemassa tai se on poistettu rekisteristä.',
     'meta.title_station_detail_suffix' => 'Oriasema',
+
+    // Kontaktin tietosivu (#336)
+    'contact.not_found' => 'Pyydettyä kontaktia ei ole olemassa tai se on poistettu hakemistosta.',
+    'contact.no_details' => 'Tästä kontaktista ei ole julkisia tietoja.',
+    'contact.horses_heading' => '🐴 Tämän kontaktin hevoset',
+    'contact.no_horses' => 'Tälle kontaktille ei ole tällä hetkellä merkitty hevosia rekisterissä.',
+    'meta.title_contact_detail_suffix' => 'Kontakti',
 
     // Julkaisutiedot / tietosuojaseloste / GDPR (staattiset paikkamerkkitekstit)
     'legal.impressum_title' => 'Julkaisutiedot',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Hallitse hevosia',
     'admin.dashboard.tile_persons' => 'Hallitse henkilöitä',
     'admin.dashboard.tile_breeding_stations' => 'Hallitse oriasemia',
+    'admin.dashboard.tile_contacts' => 'Hallitse kontakteja',
     'admin.dashboard.tile_matches' => 'Yhdistä sukulinjat',
     'admin.dashboard.tile_trash' => 'Roskakori',
     'admin.dashboard.system_heading' => 'Järjestelmäasetukset & konfiguraatio',

@@ -15,11 +15,21 @@ class TrashController extends BaseController {
      * HorseController::delete()), darf es auch wiederherstellen oder endgültig
      * entfernen. `user` ist bewusst nicht enthalten - Benutzerkonten sind
      * ausschließlich Administratoren vorbehalten (siehe unten).
+     *
+     * Seit der Kontaktliste (#336) gibt es statt 'person' und
+     * 'breeding_station' nur noch 'contact'. Die alten Typwerte stehen hier
+     * BEWUSST nicht als Alias daneben, und der Grund ist kein Ordnungssinn,
+     * sondern ein Loeschschaden: Die alten Kennungen waren je Tabelle
+     * vergeben, Person 5 und Station 5 gab es beide. Ein Formular aus einem
+     * noch offenen Tab schickte nach dem Umzug also eine Kennung, die jetzt
+     * zu einem voellig anderen Kontakt gehoert - "endgueltig loeschen" traefe
+     * den Falschen. Unbekannte Typen laufen in authorizeForType() in den
+     * No-Op-Zweig zurueck zum Papierkorb; die Seite wird dann neu geladen und
+     * zeigt die richtigen Kennungen.
      */
     private const TYPE_MODULE_MAP = [
         'horse' => 'horses',
-        'person' => 'persons',
-        'breeding_station' => 'breeding_stations',
+        'contact' => 'contacts',
     ];
 
     public function __construct() {
@@ -36,17 +46,14 @@ class TrashController extends BaseController {
             // Nur das zählen, was der aktuelle Benutzer auch tatsächlich verwalten
             // darf - andernfalls würde die Badge-Zahl im Menü Elemente offenlegen,
             // auf die der Benutzer über den Papierkorb gar nicht zugreifen darf.
-            // Alle erlaubten Counts in EINER Query statt vier Roundtrips, da die
-            // Badge bei jedem Backend-Seitenaufruf gerendert wird (#134).
+            // Alle erlaubten Counts in EINER Query statt mehreren Roundtrips, da
+            // die Badge bei jedem Backend-Seitenaufruf gerendert wird (#134).
             $subselects = [];
             if (self::userCanManage($userId, $isAdmin, 'horses')) {
                 $subselects[] = "(SELECT COUNT(*) FROM horses WHERE deleted_at IS NOT NULL)";
             }
-            if (self::userCanManage($userId, $isAdmin, 'persons')) {
-                $subselects[] = "(SELECT COUNT(*) FROM persons WHERE deleted_at IS NOT NULL)";
-            }
-            if (self::userCanManage($userId, $isAdmin, 'breeding_stations')) {
-                $subselects[] = "(SELECT COUNT(*) FROM breeding_stations WHERE deleted_at IS NOT NULL)";
+            if (self::userCanManage($userId, $isAdmin, 'contacts')) {
+                $subselects[] = "(SELECT COUNT(*) FROM contacts WHERE deleted_at IS NOT NULL)";
             }
             if ($isAdmin) {
                 $subselects[] = "(SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL)";
@@ -102,19 +109,20 @@ class TrashController extends BaseController {
         // die Aktionen unten auslösen.
         $deletedHorses = $this->hasPermission('horses', 'delete')
             ? $db->query("SELECT * FROM horses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
-        $deletedPersons = $this->hasPermission('persons', 'delete')
-            ? $db->query("SELECT * FROM persons WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
-        $deletedStations = $this->hasPermission('breeding_stations', 'delete')
-            ? $db->query("SELECT * FROM breeding_stations WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
+        // Kein `SELECT *`, obwohl der Papierkorb ein Admin-Pfad ist (#336): Die
+        // Liste braucht fuenf Felder, und eine Positivliste kann nicht dadurch
+        // undicht werden, dass jemand die View spaeter um eine Spalte
+        // erweitert - dieselbe Lehre wie aus #293, nur eine Etage hoeher.
+        $deletedContacts = $this->hasPermission('contacts', 'delete')
+            ? $db->query("SELECT id, name, contact_person, contact_info, deleted_at FROM contacts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
         $deletedUsers = $isAdmin ? $db->query("SELECT * FROM users WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
 
-        $totalCount = count($deletedHorses) + count($deletedPersons) + count($deletedStations) + count($deletedUsers);
+        $totalCount = count($deletedHorses) + count($deletedContacts) + count($deletedUsers);
 
         $this->render('admin_trash', [
             'title' => 'Papierkorb',
             'deletedHorses' => $deletedHorses,
-            'deletedPersons' => $deletedPersons,
-            'deletedStations' => $deletedStations,
+            'deletedContacts' => $deletedContacts,
             'deletedUsers' => $deletedUsers,
             'totalCount' => $totalCount,
             'isAdmin' => $isAdmin
@@ -164,8 +172,7 @@ class TrashController extends BaseController {
             $db = Database::getInstance();
             $stmt = match ($type) {
                 'horse' => $db->prepare("UPDATE horses SET deleted_at = NULL WHERE id = ?"),
-                'person' => $db->prepare("UPDATE persons SET deleted_at = NULL WHERE id = ?"),
-                'breeding_station' => $db->prepare("UPDATE breeding_stations SET deleted_at = NULL WHERE id = ?"),
+                'contact' => $db->prepare("UPDATE contacts SET deleted_at = NULL WHERE id = ?"),
                 'user' => $db->prepare("UPDATE users SET deleted_at = NULL WHERE id = ?"),
                 default => null,
             };
@@ -204,7 +211,7 @@ class TrashController extends BaseController {
         // bei unbekanntem Typ zurück).
         $this->authorizeForType($type);
 
-        $validTypes = ['horse', 'person', 'breeding_station', 'user'];
+        $validTypes = ['horse', 'contact', 'user'];
 
         if (in_array($type, $validTypes, true) && $id > 0) {
             $db = Database::getInstance();
@@ -212,8 +219,7 @@ class TrashController extends BaseController {
             // Check if item is older than 30 days
             $selectStmt = match ($type) {
                 'horse' => $db->prepare("SELECT deleted_at FROM horses WHERE id = ?"),
-                'person' => $db->prepare("SELECT deleted_at FROM persons WHERE id = ?"),
-                'breeding_station' => $db->prepare("SELECT deleted_at FROM breeding_stations WHERE id = ?"),
+                'contact' => $db->prepare("SELECT deleted_at FROM contacts WHERE id = ?"),
                 'user' => $db->prepare("SELECT deleted_at FROM users WHERE id = ?"),
             };
             $selectStmt->execute([$id]);
@@ -233,10 +239,16 @@ class TrashController extends BaseController {
                     $this->hooks()->doAction('horse.before_delete', $id, $horse, true);
                 }
 
+                // Beim Kontakt raeumen die Fremdschluessel auf (#336): Die
+                // Zuordnungen in horse_persons.contact_id fallen mit
+                // (ON DELETE CASCADE), waehrend horse_persons.station_contact_id
+                // und horses.breeding_station_id auf NULL gehen (ON DELETE SET
+                // NULL). Beide Richtungen sind gewollt und im Schema
+                // begruendet - deshalb steht hier weiterhin ein schlichtes
+                // DELETE und kein Vorab-Aufraeumen von Hand.
                 $deleteStmt = match ($type) {
                     'horse' => $db->prepare("DELETE FROM horses WHERE id = ?"),
-                    'person' => $db->prepare("DELETE FROM persons WHERE id = ?"),
-                    'breeding_station' => $db->prepare("DELETE FROM breeding_stations WHERE id = ?"),
+                    'contact' => $db->prepare("DELETE FROM contacts WHERE id = ?"),
                     'user' => $db->prepare("DELETE FROM users WHERE id = ?"),
                 };
                 $deleteStmt->execute([$id]);
@@ -271,8 +283,7 @@ class TrashController extends BaseController {
         if ($isAdmin) {
             // Admins can clear all trash immediately
             $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL");
-            $db->exec("DELETE FROM persons WHERE deleted_at IS NOT NULL");
-            $db->exec("DELETE FROM breeding_stations WHERE deleted_at IS NOT NULL");
+            $db->exec("DELETE FROM contacts WHERE deleted_at IS NOT NULL");
             $db->exec("DELETE FROM users WHERE deleted_at IS NOT NULL");
 
             \App\Service\AuditLogger::log("Papierkorb geleert (Admin)", "trash", "Alle gelöschten Elemente endgültig bereinigt");
@@ -283,11 +294,8 @@ class TrashController extends BaseController {
             if ($this->hasPermission('horses', 'delete')) {
                 $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
             }
-            if ($this->hasPermission('persons', 'delete')) {
-                $db->exec("DELETE FROM persons WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
-            }
-            if ($this->hasPermission('breeding_stations', 'delete')) {
-                $db->exec("DELETE FROM breeding_stations WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+            if ($this->hasPermission('contacts', 'delete')) {
+                $db->exec("DELETE FROM contacts WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
             }
 
             \App\Service\AuditLogger::log("Papierkorb bereinigt (>30 Tage)", "trash", "Ältere Elemente durch Editor bereinigt");

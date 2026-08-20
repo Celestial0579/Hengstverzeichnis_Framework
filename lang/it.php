@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Il cavallo richiesto non esiste o è stato rimosso dal registro.',
     'meta.title_horse_detail_suffix' => 'Dettagli',
 
-    // Pagina di dettaglio della stazione di monta
+    // Blocco stazione di monta nella pagina del contatto (#336)
     'station.horses_heading' => '🐴 Cavalli di questa stazione di monta',
     'station.no_horses' => 'Al momento non ci sono cavalli di questa stazione di monta nel registro.',
     'field.location' => 'Località',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Cellulare',
     'station.not_found' => 'La stazione di monta richiesta non esiste o è stata rimossa dal registro.',
     'meta.title_station_detail_suffix' => 'Stazione di monta',
+
+    // Pagina di dettaglio del contatto (#336)
+    'contact.not_found' => 'Il contatto richiesto non esiste o è stato rimosso dall\'elenco.',
+    'contact.no_details' => 'Non sono disponibili informazioni pubbliche su questo contatto.',
+    'contact.horses_heading' => '🐴 Cavalli di questo contatto',
+    'contact.no_horses' => 'Al momento non risultano cavalli associati a questo contatto.',
+    'meta.title_contact_detail_suffix' => 'Contatto',
 
     // Note legali / Informativa sulla privacy / GDPR (testi segnaposto statici)
     'legal.impressum_title' => 'Note legali',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Gestisci cavalli',
     'admin.dashboard.tile_persons' => 'Gestisci persone',
     'admin.dashboard.tile_breeding_stations' => 'Gestisci stazioni di monta',
+    'admin.dashboard.tile_contacts' => 'Gestisci contatti',
     'admin.dashboard.tile_matches' => 'Unisci linee di sangue',
     'admin.dashboard.tile_trash' => 'Cestino',
     'admin.dashboard.system_heading' => 'Impostazioni di sistema e configurazione',

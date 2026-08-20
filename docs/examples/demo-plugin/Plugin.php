@@ -58,7 +58,8 @@ class Plugin {
         // "Was in $horse und $horsePersons steht"): Geprüft wird das FELD, das
         // tatsächlich gebraucht wird - nicht die Verknüpfung $horse['breeding_station_id'].
         // Die ist auch dann gesetzt, wenn die Station unveröffentlicht oder gelöscht ist
-        // oder der Gast-Gruppe breeding_stations.view fehlt; die station_*-Felder sind
+        // oder der Gast-Gruppe contacts.view fehlt (seit #336 heisst das Recht so);
+        // die station_*-Felder sind
         // dann sämtlich null. Ein Addon ist an genau dieser Verwechslung schon
         // stillschweigend gebrochen (#151).
         if (!empty($horse['station_email'])) {

@@ -135,15 +135,31 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
                                         </div>
                                     </div>
 
-                                    <form action="/admin/matches/link" method="POST" style="margin: 0;">
-                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                        <input type="hidden" name="child_id" value="<?= $match['child_id'] ?>">
-                                        <input type="hidden" name="parent_type" value="<?= $match['parent_type'] ?>">
-                                        <input type="hidden" name="parent_horse_id" value="<?= $sug['horse']['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
-                                            ✓ Jetzt verknüpfen
-                                        </button>
-                                    </form>
+                                    <div style="display: flex; gap: 0.4rem; align-items: center;">
+                                        <form action="/admin/matches/link" method="POST" style="margin: 0;">
+                                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                            <input type="hidden" name="child_id" value="<?= $match['child_id'] ?>">
+                                            <input type="hidden" name="parent_type" value="<?= $match['parent_type'] ?>">
+                                            <input type="hidden" name="parent_horse_id" value="<?= $sug['horse']['id'] ?>">
+                                            <button type="submit" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
+                                                ✓ Jetzt verknüpfen
+                                            </button>
+                                        </form>
+                                        <?php // #355: das Gegenteil von "verknüpfen". Ohne diesen Knopf kam
+                                              // dasselbe Paar bei jedem Aufruf wieder, und der Digest zählte
+                                              // es dauerhaft als offen. ?>
+                                        <form action="/admin/matches/label" method="POST" style="margin: 0;">
+                                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                            <input type="hidden" name="art" value="horse">
+                                            <input type="hidden" name="a" value="<?= (int)$match['child_id'] ?>">
+                                            <input type="hidden" name="b" value="<?= (int)$sug['horse']['id'] ?>">
+                                            <input type="hidden" name="label" value="different">
+                                            <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;"
+                                                    title="Blendet diesen Vorschlag dauerhaft aus - widerrufbar unten in der Liste der Entscheidungen">
+                                                ✕ Verschiedene Pferde
+                                            </button>
+                                        </form>
+                                    </div>
                                 </div>
                             <?php endforeach; ?>
                         </div>
@@ -195,3 +211,125 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
         </div>
     <?php endif; ?>
 </div>
+
+<?php // ===================== Kontakt-Dubletten (#355) ===================== ?>
+<?php if (!empty($darfKontakteBearbeiten)): ?>
+<div class="card" style="margin-top: 1.5rem;">
+    <h2 style="margin-top: 0;">👥 Mögliche Kontakt-Dubletten</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">
+        Namensähnlichkeit trägt die Bewertung, Ort, PLZ und Land stützen sie.
+        Platzhalter wie „Nichtmitglied NO" nehmen bewusst <strong>nicht</strong>
+        teil — sie unterscheiden sich nur im Länderkürzel, und jede
+        Ähnlichkeitsmetrik hielte sie für denselben Kontakt.
+    </p>
+
+    <?php if (!empty($kontaktDubletten['abgeschnitten'])): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem;">
+            Es wurden nur die ersten <?= (int)$kontaktDubletten['geprueft'] ?> Kontakte geprüft —
+            der Vergleich ist ein Kreuzprodukt und würde sonst die Seite hängen lassen.
+            <strong>Diese Liste ist damit nicht vollständig.</strong>
+        </div>
+    <?php endif; ?>
+
+    <?php if (empty($kontaktDubletten['paare'])): ?>
+        <p style="color: var(--success-fg);">Keine offenen Vorschläge — alles entschieden oder nichts gefunden.</p>
+    <?php else: ?>
+        <table class="table">
+            <thead>
+                <tr><th>Kontakt A</th><th>Kontakt B</th><th>Punkte</th><th>Warum</th><th>Entscheidung</th></tr>
+            </thead>
+            <tbody>
+            <?php foreach ($kontaktDubletten['paare'] as $paar): ?>
+                <tr>
+                    <td>
+                        <a href="/admin/contacts/edit?id=<?= (int)$paar['a']['id'] ?>"><?= htmlspecialchars((string)$paar['a']['name']) ?></a>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">
+                            <?= htmlspecialchars(trim(($paar['a']['postal_code'] ?? '') . ' ' . ($paar['a']['city'] ?? '') . ' ' . ($paar['a']['country'] ?? ''))) ?>
+                        </div>
+                    </td>
+                    <td>
+                        <a href="/admin/contacts/edit?id=<?= (int)$paar['b']['id'] ?>"><?= htmlspecialchars((string)$paar['b']['name']) ?></a>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">
+                            <?= htmlspecialchars(trim(($paar['b']['postal_code'] ?? '') . ' ' . ($paar['b']['city'] ?? '') . ' ' . ($paar['b']['country'] ?? ''))) ?>
+                        </div>
+                    </td>
+                    <td><strong><?= (int)$paar['score'] ?></strong></td>
+                    <td style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars((string)$paar['begruendung']) ?></td>
+                    <td>
+                        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                            <?php // Zusammenführen bleibt eine Einbahnstraße - deshalb führt der
+                                  // Weg über das Merge-Formular mit seiner Vorschau, nicht über
+                                  // einen Knopf hier. ?>
+                            <a class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;"
+                               href="/admin/contacts/merge?id=<?= (int)$paar['a']['id'] ?>&amp;other=<?= (int)$paar['b']['id'] ?>">
+                                → Zusammenführen prüfen
+                            </a>
+                            <form action="/admin/matches/label" method="POST" style="margin: 0;">
+                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                <input type="hidden" name="art" value="contact">
+                                <input type="hidden" name="a" value="<?= (int)$paar['a']['id'] ?>">
+                                <input type="hidden" name="b" value="<?= (int)$paar['b']['id'] ?>">
+                                <input type="hidden" name="label" value="different">
+                                <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
+                                    ✕ Verschieden
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php // Die getroffenen Entscheidungen - und der Weg zurück. Eine falsch
+      // gesetzte Trennung darf nicht endgültig sein (#355). ?>
+<?php $alleLabels = array_merge(
+        array_map(static fn($z) => $z + ['art' => 'horse'], $pferdeLabels ?? []),
+        array_map(static fn($z) => $z + ['art' => 'contact'], $kontaktLabels ?? [])
+      ); ?>
+<?php if ($alleLabels !== []): ?>
+<div class="card" style="margin-top: 1.5rem;">
+    <h2 style="margin-top: 0;">🗂️ Getroffene Entscheidungen</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem;">
+        Was hier steht, taucht in den Vorschlägen nicht mehr auf. Ein Widerruf
+        holt den Vorschlag zurück — am Bestand ändert weder das eine noch das
+        andere etwas.
+    </p>
+    <table class="table">
+        <thead><tr><th>Art</th><th>Paar</th><th>Entscheidung</th><th>Beleg</th><th>Wer, wann</th><th></th></tr></thead>
+        <tbody>
+        <?php foreach ($alleLabels as $eintrag): ?>
+            <tr>
+                <td><?= $eintrag['art'] === 'horse' ? 'Pferd' : 'Kontakt' ?></td>
+                <td>#<?= (int)$eintrag['left_id'] ?> / #<?= (int)$eintrag['right_id'] ?></td>
+                <td><?= htmlspecialchars(match ($eintrag['label']) {
+                        'merged' => 'zusammengeführt',
+                        'different' => 'verschieden',
+                        default => 'unklar',
+                    }) ?></td>
+                <td style="font-size: 0.85rem;"><?= htmlspecialchars((string)($eintrag['note'] ?? '')) ?></td>
+                <td style="font-size: 0.85rem; color: var(--text-muted);">
+                    <?= htmlspecialchars((string)$eintrag['username']) ?>,
+                    <?= htmlspecialchars((string)$eintrag['created_at']) ?>
+                </td>
+                <td>
+                    <form action="/admin/matches/label" method="POST" style="margin: 0;">
+                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                        <input type="hidden" name="art" value="<?= htmlspecialchars((string)$eintrag['art']) ?>">
+                        <input type="hidden" name="a" value="<?= (int)$eintrag['left_id'] ?>">
+                        <input type="hidden" name="b" value="<?= (int)$eintrag['right_id'] ?>">
+                        <input type="hidden" name="label" value="">
+                        <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
+                            ↺ Widerrufen
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+</div>
+<?php endif; ?>

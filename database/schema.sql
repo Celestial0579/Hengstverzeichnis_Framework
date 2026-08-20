@@ -48,121 +48,131 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Persons (Breeders, Owners, Keepers)
-CREATE TABLE IF NOT EXISTS `persons` (
+-- Kontakte (Personen, Deckstationen, Höfe - ein Datensatz je Gegenüber, #336)
+--
+-- Bis v0.7 gab es dafür ZWEI Tabellen, `persons` und `breeding_stations`.
+-- Die Trennung erzeugte laufend Fälle, die niemand entscheiden kann: Ein Hof,
+-- den zwei Privatleute betreiben, ist beides. Beim Aufräumen der
+-- Deckstationsdaten blieben 134 Freitexte übrig, bei denen die Frage
+-- "Deckstation oder Person?" nicht beantwortbar war - und sie ist es auch
+-- nicht. Sie verschwindet nicht durch eine bessere Heuristik, sondern
+-- dadurch, dass man sie nicht mehr stellen muss.
+--
+-- Was ein Kontakt für ein bestimmtes Pferd IST - Züchter, Halter, Besitzer,
+-- Deckstation - steht seitdem ausschließlich an der Zuordnung
+-- (`horse_persons`.`role`), nicht mehr in der Wahl der Tabelle.
+--
+-- KEIN Typ-Feld. Sichtbarkeit ist eine Entscheidung je Datensatz, keine
+-- Eigenschaft einer Gattung - genau das war der Fehler der alten
+-- Modellierung. Wer hier ein `type` ergänzt, baut sie wieder ein.
+--
+-- DATENSCHUTZ-GRENZE: Bis v0.7 schützte die Trennung selbst - `persons`
+-- lieferte nur eine Positivliste von Spalten an die öffentliche Seite,
+-- `breeding_stations` ein `SELECT *`. Fällt die Trennung, ist der Schutz nur
+-- noch ein Feld, und ein falsch gesetztes Feld stellt die Privatadresse eines
+-- Menschen ins Netz. Deshalb gilt ab hier für ALLE Kontakte die strengere
+-- der beiden Regeln:
+--   * `contact_public` DEFAULT 0 (persons-Vorgabe, nicht die 1 der Stationen)
+--   * `is_published`   DEFAULT 0
+--   * Die öffentliche Seite wählt weiterhin EINZELNE Spalten aus, nie
+--     `SELECT *` - siehe PublicController::contactDetail() und die Lehre
+--     aus #293. Was gar nicht erst ankommt, kann der nächste nicht
+--     versehentlich ausgeben.
+-- Öffentlich sind nur grobe geografische Verortung (city/state/country),
+-- membership_status, is_breeder und website; zustellbare Angaben
+-- (street/house_number/postal_code/email/phone/mobile/contact_info/address)
+-- nur bei contact_public = 1.
+CREATE TABLE IF NOT EXISTS `contacts` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `name` VARCHAR(100) NOT NULL,
-    -- Freitext-Restfeld für alles, wofür es keine Spalte gibt. Adresse/E-Mail
-    -- seit #188 strukturiert, Telefon/Mobil/Website seit #293. AUSSCHLIESSLICH
-    -- Admin-only: Bis #293 wurde dieses Feld öffentlich gerendert, obwohl das
-    -- Formular ausdrücklich zu Telefonnummern einlud - also genau die Art
-    -- Angabe, die laut Trennlinie unten intern gehört.
-    `contact_info` TEXT,
-    -- Strukturierte Adresse (#188, state seit #256, Kontaktfelder seit #293).
-    -- Öffentlich (und im Hook-Payload) erscheinen NUR city, state, country,
-    -- membership_status und website - street/house_number/postal_code/email/
-    -- phone/mobile/contact_info bleiben Admin-only (siehe
-    -- PublicController::horseDetail und docs/plugin-development.md). Die
-    -- Trennlinie ist nicht "wenige Felder", sondern: zustellbare Angaben sind
-    -- intern, grobe geografische Verortung ist öffentlich. Eine Website ist
-    -- zur Veröffentlichung bestimmt und deshalb öffentlich, eine Telefonnummer
-    -- ist zustellbar wie eine E-Mail-Adresse und deshalb intern.
-    -- Die DSGVO-Anonymisierung nullt alle Felder.
+    -- 150 statt der 100 aus `persons`: die weitere der beiden bisherigen
+    -- Definitionen gewinnt, sonst schnitte die Migration Stationsnamen ab.
+    `name` VARCHAR(150) NOT NULL,
+    -- Ansprechpartner eines Betriebs (kam aus `breeding_stations`). Für einen
+    -- Kontakt, der eine Privatperson IST, bleibt das Feld leer.
+    `contact_person` VARCHAR(100) NULL DEFAULT NULL,
+    -- Freitext-Restfeld aus `persons`. Intern (siehe Datenschutz-Grenze oben).
+    `contact_info` TEXT NULL,
+    -- Strukturierte Adresse (#188, state seit #256).
     `street` VARCHAR(150) NULL DEFAULT NULL,
     `house_number` VARCHAR(20) NULL DEFAULT NULL,
     `postal_code` VARCHAR(20) NULL DEFAULT NULL,
     `city` VARCHAR(100) NULL DEFAULT NULL,
     -- Bundesland/Kanton (#256), Freitext wie country - bewusst ohne
-    -- ISO-3166-2-Validierung und ohne Helfer-Analogon zu CountryFlag.
+    -- ISO-3166-2-Validierung.
     `state` VARCHAR(100) NULL DEFAULT NULL,
     -- Freitext, auch Länderkürzel wie 'NO' (Altsystem-Konvention).
     `country` VARCHAR(100) NULL DEFAULT NULL,
+    -- Alte Freitext-Adresse aus `breeding_stations`. Bleibt bestehen und wird
+    -- NICHT automatisch zerlegt: Der Bestand ist real mehrzeilig
+    -- ("Weideweg 1\n24000 Kiel"), ein Parse-Backfill wäre geraten - dieselbe
+    -- Begründung wie bei #188. Wird angezeigt, solange die strukturierten
+    -- Felder leer sind, und bleibt als station_address Teil des
+    -- dokumentierten Plugin-Payloads.
+    `address` TEXT NULL,
     `email` VARCHAR(100) NULL DEFAULT NULL,
-    -- Kontaktfelder analog breeding_stations (#293). phone/mobile sind
-    -- zustellbar und damit intern, website ist zur Veröffentlichung bestimmt
-    -- und damit öffentlich - siehe die Trennlinie oben. Freitext ohne
-    -- Formatprüfung, wie bei breeding_stations.
     `phone` VARCHAR(50) NULL DEFAULT NULL,
     `mobile` VARCHAR(50) NULL DEFAULT NULL,
     `website` VARCHAR(255) NULL DEFAULT NULL,
     -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
-    -- (z. B. 'Mitglied', 'Nichtmitglied NO').
+    -- (z. B. 'Mitglied', 'Nichtmitglied NO'). Wandert in v0.9.0 in das
+    -- Addon aus Addons#132 - bis dahin bleibt die Spalte hier (#349).
     `membership_status` VARCHAR(100) NULL DEFAULT NULL,
-    -- Kennzeichen "diese Person züchtet" - eine redaktionell gepflegte
-    -- Eigenschaft der Person und ausdrücklich NICHT aus
-    -- horse_persons.role='breeder' abgeleitet.
-    --
+    -- Kennzeichen "dieser Kontakt züchtet" - redaktionell gepflegt und
+    -- ausdrücklich NICHT aus horse_persons.role='breeder' abgeleitet.
     -- Beide Richtungen der Ableitung wären falsch: Wer noch kein Pferd im
     -- Verzeichnis hat, wäre nicht auffindbar, obwohl er züchtet. Und wer
-    -- früher gezüchtet hat, bliebe dauerhaft als Züchter markiert - die alten
-    -- Zuordnungen verschwinden ja nicht, sie sind Historie (mit from_year/
-    -- until_year). Das Kennzeichen sagt "züchtet heute", die Zuordnungen sagen
-    -- "hat dieses Pferd gezüchtet"; das sind verschiedene Aussagen, und nur
-    -- die erste kann sich ändern, ohne dass Daten falsch würden.
-    --
-    -- Grundlage für eine spätere Zucht-Suche (Züchter und Deckstationen
-    -- nebeneinander) - deshalb öffentlich wie membership_status und mit Index
-    -- für die Filterung.
+    -- früher gezüchtet hat, bliebe dauerhaft markiert - die alten Zuordnungen
+    -- verschwinden ja nicht, sie sind Historie (mit from_year/until_year).
+    -- Das Kennzeichen sagt "züchtet heute", die Zuordnungen sagen "hat dieses
+    -- Pferd gezüchtet".
     `is_breeder` TINYINT(1) NOT NULL DEFAULT 0,
-    -- Ausdrückliche Freigabe der Kontaktdaten (#293/Folgeauftrag). Ohne sie
-    -- bleiben E-Mail, Telefon und Mobil intern - das ist die Vorgabe und
-    -- entspricht der Trennlinie oben. Mit ihr erscheinen sie auf der
-    -- öffentlichen Personenseite.
-    --
-    -- Der Unterschied zum Fehler aus #293 ist nicht das Ergebnis, sondern die
-    -- Absicht: Dort wurde ein als "sonstige Kontaktinformationen" beschriftetes
-    -- Freitextfeld VERSEHENTLICH öffentlich gerendert. Hier entscheidet die
-    -- Redaktion je Datensatz und sieht im Formular, was das bedeutet.
+    -- Ausdrückliche Freigabe der zustellbaren Kontaktdaten. DEFAULT 0 - siehe
+    -- die Datenschutz-Grenze im Tabellenkommentar. Die Migration aus
+    -- `breeding_stations` (dort DEFAULT 1) übernimmt den BESTANDSWERT je
+    -- Zeile, damit sie nichts wegnimmt, was vorher da war; der DEFAULT für
+    -- NEUE Datensätze ist trotzdem der sichere.
     `contact_public` TINYINT(1) NOT NULL DEFAULT 0,
-    -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
-    -- erscheint in öffentlichen Katalog-Filterlisten. Neu angelegte Personen sind
-    -- standardmäßig unveröffentlicht und werden über die Admin-Verwaltung freigegeben.
-    `is_published` TINYINT(1) NOT NULL DEFAULT 0,
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    `deleted_at` DATETIME NULL DEFAULT NULL,
-    INDEX `idx_persons_deleted_name` (`deleted_at`, `name`),
-    -- Fuer die Zucht-Suche (#293): Zuechter je Ort/Land filtern.
-    INDEX `idx_persons_is_breeder` (`is_breeder`, `is_published`, `deleted_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Breeding Stations (Deckstationen / Gestüte)
-CREATE TABLE IF NOT EXISTS `breeding_stations` (
-    `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `name` VARCHAR(150) NOT NULL,
-    `contact_person` VARCHAR(100) NULL,
-    -- Strukturierte Adresse (#256), analog persons. Anders als dort ist hier
-    -- ALLES öffentlich: Eine Deckstation ist eine Geschäftsadresse, keine
-    -- Privatperson - ihre Anschrift stand auch vorher schon vollständig im
-    -- Freitextfeld address auf der öffentlichen Stationsseite.
-    `street` VARCHAR(150) NULL DEFAULT NULL,
-    `house_number` VARCHAR(20) NULL DEFAULT NULL,
-    `postal_code` VARCHAR(20) NULL DEFAULT NULL,
-    `city` VARCHAR(100) NULL DEFAULT NULL,
-    `state` VARCHAR(100) NULL DEFAULT NULL,
-    `country` VARCHAR(100) NULL DEFAULT NULL,
-    -- Alte Freitext-Adresse. Bleibt bestehen und wird NICHT automatisch
-    -- zerlegt: Der Bestand ist real mehrzeilig ("Weideweg 1\n24000 Kiel"),
-    -- ein Parse-Backfill wäre geraten - dieselbe Begründung wie bei #188.
-    -- Wird angezeigt, solange die strukturierten Felder leer sind, und bleibt
-    -- als station_address Teil des dokumentierten Plugin-Payloads.
-    `address` TEXT NULL,
-    `phone` VARCHAR(50) NULL,
-    `email` VARCHAR(100) NULL,
-    `website` VARCHAR(255) NULL,
-    -- Freigabe wie bei persons, aber mit Vorgabe 1: Telefon und E-Mail einer
-    -- Deckstation sind hier seit jeher öffentlich (Geschäftsadresse, siehe
-    -- Kommentar oben). Eine Vorgabe von 0 würde bestehende Angaben
-    -- stillschweigend verstecken - eine Freigabe darf nichts wegnehmen, was
-    -- vorher da war. Wer sie doch verbergen will, nimmt das Häkchen heraus.
-    `contact_public` TINYINT(1) NOT NULL DEFAULT 1,
-    -- Öffentliche Sichtbarkeit (unabhängig vom Datensatz-Status): nur is_published = 1
-    -- erscheint auf der öffentlichen Stations-Detailseite und in den Katalog-Filterlisten.
-    -- Neu angelegte Stationen sind standardmäßig unveröffentlicht.
+    -- Öffentliche Sichtbarkeit, unabhängig vom Datensatz-Status. Neu
+    -- angelegte Kontakte sind unveröffentlicht und werden über die
+    -- Admin-Verwaltung freigegeben.
     `is_published` TINYINT(1) NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL,
-    INDEX `idx_bs_deleted_name` (`deleted_at`, `name`)
+    INDEX `idx_contacts_deleted_name` (`deleted_at`, `name`),
+    -- Für die Zucht-Suche (#293): Züchter je Ort/Land filtern.
+    INDEX `idx_contacts_is_breeder` (`is_breeder`, `is_published`, `deleted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Zuordnung alte Kennung -> Kontakt-Kennung (#336).
+--
+-- BLEIBT DAUERHAFT STEHEN. Das ist keine Migrationshilfe, die danach
+-- wegfällt, sondern ein Bestandteil des Schemas.
+--
+-- Der Grund ist ein konkreter Datenschutz-Schaden, den es sonst gäbe: Addons
+-- speichern Verweise auf Kontakte, und mindestens eines tut das ohne
+-- Fremdschlüssel - `plugin_kontaktanfrage_requests` und
+-- `plugin_kontaktanfrage_optout` halten `(target_type, target_id)` als
+-- Zeichenkette plus Zahl. Person 5 und Station 5 gab es beide. Ohne diese
+-- Tabelle zeigt nach der Zusammenführung JEDE gespeicherte Zeile auf einen
+-- falschen Kontakt - beim Opt-out heißt das: Wer Kontaktanfragen abbestellt
+-- hat, ist wieder erreichbar, und jemand anderes ist stumm geschaltet.
+--
+-- Ein Addon, das erst in einem halben Jahr nachzieht, muss seine Verweise
+-- dann noch umrechnen können. Deshalb dauerhaft.
+--
+-- Zweiter Zweck: die öffentlichen Adressen /station?id= und /person?id=
+-- stehen in Suchmaschinen und werden über diese Tabelle dauerhaft auf
+-- /kontakt?id= weitergeleitet.
+CREATE TABLE IF NOT EXISTS `contact_id_map` (
+    -- 'person' oder 'station' - die Tabelle, aus der die alte Kennung stammt.
+    `old_type` ENUM('person', 'station') NOT NULL,
+    `old_id` INT NOT NULL,
+    `contact_id` INT NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`old_type`, `old_id`),
+    INDEX `idx_contact_id_map_contact` (`contact_id`),
+    FOREIGN KEY (`contact_id`) REFERENCES `contacts`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Horses
@@ -218,7 +228,11 @@ CREATE TABLE IF NOT EXISTS `horses` (
     `deleted_at` DATETIME NULL DEFAULT NULL,
     FOREIGN KEY (`sire_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`dam_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
-    FOREIGN KEY (`breeding_station_id`) REFERENCES `breeding_stations`(`id`) ON DELETE SET NULL,
+    -- Zeigt seit #336 auf `contacts`. Der Spaltenname bleibt: Die Aussage
+    -- ("welcher Kontakt ist die Deckstation dieses Pferds") hat sich nicht
+    -- geaendert, nur die Zieltabelle - und ein Umbenennen haette jedes Addon
+    -- getroffen, das den Spiegel liest, ohne irgendetwas zu verbessern.
+    FOREIGN KEY (`breeding_station_id`) REFERENCES `contacts`(`id`) ON DELETE SET NULL,
     -- Indizes für die Standardfilter/-sortierung der öffentlichen Abfragen
     -- (is_published + deleted_at + ORDER BY name) sowie Namens-/UELN-Lookups
     -- des PedigreeBuilder (#120)
@@ -235,16 +249,36 @@ CREATE TABLE IF NOT EXISTS `horses` (
     INDEX `idx_horses_dam_unlinked` (`deleted_at`, `dam_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Horse Persons Relation (Ownership History & Roles)
--- person_id ist NULL-faehig: Eine Zeile kann auch NUR eine Deckstation
--- zuordnen (breeding_station_id fuer verknuepfte Stationen,
--- breeding_station_text fuer freien Text ohne Stations-Datensatz).
+-- Zuordnung Pferd <-> Kontakt (Besitzhistorie & Rollen)
+--
+-- ZWEI Steckplaetze, beide auf `contacts` (#336). Das ist Absicht und
+-- ausdruecklich NICHT der in #336 skizzierte Weg ("person_id und
+-- breeding_station_id werden ein Feld"):
+--
+-- Eine Zeile sagt zwei Dinge gleichzeitig - WER (in welcher Rolle) und WO
+-- (an welcher Deckstation). Das Formular rendert je Zeile beide Auswahlen
+-- nebeneinander (src/Views/admin_horse_form.php), und `role` kennt nur
+-- breeder/owner/keeper, also keinen Stationswert. "Besitzer P, an Station S,
+-- von 2010 bis 2015" liesse sich in einem einzigen Feld nicht mehr
+-- ausdruecken - die Station fiele ersatzlos weg.
+--
+-- Zusammengefuehrt wurden also die TABELLEN (persons + breeding_stations ->
+-- contacts), nicht die Steckplaetze. Damit ist das Ziel von #336 erreicht:
+-- Beim Anlegen eines Kontakts muss niemand mehr entscheiden, ob ein Hof eine
+-- Person oder eine Deckstation "ist".
+--
+-- contact_id ist NULL-faehig: Eine Zeile kann auch NUR eine Deckstation
+-- zuordnen (station_contact_id fuer verknuepfte Kontakte,
+-- breeding_station_text fuer freien Text ohne Kontakt-Datensatz).
 CREATE TABLE IF NOT EXISTS `horse_persons` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `horse_id` INT NOT NULL,
-    `person_id` INT NULL DEFAULT NULL,
+    -- Frueher `person_id`. Der Kontakt in der Rolle aus `role`.
+    `contact_id` INT NULL DEFAULT NULL,
     `role` ENUM('breeder', 'owner', 'keeper') NOT NULL DEFAULT 'owner',
-    `breeding_station_id` INT NULL,
+    -- Frueher `breeding_station_id`. Der Kontakt, der fuer diese Zeile die
+    -- Deckstation IST - eine Ortsangabe, keine Rolle im Sinne von `role`.
+    `station_contact_id` INT NULL,
     `breeding_station_text` VARCHAR(255) NULL,
     -- Herkunftsland einer Zuordnung OHNE bekannte Person (#294). Das
     -- Altsystem kannte die Aussage "der Zuechter ist nicht bekannt, aber er
@@ -260,8 +294,17 @@ CREATE TABLE IF NOT EXISTS `horse_persons` (
     `until_year` SMALLINT UNSIGNED NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON DELETE CASCADE,
-    INDEX `idx_horse_persons_horse_role` (`horse_id`, `role`)
+    FOREIGN KEY (`contact_id`) REFERENCES `contacts`(`id`) ON DELETE CASCADE,
+    -- SET NULL statt CASCADE: Wird der Kontakt einer Deckstation geloescht,
+    -- bleibt die Aussage "dieses Pferd stand bei jemandem" erhalten (der
+    -- Freitext in breeding_station_text traegt sie oft), waehrend ein
+    -- geloeschter Personen-Kontakt die ganze Zuordnung gegenstandslos macht.
+    FOREIGN KEY (`station_contact_id`) REFERENCES `contacts`(`id`) ON DELETE SET NULL,
+    INDEX `idx_horse_persons_horse_role` (`horse_id`, `role`),
+    -- Fuer den Rueckweg "welche Pferde haengen an diesem Kontakt" (Kontaktseite,
+    -- Deduplizierer, DSGVO-Loeschung) - beide Steckplaetze einzeln.
+    INDEX `idx_horse_persons_contact` (`contact_id`),
+    INDEX `idx_horse_persons_station_contact` (`station_contact_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Weitere Lebensnummern / Registriernummern je Pferd (#246): Pferde können
@@ -281,6 +324,42 @@ CREATE TABLE IF NOT EXISTS `horse_registrations` (
     FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE,
     INDEX `idx_horse_registrations_horse` (`horse_id`, `sort_order`),
     INDEX `idx_horse_registrations_number` (`registration_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Dauerhafte Entscheidungen über Dubletten-Vorschläge (#355).
+--
+-- Bis v0.7 konnte man einen Vorschlag nur ANNEHMEN (verknüpfen). Die Aussage
+-- "das sind zwei verschiedene Pferde" wurde nirgends gespeichert - also
+-- erschien dasselbe Paar bei jedem Aufruf wieder, und der E-Mail-Digest
+-- zählte es dauerhaft als offen. Wer einmal geprüft und verworfen hatte,
+-- prüfte beim nächsten Mal erneut.
+--
+-- Ein Label ist KEINE Verknüpfung: 'different' ändert nichts am Bestand, es
+-- legt nur den Vorschlag still - und ist widerrufbar, indem die Zeile
+-- gelöscht wird. Zusammenführen bleibt dagegen eine Einbahnstraße.
+--
+-- Die kleinere ID steht immer links. Ohne diese Regel stünden (7,12) und
+-- (12,7) nebeneinander, und ein unter der einen Fassung gesetztes Label
+-- griffe unter der anderen nicht - der Vorschlag käme wieder, obwohl er
+-- entschieden ist. Der Primärschlüssel erzwingt die Eindeutigkeit, die
+-- Reihenfolge stellt App\Service\MatchLabel her.
+CREATE TABLE IF NOT EXISTS `match_labels` (
+    -- 'horse' oder 'contact' - beide Bestände nutzen dieselbe Mechanik.
+    `kind` ENUM('horse', 'contact') NOT NULL,
+    `left_id` INT NOT NULL,
+    `right_id` INT NOT NULL,
+    -- 'merged' = erledigt · 'different' = dauerhaft ausblenden ·
+    -- 'unclear' = angesehen, noch nicht entschieden (blendet NICHT aus)
+    `label` ENUM('merged', 'different', 'unclear') NOT NULL,
+    -- Kurzer Beleg, warum. Freiwillig, aber das Feld, das die Entscheidung
+    -- ein Jahr später noch nachvollziehbar macht.
+    `note` VARCHAR(255) NULL DEFAULT NULL,
+    `user_id` INT NULL DEFAULT NULL,
+    `username` VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`kind`, `left_id`, `right_id`),
+    -- Für den Filterlauf beim Anzeigen der Vorschläge.
+    INDEX `idx_match_labels_kind_label` (`kind`, `label`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- GDPR Requests
@@ -349,7 +428,7 @@ CREATE TABLE IF NOT EXISTS `addon_repos` (
 -- immer implizit ALLE Rechte, unabhängig vom Inhalt von `group_permissions`
 -- (siehe hasPermission()) - ihre eigene Berechtigungs-Matrix bleibt deshalb
 -- bewusst leer und nicht editierbar. `public` erhält per Seed unten
--- Leseberechtigungen (horses.view, breeding_stations.view) und ist über die
+-- Leseberechtigungen (horses.view, contacts.view) und ist über die
 -- Matrix editierbar - sie ist der Steuerungspunkt der öffentlichen
 -- Sichtbarkeit (#121/#122).
 CREATE TABLE IF NOT EXISTS `groups` (
@@ -400,16 +479,11 @@ CROSS JOIN (
     SELECT 'horses', 'edit' UNION ALL
     SELECT 'horses', 'delete' UNION ALL
     SELECT 'horses', 'publish' UNION ALL
-    SELECT 'persons', 'view' UNION ALL
-    SELECT 'persons', 'create' UNION ALL
-    SELECT 'persons', 'edit' UNION ALL
-    SELECT 'persons', 'delete' UNION ALL
-    SELECT 'persons', 'publish' UNION ALL
-    SELECT 'breeding_stations', 'view' UNION ALL
-    SELECT 'breeding_stations', 'create' UNION ALL
-    SELECT 'breeding_stations', 'edit' UNION ALL
-    SELECT 'breeding_stations', 'delete' UNION ALL
-    SELECT 'breeding_stations', 'publish'
+    SELECT 'contacts', 'view' UNION ALL
+    SELECT 'contacts', 'create' UNION ALL
+    SELECT 'contacts', 'edit' UNION ALL
+    SELECT 'contacts', 'delete' UNION ALL
+    SELECT 'contacts', 'publish'
 ) AS `defaults`
 WHERE `groups`.`slug` = 'editor';
 
@@ -422,15 +496,15 @@ INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
 SELECT `id`, `module`, `action` FROM `groups`
 CROSS JOIN (
     SELECT 'horses' AS `module`, 'view' AS `action` UNION ALL
-    SELECT 'breeding_stations', 'view' UNION ALL
-    -- persons.view seit #293: Grundlage der öffentlichen Personenseite
-    -- (/person), auf die die Pferde-Detailseite verweist - dieselbe Rolle, die
-    -- breeding_stations.view für /station spielt. Neue Daten entstehen dadurch
-    -- nicht: Gezeigt werden ausschließlich die Felder, die auf der
-    -- Pferdeseite ohnehin schon öffentlich sind (Ort, Bundesland, Land,
-    -- Mitgliedsstatus) plus die dafür vorgesehene Website. Wer die Seite nicht
+    -- contacts.view (seit #336, vorher getrennt als breeding_stations.view und
+    -- persons.view) - Grundlage der öffentlichen Kontaktseite (/kontakt), auf
+    -- die die Pferde-Detailseite verweist. Neue Daten entstehen dadurch nicht:
+    -- Gezeigt werden ausschließlich die Felder, die auf der Pferdeseite ohnehin
+    -- schon öffentlich sind (Ort, Bundesland, Land, Mitgliedsstatus) plus die
+    -- dafür vorgesehene Website; zustellbare Angaben (E-Mail, Telefon, Mobil,
+    -- Straße, PLZ) nur bei contact_public = 1 je Datensatz. Wer die Seite nicht
     -- will, nimmt der Gruppe `public` das Recht wieder weg.
-    SELECT 'persons', 'view'
+    SELECT 'contacts', 'view'
 ) AS `guest_defaults`
 WHERE `groups`.`slug` = 'public';
 

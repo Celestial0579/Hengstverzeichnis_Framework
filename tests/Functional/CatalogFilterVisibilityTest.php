@@ -16,6 +16,15 @@ use Tests\Support\HttpClient;
  * abgesicherte Grundzusicherung, dass ein unveröffentlichtes Pferd weder im
  * Katalog noch auf der Detailseite erscheint.
  *
+ * Seit #336 stehen Personen und Deckstationen gemeinsam in `contacts`. An den
+ * Zusicherungen ändert das nichts, wohl aber an ihrer Tragweite: Vorher
+ * schützten zwei getrennte Tabellen mit je eigener Abfrage, jetzt hängt beides
+ * an derselben Spalte `is_published` desselben Datensatzes. Die beiden Rollen
+ * bleiben trotzdem einzeln geprüft - sie erreichen den Katalog über
+ * verschiedene Wege (horse_persons.contact_id gegenüber
+ * horse_persons.station_contact_id bzw. horses.breeding_station_id), und ein
+ * Fehler in nur einem davon soll rot werden.
+ *
  * Jeder Negativ-Prüfung folgt eine Positiv-Gegenprobe (Datensatz
  * veröffentlichen -> Treffer): Sie belegt, dass die 0 wirklich von der
  * Sichtbarkeitssperre kommt und nicht von einem funktionslosen Filter.
@@ -30,37 +39,37 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
 
     /** @var array<int, int> */
     private array $seededHorseIds = [];
-    /** @var array<int, int> */
-    private array $seededPersonIds = [];
-    /** @var array<int, int> */
-    private array $seededStationIds = [];
+    /**
+     * Personen wie Deckstationen - seit #336 dieselbe Tabelle, also auch
+     * dieselbe Aufräumliste.
+     *
+     * @var array<int, int>
+     */
+    private array $seededContactIds = [];
 
     /**
      * Aufräumen auch nach fehlgeschlagenen Tests (tearDown läuft immer):
      * Zurück bleibende unveröffentlichte Testdatensätze würden sonst die
      * Trefferzahlen späterer Läufe auf der geteilten Test-DB verfälschen.
-     * horse_persons räumt der ON DELETE CASCADE der Pferde/Personen mit ab.
+     * horse_persons räumt der ON DELETE CASCADE der Pferde/Kontakte mit ab.
      */
     protected function tearDown(): void {
         $db = Database::getInstance();
         foreach ($this->seededHorseIds as $id) {
             $db->prepare("DELETE FROM horses WHERE id = ?")->execute([$id]);
         }
-        foreach ($this->seededPersonIds as $id) {
-            $db->prepare("DELETE FROM persons WHERE id = ?")->execute([$id]);
+        foreach ($this->seededContactIds as $id) {
+            $db->prepare("DELETE FROM contacts WHERE id = ?")->execute([$id]);
         }
-        foreach ($this->seededStationIds as $id) {
-            $db->prepare("DELETE FROM breeding_stations WHERE id = ?")->execute([$id]);
-        }
-        $this->seededHorseIds = $this->seededPersonIds = $this->seededStationIds = [];
+        $this->seededHorseIds = $this->seededContactIds = [];
         parent::tearDown();
     }
 
-    public function testBreederFilterNeverMatchesUnpublishedPersons(): void {
+    public function testBreederFilterNeverMatchesUnpublishedContacts(): void {
         $this->assertPersonFilterRespectsPublicationFlag('breeder', 'q_breeder');
     }
 
-    public function testOwnerFilterNeverMatchesUnpublishedPersons(): void {
+    public function testOwnerFilterNeverMatchesUnpublishedContacts(): void {
         $this->assertPersonFilterRespectsPublicationFlag('owner', 'q_owner');
     }
 
@@ -77,9 +86,9 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
         $personName = "Orakel Person {$role} {$unique}";
         $horseName = "Orakel Pferd {$role} {$unique}";
 
-        $personId = $this->seedPerson($personName, false);
+        $personId = $this->seedContact($personName, false);
         $horseId = $this->seedHorse($horseName, true);
-        $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, ?)")
+        $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, ?)")
             ->execute([$horseId, $personId, $role]);
 
         // 1. Unveröffentlichte Person: Der Filter darf weder eine Trefferzahl
@@ -99,7 +108,7 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
         );
 
         // 2. Gegenprobe: Dieselbe Person veröffentlicht -> genau ein Treffer.
-        $db->prepare("UPDATE persons SET is_published = 1 WHERE id = ?")->execute([$personId]);
+        $db->prepare("UPDATE contacts SET is_published = 1 WHERE id = ?")->execute([$personId]);
         $payload = $this->catalogAjax($guest, $queryParam . '=' . urlencode($personName));
         $this->assertSame(
             1,
@@ -115,7 +124,7 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
         $stationName = "Geheime Station {$unique}";
         $freetextName = "Freitexthof {$unique}";
 
-        $stationId = $this->seedStation($stationName, false);
+        $stationId = $this->seedContact($stationName, false);
 
         // Pferd mit Stations-VERKNÜPFUNG: horses.breeding_station ist bei
         // gesetzter breeding_station_id eine denormalisierte Kopie des
@@ -160,7 +169,7 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
 
         // 3. Gegenprobe: Dieselbe Station veröffentlicht -> das verknüpfte
         // Pferd wird über bs.name gefunden.
-        $db->prepare("UPDATE breeding_stations SET is_published = 1 WHERE id = ?")->execute([$stationId]);
+        $db->prepare("UPDATE contacts SET is_published = 1 WHERE id = ?")->execute([$stationId]);
         $payload = $this->catalogAjax($guest, 'q_station=' . urlencode($stationName));
         $this->assertSame(
             1,
@@ -227,21 +236,20 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
         return $id;
     }
 
-    private function seedPerson(string $name, bool $published): int {
+    /**
+     * Ein Kontakt - ob er in diesem Test als Person oder als Deckstation
+     * auftritt, entscheidet allein seine Verwendung (horse_persons.contact_id
+     * gegenüber horses.breeding_station_id). Vor #336 waren das zwei
+     * Seed-Methoden für zwei Tabellen; eine zweite Methode mit identischem
+     * INSERT beizubehalten täuschte einen Unterschied vor, den es im
+     * Datenmodell nicht mehr gibt.
+     */
+    private function seedContact(string $name, bool $published): int {
         $db = Database::getInstance();
-        $db->prepare("INSERT INTO persons (name, is_published) VALUES (?, ?)")
+        $db->prepare("INSERT INTO contacts (name, is_published) VALUES (?, ?)")
             ->execute([$name, $published ? 1 : 0]);
         $id = (int)$db->lastInsertId();
-        $this->seededPersonIds[] = $id;
-        return $id;
-    }
-
-    private function seedStation(string $name, bool $published): int {
-        $db = Database::getInstance();
-        $db->prepare("INSERT INTO breeding_stations (name, is_published) VALUES (?, ?)")
-            ->execute([$name, $published ? 1 : 0]);
-        $id = (int)$db->lastInsertId();
-        $this->seededStationIds[] = $id;
+        $this->seededContactIds[] = $id;
         return $id;
     }
 }

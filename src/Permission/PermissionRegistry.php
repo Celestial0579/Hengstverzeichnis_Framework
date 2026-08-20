@@ -54,16 +54,18 @@ final class PermissionRegistry {
                 'delete' => 'Löschen',
             ],
         ],
-        'persons' => [
-            'label' => 'Personen',
-            'actions' => [
-                'create' => 'Erstellen',
-                'edit' => 'Bearbeiten',
-                'delete' => 'Löschen',
-            ],
-        ],
-        'breeding_stations' => [
-            'label' => 'Deckstationen',
+        // Ein Modul für alle Kontakte (#336). Bis v0.7 gab es hier `persons`
+        // und `breeding_stations` getrennt - die Trennung existierte nur, weil
+        // es zwei Tabellen gab. Mit `contacts` gibt es einen Bereich, also
+        // auch ein Recht; zwei Rechte auf denselben Datenbestand wären eine
+        // Scheingenauigkeit, bei der niemand mehr sagen kann, welches greift.
+        //
+        // Der Bestand wird NICHT von zwei Modulen auf eines gemappt, indem
+        // eines gewinnt: SchemaMigrator bildet die SCHNITTMENGE aus
+        // persons.* und breeding_stations.* - wer nur eines der beiden hatte,
+        // bekommt contacts.* nicht. Vergrößern darf eine Migration nie.
+        'contacts' => [
+            'label' => 'Kontakte',
             'actions' => [
                 'create' => 'Erstellen',
                 'edit' => 'Bearbeiten',

@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Den begärda hästen finns inte eller har tagits bort från registret.',
     'meta.title_horse_detail_suffix' => 'Detaljer',
 
-    // Hingststationens detaljsida
+    // Hingststationsblock på kontaktsidan (#336)
     'station.horses_heading' => '🐴 Hästar på denna hingststation',
     'station.no_horses' => 'För närvarande finns inga hästar från denna hingststation i registret.',
     'field.location' => 'Ort',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Mobil',
     'station.not_found' => 'Den begärda hingststationen finns inte eller har tagits bort från registret.',
     'meta.title_station_detail_suffix' => 'Hingststation',
+
+    // Detaljsida för kontakt (#336)
+    'contact.not_found' => 'Den begärda kontakten finns inte eller har tagits bort ur registret.',
+    'contact.no_details' => 'Det finns inga offentliga uppgifter om denna kontakt.',
+    'contact.horses_heading' => '🐴 Hästar kopplade till denna kontakt',
+    'contact.no_horses' => 'Det finns för närvarande inga hästar kopplade till denna kontakt i registret.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Juridisk information / Integritetspolicy / GDPR (statiska platshållartexter)
     'legal.impressum_title' => 'Juridisk information',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Hantera hästar',
     'admin.dashboard.tile_persons' => 'Hantera personer',
     'admin.dashboard.tile_breeding_stations' => 'Hantera hingststationer',
+    'admin.dashboard.tile_contacts' => 'Hantera kontakter',
     'admin.dashboard.tile_matches' => 'Slå samman blodslinjer',
     'admin.dashboard.tile_trash' => 'Papperskorg',
     'admin.dashboard.system_heading' => 'Systeminställningar & konfiguration',

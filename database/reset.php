@@ -23,11 +23,15 @@ try {
     $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
     $db->exec("TRUNCATE TABLE horse_persons;");
     $db->exec("TRUNCATE TABLE horse_registrations;");
-    $db->exec("TRUNCATE TABLE breeding_stations;");
     $db->exec("TRUNCATE TABLE password_resets;");
     $db->exec("TRUNCATE TABLE gdpr_requests;");
     $db->exec("TRUNCATE TABLE horses;");
-    $db->exec("TRUNCATE TABLE persons;");
+    // contact_id_map gehört mit geleert (#336): Sie bildet alte Personen-/
+    // Stationskennungen auf Kontakte ab. TRUNCATE feuert kein ON DELETE
+    // CASCADE, ihre Zeilen überlebten den Reset also und zeigten danach auf
+    // Kennungen, die die neue Installation frisch vergibt.
+    $db->exec("TRUNCATE TABLE contact_id_map;");
+    $db->exec("TRUNCATE TABLE contacts;");
     $db->exec("TRUNCATE TABLE users;");
     $db->exec("TRUNCATE TABLE settings;");
     $db->exec("SET FOREIGN_KEY_CHECKS = 1;");

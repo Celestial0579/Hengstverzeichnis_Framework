@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 9;
+    public const SCHEMA_VERSION = 11;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -129,6 +129,37 @@ final class SchemaMigrator {
      * @param string[] $performed Sammelliste der durchgeführten Schritte
      */
     private static function migrate(PDO $pdo, array &$performed): void {
+        // Steht das Kontaktschema (#336) bereits? EINMAL am Anfang bestimmt,
+        // bevor irgendein Schritt läuft - der Wert muss den Stand VOR dieser
+        // Migration beschreiben, nicht den, den Schritt 31a gleich herstellt.
+        //
+        // Wozu: Die Schritte 4, 22, 29 und 30 pflegen `persons` und
+        // `breeding_stations`. Nach #336 gibt es beide nicht mehr (umbenannt
+        // bzw. auf Neuinstallationen nie angelegt) - und `$createTable` legt
+        // an, was fehlt. Ohne diese Sperre erschienen die Alttabellen bei
+        // JEDEM künftigen Minor-Sprung leer wieder, und Code, der sie noch
+        // abfragt, bekäme stillschweigend ein leeres Ergebnis statt eines
+        // Fehlers. Genau das ist im Probelauf passiert.
+        $kontaktschemaAktiv = (static function () use ($pdo): bool {
+            try {
+                $stmt = $pdo->query("SHOW TABLES LIKE 'contacts'");
+                return (bool)($stmt && $stmt->rowCount() > 0);
+            } catch (\Throwable $e) {
+                return false;
+            }
+        })();
+
+        // Tabellen, die es nach #336 nicht mehr geben darf.
+        $abgeloest = ['persons', 'breeding_stations'];
+
+        // Und dasselbe je Spalte: horse_persons trug die Verweise früher als
+        // person_id/breeding_station_id, seit #336 als
+        // contact_id/station_contact_id. Die alten Spalten legt Schritt 31f
+        // still - ohne diese Liste ergänzte Schritt 4 sie beim nächsten
+        // Minor-Sprung leer wieder, und dann stünde neben jedem echten
+        // Verweis eine leere Altspalte, die aussieht, als fehlte die Zuordnung.
+        $abgeloesteSpalten = ['horse_persons.person_id', 'horse_persons.breeding_station_id'];
+
         // Helper-Funktion zum schrittweisen Hinzufügen fehlender Spalten
         // Der try/catch umfasst BEWUSST nur die Existenzprüfung, nicht das
         // ALTER (#309): Scheitert schon SHOW COLUMNS, gibt es die Tabelle
@@ -142,7 +173,13 @@ final class SchemaMigrator {
         // AFTER-Klausel auf eine noch nicht angelegte Spalte verwies: Das
         // ALTER scheiterte still, die Version wurde trotzdem hochgesetzt, und
         // die Spalte fehlte danach dauerhaft.
-        $addColumn = function ($table, $column, $definition) use ($pdo, &$performed) {
+        $addColumn = function ($table, $column, $definition) use ($pdo, &$performed, $kontaktschemaAktiv, $abgeloest, $abgeloesteSpalten) {
+            if ($kontaktschemaAktiv && in_array($table, $abgeloest, true)) {
+                return; // Abgelöst durch `contacts` (#336) - nicht wiederbeleben.
+            }
+            if ($kontaktschemaAktiv && in_array("{$table}.{$column}", $abgeloesteSpalten, true)) {
+                return; // Abgelöste Spalte (#336) - nicht wiederbeleben.
+            }
             try {
                 $stmt = $pdo->query("SHOW COLUMNS FROM `$table` LIKE '$column'");
             } catch (\Throwable $e) {
@@ -158,7 +195,28 @@ final class SchemaMigrator {
         // Helper für neue Tabellen: SHOW TABLES vor dem CREATE TABLE IF NOT
         // EXISTS dient nur der Protokollierung (hat die Tabelle gefehlt?) -
         // die Idempotenz garantiert weiterhin das IF NOT EXISTS selbst.
-        $createTable = function (string $table, string $createSql) use ($pdo, &$performed) {
+        $createTable = function (string $table, string $createSql) use ($pdo, &$performed, $abgeloest) {
+            // BEDINGUNGSLOS, nicht nur wenn `contacts` schon steht.
+            //
+            // Der erste Anlauf machte das von $kontaktschemaAktiv abhängig -
+            // und übersah den Weg, auf dem eine LEERE Datenbank durch die
+            // Migration hochgezogen wird (Ersteinrichtung ohne schema.sql).
+            // Dort gibt es `contacts` beim Start noch nicht, Schritt 4 legte
+            // also brav ein leeres `breeding_stations` an, und Schritt 31b sah
+            // danach "eine der beiden Alttabellen existiert" und versuchte,
+            // aus dem nicht vorhandenen `persons` zu kopieren. Die Migration
+            // warf, `run()` kam nie zum Schreiben der schema_version - und
+            // lief damit bei JEDEM Request erneut. Aufgefallen ist das an
+            // einer ganz anderen Stelle: Der Seed des offiziellen Addon-Repos
+            // läuft in derselben Migration und hatte den AUTO_INCREMENT der
+            // Tabelle auf über 2000 getrieben.
+            //
+            // Neu angelegt werden diese Tabellen ab v0.8 nirgends mehr. Wer
+            // sie hat, hat sie aus einer älteren Fassung; wer nicht, braucht
+            // sie nicht.
+            if (in_array($table, $abgeloest, true)) {
+                return;
+            }
             try {
                 $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
                 $existed = $stmt && $stmt->rowCount() > 0;
@@ -614,7 +672,10 @@ final class SchemaMigrator {
         // keinerlei Indizes - jede öffentliche Abfrage (deleted_at IS NULL AND
         // is_published = 1, ORDER BY name) und der Papierkorb-Badge-Count liefen
         // als Full Table Scan. Spiegelbildlich zu database/schema.sql.
-        $addIndex = function ($table, $indexName, $columns) use ($pdo, &$performed) {
+        $addIndex = function ($table, $indexName, $columns) use ($pdo, &$performed, $kontaktschemaAktiv, $abgeloest) {
+            if ($kontaktschemaAktiv && in_array($table, $abgeloest, true)) {
+                return; // Abgelöst durch `contacts` (#336) - nicht wiederbeleben.
+            }
             try {
                 $stmt = $pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
                 $stmt->execute([$indexName]);
@@ -874,14 +935,598 @@ final class SchemaMigrator {
         // dafür vorgesehene Website. Wer die Seite nicht möchte, nimmt der
         // Gruppe `public` das Recht wieder weg - diese Migration setzt es
         // dank INSERT IGNORE nicht erneut.
-        try {
-            $pdo->exec(
-                "INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
-                 SELECT `id`, 'persons', 'view' FROM `groups` WHERE `slug` = 'public'"
-            );
-        } catch (\Throwable $e) {
-            // Tabelle/Gruppe existiert im Setup-Fall noch nicht.
+        //
+        // Ab #336 heißt das Recht `contacts`.`view` und wird vom Seed in
+        // database/schema.sql bzw. von Schritt 31e vergeben. Der Seed hier
+        // darf dann NICHT mehr laufen: Er trüge sonst bei jedem künftigen
+        // Minor-Sprung ein `persons`.`view` nach, das kein Modul mehr kennt -
+        // eine Zeile, die in der Rechte-Matrix nirgends auftaucht und
+        // trotzdem in der Datenbank steht.
+        if (!$kontaktschemaAktiv) {
+            try {
+                $pdo->exec(
+                    "INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
+                     SELECT `id`, 'persons', 'view' FROM `groups` WHERE `slug` = 'public'"
+                );
+            } catch (\Throwable $e) {
+                // Tabelle/Gruppe existiert im Setup-Fall noch nicht.
+            }
         }
+
+        // 31. Kontaktliste (#336, SCHEMA_VERSION 10): persons + breeding_stations
+        // werden zu einer Tabelle `contacts`. Siehe database/schema.sql für das
+        // Warum; hier steht nur, wie der Bestand hinüberkommt.
+        //
+        // Dieser Schritt ist der erste, der DATEN kopiert statt nur DDL
+        // auszuführen - und dafür reichen $addColumn/$createTable nicht.
+        // Beide sind idempotent, WEIL sie vorher nachsehen, ob es die Spalte
+        // bzw. Tabelle schon gibt. Für "kopiere 467 Personen in eine andere
+        // Tabelle" gibt es keine solche Frage: Ein zweiter Lauf sähe eine
+        // gefüllte Zieltabelle und könnte daraus nicht schließen, ob sie von
+        // IHM stammt. Ohne Wächter verdoppelte der nächste Minor-Sprung den
+        // gesamten Kontaktbestand.
+        //
+        // Deshalb hier das fehlende Primitiv: $dataStep führt einen
+        // Datenschritt genau einmal aus und hält das in settings fest.
+        // Rückgabe null = "war nicht zuständig" (z. B. Setup-Fall), dann wird
+        // NICHTS vermerkt und der nächste Lauf versucht es erneut.
+        $dataStep = function (string $key, callable $arbeit) use ($pdo, &$performed): void {
+            $markerKey = 'migration_' . $key;
+            try {
+                $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+                $stmt->execute([$markerKey]);
+                if ($stmt->fetchColumn() !== false) {
+                    return; // Schritt ist nachweislich schon gelaufen.
+                }
+            } catch (\Throwable $e) {
+                return; // settings existiert noch nicht - dann gibt es auch keinen Altbestand.
+            }
+
+            $ergebnis = $arbeit();
+            if ($ergebnis === null) {
+                return; // Nicht zuständig - kein Marker, damit ein späterer Lauf es erneut versucht.
+            }
+
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([$markerKey, gmdate('c')]);
+
+            foreach ((array)$ergebnis as $zeile) {
+                $performed[] = $zeile;
+            }
+        };
+
+        // Fremdschlüssel heißen auf Bestandsinstallationen, wie MariaDB sie
+        // benannt hat (horses_ibfk_3 o. ä.) - der Name steht nirgends im Repo.
+        // Deshalb über information_schema suchen statt raten.
+        $dropForeignKey = function (string $table, string $column) use ($pdo): void {
+            try {
+                $stmt = $pdo->prepare(
+                    "SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE
+                     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+                       AND REFERENCED_TABLE_NAME IS NOT NULL"
+                );
+                $stmt->execute([$table, $column]);
+                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $name) {
+                    $pdo->exec("ALTER TABLE `{$table}` DROP FOREIGN KEY `{$name}`");
+                }
+            } catch (\Throwable $e) {
+                // Tabelle/Spalte gibt es (noch) nicht - Setup-Fall.
+            }
+        };
+
+        $tabelleExistiert = function (string $table) use ($pdo): bool {
+            try {
+                $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
+                return $stmt && $stmt->rowCount() > 0;
+            } catch (\Throwable $e) {
+                return false;
+            }
+        };
+
+        // 31a. Zieltabellen. CREATE TABLE IF NOT EXISTS ist für sich idempotent -
+        // dieselbe Definition wie in database/schema.sql, dort steht die
+        // Begründung je Spalte.
+        $createTable('contacts', "CREATE TABLE IF NOT EXISTS `contacts` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(150) NOT NULL,
+            `contact_person` VARCHAR(100) NULL DEFAULT NULL,
+            `contact_info` TEXT NULL,
+            `street` VARCHAR(150) NULL DEFAULT NULL,
+            `house_number` VARCHAR(20) NULL DEFAULT NULL,
+            `postal_code` VARCHAR(20) NULL DEFAULT NULL,
+            `city` VARCHAR(100) NULL DEFAULT NULL,
+            `state` VARCHAR(100) NULL DEFAULT NULL,
+            `country` VARCHAR(100) NULL DEFAULT NULL,
+            `address` TEXT NULL,
+            `email` VARCHAR(100) NULL DEFAULT NULL,
+            `phone` VARCHAR(50) NULL DEFAULT NULL,
+            `mobile` VARCHAR(50) NULL DEFAULT NULL,
+            `website` VARCHAR(255) NULL DEFAULT NULL,
+            `membership_status` VARCHAR(100) NULL DEFAULT NULL,
+            `is_breeder` TINYINT(1) NOT NULL DEFAULT 0,
+            `contact_public` TINYINT(1) NOT NULL DEFAULT 0,
+            `is_published` TINYINT(1) NOT NULL DEFAULT 0,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            `deleted_at` DATETIME NULL DEFAULT NULL,
+            INDEX `idx_contacts_deleted_name` (`deleted_at`, `name`),
+            INDEX `idx_contacts_is_breeder` (`is_breeder`, `is_published`, `deleted_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $createTable('contact_id_map', "CREATE TABLE IF NOT EXISTS `contact_id_map` (
+            `old_type` ENUM('person', 'station') NOT NULL,
+            `old_id` INT NOT NULL,
+            `contact_id` INT NOT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`old_type`, `old_id`),
+            INDEX `idx_contact_id_map_contact` (`contact_id`),
+            FOREIGN KEY (`contact_id`) REFERENCES `contacts`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // Selbstheilung von `contacts`.
+        //
+        // WOZU, wo die Tabelle doch gerade angelegt wurde: CREATE TABLE IF NOT
+        // EXISTS legt eine FEHLENDE Tabelle an - es ergänzt keine fehlende
+        // SPALTE an einer vorhandenen. Vor #336 hatte jede Spalte von `persons`
+        // und `breeding_stations` ihren eigenen $addColumn-Schritt (22, 29, 30),
+        // und genau deshalb konnte eine Installation, der eine Spalte abhanden
+        // gekommen war, sich beim nächsten Lauf wieder einfangen.
+        //
+        // Ohne die folgenden Zeilen verlöre `contacts` diese Eigenschaft: Die
+        // Altspalten-Schritte laufen nach #336 nicht mehr (die Tabellen sind
+        // stillgelegt), und für die neue Tabelle gäbe es kein Gegenstück. Eine
+        // fehlende Spalte bliebe dauerhaft fehlend - aufgefallen ist das, weil
+        // DatabaseTest genau das prüft (er entfernt membership_status und
+        // erwartet, dass der nächste Lauf sie zurückbringt).
+        //
+        // Die Reihenfolge der AFTER-Klauseln entspricht der Spaltenfolge in
+        // database/schema.sql; jede nennt nur eine Spalte, die davor in dieser
+        // Liste steht - die Lehre aus #309.
+        $addColumn('contacts', 'contact_person', 'VARCHAR(100) NULL DEFAULT NULL AFTER `name`');
+        $addColumn('contacts', 'contact_info', 'TEXT NULL AFTER `contact_person`');
+        $addColumn('contacts', 'street', 'VARCHAR(150) NULL DEFAULT NULL AFTER `contact_info`');
+        $addColumn('contacts', 'house_number', 'VARCHAR(20) NULL DEFAULT NULL AFTER `street`');
+        $addColumn('contacts', 'postal_code', 'VARCHAR(20) NULL DEFAULT NULL AFTER `house_number`');
+        $addColumn('contacts', 'city', 'VARCHAR(100) NULL DEFAULT NULL AFTER `postal_code`');
+        $addColumn('contacts', 'state', 'VARCHAR(100) NULL DEFAULT NULL AFTER `city`');
+        $addColumn('contacts', 'country', 'VARCHAR(100) NULL DEFAULT NULL AFTER `state`');
+        $addColumn('contacts', 'address', 'TEXT NULL AFTER `country`');
+        $addColumn('contacts', 'email', 'VARCHAR(100) NULL DEFAULT NULL AFTER `address`');
+        $addColumn('contacts', 'phone', 'VARCHAR(50) NULL DEFAULT NULL AFTER `email`');
+        $addColumn('contacts', 'mobile', 'VARCHAR(50) NULL DEFAULT NULL AFTER `phone`');
+        $addColumn('contacts', 'website', 'VARCHAR(255) NULL DEFAULT NULL AFTER `mobile`');
+        $addColumn('contacts', 'membership_status', 'VARCHAR(100) NULL DEFAULT NULL AFTER `website`');
+        $addColumn('contacts', 'is_breeder', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `membership_status`');
+        $addColumn('contacts', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_breeder`');
+        $addColumn('contacts', 'is_published', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `contact_public`');
+        $addColumn('contacts', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+        $addColumn('contacts', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
+        $addIndex('contacts', 'idx_contacts_deleted_name', '`deleted_at`, `name`');
+        $addIndex('contacts', 'idx_contacts_is_breeder', '`is_breeder`, `is_published`, `deleted_at`');
+
+        // 31b. Bestand übernehmen - genau einmal.
+        //
+        // Personen behalten ihre ID (INSERT mit explizitem id). Grund: /person?id=
+        // steht in Suchmaschinen, und 467 Personen gegen 28 Stationen heißt, dass
+        // so die weitaus meisten Adressen unverändert weiterzeigen. Zusätzlich
+        // wird horse_persons.person_id -> contact_id damit zur Identitätskopie,
+        // was eine ganze Fehlerklasse erspart. Stationen bekommen neue IDs
+        // oberhalb des Personenbestands; /station?id= läuft über contact_id_map
+        // als dauerhafte Weiterleitung.
+        $dataStep('336_contacts_uebernahme', function () use ($pdo, $tabelleExistiert): ?array {
+            // JE TABELLE EINZELN prüfen, nicht als Paar.
+            //
+            // Die beiden Alttabellen kamen zwar praktisch immer zusammen vor -
+            // aber eben nicht zwingend: `breeding_stations` gibt es erst seit
+            // Schritt 4, eine Installation von davor hat nur `persons`. Und
+            // eine leere Datenbank, die allein über die Migration hochgezogen
+            // wird, kann kurzzeitig genau eine der beiden haben. Der erste
+            // Anlauf verknüpfte die Prüfung mit UND und kopierte dann aus
+            // einer Tabelle, die es nicht gab.
+            $hatPersonen = $tabelleExistiert('persons');
+            $hatStationen = $tabelleExistiert('breeding_stations');
+            if (!$hatPersonen && !$hatStationen) {
+                return null; // Neuinstallation: schema.sql hat contacts direkt angelegt.
+            }
+            if ((int)$pdo->query("SELECT COUNT(*) FROM contacts")->fetchColumn() > 0) {
+                // Zieltabelle ist nicht leer, der Marker fehlt aber. Das ist kein
+                // Normalfall (etwa ein von Hand abgebrochener Lauf) - und genau
+                // hier wäre blindes Kopieren die Verdopplung. Lieber nichts tun
+                // und es sagen.
+                throw new \RuntimeException(
+                    'Migration #336: contacts enthält bereits Zeilen, der Übernahme-Marker fehlt aber. '
+                    . 'Bitte den Stand von Hand prüfen (settings.migration_336_contacts_uebernahme).'
+                );
+            }
+
+            $meldungen = [];
+            $pdo->beginTransaction();
+            try {
+                $anzPersonen = 0;
+                if ($hatPersonen) {
+                // Personen: ID-treu.
+                $pdo->exec("
+                    INSERT INTO contacts
+                        (id, name, contact_info, street, house_number, postal_code, city, state,
+                         country, email, phone, mobile, website, membership_status, is_breeder,
+                         contact_public, is_published, created_at, updated_at, deleted_at)
+                    SELECT id, name, contact_info, street, house_number, postal_code, city, state,
+                           country, email, phone, mobile, website, membership_status, is_breeder,
+                           contact_public, is_published, created_at, created_at, deleted_at
+                    FROM persons
+                ");
+                $anzPersonen = (int)$pdo->query("SELECT COUNT(*) FROM contacts")->fetchColumn();
+                $pdo->exec("
+                    INSERT INTO contact_id_map (old_type, old_id, contact_id)
+                    SELECT 'person', id, id FROM persons
+                ");
+                }
+
+                // Stationen: neue IDs. contact_public kommt als BESTANDSWERT mit
+                // (dort galt Vorgabe 1) - eine Migration darf nichts wegnehmen,
+                // was vorher da war. Der Vorgabewert für NEUE Kontakte bleibt
+                // trotzdem der sichere 0, siehe die Spaltendefinition.
+                $stationen = !$hatStationen ? [] : $pdo->query("
+                    SELECT id, name, contact_person, street, house_number, postal_code, city, state,
+                           country, address, phone, email, website, contact_public, is_published,
+                           created_at, updated_at, deleted_at
+                    FROM breeding_stations ORDER BY id ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+
+                $einfuegen = $pdo->prepare("
+                    INSERT INTO contacts
+                        (name, contact_person, street, house_number, postal_code, city, state,
+                         country, address, phone, email, website, contact_public, is_published,
+                         created_at, updated_at, deleted_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ");
+                $merken = $pdo->prepare(
+                    "INSERT INTO contact_id_map (old_type, old_id, contact_id) VALUES ('station', ?, ?)"
+                );
+                foreach ($stationen as $s) {
+                    $einfuegen->execute([
+                        $s['name'], $s['contact_person'], $s['street'], $s['house_number'],
+                        $s['postal_code'], $s['city'], $s['state'], $s['country'], $s['address'],
+                        $s['phone'], $s['email'], $s['website'], $s['contact_public'],
+                        $s['is_published'], $s['created_at'], $s['updated_at'], $s['deleted_at'],
+                    ]);
+                    $merken->execute([(int)$s['id'], (int)$pdo->lastInsertId()]);
+                }
+
+                $pdo->commit();
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
+            }
+
+            $meldungen[] = sprintf(
+                'Kontaktliste (#336): %d Person(en) ID-treu und %d Deckstation(en) mit neuen IDs nach contacts übernommen',
+                $anzPersonen,
+                count($stationen)
+            );
+
+            // Namensgleichheiten NICHT automatisch zusammenführen.
+            //
+            // #336 skizziert das ("bei den 3 Namensgleichheiten wird
+            // zusammengeführt statt doppelt angelegt"), und genau das wird hier
+            // bewusst nicht getan: Eine Zusammenführung ist nicht umkehrbar, sie
+            // verschiebt Pferdezuordnungen, und sie setzt die Sichtbarkeit des
+            // Ergebnisses auf den strengeren der beiden Werte - eine bisher
+            // öffentliche Stationsanschrift verschwände also stillschweigend.
+            // Gleicher Name heißt außerdem nicht gleicher Betrieb; im Bestand
+            // stehen Platzhalter wie 'Nichtmitglied NO', die sich nur im
+            // Länderkürzel unterscheiden.
+            //
+            // Stattdessen: melden. Der Deduplizierer (#355) kann Kontakte seit
+            // demselben Release vorschlagen und zusammenführen - dort trifft ein
+            // Mensch die Entscheidung, mit Vorschau und je Fall.
+            $doppelt = $pdo->query("
+                SELECT c.name, COUNT(*) AS anzahl
+                FROM contacts c
+                WHERE c.deleted_at IS NULL
+                GROUP BY LOWER(TRIM(c.name))
+                HAVING COUNT(*) > 1
+                ORDER BY c.name ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+            if ($doppelt) {
+                $namen = implode(', ', array_map(static fn($z) => $z['name'], array_slice($doppelt, 0, 10)));
+                $meldungen[] = sprintf(
+                    'Kontaktliste (#336): %d namensgleiche Kontaktpaare NICHT automatisch zusammengeführt (%s%s) - '
+                    . 'zu entscheiden im Deduplizierer unter /admin/contacts/merge',
+                    count($doppelt),
+                    $namen,
+                    count($doppelt) > 10 ? ', …' : ''
+                );
+                try {
+                    \App\Service\AuditLogger::log(
+                        'Kontaktliste zusammengeführt (#336)',
+                        'contacts',
+                        sprintf('%d namensgleiche Paare offen gelassen: %s', count($doppelt), $namen)
+                    );
+                } catch (\Throwable $e) {
+                    // Protokoll darf die Migration nicht aufhalten.
+                }
+            }
+
+            return $meldungen;
+        });
+
+        // 31c. Verweise umhängen. Zwei Steckplätze, nicht einer - siehe den
+        // Tabellenkommentar zu horse_persons in database/schema.sql.
+        $addColumn('horse_persons', 'contact_id', 'INT NULL DEFAULT NULL AFTER `horse_id`');
+        $addColumn('horse_persons', 'station_contact_id', 'INT NULL DEFAULT NULL AFTER `role`');
+
+        $dataStep('336_horse_persons_umhaengen', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('horse_persons') || !$tabelleExistiert('contact_id_map')) {
+                return null;
+            }
+            $spalten = $pdo->query("SHOW COLUMNS FROM `horse_persons`")->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('person_id', $spalten, true)) {
+                return null; // Neuinstallation - die Altspalten gab es nie.
+            }
+
+            $pdo->exec("
+                UPDATE horse_persons hp
+                JOIN contact_id_map m ON m.old_type = 'person' AND m.old_id = hp.person_id
+                SET hp.contact_id = m.contact_id
+                WHERE hp.person_id IS NOT NULL
+            ");
+            $personen = $pdo->query("SELECT COUNT(*) FROM horse_persons WHERE contact_id IS NOT NULL")->fetchColumn();
+
+            $pdo->exec("
+                UPDATE horse_persons hp
+                JOIN contact_id_map m ON m.old_type = 'station' AND m.old_id = hp.breeding_station_id
+                SET hp.station_contact_id = m.contact_id
+                WHERE hp.breeding_station_id IS NOT NULL
+            ");
+            $stationen = $pdo->query("SELECT COUNT(*) FROM horse_persons WHERE station_contact_id IS NOT NULL")->fetchColumn();
+
+            // Nachweis vor dem Löschen der Altspalten: Jede Zeile, die vorher
+            // einen Verweis trug, muss ihn jetzt im neuen Steckplatz haben.
+            // Sonst bricht der Schritt ab, der Marker bleibt ungesetzt und der
+            // nächste Lauf versucht es erneut - statt Daten zu verlieren.
+            $offen = (int)$pdo->query("
+                SELECT COUNT(*) FROM horse_persons
+                WHERE (person_id IS NOT NULL AND contact_id IS NULL)
+                   OR (breeding_station_id IS NOT NULL AND station_contact_id IS NULL)
+            ")->fetchColumn();
+            if ($offen > 0) {
+                throw new \RuntimeException(sprintf(
+                    'Migration #336: %d horse_persons-Zeile(n) ohne Gegenstück in contact_id_map - '
+                    . 'Altspalten werden NICHT entfernt.',
+                    $offen
+                ));
+            }
+
+            return [sprintf(
+                'Kontaktliste (#336): %d Personen- und %d Stationsverweise in horse_persons umgehängt',
+                $personen,
+                $stationen
+            )];
+        });
+
+        // 31d. horses.breeding_station_id zeigt jetzt auf contacts. Der
+        // Spaltenname bleibt - die Aussage hat sich nicht geändert, nur die
+        // Zieltabelle, und ein Umbenennen träfe jedes Addon, das den Spiegel
+        // liest, ohne irgendetwas zu verbessern.
+        $dataStep('336_horses_station_umhaengen', function () use ($pdo, $tabelleExistiert, $dropForeignKey): ?array {
+            if (!$tabelleExistiert('horses') || !$tabelleExistiert('contact_id_map')) {
+                return null;
+            }
+            if (!$tabelleExistiert('breeding_stations')) {
+                return null; // Neuinstallation.
+            }
+            // Erst den alten Fremdschlüssel lösen, sonst scheitert das UPDATE an
+            // ihm (die neuen IDs gibt es in breeding_stations nicht).
+            $dropForeignKey('horses', 'breeding_station_id');
+            $pdo->exec("
+                UPDATE horses h
+                JOIN contact_id_map m ON m.old_type = 'station' AND m.old_id = h.breeding_station_id
+                SET h.breeding_station_id = m.contact_id
+                WHERE h.breeding_station_id IS NOT NULL
+            ");
+            $anzahl = (int)$pdo->query(
+                "SELECT COUNT(*) FROM horses WHERE breeding_station_id IS NOT NULL"
+            )->fetchColumn();
+
+            $verwaist = (int)$pdo->query("
+                SELECT COUNT(*) FROM horses h
+                LEFT JOIN contacts c ON c.id = h.breeding_station_id
+                WHERE h.breeding_station_id IS NOT NULL AND c.id IS NULL
+            ")->fetchColumn();
+            if ($verwaist > 0) {
+                // Nicht abbrechen: Ein verwaister Spiegel-Verweis ist im Bestand
+                // real (hart gelöschte Station) und darf den Fremdschlüssel
+                // nicht sprengen. Nullen und melden.
+                $pdo->exec("
+                    UPDATE horses h
+                    LEFT JOIN contacts c ON c.id = h.breeding_station_id
+                    SET h.breeding_station_id = NULL
+                    WHERE h.breeding_station_id IS NOT NULL AND c.id IS NULL
+                ");
+            }
+
+            return [sprintf(
+                'Kontaktliste (#336): %d horses.breeding_station_id auf contacts umgehängt%s',
+                $anzahl,
+                $verwaist > 0 ? sprintf(' (%d verwaiste Verweise geleert)', $verwaist) : ''
+            )];
+        });
+
+        // 31e. Rechte NUR als Schnittmenge.
+        //
+        // persons.* und breeding_stations.* wurden getrennt vergeben. Eine
+        // Migration "persons.view ODER breeding_stations.view -> contacts.view"
+        // gäbe Gruppen Zugriff auf personenbezogene Daten, den sie nie hatten -
+        // die Gast-Gruppe etwa hatte breeding_stations.view seit jeher und
+        // persons.view erst seit #293. Also UND, nicht ODER.
+        $dataStep('336_rechte_schnittmenge', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('group_permissions')) {
+                return null;
+            }
+            $vorher = (int)$pdo->query(
+                "SELECT COUNT(*) FROM group_permissions WHERE module IN ('persons','breeding_stations')"
+            )->fetchColumn();
+            if ($vorher === 0) {
+                return null; // Neuinstallation - der Seed vergibt contacts.* direkt.
+            }
+
+            $neu = $pdo->exec("
+                INSERT IGNORE INTO group_permissions (group_id, module, action)
+                SELECT p.group_id, 'contacts', p.action
+                FROM group_permissions p
+                JOIN group_permissions b
+                  ON b.group_id = p.group_id
+                 AND b.module = 'breeding_stations'
+                 AND b.action = p.action
+                WHERE p.module = 'persons'
+            ");
+            // Vor dem Löschen archivieren. Ohne das wäre der Rechte-Teil dieser
+            // Migration der einzige unumkehrbare Schritt: Die Kontakte liegen
+            // in persons_pre_contacts/breeding_stations_pre_contacts, die
+            // Zuordnungen in contact_id_map - die Rechtezeilen aber nirgends.
+            // Ein Rückweg, der die Rechte nicht mitnimmt, setzt die Instanz auf
+            // "niemand darf mehr etwas", und das fällt erst auf, wenn jemand
+            // arbeiten will. Siehe database/rollback-336.php.
+            $altbestand = $pdo->query(
+                "SELECT group_id, module, action FROM group_permissions
+                 WHERE module IN ('persons','breeding_stations') ORDER BY group_id, module, action"
+            )->fetchAll(PDO::FETCH_ASSOC);
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES ('migration_336_rechte_vorher', ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([json_encode($altbestand, JSON_UNESCAPED_UNICODE)]);
+
+            $pdo->exec("DELETE FROM group_permissions WHERE module IN ('persons','breeding_stations')");
+
+            return [sprintf(
+                'Kontaktliste (#336): %d Recht(e) aus persons.*/breeding_stations.* als Schnittmenge nach contacts.* '
+                . 'übernommen (%d alte Zeilen entfernt; wer nur EINEN der beiden Bereiche sehen durfte, '
+                . 'sieht contacts jetzt NICHT - das ist Absicht)',
+                $neu,
+                $vorher
+            )];
+        });
+
+        // 31f. Altspalten und Alttabellen. Erst jetzt, nachdem alle Schritte
+        // oben ihren Nachweis erbracht haben.
+        //
+        // Die Tabellen werden UMBENANNT, nicht gelöscht: Der Umbau fasst jeden
+        // Kontakt und jede Zuordnung an, und ein Rückweg muss existieren. Unter
+        // dem alten Namen kann kein Code sie mehr versehentlich lesen, die Daten
+        // sind aber noch da. Entfernt werden sie in v0.9.0.
+        $dataStep('336_altbestand_stilllegen', function () use ($pdo, $tabelleExistiert, $dropForeignKey): ?array {
+            if (!$tabelleExistiert('persons') && !$tabelleExistiert('breeding_stations')) {
+                return null;
+            }
+            // Ohne erfolgreiche Übernahme wird nichts stillgelegt.
+            $marker = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $marker->execute(['migration_336_horse_persons_umhaengen']);
+            $umgehaengt = $marker->fetchColumn() !== false;
+            $marker->execute(['migration_336_contacts_uebernahme']);
+            $uebernommen = $marker->fetchColumn() !== false;
+            if (!$uebernommen) {
+                return null;
+            }
+
+            $meldungen = [];
+            if ($umgehaengt) {
+                $dropForeignKey('horse_persons', 'person_id');
+                $dropForeignKey('horse_persons', 'breeding_station_id');
+                foreach (['person_id', 'breeding_station_id'] as $spalte) {
+                    try {
+                        $stmt = $pdo->query("SHOW COLUMNS FROM `horse_persons` LIKE '{$spalte}'");
+                        if ($stmt && $stmt->rowCount() > 0) {
+                            $pdo->exec("ALTER TABLE `horse_persons` DROP COLUMN `{$spalte}`");
+                            $meldungen[] = "Spalte horse_persons.{$spalte} entfernt (ersetzt durch contact_id/station_contact_id)";
+                        }
+                    } catch (\Throwable $e) {}
+                }
+            }
+
+            foreach ([['persons', 'persons_pre_contacts'], ['breeding_stations', 'breeding_stations_pre_contacts']] as [$alt, $neu]) {
+                if ($tabelleExistiert($alt) && !$tabelleExistiert($neu)) {
+                    $dropForeignKey($alt, 'id');
+                    $pdo->exec("RENAME TABLE `{$alt}` TO `{$neu}`");
+                    $meldungen[] = "Tabelle {$alt} nach {$neu} umbenannt (Rückweg für #336; entfällt in v0.9.0)";
+                }
+            }
+
+            return $meldungen;
+        });
+
+        // 31g. Fremdschlüssel auf die neue Zieltabelle. Nach dem Umhängen und
+        // erst, wenn keine verwaisten Verweise mehr übrig sind - sonst
+        // scheitert das ALTER und der ganze Lauf bliebe stehen.
+        $dataStep('336_fremdschluessel', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('contacts') || !$tabelleExistiert('horse_persons')) {
+                return null;
+            }
+            $spalten = $pdo->query("SHOW COLUMNS FROM `horse_persons`")->fetchAll(PDO::FETCH_COLUMN);
+            if (in_array('person_id', $spalten, true)) {
+                return null; // Stilllegung lief noch nicht - später erneut versuchen.
+            }
+
+            $meldungen = [];
+            // Verwaiste Verweise vorher leeren, sonst wirft das ALTER.
+            $pdo->exec("UPDATE horse_persons hp LEFT JOIN contacts c ON c.id = hp.contact_id
+                        SET hp.contact_id = NULL WHERE hp.contact_id IS NOT NULL AND c.id IS NULL");
+            $pdo->exec("UPDATE horse_persons hp LEFT JOIN contacts c ON c.id = hp.station_contact_id
+                        SET hp.station_contact_id = NULL WHERE hp.station_contact_id IS NOT NULL AND c.id IS NULL");
+
+            foreach ([
+                ['horse_persons', 'contact_id', 'CASCADE'],
+                ['horse_persons', 'station_contact_id', 'SET NULL'],
+                ['horses', 'breeding_station_id', 'SET NULL'],
+            ] as [$tabelle, $spalte, $verhalten]) {
+                try {
+                    $vorhanden = $pdo->prepare(
+                        "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+                           AND REFERENCED_TABLE_NAME = 'contacts'"
+                    );
+                    $vorhanden->execute([$tabelle, $spalte]);
+                    if ((int)$vorhanden->fetchColumn() > 0) {
+                        continue;
+                    }
+                    $pdo->exec("ALTER TABLE `{$tabelle}` ADD FOREIGN KEY (`{$spalte}`) REFERENCES `contacts`(`id`) ON DELETE {$verhalten}");
+                    $meldungen[] = "Fremdschlüssel {$tabelle}.{$spalte} -> contacts.id ergänzt";
+                } catch (\Throwable $e) {}
+            }
+
+            $addIndexLokal = function (string $tabelle, string $name, string $spalten) use ($pdo, &$meldungen): void {
+                try {
+                    $stmt = $pdo->query("SHOW INDEX FROM `{$tabelle}` WHERE Key_name = " . $pdo->quote($name));
+                    if ($stmt && $stmt->rowCount() === 0) {
+                        $pdo->exec("ALTER TABLE `{$tabelle}` ADD INDEX `{$name}` ({$spalten})");
+                        $meldungen[] = "Index {$name} ergänzt";
+                    }
+                } catch (\Throwable $e) {}
+            };
+            $addIndexLokal('horse_persons', 'idx_horse_persons_contact', '`contact_id`');
+            $addIndexLokal('horse_persons', 'idx_horse_persons_station_contact', '`station_contact_id`');
+
+            return $meldungen;
+        });
+
+        // 32. Dauerhafte Entscheidungen über Dubletten-Vorschläge (#355,
+        // SCHEMA_VERSION 11). Siehe database/schema.sql für die Begründung.
+        $createTable('match_labels', "CREATE TABLE IF NOT EXISTS `match_labels` (
+            `kind` ENUM('horse', 'contact') NOT NULL,
+            `left_id` INT NOT NULL,
+            `right_id` INT NOT NULL,
+            `label` ENUM('merged', 'different', 'unclear') NOT NULL,
+            `note` VARCHAR(255) NULL DEFAULT NULL,
+            `user_id` INT NULL DEFAULT NULL,
+            `username` VARCHAR(50) NOT NULL DEFAULT 'SYSTEM',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`kind`, `left_id`, `right_id`),
+            INDEX `idx_match_labels_kind_label` (`kind`, `label`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // Reset-Token liegen nur noch als SHA-256-Abdruck in der Tabelle
         // (siehe AuthController::hashResetToken()). Bestehende Zeilen enthalten

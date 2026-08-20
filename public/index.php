@@ -105,8 +105,22 @@ $router->get('/horse', [App\Controllers\PublicController::class, 'horseDetail'])
 // QR-Codes und exportierte PDFs mit /hengst?id=... bleiben so für immer gültig.
 // KEIN Übergangs-Redirect - er darf nie entfernt werden.
 $router->redirect('/hengst', '/horse');
-$router->get('/station', [App\Controllers\PublicController::class, 'stationDetail']); // Requires ?id=
-$router->get('/person', [App\Controllers\PublicController::class, 'personDetail']); // Requires ?id= (#293)
+
+// Öffentliche Kontaktseite (#336). Sie ersetzt /person (#293) und /station:
+// `persons` und `breeding_stations` sind zu `contacts` zusammengeführt, und
+// zwei Adressen auf denselben Datensatz wären zwei Seiten, deren
+// Datenschutz-Grenze irgendwann auseinanderliefe.
+$router->get('/kontakt', [App\Controllers\PublicController::class, 'contactDetail']); // Requires ?id=
+
+// Die alten Adressen bleiben dauerhaft (301) erreichbar und werden über
+// contact_id_map auf die neue Kennung aufgelöst - dieselbe Zusage wie bei
+// /hengst (#171): Was in Suchmaschinen und fremden Verlinkungen steht, soll
+// weiter funktionieren. KEIN Übergangs-Redirect, er darf nie entfernt werden.
+// Deshalb auch keine statische Router::redirect()-Regel: Der Zielwert steht
+// nicht im Pfad, sondern in der Abbildungstabelle. Ohne Abbildung gibt es 404
+// und nicht den Katalog - siehe PublicController::redirectLegacyContact().
+$router->get('/station', [App\Controllers\PublicController::class, 'stationRedirect']); // Requires ?id=
+$router->get('/person', [App\Controllers\PublicController::class, 'personRedirect']); // Requires ?id=
 
 // Pferdefotos ueber PHP statt als statische Datei (#262): setzt
 // Cross-Origin-Resource-Policy und die Referer-Pruefung durch und wendet
@@ -202,26 +216,52 @@ $router->post('/admin/users/delete', [App\Controllers\UserController::class, 'de
 $router->post('/admin/users/reset-2fa', [App\Controllers\UserController::class, 'reset2fa']);
 $router->post('/admin/users/revoke-api-keys', [App\Controllers\UserController::class, 'revokeApiKeys']);
 
-// Admin Person Management Routes (Persons, Breeders, Owners)
-$router->get('/admin/persons', [App\Controllers\PersonController::class, 'index']);
-$router->get('/admin/persons/create', [App\Controllers\PersonController::class, 'create']);
-$router->post('/admin/persons/store', [App\Controllers\PersonController::class, 'store']);
-$router->get('/admin/persons/edit', [App\Controllers\PersonController::class, 'edit']);
-$router->post('/admin/persons/update', [App\Controllers\PersonController::class, 'update']);
-$router->post('/admin/persons/delete', [App\Controllers\PersonController::class, 'delete']);
-// Personendubletten zusammenfuehren (#297)
-$router->get('/admin/persons/merge', [App\Controllers\PersonController::class, 'mergeForm']);
-$router->post('/admin/persons/merge', [App\Controllers\PersonController::class, 'merge']);
-$router->post('/admin/persons/publish', [App\Controllers\PersonController::class, 'bulkPublish']);
+// Admin Kontaktverwaltung (#336): eine Verwaltung für Personen UND
+// Deckstationen, seit beide in `contacts` liegen. Ersetzt die getrennten
+// Routen /admin/persons und /admin/breeding-stations samt ihrer Controller.
+$router->get('/admin/contacts', [App\Controllers\ContactController::class, 'index']);
+$router->get('/admin/contacts/create', [App\Controllers\ContactController::class, 'create']);
+$router->post('/admin/contacts/store', [App\Controllers\ContactController::class, 'store']);
+$router->get('/admin/contacts/edit', [App\Controllers\ContactController::class, 'edit']);
+$router->post('/admin/contacts/update', [App\Controllers\ContactController::class, 'update']);
+$router->post('/admin/contacts/delete', [App\Controllers\ContactController::class, 'delete']);
+// Kontaktdubletten zusammenfuehren (#297)
+$router->get('/admin/contacts/merge', [App\Controllers\ContactController::class, 'mergeForm']);
+$router->post('/admin/contacts/merge', [App\Controllers\ContactController::class, 'merge']);
+$router->post('/admin/contacts/publish', [App\Controllers\ContactController::class, 'bulkPublish']);
 
-// Admin Breeding Station Routes (Gestüte / Deckstationen)
-$router->get('/admin/breeding-stations', [App\Controllers\BreedingStationController::class, 'index']);
-$router->get('/admin/breeding-stations/create', [App\Controllers\BreedingStationController::class, 'create']);
-$router->post('/admin/breeding-stations/store', [App\Controllers\BreedingStationController::class, 'store']);
-$router->get('/admin/breeding-stations/edit', [App\Controllers\BreedingStationController::class, 'edit']);
-$router->post('/admin/breeding-stations/update', [App\Controllers\BreedingStationController::class, 'update']);
-$router->post('/admin/breeding-stations/delete', [App\Controllers\BreedingStationController::class, 'delete']);
-$router->post('/admin/breeding-stations/publish', [App\Controllers\BreedingStationController::class, 'bulkPublish']);
+// Alte Admin-Adressen: dauerhafte Weiterleitung (#336). Sie stehen in
+// Lesezeichen und in verschickten Links; ein 404 wäre hier kein Schutz,
+// sondern nur Verlust.
+//
+// Weitergereicht wird nur die NAVIGATION (GET), und die Kennung im
+// Query-String nur dort, wo sie nachweislich denselben Datensatz meint:
+// Personen behalten bei der Migration ihre ID (SchemaMigrator, Schritt
+// 336_contacts_uebernahme), Deckstationen bekommen neue oberhalb des
+// Personenbestands. `/admin/breeding-stations/edit?id=7` würde deshalb den
+// Bearbeitungsdialog von Person 7 öffnen - ein fremder Datensatz, der nach
+// dem Speichern überschrieben wäre. Die alte Stationskennung landet folglich
+// auf der Liste, nicht in einem Formular.
+$router->redirect('/admin/persons', '/admin/contacts');
+$router->redirect('/admin/persons/create', '/admin/contacts/create');
+$router->redirect('/admin/persons/edit', '/admin/contacts/edit');
+$router->redirect('/admin/persons/merge', '/admin/contacts/merge');
+$router->redirect('/admin/breeding-stations', '/admin/contacts');
+$router->redirect('/admin/breeding-stations/create', '/admin/contacts/create');
+$router->get('/admin/breeding-stations/edit', static function (): void {
+    // Bewusst OHNE Query-String - siehe oben. Router::redirect() hängt ihn
+    // immer an und ist deshalb hier nicht verwendbar.
+    header('Location: /admin/contacts', true, 301);
+    exit;
+});
+
+// Die SCHREIBENDEN Endpunkte werden ABSICHTLICH NICHT weitergeleitet - weder
+// mit 301 noch mit 308. Ein Formular, das den Umbau in einem offenen Tab
+// überdauert hat, trägt die Felder der alten getrennten Masken; auf
+// /admin/contacts/update abgeschickt fehlten ihm die neuen Spalten, und der
+// Kontakt käme mit leergeräumten Feldern zurück. Bei Stationen käme die
+// falsche Kennung dazu. 404 heißt hier "noch einmal von vorn", und das ist
+// die einzige Antwort, die nichts kaputt macht.
 
 // Admin Horse CRUD & Merge Tool Routes
 $router->get('/admin/horses', [App\Controllers\HorseController::class, 'index']);
@@ -231,8 +271,14 @@ $router->get('/admin/horses/edit', [App\Controllers\HorseController::class, 'edi
 $router->post('/admin/horses/update', [App\Controllers\HorseController::class, 'update']);
 $router->post('/admin/horses/delete', [App\Controllers\HorseController::class, 'delete']);
 $router->post('/admin/horses/publish', [App\Controllers\HorseController::class, 'bulkPublish']);
+// Suchendpunkt fuer Pferde (#341). Sieben Addons brachten je eine eigene
+// Kopie mit; der Kern liefert jetzt eine - samt /js/horse-search.js.
+$router->get('/admin/horses/search', [App\Controllers\HorseSearchController::class, 'search']);
+
 $router->get('/admin/matches', [App\Controllers\HorseController::class, 'matches']);
 $router->post('/admin/matches/link', [App\Controllers\HorseController::class, 'linkMatch']);
+// Dubletten-Entscheidung festhalten oder widerrufen (#355).
+$router->post('/admin/matches/label', [App\Controllers\HorseController::class, 'labelMatch']);
 
 // Pferde-Bulk-Import (CSV, #49)
 $router->get('/admin/import/horses', [App\Controllers\ImportController::class, 'showForm']);

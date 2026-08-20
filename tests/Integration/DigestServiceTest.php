@@ -70,8 +70,8 @@ class DigestServiceTest extends TestCase {
         Scheduler::resetForTests();
         self::$db->exec("DELETE FROM settings WHERE setting_key LIKE 'digest_%' OR setting_key LIKE 'cron_last_run__%'");
         self::$db->exec("DELETE FROM horses");
-        self::$db->exec("DELETE FROM persons");
-        self::$db->exec("DELETE FROM breeding_stations");
+        // Seit #336 eine Tabelle statt zweier.
+        self::$db->exec("DELETE FROM contacts");
         // Räumt genau die Testbenutzer weg, die insertAdminUser() anlegt (erkennbar
         // am Username-Präfix) - seit der Entfernung von users.role gibt es keine
         // role-Spalte mehr, über die sich diese Benutzer sonst identifizieren ließen.

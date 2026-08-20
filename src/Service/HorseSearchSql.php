@@ -109,12 +109,16 @@ final class HorseSearchSql {
      * Basis-JOINs, die COUNT- und Daten-Abfrage gleichermaßen brauchen (bs,
      * sire und dam werden in den Filtern referenziert). Alle 1:1, daher keine
      * Zeilen-Vervielfachung und kein DISTINCT nötig (#125).
+     *
+     * Der Alias `bs` bleibt trotz der Zusammenführung auf `contacts` (#336):
+     * Er benennt hier die ROLLE "Deckstation dieses Pferdes", nicht die
+     * Tabelle - und genau die gibt es weiterhin (horses.breeding_station_id).
      */
     public function joinSql(): string {
         $sichtbar = $this->nurOeffentlich ? ' AND %s.is_published = 1' : '';
         return "
             FROM horses h
-            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL" . sprintf($sichtbar, 'bs') . "
+            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL" . sprintf($sichtbar, 'bs') . "
             LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL" . sprintf($sichtbar, 'sire') . "
             LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL" . sprintf($sichtbar, 'dam') . "
         ";
@@ -132,7 +136,7 @@ final class HorseSearchSql {
                        GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
                        GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
                 FROM horse_persons hp
-                JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
+                JOIN contacts p ON p.id = hp.contact_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
                 GROUP BY hp.horse_id
             ) hpx ON hpx.horse_id = h.id
         ";
@@ -146,7 +150,7 @@ final class HorseSearchSql {
      * Der Grund fuer die zweite Abfrage: personAggregateJoin() enthaelt ein
      * GROUP BY und laesst sich deshalb nicht in die aeussere Abfrage
      * hineinziehen. MySQL materialisiert die abgeleitete Tabelle ueber die
-     * GESAMTE horse_persons/persons-Menge, obwohl am Ende 24 Zeilen
+     * GESAMTE horse_persons/contacts-Menge, obwohl am Ende 24 Zeilen
      * uebrigbleiben. Beim Endlos-Scrollen wurde dieser Aufbau je
      * Nachladeschritt wiederholt.
      *
@@ -170,7 +174,7 @@ final class HorseSearchSql {
                    GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
                    GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
             FROM horse_persons hp
-            JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
+            JOIN contacts p ON p.id = hp.contact_id AND p.deleted_at IS NULL" . $this->personVisibility('p') . "
             WHERE hp.horse_id IN ({$platzhalter})
             GROUP BY hp.horse_id
         ";
@@ -208,7 +212,7 @@ final class HorseSearchSql {
                 " . $this->stationMatchSql() . " OR
                 EXISTS (
                     SELECT 1 FROM horse_persons hps
-                    JOIN persons ps ON ps.id = hps.person_id AND ps.deleted_at IS NULL" . $this->personVisibility('ps') . "
+                    JOIN contacts ps ON ps.id = hps.contact_id AND ps.deleted_at IS NULL" . $this->personVisibility('ps') . "
                     WHERE hps.horse_id = h.id AND ps.name LIKE ?
                 ) OR
                 EXISTS (
@@ -234,19 +238,50 @@ final class HorseSearchSql {
 
             HorseSearchCondition::Breeder => "EXISTS (
                 SELECT 1 FROM horse_persons hpb
-                JOIN persons pb ON pb.id = hpb.person_id AND pb.deleted_at IS NULL" . $this->personVisibility('pb') . "
+                JOIN contacts pb ON pb.id = hpb.contact_id AND pb.deleted_at IS NULL" . $this->personVisibility('pb') . "
                 WHERE hpb.horse_id = h.id AND hpb.role = 'breeder' AND pb.name LIKE ?
             )",
 
             HorseSearchCondition::Owner => "EXISTS (
                 SELECT 1 FROM horse_persons hpo
-                JOIN persons po ON po.id = hpo.person_id AND po.deleted_at IS NULL" . $this->personVisibility('po') . "
+                JOIN contacts po ON po.id = hpo.contact_id AND po.deleted_at IS NULL" . $this->personVisibility('po') . "
                 WHERE hpo.horse_id = h.id AND hpo.role = 'owner' AND po.name LIKE ?
             )",
 
             HorseSearchCondition::Station => '(' . $this->stationMatchSql() . ')',
             HorseSearchCondition::Sire => "(sire.name LIKE ? OR h.sire_name LIKE ?)",
             HorseSearchCondition::Dam => "(dam.name LIKE ? OR h.dam_name LIKE ?)",
+
+            // Halter (#346). Bis v0.7 liessen sich Zuechter und Besitzer
+            // durchsuchen, der Halter nicht - obwohl die Rolle in
+            // horse_persons.role gleichberechtigt neben den anderen steht.
+            HorseSearchCondition::Keeper => "EXISTS (
+                SELECT 1 FROM horse_persons hpk
+                JOIN contacts pk ON pk.id = hpk.contact_id AND pk.deleted_at IS NULL" . $this->personVisibility('pk') . "
+                WHERE hpk.horse_id = h.id AND hpk.role = 'keeper' AND pk.name LIKE ?
+            )",
+
+            HorseSearchCondition::HeightFrom => "h.height_cm >= ?",
+            HorseSearchCondition::HeightTo => "h.height_cm <= ?",
+
+            // Todesjahr (#346). is_deceased zusaetzlich zu pruefen ist kein
+            // Beiwerk: Ein Pferd ohne Todesjahr hat dort NULL, und NULL
+            // vergleicht sich gegen keine Schranke - ohne die Bedingung saehe
+            // ein Filter "gestorben bis 2020" trotzdem wie eine Aussage ueber
+            // lebende Pferde aus.
+            HorseSearchCondition::DeathYearFrom => "(h.is_deceased = 1 AND h.death_year >= ?)",
+            HorseSearchCondition::DeathYearTo => "(h.is_deceased = 1 AND h.death_year <= ?)",
+
+            HorseSearchCondition::BirthDateFrom => "h.birth_date >= ?",
+            HorseSearchCondition::BirthDateTo => "h.birth_date <= ?",
+
+            HorseSearchCondition::Description => "h.description LIKE ?",
+
+            // Addon-Filter (#346): EIN gebundener Wert, eine kommagetrennte
+            // ID-Liste. Siehe die Begruendung an HorseSearchCondition::PluginIds.
+            // Eine LEERE Liste trifft nichts - das ist richtig so: Ein Addon,
+            // das "keine Treffer" meint, muss das sagen koennen.
+            HorseSearchCondition::PluginIds => "FIND_IN_SET(h.id, ?)",
         };
     }
 

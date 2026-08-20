@@ -3,6 +3,8 @@
 
 namespace Tests\Functional;
 
+use App\Database;
+
 /**
  * HTTP-Funktionstests für die Schlüsselpflicht der JSON-API und das
  * dahinterliegende Rechtemodell (siehe App\Security\ApiKey, docs/api.md).
@@ -14,6 +16,8 @@ namespace Tests\Functional;
  * - Ein Schlüssel darf bewusst WENIGER (Least Privilege über den Scope).
  * - Widerruf wirkt sofort, das Limit von 5 aktiven Schlüsseln wird erzwungen,
  *   und fremde Schlüssel lassen sich nicht widerrufen.
+ * - Die API gibt aus einem Kontakt ausschließlich den Namen heraus - die
+ *   Feldgrenze, die durch die Kontaktliste (#336) neu geprüft werden muss.
  */
 class ApiKeyAuthTest extends FunctionalTestCase {
 
@@ -107,8 +111,13 @@ class ApiKeyAuthTest extends FunctionalTestCase {
 
     /**
      * Least Privilege: derselbe Benutzer besitzt horses.view UND persons.view,
-     * ein Schlüssel wird aber bewusst nur auf persons.view eingeschränkt - er
+     * ein Schlüssel wird aber bewusst nur auf contacts.view eingeschränkt - er
      * darf damit keine Pferde mehr lesen, obwohl sein Besitzer es dürfte.
+     *
+     * Das zweite Recht war bis v0.7 `persons.view`; seit der Kontaktliste
+     * (#336) heißt das Modul `contacts`. Die Aussage des Tests hängt nicht an
+     * diesem Namen - gebraucht wird irgendein ZWEITES Recht des Besitzers,
+     * das nichts mit Pferden zu tun hat.
      */
     public function testKeyScopeCanBeNarrowerThanOwnerRights(): void {
         $admin = $this->authenticatedClient();
@@ -120,7 +129,7 @@ class ApiKeyAuthTest extends FunctionalTestCase {
         $groupId = $this->createOwnGroup($admin, 'API Scope ' . $unique);
         $this->setGroupPermissions($admin, $groupId, [
             'horses' => ['view'],
-            'persons' => ['view'],
+            'contacts' => ['view'],
         ]);
         $user = $this->createAndLoginEditor($admin, "apiscope{$unique}", "api-scope-{$unique}@example.com", [$groupId]);
 
@@ -134,7 +143,7 @@ class ApiKeyAuthTest extends FunctionalTestCase {
 
         // b) Schlüssel OHNE horses.view im Scope ist gültig (kein 401), sieht
         // aber nichts - die Einschränkung wirkt, obwohl der Besitzer das Recht hat.
-        $narrowToken = $this->createApiKey($user, "Scope eng {$unique}", ['persons.view']);
+        $narrowToken = $this->createApiKey($user, "Scope eng {$unique}", ['contacts.view']);
         $narrow = $client->get('/api/horses?search=' . urlencode($horseName), $this->bearer($narrowToken));
         $this->assertSame(200, $narrow->statusCode, 'Der Schlüssel ist gültig, nur sein Scope deckt horses.view nicht ab.');
         $this->assertSame(
@@ -142,6 +151,131 @@ class ApiKeyAuthTest extends FunctionalTestCase {
             json_decode($narrow->body, true)['meta']['total'],
             'Ein Schlüssel ohne horses.view im Scope darf keine Pferde ausliefern.'
         );
+    }
+
+    /**
+     * Feldgrenze der API nach der Kontaktliste (#336).
+     *
+     * Bis v0.7 lasen die JOINs dieser Abfrage `persons` (Positivliste an
+     * Spalten) und `breeding_stations`; seit dem Umbau lesen beide dieselbe
+     * Tabelle `contacts`, und die trägt mehr Spalten, als `persons` je hatte -
+     * contact_person, address, contact_info, contact_public. Genau dort
+     * entsteht die Gefahr: Ein `SELECT *` oder ein durchgereichter Datensatz
+     * trüge die zusammengelegte Tabelle nach außen, ohne dass sich am Aufruf
+     * irgendetwas ändert und ohne dass ein bestehender Test es merkt.
+     *
+     * Festgenagelt wird deshalb die AUSGEGEBENE Feldmenge, nicht der SQL-Text:
+     * Aus einem Kontakt darf ausschließlich der Name nach draußen (als
+     * breeding_station, breeder, owner). Der Kontakt im Test hat seine
+     * Kontaktdaten ausdrücklich FREIGEGEBEN (contact_public = 1) - sonst
+     * belegte der Test bloß, dass eine fehlende Freigabe greift. Auch
+     * freigegebene Anschriften gehören nicht in eine Pferde-Antwort; die
+     * Freigabe gilt der Kontaktseite, nicht dem Katalog.
+     */
+    public function testApiCarriesContactNamesButNoOtherContactFields(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        // 'x' kommt in Hex-Strings (CSRF-Token, Bild-Hashes) nie vor - macht
+        // die Negativ-Prüfungen unten zufallssicher (Muster aus ContactFieldsTest).
+        $contactName = "API Kontakt {$unique}";
+        $vertraulich = [
+            'contact_person' => 'Ansprechpartnerin Aselx',
+            'street' => 'Fjordwegx',
+            'house_number' => '7x',
+            'postal_code' => '24960x',
+            'address' => 'Fjordwegx 7x, 24960x Glücksburg',
+            'email' => "api-kontakt-{$unique}@example.com",
+            'phone' => '04631 111x',
+            'mobile' => '0170 222x',
+            'contact_info' => 'Rückruf nur abends, Festnetz 04631 999x',
+        ];
+
+        $form = $admin->get('/admin/contacts/create');
+        $anlegen = $admin->post('/admin/contacts/store', array_merge($vertraulich, [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'name' => $contactName,
+            'city' => 'Glücksburg',
+            'country' => 'DE',
+            // Ausdrücklich freigegeben - siehe PHPDoc.
+            'contact_public' => '1',
+            'is_published' => '1',
+        ]));
+        $this->assertSame('/admin/contacts?success=created', $anlegen->location());
+
+        $stmt = Database::getInstance()->prepare("SELECT id FROM contacts WHERE name = ?");
+        $stmt->execute([$contactName]);
+        $contactId = (int)$stmt->fetchColumn();
+        $this->assertGreaterThan(0, $contactId, 'Der Testkontakt sollte angelegt sein.');
+
+        // Ein Pferd, das denselben Kontakt in ALLEN drei Rollen führt, in denen
+        // ein Kontakt überhaupt in einer API-Antwort auftaucht: als Deckstation
+        // des Pferdes, als Station der Zuordnungszeile und als Züchter.
+        $horseName = "API Feldgrenze Pferd {$unique}";
+        $ueln = 'DE000FELD' . substr((string)$contactId, -4) . '1';
+        $createForm = $admin->get('/admin/horses/create');
+        $angelegt = $admin->post('/admin/horses/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'name' => $horseName,
+            'ueln' => $ueln,
+            'status' => 'active',
+            'is_published' => '1',
+            'breeding_station_id' => (string)$contactId,
+            'persons' => [
+                ['contact_id' => (string)$contactId, 'role' => 'breeder', 'station_contact_id' => (string)$contactId],
+            ],
+        ]);
+        $this->assertSame('/admin/horses?success=created', $angelegt->location());
+
+        $token = $this->createApiKey($admin, "Feldgrenze {$unique}");
+        $client = $this->newClient();
+
+        $liste = $client->get('/api/horses?search=' . urlencode($horseName), $this->bearer($token));
+        $this->assertSame(200, $liste->statusCode);
+        $daten = json_decode($liste->body, true);
+        $this->assertSame(1, $daten['meta']['total'], 'Das Testpferd sollte genau einmal gefunden werden.');
+        $datensatz = $daten['data'][0];
+
+        // Der Name kommt an - sonst prüfte der Rest an einer leeren Antwort vorbei.
+        $this->assertSame($contactName, $datensatz['breeding_station'], 'Der Stationsname gehört zur öffentlichen Katalogansicht.');
+        $this->assertSame($contactName, $datensatz['breeder'], 'Der Züchtername gehört zur öffentlichen Katalogansicht.');
+
+        // Und sonst nichts aus dem Kontakt: die Feldmenge vollständig, damit
+        // ein NEU hinzugefügtes Feld hier auffällt statt still auszuliefern.
+        $this->assertSame(
+            [
+                'id', 'name', 'ueln', 'foreign_ueln', 'birth_year', 'birth_date', 'color', 'sex',
+                'breed', 'height_cm', 'status', 'is_deceased', 'death_year', 'image_url',
+                'breeding_station', 'sire', 'dam', 'breeder', 'owner', 'profile_url',
+            ],
+            array_keys($datensatz),
+            'Die API liefert eine andere Feldmenge als vereinbart - bei einem Kontaktfeld ist das ein Datenschutzvorfall.'
+        );
+
+        foreach ($vertraulich as $feld => $wert) {
+            $this->assertStringNotContainsString(
+                $wert,
+                $liste->body,
+                "Das Kontaktfeld {$feld} ist in die API-Antwort gelangt."
+            );
+        }
+
+        // Derselbe Maßstab für den Einzelabruf - er teilt sich die Abfrage mit
+        // der Liste, aber das ist eine Eigenschaft der Umsetzung, keine Zusage.
+        $einzeln = $client->get('/api/horses/show?ueln=' . urlencode($ueln), $this->bearer($token));
+        $this->assertSame(200, $einzeln->statusCode);
+        $this->assertSame(
+            array_keys($datensatz),
+            array_keys(json_decode($einzeln->body, true)['data']),
+            'Der Einzelabruf liefert eine andere Feldmenge als die Liste.'
+        );
+        foreach ($vertraulich as $feld => $wert) {
+            $this->assertStringNotContainsString(
+                $wert,
+                $einzeln->body,
+                "Das Kontaktfeld {$feld} ist in den Einzelabruf gelangt."
+            );
+        }
     }
 
     /**

@@ -79,10 +79,23 @@ class GdprController extends BaseController {
                 $params[] = $like;
                 $params[] = $like;
             }
+            // Positivliste statt des frueheren p.* (#336): Die Trefferliste
+            // zeigt Name, Kontaktfeld und Pferdezahl - mehr braucht die
+            // Zuordnung nicht, und mehr soll auch nicht im Speicher liegen.
+            // Seit persons und breeding_stations EINE Tabelle sind, haengen an
+            // einem Treffer auch Anschrift und Telefonnummern; ein `SELECT *`
+            // wuerde sie mitschleifen, damit die View sie eines Tages
+            // versehentlich ausgibt.
+            //
+            // Gesucht wird ueber die ganze Kontaktliste, nicht ueber einen
+            // Teil davon: Wer Loeschung verlangt, kann in der Tabelle auch als
+            // Betriebs-Kontakt stehen. Eine Einschraenkung auf "nur Personen"
+            // gibt es nicht mehr - und sie waere genau die Unterscheidung, die
+            // #336 abgeschafft hat, weil sie niemand zuverlaessig treffen kann.
             $stmt = $db->prepare("
-                SELECT p.*, COUNT(hp.id) as horse_count
-                FROM persons p
-                LEFT JOIN horse_persons hp ON hp.person_id = p.id
+                SELECT p.id, p.name, p.contact_info, p.email, p.deleted_at, COUNT(hp.id) as horse_count
+                FROM contacts p
+                LEFT JOIN horse_persons hp ON hp.contact_id = p.id
                 WHERE {$conditions}
                 GROUP BY p.id
                 ORDER BY p.name ASC
@@ -196,7 +209,7 @@ class GdprController extends BaseController {
         // 1. horse_count kommt als Unterabfrage je ausgegebener Zeile statt
         //    aus JOIN und GROUP BY. Sie läuft damit für höchstens
         //    SEARCH_LIMIT Zeilen und nutzt den Fremdschlüssel-Index auf
-        //    horse_persons.person_id; die temporäre Tabelle für die
+        //    horse_persons.contact_id; die temporäre Tabelle für die
         //    Gruppierung entfällt ersatzlos.
         //
         // 2. Zuerst die Präfixsuche, die den Bestand wirklich eingrenzt. Nur
@@ -207,9 +220,17 @@ class GdprController extends BaseController {
         //
         // BEWUSST OHNE deleted_at-Filter, wie schon der Automatch: siehe die
         // Begründung oben.
+        // Die Feldliste ist unveraendert - der Endpunkt heisst weiterhin
+        // /admin/gdpr/search-persons und liefert weiterhin id/name/
+        // contact_info/email/horse_count/is_deleted, nur aus `contacts`
+        // (#336). Der Zaehler zaehlt bewusst NUR den Personen-Steckplatz
+        // (contact_id), nicht station_contact_id: Er beantwortet "an wie
+        // vielen Pferden haengt dieser Mensch als Zuechter/Besitzer/Halter",
+        // und genau das ist die Zahl, an der ein Bearbeiter die Tragweite
+        // einer Loeschung abschaetzt.
         $sql = 'SELECT p.id, p.name, p.contact_info, p.email, p.deleted_at,
-                       (SELECT COUNT(*) FROM horse_persons hp WHERE hp.person_id = p.id) AS horse_count
-                  FROM persons p
+                       (SELECT COUNT(*) FROM horse_persons hp WHERE hp.contact_id = p.id) AS horse_count
+                  FROM contacts p
                  WHERE %s
                  ORDER BY p.name ASC, p.id ASC
                  LIMIT ' . self::SEARCH_LIMIT;
@@ -286,17 +307,30 @@ class GdprController extends BaseController {
         if ($personId > 0) {
             $db = Database::getInstance();
 
-            // Anonymize person data while preserving horse relationships in horse_persons.
+            // Anonymize contact data while preserving horse relationships in horse_persons.
             // Alle PII-Felder nullen - auch city/state/country/membership_status sind
             // personenbezogen, sobald sie am Namen hängen (#188, state seit #256).
             //
             // Diese Liste ist hartkodiert und muss bei JEDER neuen Spalte in
-            // persons mitgezogen werden. Ein vergessenes Feld fällt nicht auf:
+            // contacts mitgezogen werden. Ein vergessenes Feld fällt nicht auf:
             // Die Anonymisierung meldet weiterhin Erfolg, und die Lücke bleibt
             // still bestehen. Der Gegentest dazu steht in
-            // tests/Functional/GdprEraseTest.php und prüft die Felder namentlich.
+            // tests/Functional/GdprEraseTest.php und leitet die Feldliste aus
+            // dem Schema ab, damit eine neue Spalte nicht stillschweigend
+            // ungeprüft bleibt.
+            //
+            // Neu gegenüber v0.7 (#336): `contact_person` und `address` kommen
+            // aus der früheren Tabelle `breeding_stations` und sind genauso
+            // personenbezogen - der Ansprechpartner IST ein Mensch, und die
+            // alte Freitext-Anschrift ist oft eine Privatadresse. Beide sind
+            // seit der Zusammenführung an JEDEM Kontakt möglich, also auch an
+            // dem, der Gegenstand einer Löschanfrage ist.
+            //
+            // Nicht genullt werden id/name (name wird ersetzt) sowie
+            // is_published, is_breeder und contact_public: Sie sagen etwas über
+            // den Datensatz, nicht über die Person, und sind NOT NULL.
             $anonName = "Anonymisierte Person (#" . $personId . ")";
-            $stmt = $db->prepare("UPDATE persons SET name = ?, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, email = NULL, phone = NULL, mobile = NULL, website = NULL, membership_status = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE contacts SET name = ?, contact_person = NULL, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, address = NULL, email = NULL, phone = NULL, mobile = NULL, website = NULL, membership_status = NULL WHERE id = ?");
             $stmt->execute([$anonName, $personId]);
 
             // Automatically mark GDPR request as processed
@@ -328,8 +362,14 @@ class GdprController extends BaseController {
         if ($personId > 0) {
             $db = Database::getInstance();
 
-            // Delete person record (foreign key ON DELETE CASCADE will clean up horse_persons)
-            $stmt = $db->prepare("DELETE FROM persons WHERE id = ?");
+            // Kontakt endgültig löschen. Die Fremdschlüssel räumen auf (#336):
+            // horse_persons.contact_id fällt per ON DELETE CASCADE mit, während
+            // horse_persons.station_contact_id und horses.breeding_station_id
+            // auf NULL gehen (ON DELETE SET NULL) - die Aussage "dieses Pferd
+            // stand irgendwo" bleibt damit erhalten, der Mensch dahinter
+            // verschwindet. Genau so ist es gewollt: Ein Löschverlangen betrifft
+            // die personenbezogenen Daten, nicht die Pferdehistorie.
+            $stmt = $db->prepare("DELETE FROM contacts WHERE id = ?");
             $stmt->execute([$personId]);
 
             // Automatically mark GDPR request as processed

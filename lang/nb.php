@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Hesten du ba om, finnes ikke eller er fjernet fra registeret.',
     'meta.title_horse_detail_suffix' => 'Detaljer',
 
-    // Detaljside for hingstestasjon
+    // Hingststasjonsblokk på kontaktsiden (#336)
     'station.horses_heading' => '🐴 Hester ved denne hingstestasjonen',
     'station.no_horses' => 'Ingen hester fra denne hingstestasjonen er for øyeblikket oppført i registeret.',
     'field.location' => 'Sted',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Mobil',
     'station.not_found' => 'Hingstestasjonen du ba om, finnes ikke eller er fjernet fra registeret.',
     'meta.title_station_detail_suffix' => 'Hingstestasjon',
+
+    // Detaljside for kontakt (#336)
+    'contact.not_found' => 'Den forespurte kontakten finnes ikke eller er fjernet fra registeret.',
+    'contact.no_details' => 'Det finnes ingen offentlige opplysninger om denne kontakten.',
+    'contact.horses_heading' => '🐴 Hester knyttet til denne kontakten',
+    'contact.no_horses' => 'Det er for tiden ingen hester knyttet til denne kontakten i registeret.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Juridisk informasjon / personvern / GDPR (statiske plassholdertekster)
     'legal.impressum_title' => 'Juridisk informasjon',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Administrer hester',
     'admin.dashboard.tile_persons' => 'Administrer personer',
     'admin.dashboard.tile_breeding_stations' => 'Administrer hingstestasjoner',
+    'admin.dashboard.tile_contacts' => 'Administrer kontakter',
     'admin.dashboard.tile_matches' => 'Slå sammen blodlinjer',
     'admin.dashboard.tile_trash' => 'Papirkurv',
     'admin.dashboard.system_heading' => 'Systeminnstillinger og konfigurasjon',

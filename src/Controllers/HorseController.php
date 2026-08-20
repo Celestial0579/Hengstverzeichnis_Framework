@@ -94,8 +94,15 @@ class HorseController extends BaseController {
         // is_published-Einschränkung - siehe oben.
         $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
         $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        // Namensvorschläge für die Filterfelder "Person" und "Deckstation".
+        // Seit #336 speisen sich BEIDE aus derselben Abfrage: Personen und
+        // Deckstationen stehen in einer Tabelle, und welcher Kontakt für ein
+        // Pferd Züchter, Besitzer oder Deckstation ist, entscheidet erst die
+        // Zuordnung (horse_persons.role bzw. der Stations-Steckplatz) - nicht
+        // mehr die Tabelle. Die beiden Filterfelder bleiben trotzdem getrennt:
+        // Sie fragen Verschiedenes ab (wer / wo), nur die Vorschlagsliste ist
+        // dieselbe.
+        $contactNames = $db->query("SELECT DISTINCT name FROM contacts WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_horses', [
             'title' => 'Pferde verwalten',
@@ -107,8 +114,9 @@ class HorseController extends BaseController {
             'hasActiveFilters' => $criteria->hasActiveFilters(),
             'colors' => $colors,
             'breeds' => $breeds,
-            'stations' => $stations,
-            'persons' => $persons,
+            // Zwei Schlüssel, eine Quelle (#336) - siehe oben.
+            'stations' => $contactNames,
+            'persons' => $contactNames,
             'page' => $page,
             'totalPages' => $totalPages,
             'totalCount' => $totalHorses,
@@ -124,6 +132,106 @@ class HorseController extends BaseController {
      * Massen-Veröffentlichung / -Depublikation der ausgewählten Pferde. Nur mit
      * 'horses.publish' erlaubt; setzt is_published unabhängig vom Lebenszyklus-Status.
      */
+    /**
+     * Fragt die Addons, ob dieses Pferd veroeffentlicht werden darf (#335).
+     *
+     * WARUM EIN EIGENER HOOK UND NICHT `horse.before_save`. Weil ein Veto beim
+     * SPEICHERN etwas anderes ist als ein Veto beim VEROEFFENTLICHEN. Ein
+     * Addon, das Widersprueche findet - Elternteil juenger als das Fohlen,
+     * Vater gleich Mutter, Halterzeitraum nach dem Todesjahr (Addons#114) -,
+     * soll verhindern, dass so ein Datensatz oeffentlich wird. Es soll aber
+     * NICHT verhindern koennen, dass ein Bearbeiter seine halbfertige Eingabe
+     * ueberhaupt speichert; sonst kaeme er nie an den Punkt, an dem er den
+     * Widerspruch aufloesen kann. `horse.before_save` bleibt deshalb ein
+     * doAction ohne Rueckgabewert - diese Entscheidung wird hier ausdruecklich
+     * nicht angetastet.
+     *
+     * ZEITPUNKT: NACH dem Speichern, nicht davor. Ein Addon muss den
+     * tatsaechlichen Stand befragen koennen - die Zuordnungen in
+     * horse_persons etwa entstehen erst nach dem INSERT des Pferds. Ein Veto
+     * vor dem Speichern muesste gegen die rohen POST-Daten urteilen und
+     * traefe damit reihenweise falsche Entscheidungen.
+     *
+     * FAIL-CLOSED, ABER NUR FUER DIE VEROEFFENTLICHUNG: Liefert der Filter
+     * Unbrauchbares (ein Addon ist abgestuerzt, HookManager verschluckt die
+     * Ausnahme und behaelt den vorherigen Wert), gilt "keine Einwaende" - der
+     * Startwert ist die leere Liste. Ein abgestuerztes Addon darf keine
+     * Veroeffentlichung blockieren, denn niemand koennte den Grund beheben.
+     *
+     * @return string[] Menschenlesbare Gruende. Leer = veroeffentlichen ist in Ordnung.
+     */
+    private function publishBlockers(int $horseId): array {
+        $stmt = Database::getInstance()->prepare(
+            "SELECT * FROM horses WHERE id = ? AND deleted_at IS NULL"
+        );
+        $stmt->execute([$horseId]);
+        $horse = $stmt->fetch();
+        if (!$horse) {
+            return [];
+        }
+
+        $blockers = $this->hooks()->applyFilters('horse.publish_blockers', [], $horseId, $horse);
+        if (!is_array($blockers)) {
+            return [];
+        }
+
+        $sauber = [];
+        foreach ($blockers as $grund) {
+            if (is_string($grund) && trim($grund) !== '') {
+                $sauber[] = trim($grund);
+            }
+        }
+        return $sauber;
+    }
+
+    /**
+     * Setzt die Veroeffentlichung zurueck, wenn ein Addon Einwaende hat (#335),
+     * und liefert die Gruende fuer die Rueckmeldung an den Bearbeiter.
+     *
+     * Der Datensatz bleibt gespeichert - nur das Haekchen faellt. Das ist der
+     * ganze Punkt: Die Arbeit geht nicht verloren, sie wird nur nicht
+     * oeffentlich.
+     *
+     * @return string[]
+     */
+    private function enforcePublishBlockers(int $horseId, int $gewuenscht): array {
+        if ($gewuenscht !== 1) {
+            return [];
+        }
+        $blockers = $this->publishBlockers($horseId);
+        if ($blockers === []) {
+            return [];
+        }
+
+        $stmt = Database::getInstance()->prepare("UPDATE horses SET is_published = 0 WHERE id = ?");
+        $stmt->execute([$horseId]);
+
+        \App\Service\AuditLogger::log(
+            "Veroeffentlichung durch Addon verhindert",
+            "horses",
+            "Pferd ID {$horseId}: " . implode(' | ', $blockers)
+        );
+
+        return $blockers;
+    }
+
+    /**
+     * Die Gruende so an die Liste weiterreichen, dass sie dort anzeigbar sind,
+     * ohne in der Adresszeile zu landen (sie koennen lang sein und Namen
+     * enthalten).
+     *
+     * @param string[] $blockers
+     */
+    private function rememberPublishBlockers(int $horseId, array $blockers): void {
+        if ($blockers === []) {
+            return;
+        }
+        if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            @session_start();
+        }
+        $_SESSION['publish_blockers'] = ['horse_id' => $horseId, 'gruende' => $blockers];
+    }
+
     public function bulkPublish(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
@@ -139,15 +247,42 @@ class HorseController extends BaseController {
             // zusammengesetzten IN (...)-Liste - inhaltlich identisch, vermeidet aber
             // jede String-Interpolation im SQL (auch die des ?-Platzhalter-Strings).
             $stmt = $db->prepare("UPDATE horses SET is_published = ? WHERE id = ? AND deleted_at IS NULL");
+            $blockiert = [];
             foreach ($ids as $id) {
+                // Das Veto gilt nur fuer das Veroeffentlichen (#335) -
+                // Depublizieren muss immer moeglich bleiben, sonst haenge die
+                // Ruecknahme einer Veroeffentlichung am Zustand eines Addons.
+                if ($publish === 1) {
+                    $gruende = $this->publishBlockers((int)$id);
+                    if ($gruende !== []) {
+                        $blockiert[(int)$id] = $gruende;
+                        continue;
+                    }
+                }
                 $stmt->execute([$publish, $id]);
             }
 
+            $durchgelaufen = count($ids) - count($blockiert);
             \App\Service\AuditLogger::log(
                 $publish ? "Pferde veröffentlicht" : "Veröffentlichung von Pferden zurückgenommen",
                 "horses",
-                count($ids) . " Datensätze (IDs: " . implode(', ', $ids) . ")"
+                $durchgelaufen . " Datensätze (IDs: " . implode(', ', array_diff($ids, array_keys($blockiert))) . ")"
+                . ($blockiert === [] ? '' : sprintf(
+                    ' - %d durch Addon-Einwand nicht veröffentlicht (IDs: %s)',
+                    count($blockiert),
+                    implode(', ', array_keys($blockiert))
+                ))
             );
+
+            if ($blockiert !== []) {
+                // Sammelmeldung: Bei einer Massenaktion interessiert weniger der
+                // einzelne Grund als die Frage, WELCHE Pferde nicht durchkamen.
+                $this->rememberPublishBlockers(0, array_map(
+                    static fn($id, $gruende) => "Pferd #{$id}: " . implode(', ', $gruende),
+                    array_keys($blockiert),
+                    array_values($blockiert)
+                ));
+            }
         }
 
         // Zurück zur Liste, wie der Benutzer sie verlassen hat: Suche, Seite und
@@ -223,18 +358,20 @@ class HorseController extends BaseController {
         $db = Database::getInstance();
         $allHorses = $this->parentOptions($db);
 
-        $stmt = $db->query("SELECT id, name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allPersons = $stmt->fetchAll();
-
-        $stmt = $db->query("SELECT id, name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allBreedingStations = $stmt->fetchAll();
+        // EINE Auswahlliste für BEIDE Steckplätze der Verlaufszeile (#336).
+        // Vorher kamen sie aus zwei Tabellen, und wer einen Hof anlegte, musste
+        // vorab entscheiden, ob er "Person" oder "Deckstation" ist - genau die
+        // Frage, die #336 abgeschafft hat. Die Steckplätze selbst bleiben
+        // getrennt (wer / wo, siehe Tabellenkommentar zu horse_persons),
+        // deshalb nur eine Liste, aber weiterhin zwei Felder.
+        $stmt = $db->query("SELECT id, name FROM contacts WHERE deleted_at IS NULL ORDER BY name ASC");
+        $allContacts = $stmt->fetchAll();
 
         $this->render('admin_horse_form', [
             'title' => 'Neues Pferd anlegen',
             'horse' => null,
             'allHorses' => $allHorses,
-            'allPersons' => $allPersons,
-            'allBreedingStations' => $allBreedingStations,
+            'allContacts' => $allContacts,
             'horsePersons' => [],
             'horseRegistrations' => [],
             'canPublish' => $this->hasPermission('horses', 'publish')
@@ -276,7 +413,7 @@ class HorseController extends BaseController {
         $breeding_station_id = !empty($_POST['breeding_station_id']) ? (int)$_POST['breeding_station_id'] : null;
         // Freitext-Deckstation nur übernehmen, wenn das Feld überhaupt übermittelt
         // wurde (#214): das Formular kennt kein name="breeding_station" mehr (nur
-        // persons[N][breeding_station_id]), regulär setzt den Wert der CSV-Import.
+        // persons[N][station_contact_id]), regulär setzt den Wert der CSV-Import.
         // NULL bedeutet hier "nicht übermittelt" - beim INSERT bleibt die Spalte
         // dann leer statt auf '' gesetzt.
         $breeding_station = array_key_exists('breeding_station', $_POST) ? trim($_POST['breeding_station']) : null;
@@ -359,7 +496,12 @@ class HorseController extends BaseController {
         // in einem Plugin (Benachrichtigung, verknüpfte Zusatzdaten anlegen etc.).
         $this->hooks()->doAction('horse.after_save', $newHorseId, $_POST, true);
 
-        header("Location: /admin/horses?success=created");
+        // Veto gegen die VEROEFFENTLICHUNG (#335) - erst jetzt, wo der
+        // Datensatz samt Zuordnungen tatsaechlich steht.
+        $blockers = $this->enforcePublishBlockers($newHorseId, $isPublished);
+        $this->rememberPublishBlockers($newHorseId, $blockers);
+
+        header("Location: /admin/horses?success=" . ($blockers === [] ? 'created' : 'created_not_published'));
         exit;
     }
 
@@ -384,8 +526,9 @@ class HorseController extends BaseController {
 
         // Das Formular eines Papierkorb-Datensatzes wird weiterhin
         // ausgeliefert (etwa fuer eine DSGVO-Auskunft), sagt aber jetzt, dass
-        // Speichern nicht geht - wie admin_person_form und
-        // admin_breeding_station_form seit #296. Ohne den Hinweis fuellt
+        // Speichern nicht geht - wie admin_contact_form seit #296 (damals noch
+        // getrennt als admin_person_form und admin_breeding_station_form, vor
+        // dem Zusammenlegen in #336). Ohne den Hinweis fuellt
         // jemand das Formular aus und bekommt erst beim Absenden eine
         // Fehlermeldung.
         $isDeleted = $horse['deleted_at'] !== null;
@@ -395,13 +538,17 @@ class HorseController extends BaseController {
             $horse['dam_id'] ?? null,
         ]);
 
-        $stmt = $db->query("SELECT id, name FROM persons WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allPersons = $stmt->fetchAll();
+        // Eine Liste für beide Steckplätze (#336) - Begründung siehe create().
+        $stmt = $db->query("SELECT id, name FROM contacts WHERE deleted_at IS NULL ORDER BY name ASC");
+        $allContacts = $stmt->fetchAll();
 
-        $stmt = $db->query("SELECT id, name FROM breeding_stations WHERE deleted_at IS NULL ORDER BY name ASC");
-        $allBreedingStations = $stmt->fetchAll();
-
-        $stmt = $db->prepare("SELECT hp.*, p.name, bs.name AS station_name FROM horse_persons hp LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id WHERE hp.horse_id = ? ORDER BY hp.id ASC");
+        // Beide Steckplätze holen ihren Namen jetzt aus derselben Tabelle
+        // (#336), bleiben aber zwei getrennte JOINs: Eine Zeile kann eine
+        // Person UND eine Deckstation nennen, und das sind verschiedene
+        // Kontakte. Beide JOINs filtern deleted_at - eine Tabelle, eine Regel:
+        // Ein Kontakt im Papierkorb steht auch nicht in $allContacts, sein Name
+        // soll im Formular also nirgends auftauchen.
+        $stmt = $db->prepare("SELECT hp.*, c.name, s.name AS station_name FROM horse_persons hp LEFT JOIN contacts c ON hp.contact_id = c.id AND c.deleted_at IS NULL LEFT JOIN contacts s ON hp.station_contact_id = s.id AND s.deleted_at IS NULL WHERE hp.horse_id = ? ORDER BY hp.id ASC");
         $stmt->execute([$id]);
         $horsePersons = $stmt->fetchAll();
 
@@ -444,8 +591,7 @@ class HorseController extends BaseController {
             'title' => 'Pferd bearbeiten',
             'horse' => $horse,
             'allHorses' => $allHorses,
-            'allPersons' => $allPersons,
-            'allBreedingStations' => $allBreedingStations,
+            'allContacts' => $allContacts,
             'horsePersons' => $horsePersons,
             'horseRegistrations' => $horseRegistrations,
             'canPublish' => $this->hasPermission('horses', 'publish'),
@@ -634,7 +780,12 @@ class HorseController extends BaseController {
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.after_save', (int)$id, $_POST, false);
 
-        header("Location: /admin/horses?success=updated");
+        // Siehe store(): Veto gegen die Veroeffentlichung, nicht gegen das
+        // Speichern (#335).
+        $blockers = $this->enforcePublishBlockers((int)$id, $isPublished);
+        $this->rememberPublishBlockers((int)$id, $blockers);
+
+        header("Location: /admin/horses?success=" . ($blockers === [] ? 'updated' : 'updated_not_published'));
         exit;
     }
 
@@ -1033,15 +1184,74 @@ class HorseController extends BaseController {
              ORDER BY c.name ASC"
         )->fetchAll();
 
+        // Kontakt-Dubletten (#355) - derselbe Ort für dieselbe Tätigkeit.
+        // Zwei getrennte Werkzeuge für "zwei Datensätze, die einer sein
+        // könnten" wären die nächste Doppelung. Sie erscheinen nur, wenn der
+        // Benutzer Kontakte überhaupt bearbeiten darf; wer nur Pferde pflegt,
+        // bekommt die Liste nicht zu sehen.
+        $kontaktDubletten = ['paare' => [], 'abgeschnitten' => false, 'geprueft' => 0];
+        if ($this->hasPermission('contacts', 'edit')) {
+            $kontaktDubletten = \App\Service\ContactSuggestionFinder::findAll(100);
+        }
+
         $this->render('admin_matches', [
-            'title' => 'Blutlinien Zusammenführen & Match-Vorschläge',
+            'title' => 'Dubletten: Blutlinien und Kontakte',
             'unlinkedMatches' => $unlinkedMatches,
             'allHorses' => $allHorses,
             'sexMismatches' => $sexMismatches,
             'matchPage' => $matchPage,
             'matchTotalPages' => $matchTotalPages,
-            'matchTotal' => $matchTotal
+            'matchTotal' => $matchTotal,
+            'kontaktDubletten' => $kontaktDubletten,
+            'kontaktLabels' => \App\Service\MatchLabel::alle('contact'),
+            'pferdeLabels' => \App\Service\MatchLabel::alle('horse'),
+            'darfKontakteBearbeiten' => $this->hasPermission('contacts', 'edit'),
         ]);
+    }
+
+    /**
+     * POST /admin/matches/label - eine Dubletten-Entscheidung festhalten (#355).
+     *
+     * Bis v0.7 konnte man einen Vorschlag nur ANNEHMEN. "Das sind zwei
+     * verschiedene Pferde" wurde nirgends gespeichert, also erschien dasselbe
+     * Paar bei jedem Aufruf wieder und der Digest zählte es dauerhaft als
+     * offen. Wer einmal geprüft und verworfen hatte, prüfte beim nächsten Mal
+     * erneut.
+     *
+     * Ein leeres Label widerruft - eine falsch gesetzte Trennung darf nicht
+     * endgültig sein.
+     */
+    public function labelMatch(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $art = (string)($_POST['art'] ?? '');
+        if (!in_array($art, \App\Service\MatchLabel::ARTEN, true)) {
+            $this->renderNotFound('Unbekannte Art.');
+        }
+
+        // Das Recht richtet sich nach dem Bestand, über den entschieden wird -
+        // nicht nach der Seite, auf der der Knopf steht.
+        $this->requirePermission($art === 'horse' ? 'horses' : 'contacts', 'edit');
+
+        $a = (int)($_POST['a'] ?? 0);
+        $b = (int)($_POST['b'] ?? 0);
+        if ($a <= 0 || $b <= 0 || $a === $b) {
+            $this->renderNotFound('Unvollständiges Paar.');
+        }
+
+        $label = (string)($_POST['label'] ?? '');
+        \App\Service\MatchLabel::setzen(
+            $art,
+            $a,
+            $b,
+            $label === '' ? null : $label,
+            $_POST['note'] ?? null
+        );
+
+        header('Location: /admin/matches?success=label');
+        exit;
     }
 
     /**
@@ -1157,9 +1367,13 @@ class HorseController extends BaseController {
      * das eines Tages jemand tut.
      */
     private function rowExists(\PDO $db, string $table, int $id): bool {
+        // Seit #336 kennt die Liste nur noch einen Namen - beide Steckplaetze
+        // zeigen auf `contacts`. Die Positivliste bleibt trotzdem stehen: Sie
+        // ist die Zusicherung, dass hier nie ein Aufrufwert in die Abfrage
+        // geraet, und sie traegt genau dann wieder, wenn jemand einen zweiten
+        // Fall ergaenzt.
         $tabelle = match ($table) {
-            'persons' => 'persons',
-            'breeding_stations' => 'breeding_stations',
+            'contacts' => 'contacts',
         };
         $stmt = $db->prepare("SELECT 1 FROM `{$tabelle}` WHERE id = ?");
         $stmt->execute([$id]);
@@ -1188,7 +1402,7 @@ class HorseController extends BaseController {
         // Formularindizes in dieser Reihenfolge. Sie greift ohnehin nur dort, wo
         // der Schluessel im Request FEHLT - ein uebermittelter Leerstring
         // loescht weiterhin bewusst.
-        $snapshotSql = "SELECT person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year
+        $snapshotSql = "SELECT contact_id, role, station_contact_id, breeding_station_text, origin_country, from_year, until_year
                         FROM horse_persons WHERE horse_id = ? ORDER BY id ASC";
         $stmt = $db->prepare($snapshotSql);
         $stmt->execute([$horseId]);
@@ -1202,7 +1416,7 @@ class HorseController extends BaseController {
         // Stationszuordnungen da, obwohl der Bearbeiter nur speichern wollte.
         // Der Ausloeser braucht keine Boshaftigkeit: Redakteur A hat das
         // Bearbeitungsformular offen, Admin B leert waehrenddessen den
-        // Papierkorb (TrashController::emptyTrash() loescht Personen HART),
+        // Papierkorb (TrashController::emptyTrash() loescht Kontakte HART),
         // und A speichert. Das INSERT laeuft in den Fremdschluessel, PDO wirft
         // (ERRMODE_EXCEPTION), der Request endet mit 500 - und auch das
         // Aenderungs-Protokoll unten kommt nicht mehr dazu. Es blieb nicht
@@ -1223,7 +1437,7 @@ class HorseController extends BaseController {
             $stmt = $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?");
             $stmt->execute([$horseId]);
 
-            $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role, breeding_station_id, breeding_station_text, origin_country, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $insertStmt = $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role, station_contact_id, breeding_station_text, origin_country, from_year, until_year) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
 
             $validRoles = ['breeder', 'owner', 'keeper'];
 
@@ -1232,9 +1446,19 @@ class HorseController extends BaseController {
             $highestScore = -1;
 
             foreach ($personsData as $index => $item) {
-                $personId = !empty($item['person_id']) ? (int)$item['person_id'] : null;
+                // Die Formularfelder heissen seit #336 contact_id und
+                // station_contact_id wie die Spalten. Die alten Namen werden
+                // WEITER angenommen - genau wie die Hook-Aliasse person.* /
+                // station.* und aus demselben Grund: Skript-POSTs und externe
+                // Formulare, die auf dieser Schnittstelle sitzen, sollen nicht
+                // still ins Leere schreiben. Faellt in v0.9.0 weg.
+                $contactId = !empty($item['contact_id'])
+                    ? (int)$item['contact_id']
+                    : (!empty($item['person_id']) ? (int)$item['person_id'] : null);
                 $role = $item['role'] ?? 'owner';
-                $stationId = !empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null;
+                $stationId = !empty($item['station_contact_id'])
+                    ? (int)$item['station_contact_id']
+                    : (!empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null);
                 // Unbekannte IDs auf NULL statt in den Fremdschluessel laufen
                 // lassen (#317). Die Auswahl im Formular ist beim Oeffnen der
                 // Seite eingefroren; was dort stand, kann inzwischen hart
@@ -1242,10 +1466,13 @@ class HorseController extends BaseController {
                 // abgebrochener Speichervorgang ohne JEDE Zuordnung waere ein
                 // groesserer - und die Zeile faellt unten ohnehin weg, wenn ausser
                 // der verwaisten ID nichts mehr in ihr steht.
-                if ($personId !== null && !$this->rowExists($db, 'persons', $personId)) {
-                    $personId = null;
+                //
+                // Beide Steckplaetze pruefen jetzt gegen dieselbe Tabelle
+                // (#336), bleiben aber getrennte Werte.
+                if ($contactId !== null && !$this->rowExists($db, 'contacts', $contactId)) {
+                    $contactId = null;
                 }
-                if ($stationId !== null && !$this->rowExists($db, 'breeding_stations', $stationId)) {
+                if ($stationId !== null && !$this->rowExists($db, 'contacts', $stationId)) {
                     $stationId = null;
                 }
                 // Fehlender Schluessel erhaelt den Bestand, uebermittelter
@@ -1261,7 +1488,7 @@ class HorseController extends BaseController {
                     $stationText = mb_substr($stationText, 0, 255);
                 }
                 // Herkunftsland ohne bekannte Person (#294) - siehe die
-                // Gueltigkeitsregel unten. Freitext wie persons.country.
+                // Gueltigkeitsregel unten. Freitext wie contacts.country.
                 $originCountry = trim((string)($item['origin_country'] ?? ''));
                 if (mb_strlen($originCountry) > 100) {
                     $originCountry = mb_substr($originCountry, 0, 100);
@@ -1286,7 +1513,10 @@ class HorseController extends BaseController {
                         $highestScore = $score;
                         if ($stationId) {
                             $currentStationId = $stationId;
-                            $stStmt = $db->prepare("SELECT name FROM breeding_stations WHERE id = ?");
+                            // Nur die Zieltabelle heisst jetzt anders (#336) -
+                            // gespiegelt wird unveraendert Name und ID der
+                            // aktuellen/letzten aktiven Deckstation.
+                            $stStmt = $db->prepare("SELECT name FROM contacts WHERE id = ?");
                             $stStmt->execute([$stationId]);
                             $currentStationText = $stStmt->fetchColumn() ?: null;
                         } else {
@@ -1297,17 +1527,17 @@ class HorseController extends BaseController {
                 }
 
                 // Validation: Row must have a valid Role/Type AND at least one of Person OR Breeding Station (2 of the fields)
-                $hasPerson = !empty($personId);
+                $hasPerson = !empty($contactId);
                 $hasStation = !empty($stationId) || !empty($stationText);
                 // Dritte Alternative (#294): Ist die Person unbekannt, aber ihre
                 // Herkunft bekannt, ist das eine vollwertige Aussage - und der
                 // einzige Weg, sie OHNE eine Platzhalter-Person in der PII-Tabelle
-                // persons festzuhalten.
+                // contacts festzuhalten.
                 $hasOrigin = $originCountry !== '';
                 $hasValidRole = in_array($role, $validRoles, true);
 
                 if ($hasValidRole && ($hasPerson || $hasStation || $hasOrigin)) {
-                    $insertStmt->execute([$horseId, $personId ?: null, $role, $stationId ?: null, $stationText ?: null, $originCountry ?: null, $fromYear, $untilYear]);
+                    $insertStmt->execute([$horseId, $contactId ?: null, $role, $stationId ?: null, $stationText ?: null, $originCountry ?: null, $fromYear, $untilYear]);
                 }
             }
 

@@ -230,10 +230,29 @@ class UpdateService {
     }
 
     /**
-     * Aktive Addons, die die ZIELversion nicht unterstützen (#362).
+     * Aktive Addons, die die Zielversion nicht unterstützen UND für die es
+     * keine passende Fassung gibt (#362, #364).
      *
-     * WOZU, wo die Update-Seite doch längst warnt: Sie warnt einen Menschen,
-     * der davorsteht. Der unbeaufsichtigte Lauf hat keinen Menschen davor.
+     * DAS IST DIE EINE REGEL FÜR BEIDE WEGE. Sie beantwortet die Frage
+     * „braucht dieses Update Aufsicht?" - unbeaufsichtigt heisst das
+     * „zurückstellen und melden", von Hand „die Zielversion abtippen".
+     *
+     * ENTSCHEIDEND IST NICHT DER VERSIONSSPRUNG. Ein erster Entwurf hat hier
+     * auf den Linienwechsel abgestellt (0.7.x -> 0.8.x) - das war falsch:
+     * Updates sollen grundsätzlich automatisch laufen, so wie es die beiden
+     * Einstellungen Kanal (stabil/beta) und Reichweite (nur Patch/jede
+     * Version) vorgeben. Ein Linienwechsel, für den passende Addon-Fassungen
+     * bereitliegen, ist unproblematisch - die Addon-Phase zieht sie nach dem
+     * Kern von selbst mit.
+     *
+     * Aufsicht braucht genau ein Fall: ein aktives Addon, das die Zielversion
+     * nicht unterstützt und für das auch im Katalog nichts Passendes liegt.
+     * Dann verschwindet eine Funktion, und niemand kann sie zurückholen.
+     *
+     * `availableSupportsTarget === null` heisst „keine Aussage" (kein
+     * Katalog, kein Eintrag) und wird wie „kein Update möglich" behandelt -
+     * die strengere Seite. „Konnte nicht prüfen" ist nicht „geprüft, ist in
+     * Ordnung".
      *
      * Bis v0.8.0-beta.1 prüfte `runAutoInstallIfEligible()` ausschließlich die
      * Versionslinie (AUTO_SCOPE_*). Dass ein Minor-Sprung damit auch dann
@@ -264,7 +283,19 @@ class UpdateService {
             if (!is_string($grund) || $grund === '') {
                 continue;
             }
-            $gruende[] = sprintf('%s: %s', (string)($row['slug'] ?? '?'), $grund);
+            // Gibt es eine passende Fassung, ist nichts im Weg - die
+            // Addon-Phase zieht sie nach dem Kern mit.
+            if (($row['availableSupportsTarget'] ?? null) === true) {
+                continue;
+            }
+            $gruende[] = sprintf(
+                '%s: %s%s',
+                (string)($row['slug'] ?? '?'),
+                $grund,
+                ($row['availableSupportsTarget'] ?? null) === null
+                    ? ' (kein Katalog-Eintrag - es liess sich nicht feststellen, ob es eine passende Fassung gibt)'
+                    : ' (auch im Addon-Store liegt keine passende Fassung)'
+            );
         }
         return $gruende;
     }
@@ -611,12 +642,19 @@ class UpdateService {
         } else {
             $mailer = new Mailer();
             $autoInstall = self::isAutoInstallEnabled();
+            // Das konkrete Ergebnis statt der Bedingung (#364): Wird DIESE
+            // Version unbeaufsichtigt eingespielt oder nicht? null, wenn gar
+            // keine Kern-Version dabei ist (reine Addon-Meldung).
+            $kernWirdEingespielt = ($autoInstall && $findings['coreIsNew'] && $availableCore !== null)
+                ? self::isEligibleForAutoInstall(self::currentVersion(), $availableCore, self::configuredAutoScope())
+                : null;
             foreach ($recipients as $recipient) {
                 if ($mailer->sendUpdatesAvailableNotification(
                     $recipient,
                     $findings['coreIsNew'] ? $availableCore : null,
                     $findings['newAddons'],
-                    $autoInstall
+                    $autoInstall,
+                    $kernWirdEingespielt
                 )) {
                     $sent++;
                 }

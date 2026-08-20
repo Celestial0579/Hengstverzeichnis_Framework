@@ -100,6 +100,62 @@ class AutoInstallAddonGateTest extends TestCase {
         ];
     }
 
+    // ---- Der entscheidende Fall: gibt es Ersatz? ------------------------
+
+    /**
+     * DAS ist das Kriterium (#364), nicht der Versionssprung.
+     *
+     * Ein erster Entwurf stellte auf den Linienwechsel ab (0.7.x -> 0.8.x).
+     * Das war falsch: Updates sollen grundsätzlich automatisch laufen, so wie
+     * es Kanal und Reichweite vorgeben. Ein Linienwechsel, für den passende
+     * Addon-Fassungen bereitliegen, ist unproblematisch - die Addon-Phase
+     * zieht sie nach dem Kern von selbst mit.
+     */
+    public function testMitPassenderFassungImStoreIstNichtsImWeg(): void {
+        $this->assertSame([], UpdateService::addonsBlockingAutoInstall([
+            self::zeile('galerie', true, 'unterstützt höchstens Kern-Linie 0.7', availableSupportsTarget: true),
+        ]));
+    }
+
+    public function testOhnePassendeFassungBrauchtEsAufsicht(): void {
+        $gruende = UpdateService::addonsBlockingAutoInstall([
+            self::zeile('galerie', true, 'unterstützt höchstens Kern-Linie 0.7', availableSupportsTarget: false),
+        ]);
+
+        $this->assertCount(1, $gruende);
+        $this->assertStringContainsString('keine passende Fassung', $gruende[0]);
+    }
+
+    /**
+     * "Konnte nicht prüfen" ist nicht "geprüft, ist in Ordnung". Ohne
+     * Katalog-Eintrag gilt die strengere Seite - sonst liefe ein Update
+     * ausgerechnet dann durch, wenn niemand sagen kann, was es anrichtet.
+     */
+    public function testOhneKatalogAussageGiltDieStrengereSeite(): void {
+        $gruende = UpdateService::addonsBlockingAutoInstall([
+            self::zeile('galerie', true, 'unterstützt höchstens Kern-Linie 0.7', availableSupportsTarget: null),
+        ]);
+
+        $this->assertCount(1, $gruende);
+        $this->assertStringContainsString('nicht feststellen', $gruende[0]);
+    }
+
+    /**
+     * Gemischt: eines bekommt Ersatz, eines nicht. Nur das zweite hält auf -
+     * und es muss namentlich genannt werden, sonst weiss der Betreiber nicht,
+     * wo er ansetzen soll.
+     */
+    public function testNurDasAddonOhneErsatzHaeltAuf(): void {
+        $gruende = UpdateService::addonsBlockingAutoInstall([
+            self::zeile('galerie', true, 'zu alt', availableSupportsTarget: true),
+            self::zeile('kontaktanfrage', true, 'zu alt', availableSupportsTarget: false),
+        ]);
+
+        $this->assertCount(1, $gruende);
+        $this->assertStringContainsString('kontaktanfrage', $gruende[0]);
+        $this->assertStringNotContainsString('galerie', $gruende[0]);
+    }
+
     // ---- Die Meldung: genau einmal je Zielversion -----------------------
 
     /**
@@ -138,7 +194,12 @@ class AutoInstallAddonGateTest extends TestCase {
     /**
      * @return array<string, mixed>
      */
-    private static function zeile(string $slug, bool $enabled, ?string $reasonTarget): array {
+    private static function zeile(
+        string $slug,
+        bool $enabled,
+        ?string $reasonTarget,
+        ?bool $availableSupportsTarget = null
+    ): array {
         return [
             'slug' => $slug,
             'name' => $slug,
@@ -149,6 +210,7 @@ class AutoInstallAddonGateTest extends TestCase {
             'manifestError' => null,
             'reasonCurrent' => null,
             'reasonTarget' => $reasonTarget,
+            'availableSupportsTarget' => $availableSupportsTarget,
         ];
     }
 }

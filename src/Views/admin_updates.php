@@ -37,6 +37,10 @@ $addonTargetWarnings = array_values(array_filter(
     $addonRows,
     static fn(array $r): bool => $r['enabled'] && $r['reasonTarget'] !== null
 ));
+// Davon die, für die es AUCH KEINEN Ersatz gibt (#364). Nur sie verlangen die
+// getippte Bestätigung: Wo eine passende Fassung im Store liegt, zieht die
+// Addon-Phase sie nach dem Kern von selbst mit, und das Update ist harmlos.
+$addonOhneErsatz = \App\Service\UpdateService::addonsBlockingAutoInstall($addonRows);
 ?>
 <div class="card" style="max-width: 700px; margin: 0 auto;">
     <h2>🔄 Updates</h2>
@@ -264,6 +268,43 @@ $addonTargetWarnings = array_values(array_filter(
                 <?php endif; ?>
             </div>
 
+            <?php
+            // Liegt diese Version ausserhalb der eingestellten Reichweite? (#364)
+            //
+            // Bis v0.8.0-beta.1 stand hier "Neue Version verfuegbar" und darueber
+            // das Auswahlfeld "Nur Patch-Versionen der laufenden Linie" - und
+            // nichts verband die beiden. Der naheliegende Schluss ("die Automatik
+            // erledigt das") war falsch, und das Ueberspringen ist bewusst stumm.
+            // Der Betreiber wartete auf ein Update, das nie kam.
+            //
+            // Die Version wird weiterhin ANGEZEIGT, und das ist Absicht: Wuerde
+            // die Seite Minor-Versionen verbergen, erfuehre niemand je, dass es
+            // sie gibt, und die Instanz bliebe fuer immer auf der alten Linie.
+            // Was fehlte, war der Satz dazu.
+            $ausserhalbReichweite = $autoInstallEnabled
+                && !\App\Service\UpdateService::isEligibleForAutoInstall(
+                    (string)$checkResult['current'],
+                    (string)$checkResult['latest'],
+                    $autoInstallScope
+                );
+            ?>
+            <?php if ($ausserhalbReichweite): ?>
+                <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); border: 1px solid #ffeeba; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+                    ⏸️ <strong>Diese Version wird NICHT automatisch eingespielt.</strong>
+                    Ihre Einstellung lautet
+                    „<?= $autoInstallScope === 'any' ? 'Jede neue Version' : 'Nur Patch-Versionen der laufenden Linie' ?>",
+                    und <?= htmlspecialchars((string)$checkResult['latest']) ?> liegt ausserhalb davon
+                    (installiert: <?= htmlspecialchars((string)$checkResult['current']) ?>).
+                    <br>
+                    <small>
+                        Das ist die gewollte Wirkung der Einstellung — ein Sprung auf eine neue
+                        Linie kann Breaking Changes enthalten und gehört unter Aufsicht.
+                        Zum Einspielen entweder den Knopf unten benutzen, oder die Reichweite
+                        oben auf „Jede neue Version" stellen.
+                    </small>
+                </div>
+            <?php endif; ?>
+
             <?php if ($addonTargetWarnings !== []): ?>
                 <!-- Addon-Warnung VOR dem Update-Knopf (#197): Ein Kern-Update
                      deaktiviert inkompatible Addons kommentarlos - hier steht
@@ -272,7 +313,16 @@ $addonTargetWarnings = array_values(array_filter(
                     ⚠️ <strong>Nach dem Update auf <?= htmlspecialchars($targetVersion ?? '') ?> werden folgende aktive Addons deaktiviert:</strong>
                     <ul style="margin: 0.5rem 0 0 1.2rem;">
                         <?php foreach ($addonTargetWarnings as $warnRow): ?>
-                            <li><code><?= htmlspecialchars($warnRow['slug']) ?></code> — <?= htmlspecialchars($warnRow['reasonTarget']) ?></li>
+                            <li>
+                                <code><?= htmlspecialchars($warnRow['slug']) ?></code> — <?= htmlspecialchars($warnRow['reasonTarget']) ?>
+                                <?php if (($warnRow['availableSupportsTarget'] ?? null) === true): ?>
+                                    <span style="color: var(--success-fg);">— passende Fassung liegt im Store und wird beim Update mitgezogen</span>
+                                <?php elseif (($warnRow['availableSupportsTarget'] ?? null) === false): ?>
+                                    <strong>— im Store liegt keine passende Fassung</strong>
+                                <?php else: ?>
+                                    <strong>— kein Katalog-Eintrag, Ersatz nicht feststellbar</strong>
+                                <?php endif; ?>
+                            </li>
                         <?php endforeach; ?>
                     </ul>
                     <small>Zuerst im <a href="/admin/plugins/store">Addon-Store</a> nach passenden Addon-Updates sehen.</small>
@@ -282,6 +332,28 @@ $addonTargetWarnings = array_values(array_filter(
             <?php if ($inPlaceEnabled): ?>
                 <form action="/admin/updates/run" method="POST" data-confirm="Jetzt auf Version <?= htmlspecialchars(($checkResult['latest'])) ?><?= !empty($checkResult['is_prerelease']) ? ' (Beta-Vorabversion)' : '' ?> aktualisieren? Zuvor wird zwingend ein externes Backup ausgeführt - schlägt es fehl, wird das Update abgebrochen." style="margin-bottom: 1rem;">
                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                    <?php if ($addonOhneErsatz !== []): ?>
+                        <?php // #364: Getippte Bestaetigung genau dann, wenn eine Funktion
+                              // verschwindet und niemand sie zurueckholen kann. Ein Dialog
+                              // wird mit "OK" beantwortet, ohne gelesen zu werden; eine
+                              // Versionsnummer tippt man nicht versehentlich ab.
+                              // Durchgesetzt wird das serverseitig in
+                              // UpdateController::run() - dieses Feld macht es nur sichtbar. ?>
+                        <div style="background: var(--danger-soft-bg); color: var(--danger-fg); border: 1px solid #f5c6cb; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+                            <strong><?= count($addonOhneErsatz) ?> Addon(s) verlieren ersatzlos ihre Funktion.</strong>
+                            Für sie liegt keine Fassung bereit, die
+                            <?= htmlspecialchars((string)$checkResult['latest']) ?> unterstützt.
+                            Sie werden nicht gelöscht — ihre Daten bleiben —, aber sie sind
+                            unsichtbar, bis es eine passende Fassung gibt.
+                            <p style="margin: 0.8rem 0 0.3rem 0;">
+                                Zum Bestätigen die Zielversion
+                                <code><?= htmlspecialchars((string)$checkResult['latest']) ?></code> eintippen:
+                            </p>
+                            <input type="text" name="bestaetigung" class="form-control" autocomplete="off"
+                                   placeholder="<?= htmlspecialchars((string)$checkResult['latest']) ?>"
+                                   style="max-width: 320px;">
+                        </div>
+                    <?php endif; ?>
                     <button type="submit" class="btn" <?= $backupConfigured ? '' : 'disabled title="Backups zuerst konfigurieren"' ?>>
                         ⬆️ Jetzt aktualisieren (mit Pflicht-Backup)
                     </button>

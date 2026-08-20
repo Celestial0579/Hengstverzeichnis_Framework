@@ -413,7 +413,8 @@ class Mailer {
         string $recipientEmail,
         ?string $coreVersion,
         array $newAddons,
-        bool $autoInstallEnabled
+        bool $autoInstallEnabled,
+        ?bool $coreWirdEingespielt = null
     ): bool {
         $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
         $updatesUrl = $this->getBaseUrl() . 'admin/updates';
@@ -441,9 +442,31 @@ class Mailer {
             ";
         }
 
-        $hint = $autoInstallEnabled
-            ? 'Die automatische Installation ist aktiviert - sofern die Version in den gewählten Rahmen fällt, wird sie beim nächsten täglichen Lauf eingespielt (mit vorherigem Pflicht-Backup).'
-            : 'Die automatische Installation ist nicht aktiviert - das Update wird erst eingespielt, wenn Sie es im Admin-Bereich anstoßen.';
+        // Der Hinweis nennt das konkrete Ergebnis, nicht die Bedingung (#364).
+        //
+        // Bis v0.8.0-beta.1 stand hier "sofern die Version in den gewählten
+        // Rahmen fällt" - eine Bedingung, die der Leser nicht auflösen kann.
+        // Wer eine Mail über eine neue Version bekam und "automatische
+        // Installation ist aktiviert" las, wartete auf ein Update, das nie
+        // kam: Der nächtliche Lauf überspringt eine Version außerhalb der
+        // Reichweite bewusst stumm. Jetzt steht in der Mail, was tatsächlich
+        // geschehen wird.
+        if (!$autoInstallEnabled) {
+            $hint = 'Die automatische Installation ist nicht aktiviert - das Update wird erst '
+                . 'eingespielt, wenn Sie es im Admin-Bereich anstoßen.';
+        } elseif ($coreWirdEingespielt === false) {
+            $hint = '<strong>Diese Version wird NICHT automatisch eingespielt.</strong> Sie liegt '
+                . 'außerhalb der eingestellten Reichweite - ein Sprung auf eine neue Linie kann '
+                . 'Breaking Changes enthalten und gehört unter Aufsicht. Zum Einspielen entweder '
+                . 'den Knopf auf der Update-Seite benutzen oder die Reichweite dort auf '
+                . '„Jede neue Version" stellen.';
+        } elseif ($coreWirdEingespielt === true) {
+            $hint = 'Die automatische Installation ist aktiviert - diese Version wird beim nächsten '
+                . 'täglichen Lauf eingespielt (mit vorherigem Pflicht-Backup).';
+        } else {
+            // Keine Kern-Version dabei (reine Addon-Meldung).
+            $hint = 'Die automatische Installation ist aktiviert.';
+        }
 
         $html = "
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>

@@ -8,48 +8,99 @@ Breaking Changes sind jederzeit möglich).
 
 ## [0.8.0-beta.2] – 2026-08-20
 
-Eine einzige Änderung, aber eine, die genau zu dieser Vorabversion gehört.
+Die Update-Automatik sagt jetzt die Wahrheit — und hält an genau der einen
+Stelle an, an der sie es soll.
 
-### Sicherheit
+### Der Grundsatz
 
-- **Das unbeaufsichtigte Update spielt nichts mehr ein, was aktive Addons
-  abschalten würde.**
+**Updates laufen automatisch, so wie es die beiden Einstellungen vorgeben:**
+der Kanal (stabil / beta) bestimmt, welche Releases überhaupt in Frage kommen,
+die Reichweite (nur Patch-Versionen der laufenden Linie / jede neue Version)
+bestimmt, was davon unbeaufsichtigt eingespielt wird.
 
-  Bis beta.1 prüfte der nächtliche Lauf ausschließlich die **Versionslinie**
-  (`update_auto_install_scope`). Dass ein Minor-Sprung damit auch dann
-  ausblieb, wenn er sämtliche Addons zerlegt hätte, war ein **Nebeneffekt**
-  und keine Zusicherung: Es galt nur, weil `core_supported_max` zufällig
-  ebenfalls auf Major.Minor läuft. Wer die Reichweite auf `any` stellte, hatte
-  gar keinen Schutz — der Kern wurde getauscht, und alle Addons der alten
-  Linie waren danach fail-closed unsichtbar.
+**Aufsicht braucht genau ein Fall:** ein aktives Addon, das die neue Version
+nicht unterstützt und für das auch im Addon-Store keine passende Fassung
+liegt. Dann verschwindet eine Funktion, und niemand kann sie zurückholen.
+
+Ausdrücklich **nicht** das Kriterium ist der Versionssprung. Ein Wechsel auf
+eine neue Linie, für den passende Addon-Fassungen bereitliegen, ist
+unproblematisch — die Addon-Phase zieht sie nach dem Kern von selbst mit.
+
+### Behoben
+
+- **Der unbeaufsichtigte Lauf prüfte keinen Addon-Zustand** (#362). Er sah
+  ausschließlich die Versionslinie an. Dass ein Minor-Sprung mit der Vorgabe
+  `patch_only` trotzdem ausblieb, war ein **Nebeneffekt** und keine
+  Zusicherung: Es galt nur, weil `core_supported_max` zufällig ebenfalls auf
+  Major.Minor läuft. Wer die Reichweite auf `any` stellte, hatte gar keinen
+  Schutz — der Kern wurde getauscht, und alle Addons der alten Linie waren
+  danach fail-closed unsichtbar.
 
   Genau dieser Zustand bestand nach v0.8.0-beta.1: Kern-Release draußen,
-  Addons-Release der Linie 0.8 noch nicht. Eine Instanz auf dem Beta-Kanal mit
-  `any` hätte den Kern gezogen und ohne Addons dagestanden.
+  Addons-Release der Linie 0.8 noch nicht.
 
-  **Der manuelle Weg bleibt unverändert.** Die Update-Seite warnt seit #197
-  namentlich, welche aktiven Addons ein Update deaktivieren würde, und der
-  Knopf bleibt bedienbar: Wer die Warnung liest und trotzdem aktualisiert,
-  entscheidet informiert. Eine Sperre auch dort ließe jeden stranden, dessen
-  Addon nicht mehr gepflegt wird.
+- **Ein einzelner Klick konnte Addons ersatzlos abschalten** (#364). Der
+  manuelle Knopf spielte jede Version mit einem gewöhnlichen
+  Bestätigungsdialog ein — auch dann, wenn Addons dabei ihre Funktion
+  verloren. Ein Dialog wird mit „OK" beantwortet, ohne gelesen zu werden; das
+  ist seine Funktion im Alltag. Wo eine Funktion ersatzlos verschwindet, ist
+  das zu wenig Reibung.
 
-  **Der Betreiber erfährt davon — einmal je Zielversion.** Nicht nur, *dass*
-  zurückgestellt wurde, sondern was zu tun ist: Addon aktualisieren,
-  deaktivieren (die Daten bleiben), entfernen (mit Vorschau, wie viele
-  Datensätze das kostet) oder bewusst trotzdem einspielen. Eine Meldung, die
-  eine Sperre beschreibt, ohne den Ausweg zu nennen, erzeugt genau den
-  Zustand, den sie verhindern soll: Die Instanz aktualisiert sich nicht mehr,
-  und niemand weiß, wie er das ändert.
+  Jetzt verlangt der Knopf in **genau diesem Fall**, dass die Zielversion
+  abgetippt wird — dasselbe Muster wie beim Löschen von Addon-Daten (#338).
+  Blockiert wird nicht: Der manuelle Weg ist gerade der Ausweg, den die
+  Automatik verweigert. Durchgesetzt wird das **serverseitig**; das
+  Eingabefeld macht die Hürde nur sichtbar.
 
-  Die Nachricht ist bewusst **keine** Fehlschlag-Meldung — es ist nichts
-  fehlgeschlagen. Ein „❌ Automatisches Update fehlgeschlagen" im Postfach
-  ließe nach einem Defekt suchen, den es nicht gibt.
+- **Die Update-Seite sagte nicht, ob eine Version automatisch eingespielt
+  wird** (#364). Nebeneinander standen „Nur Patch-Versionen der laufenden
+  Linie" und „📦 Neue Version verfügbar: 0.8.0-beta.1" — und nichts verband
+  die beiden. Der naheliegende Schluss („die Automatik erledigt das") war
+  falsch, und das Überspringen ist bewusst stumm. Der Betreiber wartete auf
+  ein Update, das nie kam.
 
-  Bewusst wird **nicht** nachgesehen, ob im Katalog eine passende
-  Addon-Fassung läge: Der Katalog-Cache kann veraltet sein („konnte nicht
-  prüfen" ist nicht „geprüft"), und die Addon-Phase läuft erst **nach** dem
-  Austausch des Kerns — scheiterte sie dort, stünde die Instanz bereits auf
-  dem neuen Kern mit toten Addons.
+  Die Version wird weiterhin **angezeigt** — würde die Seite Versionen
+  außerhalb der Reichweite verbergen, erführe niemand je, dass eine neue Linie
+  existiert. Was fehlte, war der Satz dazu.
+
+- **Dieselbe Lücke in der Benachrichtigungs-Mail** (#364). Sie schrieb
+  „*sofern* die Version in den gewählten Rahmen fällt, wird sie beim nächsten
+  täglichen Lauf eingespielt" — eine Bedingung, die der Leser nicht auflösen
+  kann. Jetzt steht dort das Ergebnis.
+
+- **Die Einwände eines Addons gegen eine Veröffentlichung sah niemand**
+  (#335). `HorseController` legte sie in der Sitzung ab, und **keine View las
+  sie**. Der Bearbeiter sah „gespeichert", das Pferd blieb unveröffentlicht,
+  und der Grund stand nirgends. Ein Veto, dessen Grund niemand erfährt, ist
+  von einem Fehler nicht zu unterscheiden.
+
+- **Vier Hooks fehlten in der Dokumentation** — `horse.publish_blockers`,
+  `horse.search_ids`, `home.sections_top` und `home.sections_bottom`. Sie
+  waren in beta.1 gebaut, aber nirgends beschrieben. Dazu die Anmeldung
+  eigener Captcha-Kontexte (`captchaContexts()`).
+
+- **Der Doku-Satz zu `captcha.verify` war schädlich.** Er las sich wie ein
+  Einzelaufruf; tatsächlich ist es eine **Filterkette**, durch die jedes
+  installierte Anbieter-Addon läuft. Wer nicht zuständig ist, muss den
+  hereingereichten Wert **unverändert** zurückgeben — gibt er `null` zurück,
+  löscht er das Urteil des zuständigen Addons, das vor ihm lief.
+
+### Neu
+
+- Der Betreiber erfährt von einer zurückgestellten Version — **einmal je
+  Zielversion**, und die Nachricht nennt den **Ausweg**, nicht nur die Sperre:
+  Addon aktualisieren · deaktivieren (die Daten bleiben) · entfernen (mit
+  Vorschau, wie viele Datensätze das kostet) · bewusst trotzdem einspielen.
+
+  Eine Meldung, die eine Sperre beschreibt, ohne den Ausweg zu nennen, erzeugt
+  genau den Zustand, den sie verhindern soll: Die Instanz aktualisiert sich
+  nicht mehr, und niemand weiß, wie er das ändert.
+
+  Sie ist bewusst **keine** Fehlschlag-Meldung — es ist nichts fehlgeschlagen.
+
+- Die Update-Seite zeigt je betroffenem Addon, **ob** es Ersatz gibt: „passende
+  Fassung liegt im Store und wird beim Update mitgezogen" gegen „im Store liegt
+  keine passende Fassung". Nur das zweite hält auf.
 
 ## [0.8.0-beta.1] – 2026-08-20
 

@@ -39,9 +39,49 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
         </div>
     </div>
 
+    <?php
+    // Addon-Einwände gegen die Veröffentlichung (#335/#362).
+    //
+    // HorseController legt sie in der Sitzung ab, weil sie lang sein und Namen
+    // enthalten können - in der Adresszeile hätten sie nichts zu suchen. Bis
+    // v0.8.0-beta.1 wurden sie dort abgelegt und von KEINER View gelesen: Der
+    // Bearbeiter sah "gespeichert, aber nicht veröffentlicht" und erfuhr nie,
+    // woran es lag. Ein Veto, dessen Grund niemand erfährt, ist von einem
+    // Fehler nicht zu unterscheiden.
+    //
+    // Einmalig: Nach dem Anzeigen wird der Eintrag verworfen, sonst stünde er
+    // beim nächsten Aufruf der Liste erneut da.
+    $publishBlockers = $_SESSION['publish_blockers'] ?? null;
+    unset($_SESSION['publish_blockers']);
+    ?>
+    <?php if (is_array($publishBlockers) && !empty($publishBlockers['gruende'])): ?>
+        <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); border: 1px solid #ffeeba; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <strong>Gespeichert, aber nicht veröffentlicht.</strong>
+            Ein Addon hat Einwände gegen die Veröffentlichung erhoben<?= !empty($publishBlockers['horse_id'])
+                ? ' (Pferd #' . (int)$publishBlockers['horse_id'] . ')' : '' ?>:
+            <ul style="margin: 0.5rem 0 0 1.2rem;">
+                <?php foreach ((array)$publishBlockers['gruende'] as $grund): ?>
+                    <li><?= htmlspecialchars((string)$grund) ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <small>Die Angaben sind gespeichert. Sobald der Einwand behoben ist, lässt sich das
+            Häkchen „Veröffentlicht" erneut setzen.</small>
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['success'])): ?>
+        <?php
+        // Zwei Erfolgsfälle brauchen einen eigenen Text: Gespeichert wurde,
+        // veröffentlicht nicht. Ohne ihn läse der Bearbeiter "erfolgreich" und
+        // übersähe, dass sein Datensatz unsichtbar geblieben ist.
+        $erfolgstexte = [
+            'created_not_published' => 'Pferd angelegt — aber nicht veröffentlicht, siehe Hinweis oben.',
+            'updated_not_published' => 'Pferd gespeichert — aber nicht veröffentlicht, siehe Hinweis oben.',
+        ];
+        $erfolgstext = $erfolgstexte[$_GET['success']] ?? 'Aktion erfolgreich durchgeführt.';
+        ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
-            Aktion erfolgreich durchgeführt.
+            <?= htmlspecialchars($erfolgstext) ?>
         </div>
     <?php endif; ?>
 

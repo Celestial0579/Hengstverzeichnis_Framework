@@ -3,6 +3,7 @@
 /**
  * @var array|null $horse
  * @var array $allHorses
+ * @var array $allContacts Kontakte fuer BEIDE Steckplaetze der Verlaufszeile (#336)
  * @var string $title
  * @var bool $canPublish Berechtigung 'horses.publish' (#66)
  */
@@ -14,13 +15,12 @@ $actionUrl = $isEdit ? '/admin/horses/update' : '/admin/horses/store';
 // interpolieren - verhindert Script-Injection über Personen-/Deckstationsnamen,
 // die Backticks oder andere Steuerzeichen enthalten könnten.
 $jsonOptions = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
-$personsForJs = [];
-foreach (($allPersons ?? []) as $p) {
-    $personsForJs[] = ['id' => (int)$p['id'], 'name' => (string)$p['name']];
-}
-$stationsForJs = [];
-foreach (($allBreedingStations ?? []) as $bs) {
-    $stationsForJs[] = ['id' => (int)$bs['id'], 'name' => (string)$bs['name']];
+// Eine Liste fuer beide Auswahlfelder (#336): Personen und Deckstationen
+// stehen seit dem Zusammenlegen in einer Tabelle. Die Felder bleiben zwei -
+// sie sagen Verschiedenes (wer / wo) -, nur der Topf ist derselbe.
+$contactsForJs = [];
+foreach (($allContacts ?? []) as $c) {
+    $contactsForJs[] = ['id' => (int)$c['id'], 'name' => (string)$c['name']];
 }
 ?>
 <div class="card">
@@ -269,8 +269,9 @@ foreach (($allBreedingStations ?? []) as $bs) {
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
                 <label style="font-weight: bold; color: var(--primary-fg); margin-bottom: 0;">👤 Züchter-, Besitzer- & Deckstationenverlauf</label>
                 <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
-                    <a href="/admin/persons/create" target="_blank" style="color: var(--primary-fg);">+ Neue Person anlegen</a>
-                    <a href="/admin/breeding-stations/create" target="_blank" style="color: var(--primary-fg);">+ Neue Deckstation anlegen</a>
+                    <!-- Ein Ziel statt zweier (#336): Beim Anlegen muss niemand mehr
+                         vorab entscheiden, ob ein Hof "Person" oder "Deckstation" ist. -->
+                    <a href="/admin/contacts/create" target="_blank" style="color: var(--primary-fg);">+ Neuen Kontakt anlegen</a>
                 </div>
             </div>
 
@@ -284,10 +285,10 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <!-- Initial empty row if none -->
                     <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                         <div style="flex: 2; min-width: 180px;">
-                            <select name="persons[0][person_id]" class="form-control">
+                            <select name="persons[0][contact_id]" class="form-control">
                                 <option value="">-- Person (Züchter/Besitzer) --</option>
-                                <?php foreach ($allPersons as $p): ?>
-                                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                                <?php foreach ($allContacts as $c): ?>
+                                    <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -301,10 +302,10 @@ foreach (($allBreedingStations ?? []) as $bs) {
                         </div>
 
                         <div style="flex: 2; min-width: 180px;">
-                            <select name="persons[0][breeding_station_id]" class="form-control">
+                            <select name="persons[0][station_contact_id]" class="form-control">
                                 <option value="">-- Deckstation / Gestüt (Optional) --</option>
-                                <?php foreach ($allBreedingStations as $bs): ?>
-                                    <option value="<?= $bs['id'] ?>"><?= htmlspecialchars($bs['name']) ?></option>
+                                <?php foreach ($allContacts as $c): ?>
+                                    <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -327,10 +328,10 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     <?php foreach ($horsePersons as $idx => $hp): ?>
                         <div class="person-row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);">
                             <div style="flex: 2; min-width: 180px;">
-                                <select name="persons[<?= $idx ?>][person_id]" class="form-control">
+                                <select name="persons[<?= $idx ?>][contact_id]" class="form-control">
                                     <option value="">-- Person (Züchter/Besitzer) --</option>
-                                    <?php foreach ($allPersons as $p): ?>
-                                        <option value="<?= $p['id'] ?>" <?= $hp['person_id'] == $p['id'] ? 'selected' : '' ?>><?= htmlspecialchars($p['name']) ?></option>
+                                    <?php foreach ($allContacts as $c): ?>
+                                        <option value="<?= $c['id'] ?>" <?= ($hp['contact_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -344,10 +345,10 @@ foreach (($allBreedingStations ?? []) as $bs) {
                             </div>
 
                             <div style="flex: 2; min-width: 180px;">
-                                <select name="persons[<?= $idx ?>][breeding_station_id]" class="form-control">
+                                <select name="persons[<?= $idx ?>][station_contact_id]" class="form-control">
                                     <option value="">-- Deckstation / Gestüt (Optional) --</option>
-                                    <?php foreach ($allBreedingStations as $bs): ?>
-                                        <option value="<?= $bs['id'] ?>" <?= ($hp['breeding_station_id'] ?? '') == $bs['id'] ? 'selected' : '' ?>><?= htmlspecialchars($bs['name']) ?></option>
+                                    <?php foreach ($allContacts as $c): ?>
+                                        <option value="<?= $c['id'] ?>" <?= ($hp['station_contact_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </div>
@@ -379,8 +380,8 @@ foreach (($allBreedingStations ?? []) as $bs) {
         // Als reine JSON-Daten eingebettet (nicht als HTML/JS-String-Interpolation),
         // damit Namen mit Sonderzeichen (inkl. Backticks) keine Script-Injection erlauben -
         // Rendering erfolgt unten ausschließlich über textContent.
-        const allPersonsData = <?= json_encode($personsForJs, $jsonOptions) ?>;
-        const allBreedingStationsData = <?= json_encode($stationsForJs, $jsonOptions) ?>;
+        // Eine Datenquelle, zwei Auswahlfelder (#336).
+        const allContactsData = <?= json_encode($contactsForJs, $jsonOptions) ?>;
 
         function toggleYears(selectElem) {
             const row = selectElem.closest('.person-row');
@@ -413,7 +414,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
             div.style = 'display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; background: var(--surface-muted); padding: 0.8rem; border-radius: 6px; border: 1px solid var(--border-color);';
             div.innerHTML = `
                 <div style="flex: 2; min-width: 180px;">
-                    <select name="persons[${personRowIndex}][person_id]" class="form-control"></select>
+                    <select name="persons[${personRowIndex}][contact_id]" class="form-control"></select>
                 </div>
                 <div style="flex: 1.5; min-width: 140px;">
                     <select name="persons[${personRowIndex}][role]" class="form-control" onchange="toggleYears(this)">
@@ -423,7 +424,7 @@ foreach (($allBreedingStations ?? []) as $bs) {
                     </select>
                 </div>
                 <div style="flex: 2; min-width: 180px;">
-                    <select name="persons[${personRowIndex}][breeding_station_id]" class="form-control"></select>
+                    <select name="persons[${personRowIndex}][station_contact_id]" class="form-control"></select>
                 </div>
                 <div style="flex: 2; min-width: 180px;">
                     <input type="text" name="persons[${personRowIndex}][breeding_station_text]" class="form-control" maxlength="255" placeholder="oder Deckstation als Freitext">
@@ -437,8 +438,8 @@ foreach (($allBreedingStations ?? []) as $bs) {
                 </div>
                 <button type="button" class="btn" style="background: #dc3545; color: #fff; padding: 0.4rem 0.6rem;" onclick="this.closest('.person-row').remove();">🗑️</button>
             `;
-            populateOptions(div.querySelector(`select[name="persons[${personRowIndex}][person_id]"]`), allPersonsData, '-- Person (Züchter/Besitzer) --');
-            populateOptions(div.querySelector(`select[name="persons[${personRowIndex}][breeding_station_id]"]`), allBreedingStationsData, '-- Deckstation / Gestüt (Optional) --');
+            populateOptions(div.querySelector(`select[name="persons[${personRowIndex}][contact_id]"]`), allContactsData, '-- Person (Züchter/Besitzer) --');
+            populateOptions(div.querySelector(`select[name="persons[${personRowIndex}][station_contact_id]"]`), allContactsData, '-- Deckstation / Gestüt (Optional) --');
             container.appendChild(div);
             personRowIndex++;
         }

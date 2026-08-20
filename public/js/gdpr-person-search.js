@@ -10,6 +10,11 @@
 // Die Formulare stehen samt CSRF-Token fertig im HTML; hier wird ausschließlich
 // die person_id eingetragen und der Block eingeblendet. Ein Token liesse sich
 // clientseitig ohnehin nicht erzeugen.
+//
+// Seit der Kontaktliste (#336) sucht der Endpunkt in `contacts`. Sein Name
+// (/admin/gdpr/search-persons) und die Feldnamen der Antwort bleiben
+// unverändert - die Suche beantwortet weiterhin die Frage "welcher Datensatz
+// gehört zu diesem Menschen", und nur die Tabelle dahinter ist eine andere.
 (function () {
     'use strict';
 
@@ -53,7 +58,11 @@
                 + person.horse_count + ' verknüpfte Pferde/Rollen)' + suffix;
             idFields.forEach(function (field) { field.value = String(person.id); });
             if (link) {
-                link.href = '/admin/persons/edit?id=' + encodeURIComponent(person.id);
+                // Seit #336 die Kontaktverwaltung - die Kennung kommt aus
+                // `contacts`, /admin/persons/edit gibt es nicht mehr (es
+                // leitet nur noch dauerhaft um, und zwar ueber die ALTE
+                // Kennung; ein Link darauf traefe deshalb den falschen Satz).
+                link.href = '/admin/contacts/edit?id=' + encodeURIComponent(person.id);
             }
             selection.hidden = false;
         }
@@ -152,7 +161,7 @@
                     // wie "keine Treffer" und die Anfrage bliebe unbearbeitet
                     // liegen - bei laufender Frist der schlechteste Ausgang.
                     status.textContent = 'Suche fehlgeschlagen (' + error.message
-                        + '). Bitte erneut versuchen oder den Datensatz über die Personenverwaltung suchen.';
+                        + '). Bitte erneut versuchen oder den Datensatz über die Kontaktverwaltung suchen.';
                 });
         }
 

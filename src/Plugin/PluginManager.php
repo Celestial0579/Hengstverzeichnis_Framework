@@ -708,6 +708,23 @@ final class PluginManager {
                 $this->registerPluginFeature($entry);
             }
         }
+
+        // Formulare, die einen Spam-Schutz bekommen sollen (#351). Die
+        // oeffentlichen Formulare dieses Systems liegen ueberwiegend in
+        // Addons - Kontaktanfrage, Deckanfrage, Verkaufsboerse. Genau die,
+        // die Spam bekommen, konnten den vorhandenen Captcha-Unterbau bis
+        // v0.7 nicht nutzen, weil sich kein Kontext anmelden liess.
+        //
+        //     public function captchaContexts(): array {
+        //         return ['kontaktanfrage' => 'Kontaktanfrage an einen Kontakt'];
+        //     }
+        if (method_exists($instance, 'captchaContexts')) {
+            foreach ((array)$instance->captchaContexts() as $key => $label) {
+                if (is_string($key) && is_string($label)) {
+                    \App\Security\CaptchaContext::register($key, $label);
+                }
+            }
+        }
     }
 
     /**
@@ -884,5 +901,190 @@ final class PluginManager {
                 $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine()
             );
         }
+    }
+
+    /**
+     * Installationswurzel - Basis für die Pfadprüfung im Datenregister.
+     */
+    private function wurzel(): string {
+        return dirname(__DIR__, 2);
+    }
+
+    /**
+     * Was gehört diesem Addon? Geprüftes Register aus der plugin.json (#338).
+     *
+     * @return array{tables:string[], directories:string[], settings:string[], abgelehnt:string[]}
+     */
+    public function datenRegister(string $slug): array {
+        $info = $this->discovered[$slug] ?? null;
+        $manifest = is_array($info) ? ($info['manifest'] ?? []) : [];
+        return PluginDataRegistry::fuer(is_array($manifest) ? $manifest : [], $this->wurzel());
+    }
+
+    /**
+     * Was würde eine Deinstallation MIT Datenlöschung tatsächlich entfernen -
+     * mit Zeilen- und Dateizahlen, damit die Rückfrage an den Betreiber eine
+     * Zahl nennen kann statt eines Tabellennamens (#338).
+     */
+    public function deinstallationsVorschau(string $slug): array {
+        return PluginDataRegistry::vorschau($this->datenRegister($slug));
+    }
+
+    /**
+     * Deinstalliert ein Addon (#338).
+     *
+     * DEAKTIVIEREN UND DEINSTALLIEREN SIND ZWEI DINGE. Deaktivieren ist
+     * umkehrbar und lässt alles stehen - man tut es, um einen Fehler
+     * einzugrenzen. Deinstallieren fragt nach den Daten, und genau diese Frage
+     * gab es bis v0.7 nicht: Ein Addon verschwand aus dem Verzeichnis und
+     * liess seine Tabellen liegen, darunter Kontaktanfragen mit Namen und
+     * E-Mail-Adressen. Der Betreiber nahm an, er sei sie los.
+     *
+     * REIHENFOLGE. Erst der uninstall()-Hook des Addons (es weiss Dinge, die
+     * kein Register aufzählen kann), dann das Register. Beides NUR, wenn
+     * $datenLoeschen gesetzt ist - sonst wird lediglich deaktiviert und der
+     * Bestand bleibt unangetastet.
+     *
+     * SICHERUNG. Vor dem Löschen wird gesichert, sofern eine Sicherung
+     * eingerichtet ist. Nicht als Bequemlichkeit: Das hier ist die einzige
+     * Stelle im Kern, an der auf Knopfdruck Nutzdaten unwiederbringlich
+     * verschwinden, und "ich wollte nur aufräumen" ist der häufigste Anlass
+     * für so einen Klick.
+     *
+     * @param bool $datenLoeschen false = nur deaktivieren, Daten behalten.
+     *
+     * @return string[] Menschenlesbares Protokoll dessen, was geschehen ist.
+     */
+    public function uninstall(string $slug, bool $datenLoeschen): array {
+        if (!isset($this->discovered[$slug])) {
+            throw new \InvalidArgumentException("Unbekanntes Plugin: {$slug}");
+        }
+
+        $protokoll = [];
+
+        if ($this->isEnabled($slug)) {
+            $this->setEnabled($slug, false);
+            $protokoll[] = 'Addon deaktiviert.';
+        }
+
+        if (!$datenLoeschen) {
+            $protokoll[] = 'Daten behalten - Tabellen, Dateien und Einstellungen bleiben unverändert stehen.';
+            AuditLogger::log('Addon deinstalliert (Daten behalten)', 'plugin', "Slug: {$slug}");
+            return $protokoll;
+        }
+
+        // 1. Sicherung, solange noch alles da ist.
+        try {
+            if (\App\Service\BackupService::isConfigured($this->settingsFuerSicherung())) {
+                \App\Service\BackupService::run();
+                $protokoll[] = 'Sicherung vor dem Löschen ausgeführt.';
+            } else {
+                $protokoll[] = 'HINWEIS: Keine Sicherung eingerichtet - es wurde ohne Sicherung gelöscht.';
+            }
+        } catch (\Throwable $e) {
+            // Eine gescheiterte Sicherung darf das Löschen NICHT stillschweigend
+            // durchwinken - aber auch nicht dauerhaft blockieren. Sie wird
+            // gemeldet, und der Betreiber sieht es im Protokoll.
+            $protokoll[] = 'WARNUNG: Sicherung fehlgeschlagen (' . $e->getMessage() . ') - trotzdem gelöscht.';
+        }
+
+        // 2. Der Hook des Addons zuerst: Er kennt Dinge, die kein Register
+        //    aufzählen kann (etwa Zeilen in einer Kern-Tabelle).
+        $info = $this->discovered[$slug];
+        if ($info['error'] === null) {
+            try {
+                $instance = $this->instantiatePlugin($slug, $info);
+                if ($instance !== null && method_exists($instance, 'uninstall')) {
+                    $instance->uninstall();
+                    $protokoll[] = 'uninstall()-Hook des Addons ausgeführt.';
+                }
+            } catch (\Throwable $e) {
+                $protokoll[] = 'WARNUNG: uninstall()-Hook fehlgeschlagen: ' . $e->getMessage();
+            }
+        }
+
+        // 3. Das Register.
+        $register = $this->datenRegister($slug);
+        $pdo = Database::getInstance();
+
+        foreach ($register['tables'] as $tabelle) {
+            try {
+                // Name stammt aus dem geprüften Register (Präfix erzwungen).
+                $pdo->exec('DROP TABLE IF EXISTS `' . str_replace('`', '``', $tabelle) . '`');
+                $protokoll[] = "Tabelle {$tabelle} entfernt.";
+            } catch (\Throwable $e) {
+                $protokoll[] = "WARNUNG: Tabelle {$tabelle} liess sich nicht entfernen: " . $e->getMessage();
+            }
+        }
+
+        foreach ($register['settings'] as $schluessel) {
+            try {
+                $stmt = $pdo->prepare('DELETE FROM settings WHERE setting_key = ?');
+                $stmt->execute([$schluessel]);
+                if ($stmt->rowCount() > 0) {
+                    $protokoll[] = "Einstellung {$schluessel} entfernt.";
+                }
+            } catch (\Throwable $e) {
+                $protokoll[] = "WARNUNG: Einstellung {$schluessel}: " . $e->getMessage();
+            }
+        }
+
+        foreach ($register['directories'] as $verzeichnis) {
+            if (self::verzeichnisLoeschen($verzeichnis)) {
+                $protokoll[] = 'Verzeichnis ' . basename($verzeichnis) . ' entfernt.';
+            } else {
+                $protokoll[] = 'WARNUNG: Verzeichnis ' . basename($verzeichnis) . ' nicht vollständig entfernt.';
+            }
+        }
+
+        foreach ($register['abgelehnt'] as $grund) {
+            // Nicht verschweigen: Was das Register nicht durchlassen konnte,
+            // bleibt liegen - und der Betreiber muss wissen, dass da noch
+            // etwas ist.
+            $protokoll[] = 'NICHT gelöscht: ' . $grund;
+        }
+
+        AuditLogger::log(
+            'Addon deinstalliert (Daten gelöscht)',
+            'plugin',
+            "Slug: {$slug} - " . implode(' | ', $protokoll)
+        );
+
+        return $protokoll;
+    }
+
+    /**
+     * Die Einstellungen, die BackupService::isConfigured() erwartet.
+     */
+    private function settingsFuerSicherung(): array {
+        try {
+            $rows = Database::getInstance()
+                ->query('SELECT setting_key, setting_value FROM settings')
+                ->fetchAll(\PDO::FETCH_KEY_PAIR);
+            return is_array($rows) ? $rows : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Verzeichnis samt Inhalt entfernen. Symlinks werden entfernt, nicht
+     * verfolgt - sonst räumte eine Deinstallation über einen Symlink hinaus
+     * auf, und das Register hat nur den Symlink geprüft.
+     */
+    private static function verzeichnisLoeschen(string $pfad): bool {
+        if (!is_dir($pfad)) {
+            return true;
+        }
+        $ok = true;
+        $eintraege = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($pfad, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($eintraege as $eintrag) {
+            /** @var \SplFileInfo $eintrag */
+            $ok = ($eintrag->isDir() && !$eintrag->isLink() ? @rmdir($eintrag->getPathname()) : @unlink($eintrag->getPathname())) && $ok;
+        }
+        return @rmdir($pfad) && $ok;
     }
 }

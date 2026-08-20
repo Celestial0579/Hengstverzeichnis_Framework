@@ -111,6 +111,10 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                     <input type="text" id="admin-horse-q-owner" name="q_owner" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_owner'] ?? '') ?>" list="admin_horse_person_list">
                 </div>
                 <div class="form-group">
+                    <label for="admin-horse-q-keeper" style="font-size: 0.85rem; font-weight: bold;">Halter</label>
+                    <input type="text" id="admin-horse-q-keeper" name="q_keeper" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_keeper'] ?? '') ?>" list="admin_horse_person_list">
+                </div>
+                <div class="form-group">
                     <label for="admin-horse-q-station" style="font-size: 0.85rem; font-weight: bold;">Deckstation / Gestüt</label>
                     <input type="text" id="admin-horse-q-station" name="q_station" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_station'] ?? '') ?>" list="admin_horse_station_list">
                 </div>
@@ -121,6 +125,32 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                 <div class="form-group">
                     <label for="admin-horse-q-dam" style="font-size: 0.85rem; font-weight: bold;">Mutter</label>
                     <input type="text" id="admin-horse-q-dam" name="q_dam" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_dam'] ?? '') ?>">
+                </div>
+                <?php // #346: Felder, die es im Bestand laengst gab, nach denen sich aber niemand suchen liess. ?>
+                <div class="form-group">
+                    <label for="admin-horse-height-from" style="font-size: 0.85rem; font-weight: bold;">Stockmaß (cm)</label>
+                    <div style="display: flex; gap: 0.4rem;">
+                        <input type="number" id="admin-horse-height-from" name="height_from" class="form-control" style="padding: 0.5rem;" min="50" max="250" placeholder="von" value="<?= htmlspecialchars($filters['height_from'] ?? '') ?>">
+                        <input type="number" id="admin-horse-height-to" name="height_to" class="form-control" style="padding: 0.5rem;" min="50" max="250" placeholder="bis" value="<?= htmlspecialchars($filters['height_to'] ?? '') ?>">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="admin-horse-death-from" style="font-size: 0.85rem; font-weight: bold;">Todesjahr</label>
+                    <div style="display: flex; gap: 0.4rem;">
+                        <input type="number" id="admin-horse-death-from" name="death_year_from" class="form-control" style="padding: 0.5rem;" placeholder="von" value="<?= htmlspecialchars($filters['death_year_from'] ?? '') ?>">
+                        <input type="number" id="admin-horse-death-to" name="death_year_to" class="form-control" style="padding: 0.5rem;" placeholder="bis" value="<?= htmlspecialchars($filters['death_year_to'] ?? '') ?>">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="admin-horse-birthdate-from" style="font-size: 0.85rem; font-weight: bold;">Geburtsdatum</label>
+                    <div style="display: flex; gap: 0.4rem;">
+                        <input type="date" id="admin-horse-birthdate-from" name="birth_date_from" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['birth_date_from'] ?? '') ?>">
+                        <input type="date" id="admin-horse-birthdate-to" name="birth_date_to" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['birth_date_to'] ?? '') ?>">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="admin-horse-q-description" style="font-size: 0.85rem; font-weight: bold;">Beschreibung</label>
+                    <input type="text" id="admin-horse-q-description" name="q_description" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_description'] ?? '') ?>">
                 </div>
                 <div class="form-group">
                     <label for="admin-horse-q-color" style="font-size: 0.85rem; font-weight: bold;">Farbe</label>

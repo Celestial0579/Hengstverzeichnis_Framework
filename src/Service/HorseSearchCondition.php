@@ -68,6 +68,41 @@ enum HorseSearchCondition {
     case Sire;
     case Dam;
 
+    /** Halter-Rolle (#346) - das Gegenstueck zu Breeder und Owner, das fehlte. */
+    case Keeper;
+
+    /** Stockmass von/bis in cm (#346). */
+    case HeightFrom;
+    case HeightTo;
+
+    /** Todesjahr von/bis (#346). Nur gestorbene Pferde haben eines. */
+    case DeathYearFrom;
+    case DeathYearTo;
+
+    /** Geburtsdatum von/bis (#346) - genauer als das Geburtsjahr. */
+    case BirthDateFrom;
+    case BirthDateTo;
+
+    /** Freitext in der Beschreibung (#346). */
+    case Description;
+
+    /**
+     * Einschraenkung auf eine Pferdeliste, die ein Addon geliefert hat (#346).
+     *
+     * WARUM ALS ID-LISTE UND NICHT ALS SQL-AUSSCHNITT. Weil die ganze Bauart
+     * dieser Klassen darauf beruht, dass KEIN Anfragewert je in einen
+     * SQL-String gerat - der Bauplan entsteht unabhaengig von der Anfrage,
+     * Werte kommen ausschliesslich gebunden dazu (siehe
+     * HorseSearchCriteria::applyTo(), Semgrep tainted-sql-string). Ein Addon,
+     * das einen SQL-Ausschnitt beisteuern darf, macht genau diese Zusicherung
+     * zunichte, und zwar dauerhaft: Ab dann muesste man jedem Addon glauben.
+     *
+     * Eine ID-Liste kann das nicht. Sie geht als EIN gebundener Wert hinein
+     * (FIND_IN_SET), das Addon bekommt also volle Freiheit bei der Auswahl und
+     * keine beim SQL.
+     */
+    case PluginIds;
+
     /**
      * Wie viele gebundene Werte der SQL-Ausschnitt dieser Bedingung erwartet.
      *

@@ -115,7 +115,9 @@ final class DigestService {
         $thresholdDays = 30 - self::TRASH_WARNING_WINDOW_DAYS;
 
         $count = 0;
-        foreach (['horses', 'persons', 'breeding_stations', 'users'] as $table) {
+        // `contacts` statt der frueheren zwei Tabellen persons/breeding_stations
+        // (#336) - der Papierkorb kennt seitdem drei Bereiche, nicht vier.
+        foreach (['horses', 'contacts', 'users'] as $table) {
             $stmt = $db->prepare("
                 SELECT COUNT(*) FROM `$table`
                 WHERE deleted_at IS NOT NULL

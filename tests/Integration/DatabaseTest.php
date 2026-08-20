@@ -172,22 +172,25 @@ class DatabaseTest extends TestCase {
         // Kastrationsdatum (#239, SCHEMA_VERSION 2)
         $this->assertColumnExists($pdo, 'horses', 'castration_date');
 
-        // Strukturierte Personendaten (#188), Bundesland/Kanton (#256)
-        $this->assertColumnExists($pdo, 'persons', 'street');
-        $this->assertColumnExists($pdo, 'persons', 'house_number');
-        $this->assertColumnExists($pdo, 'persons', 'postal_code');
-        $this->assertColumnExists($pdo, 'persons', 'city');
-        $this->assertColumnExists($pdo, 'persons', 'state');
-        $this->assertColumnExists($pdo, 'persons', 'country');
-        $this->assertColumnExists($pdo, 'persons', 'email');
-        $this->assertColumnExists($pdo, 'persons', 'membership_status');
-
-        // Strukturierte Stationsadresse (#256, SCHEMA_VERSION 4). Das alte
-        // Freitextfeld address bleibt bestehen - kein Backfill, siehe
-        // SchemaMigrator Schritt 29.
-        foreach (['street', 'house_number', 'postal_code', 'city', 'state', 'country', 'address'] as $column) {
-            $this->assertColumnExists($pdo, 'breeding_stations', $column);
+        // Strukturierte Kontaktdaten (#188 Personen, #256 Bundesland und
+        // Stationsadresse) - seit #336 an EINER Tabelle. Die Liste ist die
+        // Vereinigung dessen, was vorher an persons und breeding_stations
+        // stand; keine Spalte darf beim Zusammenlegen verlorengegangen sein.
+        foreach ([
+            'street', 'house_number', 'postal_code', 'city', 'state', 'country',
+            'email', 'phone', 'mobile', 'website', 'membership_status',
+            'is_breeder', 'contact_public', 'is_published',
+            // kamen von den Deckstationen:
+            'contact_person', 'address',
+            // kam von den Personen:
+            'contact_info',
+        ] as $column) {
+            $this->assertColumnExists($pdo, 'contacts', $column);
         }
+
+        // Und die Zuordnungstabelle, ohne die Addons ihre gespeicherten
+        // Verweise nicht umrechnen können (#336). Sie bleibt dauerhaft.
+        $this->assertTableExists($pdo, 'contact_id_map');
 
         // birth_year wird von YEAR auf SMALLINT UNSIGNED umgestellt (historische
         // Geburtsjahre vor 1901, die der YEAR-Typ nicht abbilden kann, siehe #10
@@ -212,7 +215,7 @@ class DatabaseTest extends TestCase {
 
         // Neue Tabellen, die ensureSchemaUpToDate() bei Bedarf komplett anlegt
         $this->assertTableExists($pdo, 'audit_logs');
-        $this->assertTableExists($pdo, 'breeding_stations');
+        $this->assertTableExists($pdo, 'contacts');
         $this->assertTableExists($pdo, 'horse_persons');
         $this->assertTableExists($pdo, 'password_resets');
         $this->assertTableExists($pdo, 'gdpr_requests');
@@ -301,16 +304,16 @@ class DatabaseTest extends TestCase {
      */
     #[Depends('testEnsureSchemaUpToDateMigratesLegacySchema')]
     public function testCurrentSchemaVersionShortCircuitsMigrationOnNewConnection(): void {
-        self::$setupPdo->exec("ALTER TABLE `persons` DROP COLUMN `membership_status`");
+        self::$setupPdo->exec("ALTER TABLE `contacts` DROP COLUMN `membership_status`");
 
         self::resetDatabaseSingleton();
         $pdo = Database::getInstance();
 
-        $stmt = $pdo->query("SHOW COLUMNS FROM `persons` LIKE 'membership_status'");
+        $stmt = $pdo->query("SHOW COLUMNS FROM `contacts` LIKE 'membership_status'");
         $this->assertSame(
             0,
             $stmt->rowCount(),
-            'persons.membership_status wurde trotz aktuellem schema_version-Stand neu angelegt - der Kurzschluss in ensureSchemaUpToDate() greift nicht'
+            'contacts.membership_status wurde trotz aktuellem schema_version-Stand neu angelegt - der Kurzschluss in ensureSchemaUpToDate() greift nicht'
         );
     }
 
@@ -335,7 +338,7 @@ class DatabaseTest extends TestCase {
         $pdo = Database::getInstance();
 
         // Die im Kurzschluss-Test gedroppte Spalte muss wieder da sein ...
-        $this->assertColumnExists($pdo, 'persons', 'membership_status');
+        $this->assertColumnExists($pdo, 'contacts', 'membership_status');
         // ... und der Stand erneut auf der aktuellen SCHEMA_VERSION stehen.
         $this->assertSame(Database::SCHEMA_VERSION, $this->storedSchemaVersion());
 

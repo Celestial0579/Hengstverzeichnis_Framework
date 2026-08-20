@@ -25,7 +25,14 @@ use PHPUnit\Framework\TestCase;
  */
 class SchemaMigratorTest extends TestCase {
 
-    private const TEST_DB = 'hengst_schema_migrator';
+    /**
+     * Name der Wegwerf-Datenbank. Ueber HV_TEST_DB_PREFIX umstellbar, damit
+     * die Suite auch mit einem Datenbank-Benutzer laeuft, der nur auf einem
+     * eigenen Namensraum Rechte hat - siehe Tests\Support\WegwerfDatenbank.
+     */
+    private static function testDatenbank(): string {
+        return \Tests\Support\WegwerfDatenbank::name('schema_migrator');
+    }
 
     private static PDO $adminPdo;
     private static PDO $pdo;
@@ -39,11 +46,11 @@ class SchemaMigratorTest extends TestCase {
         // regulären Test-DB (DB_NAME) anderer Integrationstests nicht berühren.
         $adminDsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";charset=utf8mb4";
         self::$adminPdo = new PDO($adminDsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-        self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::TEST_DB . "`");
-        self::$adminPdo->exec("CREATE DATABASE `" . self::TEST_DB . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::testDatenbank() . "`");
+        self::$adminPdo->exec("CREATE DATABASE `" . self::testDatenbank() . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
 
         self::$pdo = new PDO(
-            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::TEST_DB . ";charset=utf8mb4",
+            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::testDatenbank() . ";charset=utf8mb4",
             DB_USER,
             DB_PASS,
             [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
@@ -52,7 +59,7 @@ class SchemaMigratorTest extends TestCase {
 
     public static function tearDownAfterClass(): void {
         if (isset(self::$adminPdo)) {
-            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::TEST_DB . "`");
+            self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::testDatenbank() . "`");
         }
     }
 
@@ -108,6 +115,31 @@ class SchemaMigratorTest extends TestCase {
                 `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
+        // Zwei Bestandspersonen, damit die Kontaktlisten-Uebernahme (#336)
+        // nicht nur "hat nichts kaputtgemacht" zeigen kann, sondern
+        // nachweislich Daten hinuebertraegt.
+        self::$pdo->exec("
+            INSERT INTO `persons` (`name`, `contact_info`) VALUES
+            ('Legacy Zuechter', 'interne Notiz'),
+            ('Legacy Halter', NULL)
+        ");
+        self::$pdo->exec("
+            CREATE TABLE `breeding_stations` (
+                `id` INT AUTO_INCREMENT PRIMARY KEY,
+                `name` VARCHAR(150) NOT NULL,
+                `contact_person` VARCHAR(100) NULL,
+                `address` TEXT NULL,
+                `phone` VARCHAR(50) NULL,
+                `email` VARCHAR(100) NULL,
+                `website` VARCHAR(255) NULL,
+                `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        self::$pdo->exec("
+            INSERT INTO `breeding_stations` (`name`, `contact_person`, `phone`) VALUES
+            ('Legacy Gestuet', 'Frau Ohlsen', '0431-1')
+        ");
         // foreign_ueln gehört mit ins Alt-Schema (#246): So wird der
         // Einmal-Backfill der horse_registrations-Migration sichtbar getestet -
         // die ' / '-Verkettung (teils ohne Leerzeichen, wie sie das
@@ -162,28 +194,60 @@ class SchemaMigratorTest extends TestCase {
         $this->assertSame(1, self::$pdo->query("SHOW COLUMNS FROM `horses` LIKE 'is_deceased'")->rowCount());
         $this->assertSame(0, self::$pdo->query("SHOW COLUMNS FROM `users` LIKE 'role'")->rowCount());
 
-        // Reihenfolge-Regression (#309): persons.contact_public wurde mit
+        // Reihenfolge-Regression (#309), jetzt an ihrem neuen Ort geprüft.
+        //
+        // Der ursprüngliche Fehler: persons.contact_public wurde mit
         // `AFTER is_breeder` ergänzt, is_breeder aber erst einen Schritt
         // SPÄTER angelegt - auf jeder Installation ohne is_breeder scheiterte
         // das ALTER, der Fehler wurde verschluckt und schema_version trotzdem
-        // hochgesetzt. Genau dieses Alt-Schema läuft hier durch, deshalb ist
-        // die Prüfung hier und nicht in DatabaseTest (das gegen die aktuelle
-        // schema.sql aufbaut, in der beide Spalten schon stehen).
+        // hochgesetzt.
+        //
+        // Seit #336 gibt es `persons` nach der Migration nicht mehr; die
+        // Spalten stehen an `contacts`. Die Zusicherung bleibt aber dieselbe
+        // und wird sogar SCHÄRFER: Wenn Schritt 30 (contact_public/is_breeder
+        // an persons) heute stillschweigend scheitern würde, kämen die Spalten
+        // nicht nur nicht an - Schritt 31 kopierte dann eine Tabelle ohne sie,
+        // und der Kopierschritt selbst bräche ab. Geprüft wird deshalb, was am
+        // Ende zählt: dass die Spalten an contacts stehen UND dass der Bestand
+        // tatsächlich hinübergewandert ist.
+        foreach (['is_breeder', 'contact_public', 'contact_person', 'address', 'mobile'] as $spalte) {
+            $this->assertSame(
+                1,
+                self::$pdo->query("SHOW COLUMNS FROM `contacts` LIKE '{$spalte}'")->rowCount(),
+                "contacts.{$spalte} fehlt nach der Migration"
+            );
+        }
+
+        // Kontaktlisten-Übernahme (#336): zwei Personen und eine Deckstation
+        // gingen hinein, drei Kontakte müssen herauskommen - mit erhaltenen
+        // Werten und einer vollständigen Zuordnungstabelle.
+        $kontakte = self::$pdo->query(
+            "SELECT name, contact_info, contact_person, phone FROM contacts ORDER BY id"
+        )->fetchAll();
+        $this->assertCount(3, $kontakte, 'Aus 2 Personen + 1 Deckstation müssen 3 Kontakte werden');
+        $nachName = array_column($kontakte, null, 'name');
+        $this->assertSame('interne Notiz', $nachName['Legacy Zuechter']['contact_info']);
+        $this->assertSame('Frau Ohlsen', $nachName['Legacy Gestuet']['contact_person']);
+        $this->assertSame('0431-1', $nachName['Legacy Gestuet']['phone']);
+
         $this->assertSame(
-            1,
-            self::$pdo->query("SHOW COLUMNS FROM `persons` LIKE 'is_breeder'")->rowCount(),
-            'persons.is_breeder fehlt nach der Migration'
+            3,
+            (int)self::$pdo->query('SELECT COUNT(*) FROM contact_id_map')->fetchColumn(),
+            'contact_id_map muss jede alte Kennung abbilden - sonst können Addons ihre Verweise nicht umrechnen'
         );
         $this->assertSame(
-            1,
-            self::$pdo->query("SHOW COLUMNS FROM `persons` LIKE 'contact_public'")->rowCount(),
-            'persons.contact_public fehlt nach der Migration (#309: AFTER-Klausel lief vor der referenzierten Spalte)'
+            0,
+            (int)self::$pdo->query(
+                "SELECT COUNT(*) FROM contact_id_map WHERE old_type = 'person' AND old_id <> contact_id"
+            )->fetchColumn(),
+            'Personen behalten ihre ID - sonst zeigen die Adressen aus Suchmaschinen ins Leere'
         );
-        $this->assertSame(
-            1,
-            self::$pdo->query("SHOW COLUMNS FROM `breeding_stations` LIKE 'contact_public'")->rowCount(),
-            'breeding_stations.contact_public fehlt nach der Migration'
-        );
+
+        // Die Alttabellen sind stillgelegt, nicht gelöscht: Der Rückweg
+        // (database/rollback-336.php) braucht sie.
+        $this->assertSame(0, self::$pdo->query("SHOW TABLES LIKE 'persons'")->rowCount());
+        $this->assertSame(1, self::$pdo->query("SHOW TABLES LIKE 'persons_pre_contacts'")->rowCount());
+        $this->assertSame(1, self::$pdo->query("SHOW TABLES LIKE 'breeding_stations_pre_contacts'")->rowCount());
 
         // Der Einmal-Backfill hat den Bestand korrekt überführt.
         $rows = self::$pdo->query("SELECT name, status, is_published, is_deceased FROM horses ORDER BY id")->fetchAll();

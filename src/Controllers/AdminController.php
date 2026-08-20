@@ -23,8 +23,9 @@ class AdminController extends BaseController {
             'title' => 'Admin Dashboard',
             'pluginTiles' => $pluginTiles,
             'canViewHorses' => $this->hasPermission('horses', 'view'),
-            'canViewPersons' => $this->hasPermission('persons', 'view'),
-            'canViewBreedingStations' => $this->hasPermission('breeding_stations', 'view')
+            // Eine Kachel statt der frueheren zwei (#336): Personen und
+            // Deckstationen sind ein Bereich, also auch ein Recht.
+            'canViewContacts' => $this->hasPermission('contacts', 'view')
         ]);
     }
 
@@ -331,7 +332,50 @@ class AdminController extends BaseController {
         }
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('captcha_provider', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
         $stmt->execute([$captchaProvider, $captchaProvider]);
-        \App\Service\AuditLogger::log("Spam-Schutz des DSGVO-Formulars geändert", "security", "CAPTCHA-Anbieter: {$captchaProvider}");
+        \App\Service\AuditLogger::log("Spam-Schutz geändert (Vorgabe)", "security", "CAPTCHA-Anbieter: {$captchaProvider}");
+
+        // Abweichende Wahl je Formular (#351).
+        //
+        // Zwei Positivlisten, nicht eine: Der KONTEXT muss angemeldet sein
+        // (CaptchaContext), der ANBIETER muss existieren (Captcha). Ein
+        // unbekannter Kontext würde sonst einen Einstellungsschlüssel
+        // erzeugen, den niemand mehr findet und den keine Oberfläche je
+        // wieder anzeigt - ein Wert, der wirkt und unsichtbar ist.
+        //
+        // Ein leerer Wert LÖSCHT den Eintrag, statt ihn auf '' zu setzen:
+        // "es gilt die Vorgabe" ist die Abwesenheit einer Entscheidung, kein
+        // eigener Zustand.
+        $kontextWahl = $_POST['captcha_context'] ?? [];
+        if (is_array($kontextWahl)) {
+            $bekannteKontexte = \App\Security\CaptchaContext::all();
+            $verfuegbar = \App\Security\Captcha::availableProviders();
+            $geaendert = [];
+            foreach ($kontextWahl as $kontext => $anbieter) {
+                if (!is_string($kontext) || !isset($bekannteKontexte[$kontext])) {
+                    continue;
+                }
+                $schluessel = \App\Security\CaptchaContext::settingKey($kontext);
+                $anbieter = is_string($anbieter) ? trim($anbieter) : '';
+
+                if ($anbieter === '' || !isset($verfuegbar[$anbieter])) {
+                    $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$schluessel]);
+                    continue;
+                }
+
+                $db->prepare(
+                    "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+                )->execute([$schluessel, $anbieter]);
+                $geaendert[] = "{$kontext}={$anbieter}";
+            }
+            if ($geaendert !== []) {
+                \App\Service\AuditLogger::log(
+                    "Spam-Schutz je Formular geändert",
+                    "security",
+                    implode(', ', $geaendert)
+                );
+            }
+        }
 
         // Tracking-Code (Matomo/Google Analytics o. ä.): rohes HTML/JS-Snippet, wird
         // absichtlich unescaped in layout.php ausgegeben - Admin-only vertrauenswürdige
@@ -518,11 +562,18 @@ class AdminController extends BaseController {
         $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
         $db->exec("TRUNCATE TABLE horse_persons;");
         $db->exec("TRUNCATE TABLE horse_registrations;");
-        $db->exec("TRUNCATE TABLE breeding_stations;");
         $db->exec("TRUNCATE TABLE password_resets;");
         $db->exec("TRUNCATE TABLE gdpr_requests;");
         $db->exec("TRUNCATE TABLE horses;");
-        $db->exec("TRUNCATE TABLE persons;");
+        // contact_id_map MUSS mit contacts zusammen geleert werden (#336):
+        // Die Tabelle bildet alte Personen-/Stationskennungen auf Kontakte ab.
+        // Bliebe sie stehen, zeigten ihre Zeilen nach dem Reset auf Kennungen,
+        // die eine frisch eingerichtete Installation neu vergibt - die alten
+        // Adressen /person?id= und /station?id= landeten dann bei einem
+        // fremden Kontakt. TRUNCATE feuert kein ON DELETE CASCADE, das
+        // Aufraeumen passiert hier also nicht von selbst.
+        $db->exec("TRUNCATE TABLE contact_id_map;");
+        $db->exec("TRUNCATE TABLE contacts;");
         $db->exec("TRUNCATE TABLE user_groups;");
         $db->exec("TRUNCATE TABLE users;");
         $db->exec("TRUNCATE TABLE settings;");

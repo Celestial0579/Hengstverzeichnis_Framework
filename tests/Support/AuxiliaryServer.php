@@ -36,8 +36,35 @@ class AuxiliaryServer {
         private readonly array $env = [],
     ) {}
 
+    /**
+     * Der tatsaechlich benutzte Port.
+     *
+     * Die Testklassen geben feste Ports an (8791, 8792). Solange der
+     * Hauptserver auf seinem Standardport 8767 lief, war das harmlos. Seit der
+     * Hauptport ueber HV_TEST_PORT verstellbar ist (damit Framework- und
+     * Addon-Suite nebeneinander laufen koennen), ist es das nicht mehr: Wer
+     * HV_TEST_PORT=8791 setzt, dessen Hilfsserver kann nicht starten, und die
+     * Anfragen landen STILL beim Hauptserver - der die Umgebung des
+     * Hilfsservers nicht kennt. Der Test scheitert dann an einer Zusicherung
+     * ueber Header oder Einbettung und sieht wie ein echter Fund aus.
+     *
+     * Genau das ist beim Bau von v0.8.0 passiert und hat eine Runde
+     * Fehlersuche gekostet.
+     *
+     * Deshalb weicht der Hilfsport aus, sobald er mit dem Hauptport
+     * zusammenfaellt. Der Versatz ist gross genug, um nicht auf den zweiten
+     * Hilfsport zu treffen.
+     */
+    private function effektiverPort(): int {
+        $haupt = getenv('HV_TEST_PORT');
+        if ($haupt !== false && (int)$haupt === $this->port) {
+            return $this->port + 100;
+        }
+        return $this->port;
+    }
+
     public function baseUrl(): string {
-        return 'http://127.0.0.1:' . $this->port;
+        return 'http://127.0.0.1:' . $this->effektiverPort();
     }
 
     public function start(): void {
@@ -48,7 +75,7 @@ class AuxiliaryServer {
         // Zeitzone dieses Prozesses übernehmen - siehe PhpBuiltInServer,
         // dieselbe Begründung: Test und App teilen sich die Datenbank.
         $cmd = ['php', '-d', 'date.timezone=' . date_default_timezone_get(),
-            '-S', '127.0.0.1:' . $this->port];
+            '-S', '127.0.0.1:' . $this->effektiverPort()];
         if ($this->docroot !== null) {
             $cmd[] = '-t';
             $cmd[] = $this->docroot;
@@ -78,7 +105,7 @@ class AuxiliaryServer {
         );
 
         if (!is_resource($this->process)) {
-            throw new \RuntimeException("Konnte Zusatz-Testserver auf Port {$this->port} nicht starten.");
+            throw new \RuntimeException("Konnte Zusatz-Testserver auf Port {$this->effektiverPort()} nicht starten.");
         }
 
         $this->waitUntilReady();
@@ -99,7 +126,7 @@ class AuxiliaryServer {
     private function waitUntilReady(): void {
         $deadline = microtime(true) + 10;
         while (microtime(true) < $deadline) {
-            $connection = @fsockopen('127.0.0.1', $this->port, $errno, $errstr, 0.5);
+            $connection = @fsockopen('127.0.0.1', $this->effektiverPort(), $errno, $errstr, 0.5);
             if ($connection !== false) {
                 fclose($connection);
                 return;
@@ -107,6 +134,6 @@ class AuxiliaryServer {
             usleep(100_000);
         }
 
-        throw new \RuntimeException("Zusatz-Testserver auf Port {$this->port} ist nach 10s nicht erreichbar geworden.");
+        throw new \RuntimeException("Zusatz-Testserver auf Port {$this->effektiverPort()} ist nach 10s nicht erreichbar geworden.");
     }
 }

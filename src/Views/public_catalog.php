@@ -4,8 +4,15 @@
  * @var array $horses
  * @var array $filters
  * @var array $colors
- * @var array $stations
- * @var array $persons
+ * @var array<int, string> $stations Namen der Kontakte, die als Deckstation
+ *   eines veröffentlichten Pferdes vorkommen (#336)
+ * @var array<int, string> $persons Namen der Kontakte, die einem
+ *   veröffentlichten Pferd als Züchter/Besitzer/Halter zugeordnet sind (#336)
+ *
+ * Beide Listen stammen seit der Zusammenlegung aus derselben Tabelle
+ * `contacts` und bleiben trotzdem getrennt: Sie enthalten je nur die Namen,
+ * für die der zugehörige Filter überhaupt einen Treffer liefern kann - siehe
+ * die Begründung in PublicController::catalog().
  */
 
 $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $v !== null));

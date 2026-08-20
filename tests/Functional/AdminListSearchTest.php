@@ -7,8 +7,8 @@ use App\Database;
 use Tests\Support\HttpClient;
 
 /**
- * HTTP-Funktionstests für Suche und Seitenblättern der drei Admin-Listen
- * (Pferde, Personen, Deckstationen).
+ * HTTP-Funktionstests für Suche und Seitenblättern der Admin-Listen (Pferde
+ * und Kontakte).
  *
  * Der eigentliche Prüfstein ist die GRENZE zwischen den beiden Kontexten:
  * Pferde- und Katalogsuche teilen sich seit dieser Änderung dieselben
@@ -20,6 +20,15 @@ use Tests\Support\HttpClient;
  * unveröffentlichten Datensatz finden, der anonyme Katalog darf ihn WEITERHIN
  * NICHT finden. Fiele der Schalter irgendwann weg, würde genau eine der
  * beiden Hälften rot - und zwar sofort die richtige.
+ *
+ * Aus den drei Listen sind mit #336 zwei geworden: `persons` und
+ * `breeding_stations` liegen in `contacts`, und /admin/persons wie
+ * /admin/breeding-stations leiten dauerhaft auf /admin/contacts um. Die
+ * Suchmaske der einen Liste ist die VEREINIGUNG der beiden alten - deshalb
+ * werden hier beide Hälften geprüft: der Ansprechpartner (`q_contact`) konnte
+ * bisher nur die Stationssuche, "nur Züchter" (`q_breeder_only`) nur die
+ * Personensuche. Was durch das Zusammenlegen verlorenginge, wäre nicht die
+ * Liste, sondern der jeweils andere Filter.
  *
  * Seeding direkt in der DB (analog CatalogFilterVisibilityTest): Gegenstand
  * ist das LESE-Verhalten der Listen, nicht die Formulare - der direkte Insert
@@ -39,9 +48,7 @@ class AdminListSearchTest extends FunctionalTestCase {
     /** @var array<int, int> */
     private array $seededHorseIds = [];
     /** @var array<int, int> */
-    private array $seededPersonIds = [];
-    /** @var array<int, int> */
-    private array $seededStationIds = [];
+    private array $seededContactIds = [];
 
     protected function setUp(): void {
         parent::setUp();
@@ -52,19 +59,20 @@ class AdminListSearchTest extends FunctionalTestCase {
      * Aufräumen auch nach fehlgeschlagenen Tests (tearDown läuft immer) -
      * zurückbleibende Datensätze würden sonst die Trefferzahlen und
      * Seitenzahlen späterer Läufe auf der geteilten Test-DB verfälschen.
+     *
+     * Erst die Pferde, dann die Kontakte: `horse_persons` hängt an beiden,
+     * und Zeilen in `contact_id_map` verschwinden über den Fremdschlüssel
+     * mit dem Kontakt.
      */
     protected function tearDown(): void {
         $db = Database::getInstance();
         foreach ($this->seededHorseIds as $id) {
             $db->prepare("DELETE FROM horses WHERE id = ?")->execute([$id]);
         }
-        foreach ($this->seededPersonIds as $id) {
-            $db->prepare("DELETE FROM persons WHERE id = ?")->execute([$id]);
+        foreach ($this->seededContactIds as $id) {
+            $db->prepare("DELETE FROM contacts WHERE id = ?")->execute([$id]);
         }
-        foreach ($this->seededStationIds as $id) {
-            $db->prepare("DELETE FROM breeding_stations WHERE id = ?")->execute([$id]);
-        }
-        $this->seededHorseIds = $this->seededPersonIds = $this->seededStationIds = [];
+        $this->seededHorseIds = $this->seededContactIds = [];
         parent::tearDown();
     }
 
@@ -121,7 +129,7 @@ class AdminListSearchTest extends FunctionalTestCase {
 
     /**
      * Der Züchter-Filter im Admin - und zugleich die Kernzusicherung dieser
-     * Änderung: Er trifft auch auf eine UNVERÖFFENTLICHTE Person. Wer die
+     * Änderung: Er trifft auch auf einen UNVERÖFFENTLICHTEN Kontakt. Wer die
      * Verwaltung sieht, soll gerade die Datensätze finden, die noch nicht
      * freigegeben sind.
      */
@@ -131,12 +139,12 @@ class AdminListSearchTest extends FunctionalTestCase {
         $pferdName = "Pferd des stillen Zuechters {$token}";
         $fremdName = "Pferd ohne Zuechter {$token}";
 
-        $personId = $this->seedPerson($zuechterName, false);
+        $contactId = $this->seedContact($zuechterName, false);
         $pferdId = $this->seedHorse($pferdName, false);
         $this->seedHorse($fremdName, true);
         Database::getInstance()
-            ->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'breeder')")
-            ->execute([$pferdId, $personId]);
+            ->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'breeder')")
+            ->execute([$pferdId, $contactId]);
 
         $body = $this->listBody($this->admin, '/admin/horses?q_breeder=' . urlencode($zuechterName));
 
@@ -163,26 +171,26 @@ class AdminListSearchTest extends FunctionalTestCase {
         $zuechterName = "Stiller Zuechter Katalog {$token}";
         $pferdName = "Katalogpferd {$token}";
 
-        $personId = $this->seedPerson($zuechterName, false);
-        // Das Pferd selbst ist veröffentlicht - nur die Person nicht. Genau
+        $contactId = $this->seedContact($zuechterName, false);
+        // Das Pferd selbst ist veröffentlicht - nur der Kontakt nicht. Genau
         // dieser Fall macht den Filter zum Orakel, wenn er nicht greift.
         $pferdId = $this->seedHorse($pferdName, true);
         $db = Database::getInstance();
-        $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'breeder')")
-            ->execute([$pferdId, $personId]);
+        $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'breeder')")
+            ->execute([$pferdId, $contactId]);
 
         $gast = $this->newClient();
         $payload = $this->catalogAjax($gast, 'q_breeder=' . urlencode($zuechterName));
         $this->assertSame(
             0,
             $payload['count'],
-            'q_breeder auf eine unveröffentlichte Person darf im Katalog weiterhin keine Treffer melden (#121)'
+            'q_breeder auf einen unveröffentlichten Kontakt darf im Katalog weiterhin keine Treffer melden (#121)'
         );
         $this->assertStringNotContainsString(htmlspecialchars($pferdName), $payload['cards_html']);
 
         // Positiv-Gegenprobe: veröffentlicht -> genau ein Treffer. Sonst wäre
         // die 0 oben nur ein kaputter Filter.
-        $db->prepare("UPDATE persons SET is_published = 1 WHERE id = ?")->execute([$personId]);
+        $db->prepare("UPDATE contacts SET is_published = 1 WHERE id = ?")->execute([$contactId]);
         $payload = $this->catalogAjax($gast, 'q_breeder=' . urlencode($zuechterName));
         $this->assertSame(1, $payload['count']);
         $this->assertStringContainsString(htmlspecialchars($pferdName), $payload['cards_html']);
@@ -303,143 +311,180 @@ class AdminListSearchTest extends FunctionalTestCase {
         );
     }
 
-    // -------------------------------------------------------------- Personen
+    // -------------------------------------------------------------- Kontakte
 
-    public function testPersonSearchNarrowsTheList(): void {
+    public function testContactSearchNarrowsTheList(): void {
         $treffer = $this->token();
         $daneben = $this->token();
-        $trefferName = "Suchperson {$treffer}";
-        $danebenName = "Andere Person {$daneben}";
-        $this->seedPerson($trefferName, true);
-        $this->seedPerson($danebenName, true);
+        $trefferName = "Suchkontakt {$treffer}";
+        $danebenName = "Anderer Kontakt {$daneben}";
+        $this->seedContact($trefferName, true);
+        $this->seedContact($danebenName, true);
 
-        $body = $this->listBody($this->admin, '/admin/persons?search=' . urlencode($treffer));
+        $body = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($treffer));
 
         $this->assertStringContainsString(htmlspecialchars($trefferName), $body);
         $this->assertStringNotContainsString(
             htmlspecialchars($danebenName),
             $body,
-            'Eine nicht passende Person darf in der gefilterten Liste NICHT stehen'
+            'Ein nicht passender Kontakt darf in der gefilterten Liste NICHT stehen'
         );
     }
 
-    /** Der Admin findet auch unveröffentlichte Personen - Ort-Filter als Beispiel. */
-    public function testAdminFindsUnpublishedPersonByCity(): void {
+    /** Der Admin findet auch unveröffentlichte Kontakte - Ort-Filter als Beispiel. */
+    public function testAdminFindsUnpublishedContactByCity(): void {
         $token = $this->token();
-        $name = "Stille Person {$token}";
+        $name = "Stiller Kontakt {$token}";
         $ort = "Stillhausen {$token}";
-        $personId = $this->seedPerson($name, false);
+        $contactId = $this->seedContact($name, false);
         Database::getInstance()
-            ->prepare("UPDATE persons SET city = ? WHERE id = ?")
-            ->execute([$ort, $personId]);
+            ->prepare("UPDATE contacts SET city = ? WHERE id = ?")
+            ->execute([$ort, $contactId]);
 
-        $body = $this->listBody($this->admin, '/admin/persons?q_city=' . urlencode($ort));
+        $body = $this->listBody($this->admin, '/admin/contacts?q_city=' . urlencode($ort));
 
         $this->assertStringContainsString(
             htmlspecialchars($name),
             $body,
-            'Der Admin muss unveröffentlichte Personen über den Ort finden'
+            'Der Admin muss unveröffentlichte Kontakte über den Ort finden'
         );
     }
 
     /**
-     * "Nur Züchter" liest das redaktionelle Kennzeichen persons.is_breeder -
-     * nicht die Zuordnungen mit role='breeder' (schema.sql: verschiedene
-     * Aussagen).
+     * Der Ansprechpartner-Filter - die eine Hälfte der vereinigten Suchmaske.
+     * Ihn kannte bis v0.7 nur die Stationsliste; nach dem Zusammenlegen wäre
+     * er der Filter, der beim Aufräumen am ehesten unter den Tisch fiele. Bei
+     * einem Betrieb steht der gesuchte Name aber oft genau dort und nicht im
+     * Namensfeld.
      */
-    public function testPersonBreederOnlyFilter(): void {
+    public function testAdminFindsUnpublishedContactByContactPerson(): void {
+        $token = $this->token();
+        $name = "Stille Station {$token}";
+        $ansprechpartner = "Frau Beispiel {$token}";
+        $contactId = $this->seedContact($name, false);
+        Database::getInstance()
+            ->prepare("UPDATE contacts SET contact_person = ? WHERE id = ?")
+            ->execute([$ansprechpartner, $contactId]);
+
+        $body = $this->listBody($this->admin, '/admin/contacts?q_contact=' . urlencode($ansprechpartner));
+
+        $this->assertStringContainsString(
+            htmlspecialchars($name),
+            $body,
+            'Der Admin muss unveröffentlichte Kontakte über den Ansprechpartner finden'
+        );
+    }
+
+    /**
+     * "Nur Züchter" - die andere Hälfte der vereinigten Suchmaske, bis v0.7
+     * nur in der Personenliste. Der Filter liest das redaktionelle Kennzeichen
+     * contacts.is_breeder, nicht die Zuordnungen mit role='breeder'
+     * (schema.sql: verschiedene Aussagen).
+     */
+    public function testContactBreederOnlyFilter(): void {
         $token = $this->token();
         $zuechterName = "Zuechterin {$token}";
         $sonstName = "Nichtzuechter {$token}";
-        $zuechterId = $this->seedPerson($zuechterName, true);
-        $this->seedPerson($sonstName, true);
+        $zuechterId = $this->seedContact($zuechterName, true);
+        $this->seedContact($sonstName, true);
         Database::getInstance()
-            ->prepare("UPDATE persons SET is_breeder = 1 WHERE id = ?")
+            ->prepare("UPDATE contacts SET is_breeder = 1 WHERE id = ?")
             ->execute([$zuechterId]);
 
-        $body = $this->listBody($this->admin, '/admin/persons?search=' . urlencode($token) . '&q_breeder_only=1');
+        $body = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($token) . '&q_breeder_only=1');
 
         $this->assertStringContainsString(htmlspecialchars($zuechterName), $body);
         $this->assertStringNotContainsString(
             htmlspecialchars($sonstName),
             $body,
-            '"Nur Züchter" muss Personen ohne das Kennzeichen ausblenden'
+            '"Nur Züchter" muss Kontakte ohne das Kennzeichen ausblenden'
         );
     }
 
-    public function testPersonPaginationShowsASecondPage(): void {
+    /**
+     * Herkunftsfilter (#336): Die beiden früheren Listen bleiben als SICHT auf
+     * die eine Liste erhalten, aufgelöst über `contact_id_map`. Das ist der
+     * Ersatz für die getrennten Adressen /admin/persons und
+     * /admin/breeding-stations - wer bisher "alle Deckstationen" ansehen
+     * konnte, kann das weiterhin.
+     *
+     * Nach dem Umbau neu angelegte Kontakte haben keine Herkunft und
+     * erscheinen nur unter "Alle"; auch das wird hier festgehalten, denn eine
+     * Sicht, die stillschweigend neue Datensätze verschluckt, wäre irreführend
+     * - die Liste sagt es dazu.
+     */
+    public function testOriginFilterSeparatesFormerPersonsAndStations(): void {
         $token = $this->token();
-        $anzahl = \App\Controllers\PersonController::PER_PAGE + 1;
-        for ($i = 1; $i <= $anzahl; $i++) {
-            $this->seedPerson(sprintf('Blaetterperson %s %03d', $token, $i), true);
-        }
-        $erstesName = sprintf('Blaetterperson %s %03d', $token, 1);
-        $letztesName = sprintf('Blaetterperson %s %03d', $token, $anzahl);
+        $db = Database::getInstance();
+        $personName = "Herkunft Person {$token}";
+        $stationName = "Herkunft Station {$token}";
+        $neuName = "Herkunft Neuling {$token}";
 
-        $seiteEins = $this->listBody($this->admin, '/admin/persons?search=' . urlencode($token));
-        $this->assertStringContainsString(htmlspecialchars($erstesName), $seiteEins);
-        $this->assertStringNotContainsString(htmlspecialchars($letztesName), $seiteEins);
+        $personId = $this->seedContact($personName, true);
+        $stationId = $this->seedContact($stationName, true);
+        $this->seedContact($neuName, true);
 
-        $seiteZwei = $this->listBody($this->admin, '/admin/persons?search=' . urlencode($token) . '&page=2');
-        $this->assertStringContainsString(htmlspecialchars($letztesName), $seiteZwei);
-        $this->assertStringNotContainsString(htmlspecialchars($erstesName), $seiteZwei);
-    }
+        // Die alten Kennungen sind bewusst nicht die neuen: Personen behielten
+        // bei der Migration ihre ID, Deckstationen bekamen neue - hier zählt
+        // allein, dass die Abbildung existiert.
+        $map = $db->prepare("INSERT INTO contact_id_map (old_type, old_id, contact_id) VALUES (?, ?, ?)");
+        $map->execute(['person', random_int(100000, 999999), $personId]);
+        $map->execute(['station', random_int(100000, 999999), $stationId]);
 
-    // ---------------------------------------------------------- Deckstationen
-
-    public function testStationSearchNarrowsTheList(): void {
-        $treffer = $this->token();
-        $daneben = $this->token();
-        $trefferName = "Suchstation {$treffer}";
-        $danebenName = "Andere Station {$daneben}";
-        $this->seedStation($trefferName, true);
-        $this->seedStation($danebenName, true);
-
-        $body = $this->listBody($this->admin, '/admin/breeding-stations?search=' . urlencode($treffer));
-
-        $this->assertStringContainsString(htmlspecialchars($trefferName), $body);
+        $stationen = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($token) . '&q_origin=station');
+        $this->assertStringContainsString(htmlspecialchars($stationName), $stationen);
         $this->assertStringNotContainsString(
-            htmlspecialchars($danebenName),
-            $body,
-            'Eine nicht passende Station darf in der gefilterten Liste NICHT stehen'
+            htmlspecialchars($personName),
+            $stationen,
+            'Die Sicht "aus dem Deckstationsbestand" darf keine Personen zeigen'
         );
-    }
-
-    /** Der Admin findet unveröffentlichte Stationen - hier über den Ansprechpartner. */
-    public function testAdminFindsUnpublishedStationByContactPerson(): void {
-        $token = $this->token();
-        $name = "Stille Station {$token}";
-        $ansprechpartner = "Frau Beispiel {$token}";
-        $stationId = $this->seedStation($name, false);
-        Database::getInstance()
-            ->prepare("UPDATE breeding_stations SET contact_person = ? WHERE id = ?")
-            ->execute([$ansprechpartner, $stationId]);
-
-        $body = $this->listBody($this->admin, '/admin/breeding-stations?q_contact=' . urlencode($ansprechpartner));
-
-        $this->assertStringContainsString(
-            htmlspecialchars($name),
-            $body,
-            'Der Admin muss unveröffentlichte Stationen über den Ansprechpartner finden'
+        $this->assertStringNotContainsString(
+            htmlspecialchars($neuName),
+            $stationen,
+            'Ein nach dem Umbau angelegter Kontakt hat keine Herkunft und gehört in keine der beiden Sichten'
         );
-    }
 
-    public function testStationPaginationShowsASecondPage(): void {
-        $token = $this->token();
-        $anzahl = \App\Controllers\BreedingStationController::PER_PAGE + 1;
-        for ($i = 1; $i <= $anzahl; $i++) {
-            $this->seedStation(sprintf('Blaetterstation %s %03d', $token, $i), true);
+        $personen = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($token) . '&q_origin=person');
+        $this->assertStringContainsString(htmlspecialchars($personName), $personen);
+        $this->assertStringNotContainsString(htmlspecialchars($stationName), $personen);
+
+        // Ohne Filter sind alle drei da - sonst prüften die Negativ-Aussagen
+        // oben nur, dass die Suche selbst nichts findet.
+        $alle = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($token));
+        foreach ([$personName, $stationName, $neuName] as $name) {
+            $this->assertStringContainsString(htmlspecialchars($name), $alle);
         }
-        $erstesName = sprintf('Blaetterstation %s %03d', $token, 1);
-        $letztesName = sprintf('Blaetterstation %s %03d', $token, $anzahl);
+    }
 
-        $seiteEins = $this->listBody($this->admin, '/admin/breeding-stations?search=' . urlencode($token));
+    public function testContactPaginationShowsASecondPage(): void {
+        $token = $this->token();
+        $anzahl = \App\Controllers\ContactController::PER_PAGE + 1;
+        for ($i = 1; $i <= $anzahl; $i++) {
+            $this->seedContact(sprintf('Blaetterkontakt %s %03d', $token, $i), true);
+        }
+        $erstesName = sprintf('Blaetterkontakt %s %03d', $token, 1);
+        $letztesName = sprintf('Blaetterkontakt %s %03d', $token, $anzahl);
+
+        $seiteEins = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($token));
         $this->assertStringContainsString(htmlspecialchars($erstesName), $seiteEins);
         $this->assertStringNotContainsString(htmlspecialchars($letztesName), $seiteEins);
 
-        $seiteZwei = $this->listBody($this->admin, '/admin/breeding-stations?search=' . urlencode($token) . '&page=2');
+        $seiteZwei = $this->listBody($this->admin, '/admin/contacts?search=' . urlencode($token) . '&page=2');
         $this->assertStringContainsString(htmlspecialchars($letztesName), $seiteZwei);
         $this->assertStringNotContainsString(htmlspecialchars($erstesName), $seiteZwei);
+    }
+
+    /**
+     * Die alten Listen-Adressen bleiben erreichbar (#336): Lesezeichen und
+     * verschickte Links dürfen nicht ins Leere laufen. Dass es 301 ist und
+     * nicht 302, ist Absicht - die Umleitung ist dauerhaft.
+     */
+    public function testLegacyListRoutesRedirectPermanently(): void {
+        foreach (['/admin/persons', '/admin/breeding-stations'] as $alt) {
+            $response = $this->admin->get($alt);
+            $this->assertSame(301, $response->statusCode, "{$alt} muss dauerhaft weiterleiten");
+            $this->assertSame('/admin/contacts', $response->location(), "{$alt} muss auf die Kontaktliste zeigen");
+        }
     }
 
     // ----------------------------------------------------------------- Hilfen
@@ -486,21 +531,12 @@ class AdminListSearchTest extends FunctionalTestCase {
         return $id;
     }
 
-    private function seedPerson(string $name, bool $published): int {
+    private function seedContact(string $name, bool $published): int {
         $db = Database::getInstance();
-        $db->prepare("INSERT INTO persons (name, is_published) VALUES (?, ?)")
+        $db->prepare("INSERT INTO contacts (name, is_published) VALUES (?, ?)")
             ->execute([$name, $published ? 1 : 0]);
         $id = (int)$db->lastInsertId();
-        $this->seededPersonIds[] = $id;
-        return $id;
-    }
-
-    private function seedStation(string $name, bool $published): int {
-        $db = Database::getInstance();
-        $db->prepare("INSERT INTO breeding_stations (name, is_published) VALUES (?, ?)")
-            ->execute([$name, $published ? 1 : 0]);
-        $id = (int)$db->lastInsertId();
-        $this->seededStationIds[] = $id;
+        $this->seededContactIds[] = $id;
         return $id;
     }
 }

@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Żądany koń nie istnieje lub został usunięty z rejestru.',
     'meta.title_horse_detail_suffix' => 'Szczegóły',
 
-    // Strona szczegółów stacji ogierów
+    // Blok stacji ogierów na stronie kontaktu (#336)
     'station.horses_heading' => '🐴 Konie tej stacji ogierów',
     'station.no_horses' => 'Obecnie w rejestrze nie ma koni tej stacji ogierów.',
     'field.location' => 'Miejscowość',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Telefon komórkowy',
     'station.not_found' => 'Żądana stacja ogierów nie istnieje lub została usunięta z rejestru.',
     'meta.title_station_detail_suffix' => 'Stacja ogierów',
+
+    // Strona szczegółów kontaktu (#336)
+    'contact.not_found' => 'Żądany kontakt nie istnieje lub został usunięty z katalogu.',
+    'contact.no_details' => 'Brak publicznych informacji o tym kontakcie.',
+    'contact.horses_heading' => '🐴 Konie przypisane do tego kontaktu',
+    'contact.no_horses' => 'Obecnie w rejestrze nie ma koni przypisanych do tego kontaktu.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Nota prawna / Polityka prywatności / RODO (statyczne teksty zastępcze)
     'legal.impressum_title' => 'Nota prawna',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Zarządzaj końmi',
     'admin.dashboard.tile_persons' => 'Zarządzaj osobami',
     'admin.dashboard.tile_breeding_stations' => 'Zarządzaj stacjami ogierów',
+    'admin.dashboard.tile_contacts' => 'Zarządzaj kontaktami',
     'admin.dashboard.tile_matches' => 'Scal linie krwi',
     'admin.dashboard.tile_trash' => 'Kosz',
     'admin.dashboard.system_heading' => 'Ustawienia systemowe i konfiguracja',

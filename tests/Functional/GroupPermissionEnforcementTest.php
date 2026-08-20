@@ -207,6 +207,74 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         $this->assertSame(200, $allowed->statusCode);
     }
 
+    /**
+     * #336: Aus `persons` und `breeding_stations` ist EIN Modul `contacts`
+     * geworden - und zwar als SCHNITTMENGE, nicht als Vereinigung. Wer nur
+     * einen der beiden Bereiche sehen durfte, sieht `contacts` NICHT.
+     *
+     * Die Regel dahinter ist allgemeiner als dieser eine Umbau: Eine
+     * Zusammenlegung darf Rechte nur verkleinern. Die Gast-Gruppe etwa hatte
+     * `breeding_stations.view` seit jeher und `persons.view` erst seit #293 -
+     * ein ODER hätte jeder Instanz mit älterem Rechtestand die
+     * personenbezogenen Daten geöffnet, ohne dass jemand etwas angeklickt
+     * hätte.
+     *
+     * Geprüft wird hier die Hälfte, die an der Oberfläche liegt: Der
+     * Endpunkt kennt die alten Modulnamen nicht mehr und bildet sie
+     * insbesondere NICHT auf `contacts` ab. Ein Skript oder ein altes
+     * Browser-Fenster, das noch `persons`/`breeding_stations` schickt, darf
+     * damit kein Recht auf die Kontaktdaten erzeugen - auch nicht
+     * versehentlich, auch nicht "weil es ja dasselbe meint".
+     *
+     * Die andere Hälfte - der einmalige Umbau vorhandener Rechtezeilen im
+     * Bestand (SchemaMigrator, Schritt 336_rechte_schnittmenge) - lässt sich
+     * hier nicht prüfen: Eine Neuinstallation hat keine Altzeilen, und der
+     * Schritt läuft folglich gar nicht. Sie gehört in
+     * tests/Integration/SchemaMigratorTest.php, wo ein Alt-Schema
+     * nachgestellt wird.
+     */
+    public function testLegacyContactModulesAreNoLongerAcceptedAndDoNotGrantContacts(): void {
+        $admin = $this->authenticatedClient();
+
+        $groupsPage = $admin->get('/admin/groups');
+        $createResponse = $admin->post('/admin/groups/create', [
+            'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
+            'name' => 'Altrechte ' . uniqid(),
+            'description' => 'Prüft, dass persons/breeding_stations nicht auf contacts abgebildet werden',
+        ]);
+        preg_match('/group=(\d+)/', (string)$createResponse->location(), $matches);
+        $this->assertNotEmpty($matches, "Gruppe anlegen fehlgeschlagen, Body: {$createResponse->body}");
+        $groupId = (int)$matches[1];
+
+        // Die Matrix bietet die alten Bereiche gar nicht mehr an - ein
+        // Bearbeiter kann sie also nicht mehr anklicken.
+        $matrix = $admin->get('/admin/groups?group=' . $groupId)->body;
+        $this->assertStringContainsString('name="permissions[contacts][]"', $matrix, 'Der Bereich Kontakte muss in der Matrix stehen');
+        $this->assertStringNotContainsString('name="permissions[persons][]"', $matrix);
+        $this->assertStringNotContainsString('name="permissions[breeding_stations][]"', $matrix);
+
+        // Und ein direkt abgeschickter POST mit den alten Namen wird
+        // verworfen, statt still auf `contacts` zu landen.
+        $this->setGroupPermissions($admin, $groupId, [
+            'persons' => ['view', 'edit'],
+            'breeding_stations' => ['view', 'edit'],
+        ]);
+
+        $checked = $this->checkedPermissionPairs($admin, $groupId);
+        $this->assertSame(
+            [],
+            $checked,
+            'Alte Modulnamen dürfen kein Recht erzeugen - schon gar nicht auf contacts, das beide Bereiche zusammenfasst'
+        );
+
+        // Gegenprobe, dass der Endpunkt überhaupt funktioniert: Derselbe Weg
+        // mit dem neuen Namen vergibt das Recht sehr wohl. Ohne sie bewiese
+        // der Test oben auch dann nichts, wenn das Speichern schlicht kaputt
+        // wäre.
+        $this->setGroupPermissions($admin, $groupId, ['contacts' => ['view']]);
+        $this->assertSame([['contacts', 'view']], $this->checkedPermissionPairs($admin, $groupId));
+    }
+
     public function testBuiltinGroupsCannotBeDeleted(): void {
         $admin = $this->authenticatedClient();
 
@@ -293,7 +361,11 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         );
 
         // Entziehen: Gast darf Pferde nicht mehr sehen -> Detailseite liefert 404.
-        $this->setGroupPermissions($admin, $publicGroupId, ['breeding_stations' => ['view']]);
+        // Bewusst NICHT die leere Menge: Die Gruppe behält ein anderes
+        // Lese-Recht (seit #336 `contacts` statt `breeding_stations`), damit
+        // die Sperre nachweislich an horses.view hängt und nicht daran, dass
+        // die Gruppe überhaupt keine Rechte mehr hat.
+        $this->setGroupPermissions($admin, $publicGroupId, ['contacts' => ['view']]);
         $this->assertSame(
             404,
             $guest->get($detailPath)->statusCode,
@@ -415,7 +487,8 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
             'group_id' => (string)$publicGroupId,
             'permissions' => [
                 'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
-                'breeding_stations' => ['view', 'edit'],
+                // Seit #336 ein Modul statt zweier (persons/breeding_stations).
+                'contacts' => ['view', 'edit'],
                 'users' => ['view', 'manage'],
             ],
         ]);
@@ -438,7 +511,7 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
         // Die legitimen view-Anteile derselben Anfrage müssen erhalten bleiben -
         // die Filterung entfernt Aktionen, nicht die ganze Anfrage.
         $this->assertContains('horses', $checkedModulesWithView);
-        $this->assertContains('breeding_stations', $checkedModulesWithView);
+        $this->assertContains('contacts', $checkedModulesWithView);
 
         // Standard-Lese-Rechte der Gast-Gruppe wiederherstellen.
         $this->setGroupPermissions($admin, $publicGroupId, self::GUEST_DEFAULT_PERMISSIONS);

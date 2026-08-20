@@ -60,14 +60,13 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
                 🐴 <?= htmlspecialchars($t('admin.dashboard.tile_horses')) ?>
             </a>
             <?php endif; ?>
-            <?php if ($canViewPersons ?? false): ?>
-            <a href="/admin/persons" class="btn btn-secondary" style="<?= $tileStyle ?>">
-                👤 <?= htmlspecialchars($t('admin.dashboard.tile_persons')) ?>
-            </a>
-            <?php endif; ?>
-            <?php if ($canViewBreedingStations ?? false): ?>
-            <a href="/admin/breeding-stations" class="btn btn-secondary" style="<?= $tileStyle ?>">
-                🏠 <?= htmlspecialchars($t('admin.dashboard.tile_breeding_stations')) ?>
+            <?php // Eine Kachel fuer alle Kontakte (#336). Die beiden frueheren
+                  // ("Personen verwalten", "Deckstationen verwalten") fuehrten in
+                  // dieselbe Tabelle, sobald sie zusammengelegt war - zwei
+                  // Eintraege haetten nur noch behauptet, es gaebe zwei Bestaende. ?>
+            <?php if ($canViewContacts ?? false): ?>
+            <a href="/admin/contacts" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                👤 <?= htmlspecialchars($t('admin.dashboard.tile_contacts')) ?>
             </a>
             <?php endif; ?>
             <?php if ($canViewHorses ?? false): ?>

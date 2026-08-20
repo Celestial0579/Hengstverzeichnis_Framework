@@ -72,12 +72,12 @@
                     <?php if ($needsMatching): ?>
                         <div style="background: var(--warning-soft-bg); border: 1px solid #ffeeba; border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
                             <h4 style="margin: 0 0 0.5rem 0; color: var(--warning-fg); display: flex; align-items: center; gap: 0.5rem;">
-                                🔍 Gefundene Personeneinträge in der Datenbank:
+                                🔍 Gefundene Kontakteinträge in der Datenbank:
                             </h4>
 
                             <?php if (empty($req['matching_persons'])): ?>
                                 <p style="margin: 0 0 0.6rem 0; font-size: 0.9rem; color: var(--warning-fg);">
-                                    Keine direkten Personeneinträge für "<?= htmlspecialchars($req['name'] ?: $req['email']) ?>" gefunden.
+                                    Keine direkten Kontakteinträge für "<?= htmlspecialchars($req['name'] ?: $req['email']) ?>" gefunden.
                                     <br>
                                     <span style="font-size: 0.85rem;">
                                         Die automatische Suche vergleicht wörtlich und scheitert schon an abweichender
@@ -121,7 +121,7 @@
                                                     <?php // Auskunftsanfrage (Art. 15 DSGVO): einsehen, nicht löschen.
                                                           // Anonymisieren/Löschen hier anzubieten wäre schlicht die
                                                           // falsche Rechtsfolge - gefragt ist, WAS gespeichert ist. ?>
-                                                    <a href="/admin/persons/edit?id=<?= (int)$p['id'] ?>" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                    <a href="/admin/contacts/edit?id=<?= (int)$p['id'] ?>" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
                                                         📄 Datensatz für die Auskunft öffnen
                                                     </a>
                                                 <?php endif; ?>
@@ -160,8 +160,14 @@
                                     <?php // Die Formulare stehen fertig im HTML - samt CSRF-Token, das
                                           // JavaScript nicht erzeugen kann. Das Skript trägt nur die
                                           // person_id ein und blendet den Block ein. Ohne JavaScript
-                                          // bleibt er verborgen; der Weg über /admin/persons steht dann
-                                          // weiterhin offen. ?>
+                                          // bleibt er verborgen; der Weg über /admin/contacts steht dann
+                                          // weiterhin offen.
+                                          //
+                                          // Das Formularfeld heisst weiterhin person_id, obwohl es seit
+                                          // #336 eine contacts-Kennung traegt: Es ist die Schnittstelle
+                                          // zwischen View, Skript und GdprController::deletePerson() -
+                                          // ein Umbenennen muesste alle drei gleichzeitig treffen und
+                                          // brächte fuer die DSGVO-Bearbeitung nichts. ?>
                                     <div class="gdpr-manual-selection" hidden
                                          style="margin-top: 0.8rem; background: var(--card-bg); padding: 0.8rem; border-radius: 6px; border: 1px solid #eedc9e;">
                                         <p style="margin: 0 0 0.6rem 0; font-size: 0.9rem;">
@@ -186,7 +192,7 @@
                                                     </button>
                                                 </form>
                                             <?php else: ?>
-                                                <a href="/admin/persons/edit" class="btn btn-secondary gdpr-selected-link" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                <a href="/admin/contacts/edit" class="btn btn-secondary gdpr-selected-link" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
                                                     📄 Datensatz für die Auskunft öffnen
                                                 </a>
                                             <?php endif; ?>

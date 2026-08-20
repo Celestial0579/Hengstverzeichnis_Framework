@@ -188,15 +188,17 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                 <?php endif; ?>
                 <?php if (!empty($horse['station_name']) || !empty($horse['breeding_station'])): ?>
                     <?php // Nur die AKTUELLE Deckstation als kompakter Verweis - die
-                          // Historie (inkl. Kontaktweg über die Stationsseite) steht in
+                          // Historie (inkl. Kontaktweg über die Kontaktseite) steht in
                           // der Karte "Zucht & Personen", sonst stünde dieselbe Station
                           // doppelt auf der Seite. Fallback-Logik wie gehabt (#122/#151):
-                          // station_name aus dem gefilterten JOIN, sonst Freitext. ?>
+                          // station_name aus dem gefilterten JOIN, sonst Freitext.
+                          // Ziel ist seit #336 /kontakt?id=; horses.breeding_station_id
+                          // heißt weiterhin so, zeigt aber auf `contacts`. ?>
                     <div>
                         <dt><?= htmlspecialchars(App\I18n\Translator::t('field.breeding_station')) ?></dt>
                         <dd>
                             <?php if (!empty($horse['station_name']) && !empty($horse['breeding_station_id'])): ?>
-                                <a href="/station?id=<?= (int)$horse['breeding_station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
+                                <a href="/kontakt?id=<?= (int)$horse['breeding_station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($horse['station_name']) ?></a>
                             <?php else: ?>
                                 <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?>
                             <?php endif; ?>
@@ -365,24 +367,30 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                         <div>
                             <?php if (!empty($hp['person_name'])): ?>
                                 <?php
-                                    // Verweis auf die Personenseite (#293). Der
-                                    // Block laeuft nur bei gefuelltem person_name,
-                                    // und den liefert der LEFT JOIN ausschliesslich
-                                    // fuer veroeffentlichte, nicht geloeschte
-                                    // Personen - genau die, die /person auch
-                                    // ausliefert. Ein Verweis ins Leere kann hier
-                                    // also nicht entstehen.
+                                    // Verweis auf die Kontaktseite (#293, Adresse
+                                    // seit #336 /kontakt?id=). Der Block laeuft nur
+                                    // bei gefuelltem person_name, und den liefert
+                                    // der LEFT JOIN ausschliesslich fuer
+                                    // veroeffentlichte, nicht geloeschte Kontakte -
+                                    // genau die, die /kontakt auch ausliefert. Ein
+                                    // Verweis ins Leere kann hier also nicht
+                                    // entstehen.
+                                    //
+                                    // Der Alias person_name benennt die ROLLE in
+                                    // dieser Zeile ("wer") und bleibt deshalb; die
+                                    // Spalte dahinter heisst seit #336
+                                    // horse_persons.contact_id.
                                 ?>
                                 <strong>
-                                    <?php if (!empty($hp['person_id'])): ?>
-                                        <a href="/person?id=<?= (int)$hp['person_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($hp['person_name']) ?></a>
+                                    <?php if (!empty($hp['contact_id'])): ?>
+                                        <a href="/kontakt?id=<?= (int)$hp['contact_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;"><?= htmlspecialchars($hp['person_name']) ?></a>
                                     <?php else: ?>
                                         <?= htmlspecialchars($hp['person_name']) ?>
                                     <?php endif; ?>
                                 </strong>
                                 <?php
-                                // Länderflagge (#240): Emoji aus persons.country der
-                                // verknüpften Person; unbekanntes Land => keine Flagge.
+                                // Länderflagge (#240): Emoji aus contacts.country des
+                                // verknüpften Kontakts; unbekanntes Land => keine Flagge.
                                 // Der title-Tooltip trägt den gespeicherten Freitext
                                 // (Barrierefreiheit), Einträge ohne Person (reine
                                 // Stations-/Textzeilen) bekommen keine Flagge.
@@ -394,7 +402,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                             <?php elseif ($stationDisplayName !== ''): ?>
                                 <strong>
                                     <?php if (!empty($hp['station_id'])): ?>
-                                        <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
+                                        <a href="/kontakt?id=<?= (int)$hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
                                             🏠 <?= htmlspecialchars($stationDisplayName) ?>
                                         </a>
                                     <?php else: ?>
@@ -428,7 +436,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                         <div style="font-size: 0.85rem; color: var(--primary-fg); margin-top: 0.4rem; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
                             <span><?= htmlspecialchars(App\I18n\Translator::t('horse.breeding_station_colon')) ?></span>
                             <?php if (!empty($hp['station_id'])): ?>
-                                <a href="/station?id=<?= $hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
+                                <a href="/kontakt?id=<?= (int)$hp['station_id'] ?>" style="color: var(--primary-fg); text-decoration: underline;">
                                     <?= htmlspecialchars($stationDisplayName) ?>
                                 </a>
                             <?php else: ?>
@@ -439,9 +447,10 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
 
                     <?php
                         // Ort/Bundesland/Land/Mitgliedsstatus (#188, state seit
-                        // #256) sind die einzigen strukturierten Personenfelder
-                        // auf der öffentlichen Seite - Adresse/E-Mail bleiben
-                        // Admin-only (siehe PublicController::horseDetail).
+                        // #256) sind die einzigen strukturierten Kontaktfelder
+                        // in dieser Liste - Anschrift/E-Mail/Telefon erscheinen
+                        // hier auch bei freigegebenem Kontakt nicht, sie stehen
+                        // auf /kontakt?id= (siehe PublicController::horseDetail).
                         $placeParts = array_filter([$hp['city'] ?? '', $hp['state'] ?? '', $hp['country'] ?? '']);
                     ?>
                     <?php if (!empty($placeParts) || !empty($hp['membership_status'])): ?>

@@ -136,13 +136,47 @@ class Captcha {
      *
      * @param array<string, mixed> $settings
      */
-    public static function activeProvider(array $settings): string {
-        $configured = trim((string)($settings['captcha_provider'] ?? self::PROVIDER_BUILTIN));
+    public static function activeProvider(array $settings, ?string $context = null): string {
+        // Je Formular wählbar (#351): Der Betreiber kann für ein einzelnes
+        // Formular einen anderen Anbieter setzen als global. Ohne eigenen
+        // Eintrag gilt die globale Wahl - wer nichts einstellt, bekommt
+        // überall dasselbe, und das ist das erwartete Verhalten.
+        $configured = '';
+        if ($context !== null && CaptchaContext::isValid($context)) {
+            $configured = trim((string)($settings[CaptchaContext::settingKey($context)] ?? ''));
+        }
+        if ($configured === '') {
+            $configured = trim((string)($settings['captcha_provider'] ?? self::PROVIDER_BUILTIN));
+        }
         if ($configured === '' || $configured === self::PROVIDER_BUILTIN) {
             return self::PROVIDER_BUILTIN;
         }
 
         return isset(self::availableProviders()[$configured]) ? $configured : self::PROVIDER_BUILTIN;
+    }
+
+    /**
+     * Ist der Kontext angemeldet? Ein unbekannter Kontext schaltet den Schutz
+     * NICHT ab - er zwingt auf den eingebauten Anbieter zurück und wird
+     * protokolliert (#351).
+     *
+     * Die Richtung ist wesentlich: Ein Tippfehler im Kontextnamen macht ein
+     * Formular höchstens strenger als gewollt, nie ungeschützter. Andersherum
+     * wäre ein vertippter Kontext ein stiller Weg, den Spam-Schutz eines
+     * Formulars auszuschalten.
+     */
+    private static function kontextGeprueft(string $context): bool {
+        if (CaptchaContext::isValid($context)) {
+            return true;
+        }
+
+        \App\Service\AuditLogger::log(
+            'CAPTCHA: unbekannter Formular-Kontext',
+            'security',
+            "Kontext '{$context}' ist nicht angemeldet - der eingebaute Schutz greift. "
+            . 'Ein Addon meldet seine Formulare mit App\\Security\\CaptchaContext::register() an.'
+        );
+        return false;
     }
 
     /**
@@ -154,12 +188,15 @@ class Captcha {
      * nichts Brauchbares, rendert der Kern seine eigene Aufgabe.
      *
      * @param array<string, mixed> $settings
-     * @param string $context Formularkennung, derzeit nur 'dsgvo'. Von Anfang an
-     *                        dabei, damit später /register oder ein Addon-Formular
-     *                        dieselbe Schnittstelle nutzen kann.
+     * @param string $context Formularkennung aus App\Security\CaptchaContext.
+     *                        Der Kern kennt 'dsgvo' und 'register'; Addons melden
+     *                        ihre eigenen Formulare dort an (#351). Ein nicht
+     *                        angemeldeter Kontext bekommt den eingebauten Schutz.
      */
     public static function renderField(array $settings, string $context = 'dsgvo'): string {
-        $provider = self::activeProvider($settings);
+        $provider = self::kontextGeprueft($context)
+            ? self::activeProvider($settings, $context)
+            : self::PROVIDER_BUILTIN;
 
         if ($provider !== self::PROVIDER_BUILTIN) {
             $html = \App\Plugin\PluginManager::getInstance()->getHooks()
@@ -206,7 +243,9 @@ class Captcha {
      * @return string Eine der Konstanten OK, WRONG, EXPIRED, TOO_FAST
      */
     public static function verify(array $settings, string $context, array $input): string {
-        $provider = self::activeProvider($settings);
+        $provider = self::kontextGeprueft($context)
+            ? self::activeProvider($settings, $context)
+            : self::PROVIDER_BUILTIN;
 
         if ($provider !== self::PROVIDER_BUILTIN) {
             // Startwert null heisst "niemand hat geantwortet". Das ist wesentlich:

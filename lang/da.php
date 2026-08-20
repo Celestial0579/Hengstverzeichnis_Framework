@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Den ønskede hest findes ikke eller er blevet fjernet fra registret.',
     'meta.title_horse_detail_suffix' => 'Detaljer',
 
-    // Hingstestations-detaljeside
+    // Hingstestations-blok på kontaktsiden (#336)
     'station.horses_heading' => '🐴 Heste på denne hingstestation',
     'station.no_horses' => 'Der er i øjeblikket ingen heste fra denne hingstestation i registret.',
     'field.location' => 'Sted',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Mobil',
     'station.not_found' => 'Den ønskede hingstestation findes ikke eller er blevet fjernet fra registret.',
     'meta.title_station_detail_suffix' => 'Hingstestation',
+
+    // Detaljeside for kontakt (#336)
+    'contact.not_found' => 'Den ønskede kontakt findes ikke eller er fjernet fra fortegnelsen.',
+    'contact.no_details' => 'Der er ingen offentlige oplysninger om denne kontakt.',
+    'contact.horses_heading' => '🐴 Heste tilknyttet denne kontakt',
+    'contact.no_horses' => 'Der er i øjeblikket ingen heste tilknyttet denne kontakt i registret.',
+    'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Kolofon / privatlivspolitik / GDPR (statiske pladsholdertekster)
     'legal.impressum_title' => 'Kolofon',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Administrer heste',
     'admin.dashboard.tile_persons' => 'Administrer personer',
     'admin.dashboard.tile_breeding_stations' => 'Administrer hingstestationer',
+    'admin.dashboard.tile_contacts' => 'Administrer kontakter',
     'admin.dashboard.tile_matches' => 'Flet blodlinjer',
     'admin.dashboard.tile_trash' => 'Papirkurv',
     'admin.dashboard.system_heading' => 'Systemindstillinger & konfiguration',

@@ -6,7 +6,7 @@ namespace App\Helper;
 /**
  * Class CountryFlag
  *
- * Länderfreitext -> Flaggen-Emoji (#240). `persons.country` ist bewusst
+ * Länderfreitext -> Flaggen-Emoji (#240). `contacts.country` ist bewusst
  * Freitext; damit das Land neben Züchter/Besitzer/Halter trotzdem sichtbar
  * wird, mappt dieser Helper tolerant auf einen ISO-3166-alpha-2-Code und
  * baut daraus das Flaggen-Emoji aus zwei Regional-Indicator-Codepoints

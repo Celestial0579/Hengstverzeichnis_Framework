@@ -15,9 +15,14 @@ use App\Database;
  * („Nichtmitglied NO", „Dänemark", „Ausland") - in der Dev-Instanz 171 von 672
  * Züchter-Zuordnungen.
  *
- * Das ist mehr als ein Schönheitsfehler: `persons` ist eine PII-Tabelle mit
- * DSGVO-Anonymisierung und Papierkorb, und veröffentlichte Platzhalter
- * erscheinen im Katalog als echter Züchtername.
+ * Das ist mehr als ein Schönheitsfehler: Die Kontakttabelle (bis v0.7
+ * `persons`, seit #336 `contacts`) enthält personenbezogene Daten und hängt an
+ * DSGVO-Anonymisierung und Papierkorb; veröffentlichte Platzhalter erscheinen
+ * im Katalog als echter Züchtername.
+ *
+ * Die Formularfelder heißen seit #336 `contact_id` und `station_contact_id`
+ * wie die Spalten - dieser Test schickt die Namen, die das Formular auch
+ * wirklich rendert (src/Views/admin_horse_form.php).
  */
 class HorseOriginCountryTest extends FunctionalTestCase {
 
@@ -36,7 +41,7 @@ class HorseOriginCountryTest extends FunctionalTestCase {
             'status' => 'active',
             'is_published' => '1',
             'persons' => [
-                ['person_id' => '', 'role' => 'breeder', 'breeding_station_id' => '', 'origin_country' => 'NO'],
+                ['contact_id' => '', 'role' => 'breeder', 'station_contact_id' => '', 'origin_country' => 'NO'],
             ],
         ]);
 
@@ -45,19 +50,19 @@ class HorseOriginCountryTest extends FunctionalTestCase {
         $horseId = (int)$stmt->fetchColumn();
         $this->assertGreaterThan(0, $horseId);
 
-        $stmt = $db->prepare("SELECT person_id, role, origin_country FROM horse_persons WHERE horse_id = ?");
+        $stmt = $db->prepare("SELECT contact_id, role, origin_country FROM horse_persons WHERE horse_id = ?");
         $stmt->execute([$horseId]);
         $zeilen = $stmt->fetchAll();
         $this->assertCount(1, $zeilen, 'Die Herkunftszeile muss gespeichert werden (#294)');
-        $this->assertNull($zeilen[0]['person_id'], 'Und zwar OHNE Platzhalter-Person');
+        $this->assertNull($zeilen[0]['contact_id'], 'Und zwar OHNE Platzhalter-Person');
         $this->assertSame('NO', $zeilen[0]['origin_country']);
         $this->assertSame('breeder', $zeilen[0]['role']);
 
         // Es darf dabei keine Person entstanden sein - genau darum geht es.
         $this->assertSame(
             0,
-            (int)$db->query("SELECT COUNT(*) FROM persons WHERE name IN ('NO', 'Norwegen', 'Nichtmitglied NO')")->fetchColumn(),
-            'Für eine Herkunftsangabe darf kein Personendatensatz angelegt werden'
+            (int)$db->query("SELECT COUNT(*) FROM contacts WHERE name IN ('NO', 'Norwegen', 'Nichtmitglied NO')")->fetchColumn(),
+            'Für eine Herkunftsangabe darf kein Kontaktdatensatz angelegt werden'
         );
 
         // Öffentlich erscheint die Zeile, aber ohne erfundenen Namen.
@@ -75,7 +80,7 @@ class HorseOriginCountryTest extends FunctionalTestCase {
             'name' => $horseName,
             'status' => 'active',
             'persons' => [
-                ['person_id' => '', 'role' => 'breeder', 'breeding_station_id' => '', 'origin_country' => 'NO'],
+                ['contact_id' => '', 'role' => 'breeder', 'station_contact_id' => '', 'origin_country' => 'NO'],
             ],
         ]);
         $stmt->execute([$horseId]);
@@ -99,7 +104,7 @@ class HorseOriginCountryTest extends FunctionalTestCase {
             'name' => $horseName,
             'status' => 'active',
             'persons' => [
-                ['person_id' => '', 'role' => 'owner', 'breeding_station_id' => '', 'origin_country' => ''],
+                ['contact_id' => '', 'role' => 'owner', 'station_contact_id' => '', 'origin_country' => ''],
             ],
         ]);
 

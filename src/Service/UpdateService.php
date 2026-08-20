@@ -60,6 +60,42 @@ class UpdateService {
     ];
 
     /**
+     * Addons, die ein Kern-Update ausnahmsweise DOCH entfernen darf (#339).
+     *
+     * `plugins` steht oben unter den geschützten Pfaden, und das aus gutem
+     * Grund: Ein Kern-Update, das Addon-Verzeichnisse anfasst, könnte fremden
+     * Code und fremde Daten mitnehmen. Genau eine Lage braucht die Ausnahme
+     * trotzdem - wenn eine Funktion aus einem Addon in den KERN wandert.
+     *
+     * Ab v0.8 pflegt der Kern Fotos und Videos je Pferd selbst (#339). Bliebe
+     * das Galerie-Addon daneben aktiv, gäbe es zwei Pflegeoberflächen für
+     * dieselben Daten, zwei Ausliefer-Routen und zwei Vorstellungen davon,
+     * welches Bild das Hauptbild ist. Das Addon wird deshalb beim Update
+     * DEAKTIVIERT und sein Verzeichnis entfernt.
+     *
+     * Die Daten bleiben. Entfernt wird ausschliesslich der Code; Tabellen,
+     * Dateien und Einstellungen rührt das Update nicht an - der Kern liest sie
+     * beim ersten Start ein. Wer sie loswerden will, tut das anschliessend
+     * bewusst über /admin/plugins (#338).
+     *
+     * Die Liste ist eng und namentlich. Ein Muster (`galerie*`) stünde hier
+     * nicht: Es träfe eines Tages ein Addon, an das niemand gedacht hat.
+     */
+    private const ABGELOESTE_ADDONS = [
+        // Slug => Kern-Version, ab der das Addon abgelöst ist.
+        //
+        // DERZEIT LEER, und das ist eine bewusste Entscheidung. Der erste
+        // Eintrag sollte 'galerie' => '0.8.0' sein (#339), und er wurde wieder
+        // herausgenommen, weil die Kern-Galerie in v0.8.0 NICHT fertig wurde.
+        //
+        // Ein Eintrag hier ohne den zugehörigen Kern-Ersatz wäre kein halbes
+        // Feature, sondern ein Schaden: Das Update entfernte das Addon, und
+        // die Betreiber stünden ganz ohne Galerie da. Die Mechanik bleibt
+        // trotzdem stehen - sie ist gebaut, dokumentiert und geprüft, und der
+        // Eintrag ist eine Zeile, sobald #339 steht.
+    ];
+
+    /**
      * Reichweite der UNBEAUFSICHTIGTEN Installation (Setting
      * `update_auto_install_scope`, #290/#85).
      *

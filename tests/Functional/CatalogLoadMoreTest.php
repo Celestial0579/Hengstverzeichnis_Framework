@@ -211,17 +211,20 @@ class CatalogLoadMoreTest extends FunctionalTestCase {
         $db = Database::getInstance();
         $unique = uniqid();
 
-        $db->prepare("INSERT INTO persons (name, is_published) VALUES (?, 1)")
+        // Seit #336 stehen Personen in `contacts`; der Zuordnungs-Steckplatz
+        // heisst horse_persons.contact_id. Die gepruefte Regel (#121) ist
+        // dieselbe geblieben - sie haengt an is_published des Kontakts.
+        $db->prepare("INSERT INTO contacts (name, is_published) VALUES (?, 1)")
            ->execute(["Sichtbarer Zuechter {$unique}"]);
         $sichtbar = (int)$db->lastInsertId();
-        $db->prepare("INSERT INTO persons (name, is_published) VALUES (?, 0)")
+        $db->prepare("INSERT INTO contacts (name, is_published) VALUES (?, 0)")
            ->execute(["Verborgener Besitzer {$unique}"]);
         $verborgen = (int)$db->lastInsertId();
 
         $pferdId = $this->seededHorseIds[0];
-        $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'breeder')")
+        $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'breeder')")
            ->execute([$pferdId, $sichtbar]);
-        $db->prepare("INSERT INTO horse_persons (horse_id, person_id, role) VALUES (?, ?, 'owner')")
+        $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'owner')")
            ->execute([$pferdId, $verborgen]);
 
         try {
@@ -238,7 +241,7 @@ class CatalogLoadMoreTest extends FunctionalTestCase {
             );
         } finally {
             $db->prepare("DELETE FROM horse_persons WHERE horse_id = ?")->execute([$pferdId]);
-            $db->prepare("DELETE FROM persons WHERE id IN (?, ?)")->execute([$sichtbar, $verborgen]);
+            $db->prepare("DELETE FROM contacts WHERE id IN (?, ?)")->execute([$sichtbar, $verborgen]);
         }
     }
 

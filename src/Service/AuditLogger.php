@@ -10,8 +10,8 @@ use App\Security\ClientIp;
  * Class AuditLogger
  *
  * Revisionssicherer Audit-Protokoll-Dienst.
- * Zeichnet alle sicherheits- und datenrelevanten Systemereignisse (Pferde, Personen,
- * Deckstationen, Einstellungen, Logins, 403-Sicherheitsverstöße, E-Mail-Versand)
+ * Zeichnet alle sicherheits- und datenrelevanten Systemereignisse (Pferde, Kontakte,
+ * Einstellungen, Logins, 403-Sicherheitsverstöße, E-Mail-Versand)
  * in der Datenbank-Tabelle `audit_logs` auf.
  */
 class AuditLogger {
@@ -20,7 +20,12 @@ class AuditLogger {
      * Protokolliert ein Audit-Ereignis in der Datenbank.
      *
      * @param string $action Kurzbeschreibung der Aktion (z. B. "Pferd erstellt", "Systemeinstellungen aktualisiert")
-     * @param string $category Kategorie ("horses", "persons", "stations", "users", "settings", "email", "auth", "security", "trash")
+     * @param string $category Kategorie ("horses", "contacts", "users", "settings", "email", "auth", "security", "trash").
+     *                         Alteintraege tragen weiterhin "persons"/"stations" - das Protokoll wird
+     *                         durch die Kontaktliste (#336) NICHT umgeschrieben, sonst behauptete es
+     *                         rueckwirkend, es habe die Trennung nie gegeben. Der Filter auf
+     *                         /admin/audit-log speist sich aus DISTINCT category, zeigt die alten
+     *                         Werte also weiterhin an.
      * @param string|null $details Zusatzinformationen / Kontext zur Aktion
      * @param int|null $userId Optionale Überschreibung der Benutzer-ID (Standard: $_SESSION['user_id'] oder NULL)
      * @param string|null $username Optionale Überschreibung des Benutzernamens (Standard: $_SESSION['username'] oder 'SYSTEM')

@@ -145,7 +145,7 @@ return [
     'horse.not_found' => 'The requested horse does not exist or has been removed from the registry.',
     'meta.title_horse_detail_suffix' => 'Details',
 
-    // Breeding station detail page
+    // Breeding station block on the contact page (#336)
     'station.horses_heading' => '🐴 Horses of this Breeding Station',
     'station.no_horses' => 'No horses of this breeding station are currently listed in the registry.',
     'field.location' => 'Location',
@@ -160,6 +160,13 @@ return [
     'field.mobile' => 'Mobile',
     'station.not_found' => 'The requested breeding station does not exist or has been removed from the registry.',
     'meta.title_station_detail_suffix' => 'Breeding Station',
+
+    // Contact detail page (#336): persons and breeding stations are one list now
+    'contact.not_found' => 'The requested contact does not exist or has been removed from the directory.',
+    'contact.no_details' => 'No public details are available for this contact.',
+    'contact.horses_heading' => '🐴 Horses of this contact',
+    'contact.no_horses' => 'No horses are currently assigned to this contact in the directory.',
+    'meta.title_contact_detail_suffix' => 'Contact',
 
     // Legal Notice / Privacy Policy / GDPR (static placeholder texts)
     'legal.impressum_title' => 'Legal Notice',
@@ -254,6 +261,7 @@ return [
     'admin.dashboard.tile_horses' => 'Manage Horses',
     'admin.dashboard.tile_persons' => 'Manage Persons',
     'admin.dashboard.tile_breeding_stations' => 'Manage Breeding Stations',
+    'admin.dashboard.tile_contacts' => 'Manage Contacts',
     'admin.dashboard.tile_matches' => 'Merge Bloodlines',
     'admin.dashboard.tile_trash' => 'Trash',
     'admin.dashboard.system_heading' => 'System Settings & Configuration',

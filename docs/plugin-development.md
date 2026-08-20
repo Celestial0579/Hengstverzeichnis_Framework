@@ -56,7 +56,7 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
     "name": "Demo-Plugin",
     "version": "1.0.0",
     "core_compatibility": ">=0.1.0-beta.1",
-    "core_supported_max": "0.7",
+    "core_supported_max": "0.8",
     "description": "Kurzbeschreibung, wird im Admin-Bereich angezeigt.",
     "author": "...",
     "hooks": ["horse.after_save", "horse.detail_sections", "admin.dashboard_tiles"],
@@ -255,10 +255,11 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde. Zum Inhalt von `$horse`/`$horsePersons` siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
 | `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten. `$horse` unterliegt denselben Sichtbarkeitsfiltern, siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
 | `horse.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars eines Hengstes (`HorseController::edit()`) | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. Feuert **nur beim Bearbeiten**, nicht beim Anlegen. `$horse` ist hier der **rohe** Datensatz, siehe Warnkasten unten |
-| `person.detail_sections` | Filter | Beim Rendern der öffentlichen Personenseite (`/person?id=`) | `function(array $sections, array $person, array $horsesByRole): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$person` enthält **nur die öffentlichen Spalten**; `email`/`phone`/`mobile` sind ausschließlich dann gesetzt, wenn der Datensatz sie per `contact_public` freigibt, sonst fehlen die Schlüssel ganz. `$horsesByRole` ist nach Rolle gruppiert (`breeder`, `owner`, …) |
-| `station.detail_sections` | Filter | Beim Rendern der öffentlichen Deckstationsseite (`/station?id=`) | `function(array $sections, array $station, array $horses): array` — Gegenstück zum Hook oben. `$station` ist der vollständige Datensatz (Geschäftsadresse, vollständig öffentlich); ob Telefon/E-Mail **angezeigt** werden, steuert `contact_public` |
-| `person.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars einer Person (`PersonController::edit()`) | `function(array $sections, array $person): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben und **außerhalb** des Kern-Formulars gerendert (verschachtelte `<form>` wären ungültig). Feuert nur beim Bearbeiten, nicht beim Anlegen. Damit kann ein Addon eigene Angaben am Datensatz pflegen — etwa ein Opt-out für Kontaktanfragen —, **ohne** dass der Kern dafür eine Spalte mitbringt |
-| `station.edit_sections` | Filter | Wie oben, für Deckstationen (`BreedingStationController::edit()`) | `function(array $sections, array $station): array` |
+| `contact.detail_sections` | Filter | Beim Rendern der öffentlichen Kontaktseite (`/kontakt?id=`) | `function(array $sections, array $contact, array $horsesByRole, array $stationHorses): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$contact` enthält **nur die öffentlichen Spalten**; `email`/`phone`/`mobile`/`street`/`house_number`/`postal_code`/`address`/`contact_person` sind ausschließlich dann gesetzt, wenn der Datensatz sie per `contact_public` freigibt, sonst fehlen die Schlüssel ganz. `contact_info` fehlt immer. `$horsesByRole` ist nach Rolle gruppiert (`breeder`, `owner`, `keeper`), `$stationHorses` sind die Pferde, die diesen Kontakt als Deckstation nennen |
+| `contact.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars eines Kontakts (`ContactController::edit()`) | `function(array $sections, array $contact): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben und **außerhalb** des Kern-Formulars gerendert (verschachtelte `<form>` wären ungültig). Feuert nur beim Bearbeiten, nicht beim Anlegen. Damit kann ein Addon eigene Angaben am Datensatz pflegen — etwa ein Opt-out für Kontaktanfragen —, **ohne** dass der Kern dafür eine Spalte mitbringt |
+| `contact.after_save` | Action | Nach Anlegen oder Ändern eines Kontakts (#347) | `function(int $contactId, array $postData, bool $isNew): void` |
+| `contact.deleted` | Action | Beim Verschieben eines Kontakts in den Papierkorb (#347) | `function(int $contactId, array $contact): void` — feuert beim Verschieben, nicht erst beim endgültigen Löschen; der Fremdschlüssel-CASCADE greift dort noch nicht (Lage wie `horse.trashed`) |
+| `person.detail_sections` · `station.detail_sections` · `person.edit_sections` · `station.edit_sections` · `person.after_save` · `station.after_save` · `person.deleted` · `station.deleted` | — | **Alias, entfällt in v0.9.0** | Feuern seit v0.8 **zusätzlich** zu ihren `contact.*`-Gegenstücken, mit denselben Argumenten — ein Addon aus der 0.7-Linie läuft damit unverändert weiter. Bei den Filtern kaskadierend: erst `contact.*`, dann `person.*`, dann `station.*`, jeweils auf dem Ergebnis des vorherigen. Seit `persons` und `breeding_stations` eine Tabelle sind (#336), bekommt ein Addon, das beide Paare registriert hat, denselben Datensatz zweimal — das ist der Grund, die Aliasse nicht dauerhaft zu führen |
 | `captcha.providers` | Filter | Beim Aufbau der Anbieterauswahl in den Systemeinstellungen und bei jeder Prüfung | `function(array $providers): array` — Slug => Anzeigename. Der eingebaute Anbieter `builtin` ist immer enthalten und lässt sich **nicht** überschreiben |
 | `captcha.render` | Filter | Beim Rendern eines geschützten öffentlichen Formulars, wenn der Admin diesen Anbieter gewählt hat | `function(string $html, string $provider, string $context): string` — fertiges Formular**fragment**, wird **unescaped** ausgegeben. `$provider` ist der gewählte Slug (nur reagieren, wenn er der eigene ist), `$context` derzeit `'dsgvo'` |
 | `captcha.verify` | Filter | Beim Absenden eines geschützten Formulars, vor jeder Verarbeitung | `function(?string $verdict, string $provider, string $context, array $input): ?string` — eine der Konstanten `Captcha::OK`/`WRONG`/`EXPIRED`/`TOO_FAST`, oder `null` für „nicht zuständig" |
@@ -840,3 +841,199 @@ Abschnitt [Installation & Migrationen: `install()`](#installation--migrationen-i
 oben. Der frühere Weg (`CREATE TABLE IF NOT EXISTS` direkt in `register()`)
 ist überholt: Er führte das DDL bei **jedem** Request aus (Addons-Issue #75)
 und soll in neuen Plugins nicht mehr verwendet werden.
+
+## Gemeinsame Pferdesuche (#341)
+
+Sieben Addons brachten bis v0.7 je eine eigene Pferdesuche mit — eigene
+JSON-Route, eigene Abfrage, eigener JavaScript-Block. Sieben Kopien derselben
+Sache und sieben Stellen, an denen ein Fehler einzeln behoben werden müsste.
+Zwei davon maskierten die SQL-Platzhalter `%` und `_` nicht, und **keine**
+behandelte den Wettlauf zwischen zwei schnell aufeinanderfolgenden Anfragen:
+Tippt jemand zügig, kann die Antwort auf „Ro" **nach** der Antwort auf „Roga"
+eintreffen und die Liste wieder verschlechtern.
+
+Seit v0.8 gibt es beides einmal im Kern.
+
+### Endpunkt
+
+```
+GET /admin/horses/search?q=<mindestens 2 Zeichen>
+                        &geschlecht=stallion|mare|gelding   (optional)
+                        &rolle=breeder|owner|keeper         (optional)
+                        &nur_mit_farbe=1                    (optional)
+```
+
+Antwort: `[{"id": 42, "label": "Rogar S (DE1, 2010)"}]` — **nur** diese zwei
+Felder. Ein Suchendpunkt ist eine bequeme Stelle, um an Daten zu kommen; was
+hier nicht ausgeliefert wird, kann auch nicht abfließen.
+
+Verlangt eine gültige Sitzung und `horses.view`. Höchstens 50 Treffer: Ohne
+diesen Deckel wäre `?q=a` ein Ein-Klick-Vollexport des Pferdebestands über
+einen Endpunkt, der für eine Auswahlliste gedacht ist.
+
+### Suchfeld
+
+```html
+<input class="hv-pferdesuche" data-ziel="pferd_id" data-geschlecht="stallion">
+<select name="pferd_id" id="pferd_id"></select>
+<script src="/js/horse-search.js"></script>
+```
+
+| Attribut | Bedeutung |
+|---|---|
+| `data-ziel` | **Pflicht.** Die `id` des `<select>`, das befüllt wird |
+| `data-geschlecht` | `stallion` · `mare` · `gelding` — für Formulare, die nur Väter oder nur Mütter anbieten |
+| `data-rolle` | `breeder` · `owner` · `keeper` — nur Pferde mit einer Zuordnung dieser Rolle |
+| `data-nur-mit-farbe` | `1` — nur Pferde mit erfasster Farbe (Farbvererbung) |
+
+Später eingefügte Felder verdrahtet `HvPferdesuche.verdrahten(element)`.
+
+Die Datei entprellt Tastendrucke, verwirft veraltete Antworten und leert die
+Liste bei einem Fehler — **sie lässt die alte Auswahl nicht stehen**, denn eine
+Liste, die zu einem früheren Suchbegriff gehört, sieht aus wie ein Ergebnis.
+
+## Deinstallation: das Datenregister `owns` (#338)
+
+Bis v0.7 verschwand ein deaktiviertes Addon aus der Übersicht und **liess
+alles liegen**, was es je angelegt hatte: Tabellen, hochgeladene Dateien,
+Einstellungen. Darunter Kontaktanfragen mit Namen und E-Mail-Adressen. Der
+Betreiber nahm an, er sei sie los.
+
+Seit v0.8 sind **Deaktivieren und Deinstallieren zwei verschiedene Dinge**.
+Deaktivieren ist umkehrbar und lässt alles stehen — man tut es, um einen
+Fehler einzugrenzen. Deinstallieren fragt nach den Daten.
+
+Damit die Rückfrage etwas Konkretes zeigen kann, erklärt ein Addon in seiner
+`plugin.json`, was ihm gehört:
+
+```json
+"owns": {
+    "tables":      ["plugin_galerie_media"],
+    "directories": ["storage/plugin_galerie"],
+    "settings":    ["plugin_galerie_max_size"]
+}
+```
+
+Der Kern zählt daraus vor dem Löschen zusammen, was tatsächlich verschwände —
+`1.284 Datensätze, 512 Dateien`, nicht `3 Tabellen`. Erst danach kommt die
+Frage.
+
+### Warum deklarativ und nicht nur eine `uninstall()`-Methode
+
+Weil der Betreiber **vor** dem Löschen sehen soll, was verschwindet — und
+dafür muss man es aufzählen können, ohne Code des Addons auszuführen. Eine
+Methode könnte man nur aufrufen und hoffen.
+
+Eine `uninstall()`-Methode gibt es trotzdem zusätzlich, für alles, was sich
+nicht aufzählen lässt (etwa eigene Zeilen in einer Kern-Tabelle). Sie läuft
+**vor** dem Register:
+
+```php
+public function uninstall(): void {
+    // Nur aufräumen, was sich nicht deklarieren lässt.
+    $db = \App\Database::getInstance();
+    $db->exec("DELETE FROM audit_logs WHERE category = 'mein-addon'");
+}
+```
+
+### Grenzen, die der Kern durchsetzt
+
+Ein Manifest ist eine Datei im Addon-Verzeichnis — die Angaben darin sind eine
+**Behauptung des Addons**, keine Wahrheit. Deshalb:
+
+| Regel | Warum |
+|---|---|
+| Tabellennamen beginnen mit `plugin_` | Sonst trüge ein Addon `"tables": ["users"]` ein, und die Deinstallation nähme die Benutzerkonten mit |
+| Einstellungsschlüssel beginnen mit `plugin_` | derselbe Grund |
+| Verzeichnisse liegen innerhalb der Installation | Geprüft über `realpath()`, nicht über die Zeichenkette — sonst käme man mit einem Symlink oder `../` heraus |
+| Weder `public/uploads` noch `plugins`, `config`, `storage/logs` — auch nicht als Elternverzeichnis | Ein Addon, das `storage` beansprucht, nähme `storage/logs` mit |
+
+Was diese Prüfungen nicht durchlässt, wird **nicht gelöscht** und dem
+Betreiber als Auffälligkeit angezeigt. Schweigend übergehen wäre schlimmer:
+Dann bliebe es liegen und niemand wüsste davon.
+
+### Wenn eine Addon-Funktion in den Kern wandert
+
+`UpdateService::PROTECTED_PATHS` enthält `plugins` — ein Kern-Update fasst per
+Konstruktion **kein** Addon-Verzeichnis an. Genau eine Lage braucht die
+Ausnahme trotzdem: wenn der Kern übernimmt, was das Addon tat. Ab v0.8 pflegt
+er Fotos und Videos je Pferd selbst (#339); bliebe das Galerie-Addon daneben
+aktiv, gäbe es zwei Pflegeoberflächen für dieselben Daten und zwei
+Vorstellungen davon, welches Bild das Hauptbild ist.
+
+Solche Addons stehen namentlich in `UpdateService::ABGELOESTE_ADDONS` und
+werden beim Update deaktiviert, ihr Verzeichnis wird entfernt. **Die Daten
+bleiben** — der Kern liest sie beim ersten Start ein. Wer sie loswerden will,
+tut das anschliessend bewusst über `/admin/plugins`.
+
+**Die Liste ist in v0.8.0 leer.** Die Mechanik steht, der erste Anwendungsfall
+noch nicht: Die Kern-Galerie (#339) wurde in v0.8.0 nicht fertig, und ein
+Eintrag ohne den zugehörigen Ersatz wäre kein halbes Feature, sondern ein
+Schaden — das Update entfernte das Addon, und die Betreiber stünden ganz ohne
+Galerie da. Der Eintrag ist eine Zeile, sobald der Ersatz steht.
+
+Die Liste ist eng und namentlich. Ein Muster (`galerie*`) stünde dort nicht:
+Es träfe eines Tages ein Addon, an das niemand gedacht hat.
+
+## Protokollieren (#352)
+
+**Jede schreibende Aktion eines Addons gehört ins Protokoll.** Das ist keine
+Empfehlung: Bei einer Codeprüfung im August 2026 schrieben acht Addons Daten,
+drei protokollierten (Addons#134). Das Löschen eines Gesundheitsdokuments —
+der heikelste Bestand im ganzen Verzeichnis — lief spurlos.
+
+Der Weg dorthin ist einer:
+
+```php
+use App\Plugin\PluginAudit;
+
+PluginAudit::log(
+    'gesundheitstests',        // der eigene Slug
+    'Dokument gelöscht',       // was getan wurde, aus Sicht eines Menschen
+    'Pferd #42',               // worauf es sich bezieht
+    'Röntgenbefund 2024'       // optional: weitere Angaben
+);
+```
+
+`App\Service\AuditLogger::log()` gibt es weiterhin und der Kern benutzt es —
+für Addons ist `PluginAudit::log()` der richtige Aufruf, weil er drei
+Entscheidungen abnimmt, die niemand anders treffen sollte:
+
+* **Die Kategorie ist der Slug.** Der Filter unter `/admin/audit-log` speist
+  sich aus `SELECT DISTINCT category`. Schreibt jedes Addon unter seinem Slug,
+  wird „zeig mir alles, was die Gesundheitstests getan haben" zu einer Auswahl
+  im Aufklappmenü statt einer Volltextsuche.
+* **Der Slug wird geprüft.** Ein Addon kann nicht unter dem Namen eines
+  anderen protokollieren — ein Protokoll, in dem ein Eintrag über seinen
+  Urheber lügen kann, ist als Nachweis wertlos. Ein unbekannter Slug landet
+  unter `plugin:unbekannt`, mit dem behaupteten Namen in den Details. Der
+  Eintrag wird **nicht** verworfen: falsch einsortiert ist besser als weg.
+* **Der Bezug ist ein eigenes Argument.** „Dokument gelöscht" sagt hinterher
+  niemandem etwas. Man muss nicht daran denken, den Bezug mitzugeben — man
+  wird danach gefragt.
+
+### Was protokolliert wird
+
+Alles, was Daten **verändert**: anlegen, ändern, löschen, veröffentlichen,
+depublizieren, importieren, exportieren, versenden. Lesende Zugriffe nicht —
+sonst ersäuft das Protokoll und niemand sieht mehr hinein.
+
+### Was nicht hineingehört
+
+**Personenbezogene Inhalte.** Die Tabelle `audit_logs` wird dauerhaft
+gespeichert und von keiner Löschfrist erfasst. Eine E-Mail-Adresse, die dort
+landet, überlebt jede DSGVO-Löschung des zugehörigen Kontakts — und macht die
+Löschung damit unvollständig, ohne dass es jemand merkt.
+
+Der Name eines Datensatzes ist in Ordnung („Kontakt #7"), der Inhalt eines
+Kontaktfelds nicht.
+
+### Fehler stören den Ablauf nicht
+
+`AuditLogger::log()` fängt jeden Fehler ab und schreibt ihn nach
+`storage/logs/audit_errors.log`. Ein Protokoll, das den Speichervorgang
+scheitern lässt, den es protokollieren soll, wäre schlimmer als keines. Umgekehrt
+heißt das: Ein fehlender Eintrag fällt nicht von selbst auf. Wer eine
+Protokollierung einbaut, schreibt einen Test dazu — und prüft ihn einmal
+**ohne** den Aufruf gegen, sonst weiß er nicht, ob der Test überhaupt etwas
+festhält.

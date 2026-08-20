@@ -41,6 +41,9 @@ final class HorseSearchCriteria {
         'search', 'q_name', 'q_ueln', 'birth_year_from', 'birth_year_to',
         'q_color', 'q_sex', 'q_breed', 'q_status', 'q_breeder', 'q_owner',
         'q_station', 'q_sire', 'q_dam',
+        // #346: Was bis v0.7 fehlte, obwohl die Spalten laengst da waren.
+        'q_keeper', 'height_from', 'height_to', 'death_year_from', 'death_year_to',
+        'birth_date_from', 'birth_date_to', 'q_description',
     ];
 
     /** Gültige Werte des Geschlechtsfilters (#165), Whitelist gegen die ENUM. */
@@ -242,6 +245,99 @@ final class HorseSearchCriteria {
         if ($qDam !== '') {
             $this->activate(HorseSearchCondition::Dam, '%' . $qDam . '%', '%' . $qDam . '%');
         }
+
+        // --- Nachtrag #346: Felder, die es im Bestand laengst gibt, nach denen
+        // sich aber niemand suchen liess. ---
+
+        $qKeeper = $this->readString($request, 'q_keeper');
+        if ($qKeeper !== '') {
+            $this->activate(HorseSearchCondition::Keeper, '%' . $qKeeper . '%');
+        }
+
+        $heightFrom = $this->readOptionalInt($request, 'height_from');
+        if ($heightFrom !== null) {
+            $this->activate(HorseSearchCondition::HeightFrom, $heightFrom);
+        }
+        $heightTo = $this->readOptionalInt($request, 'height_to');
+        if ($heightTo !== null) {
+            $this->activate(HorseSearchCondition::HeightTo, $heightTo);
+        }
+
+        $deathFrom = $this->readOptionalInt($request, 'death_year_from');
+        if ($deathFrom !== null) {
+            $this->activate(HorseSearchCondition::DeathYearFrom, $deathFrom);
+        }
+        $deathTo = $this->readOptionalInt($request, 'death_year_to');
+        if ($deathTo !== null) {
+            $this->activate(HorseSearchCondition::DeathYearTo, $deathTo);
+        }
+
+        // Geburtsdatum als ISO-Datum. Ein unbrauchbarer Wert wird verworfen
+        // statt an die Datenbank gereicht - MariaDB nimmt im Strict Mode
+        // ohnehin nichts anderes an, und ein stiller Vergleich gegen '0000-00-00'
+        // waere schlimmer als kein Filter.
+        foreach ([
+            ['birth_date_from', HorseSearchCondition::BirthDateFrom],
+            ['birth_date_to', HorseSearchCondition::BirthDateTo],
+        ] as [$schluessel, $bedingung]) {
+            $datum = $this->readString($request, $schluessel);
+            if ($datum !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $datum)
+                && checkdate((int)substr($datum, 5, 2), (int)substr($datum, 8, 2), (int)substr($datum, 0, 4))) {
+                $this->activate($bedingung, $datum);
+            }
+        }
+
+        $qDescription = $this->readString($request, 'q_description');
+        if ($qDescription !== '') {
+            $this->activate(HorseSearchCondition::Description, '%' . $qDescription . '%');
+        }
+
+        $this->applyPluginFilter($request);
+    }
+
+    /**
+     * Erweiterungspunkt fuer Addon-Filter (#346).
+     *
+     * Ein Addon bekommt die Anfrage und darf eine Liste von Pferde-IDs
+     * zurueckgeben, auf die eingeschraenkt wird. Es bekommt ausdruecklich
+     * KEINEN SQL-Ausschnitt - siehe die Begruendung an
+     * HorseSearchCondition::PluginIds.
+     *
+     * Die Unterscheidung null / leeres Array ist wesentlich:
+     *   null        = "ich habe nichts beizutragen"  -> keine Einschraenkung
+     *   []          = "keine Treffer"                -> nichts wird gefunden
+     * Beides auf dasselbe abzubilden hiesse, dass ein Addon "nichts passt"
+     * nicht sagen kann - und der Benutzer bekaeme den vollen Bestand angezeigt,
+     * obwohl der Filter etwas anderes meint.
+     *
+     * Der Startwert ist null, damit ein abgestuerztes Addon (HookManager
+     * verschluckt die Ausnahme und behaelt den vorherigen Wert) nicht
+     * versehentlich alles ausblendet.
+     */
+    private function applyPluginFilter(array $request): void {
+        try {
+            $ids = \App\Plugin\PluginManager::getInstance()->getHooks()
+                ->applyFilters('horse.search_ids', null, $request, $this->nurOeffentlich);
+        } catch (\Throwable $e) {
+            return; // Kein gebooteter PluginManager (CLI/Test) - dann eben ohne.
+        }
+
+        if ($ids === null || !is_array($ids)) {
+            return;
+        }
+
+        // Nur echte Kennungen, und keine doppelten - FIND_IN_SET vergleicht
+        // Zeichenketten, ein durchgereichter Fremdwert waere hier zwar
+        // gebunden, aber sinnlos.
+        $sauber = [];
+        foreach ($ids as $id) {
+            $zahl = (int)$id;
+            if ($zahl > 0) {
+                $sauber[$zahl] = true;
+            }
+        }
+
+        $this->activate(HorseSearchCondition::PluginIds, implode(',', array_keys($sauber)));
     }
 
     /**

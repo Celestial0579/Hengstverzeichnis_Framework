@@ -219,16 +219,21 @@ abstract class FunctionalTestCase extends TestCase {
      *
      * @var array<string, array<int, string>>
      */
+    /**
+     * Seit #336 gibt es EIN Modul `contacts` statt der beiden getrennten
+     * `persons` und `breeding_stations`. Wer diese Konstanten setzt, muss die
+     * neuen Namen nennen - mit den alten naehme er der Gast-Gruppe
+     * `contacts.view` und damit die halbe oeffentliche Flaeche, ohne dass es
+     * nach einem Rechtefehler aussaehe.
+     */
     protected const GUEST_DEFAULT_PERMISSIONS = [
         'horses' => ['view'],
-        'breeding_stations' => ['view'],
-        'persons' => ['view'],
+        'contacts' => ['view'],
     ];
 
     protected const EDITOR_DEFAULT_PERMISSIONS = [
         'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
-        'persons' => ['view', 'create', 'edit', 'delete', 'publish'],
-        'breeding_stations' => ['view', 'create', 'edit', 'delete', 'publish'],
+        'contacts' => ['view', 'create', 'edit', 'delete', 'publish'],
     ];
 
     /**

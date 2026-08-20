@@ -148,7 +148,7 @@ return [
     'horse.not_found' => 'Le cheval demandé n\'existe pas ou a été retiré du registre.',
     'meta.title_horse_detail_suffix' => 'Détails',
 
-    // Page de détail de la station de monte
+    // Bloc « station de monte » de la page de contact (#336)
     'station.horses_heading' => '🐴 Chevaux de cette station de monte',
     'station.no_horses' => 'Aucun cheval de cette station de monte n\'est actuellement enregistré dans le registre.',
     'field.location' => 'Lieu',
@@ -163,6 +163,13 @@ return [
     'field.mobile' => 'Portable',
     'station.not_found' => 'La station de monte demandée n\'existe pas ou a été retirée du registre.',
     'meta.title_station_detail_suffix' => 'Station de monte',
+
+    // Page de détail du contact (#336)
+    'contact.not_found' => 'Le contact demandé n\'existe pas ou a été retiré du répertoire.',
+    'contact.no_details' => 'Aucune information publique disponible pour ce contact.',
+    'contact.horses_heading' => '🐴 Chevaux de ce contact',
+    'contact.no_horses' => 'Aucun cheval n\'est actuellement associé à ce contact dans le répertoire.',
+    'meta.title_contact_detail_suffix' => 'Contact',
 
     // Mentions légales / Politique de confidentialité / RGPD (textes d'exemple statiques)
     'legal.impressum_title' => 'Mentions légales',
@@ -257,6 +264,7 @@ return [
     'admin.dashboard.tile_horses' => 'Gérer les chevaux',
     'admin.dashboard.tile_persons' => 'Gérer les personnes',
     'admin.dashboard.tile_breeding_stations' => 'Gérer les stations de monte',
+    'admin.dashboard.tile_contacts' => 'Gérer les contacts',
     'admin.dashboard.tile_matches' => 'Fusionner les lignées',
     'admin.dashboard.tile_trash' => 'Corbeille',
     'admin.dashboard.system_heading' => 'Paramètres système et configuration',

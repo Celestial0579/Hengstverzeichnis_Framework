@@ -6,6 +6,11 @@
 /katalog
 /hengst
 /station
+# Kontaktseite (#336). /person und /station bleiben als dauerhafte
+# Weiterleitung (301) bestehen - die Adressen stehen in Suchmaschinen -, die
+# lebende Adresse ist /kontakt.
+/kontakt
+/person
 /login
 /logout
 /setup

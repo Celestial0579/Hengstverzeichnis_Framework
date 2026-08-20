@@ -121,7 +121,7 @@ class ApiController extends JsonApiController {
 
         // Pagination direkt in SQL (#125); Züchter/Besitzer aggregiert statt
         // über multiplizierende JOINs - ein Pferd mit mehreren Besitzern erzeugt
-        // so genau EINEN API-Datensatz - und nur veröffentlichte Personen (#121).
+        // so genau EINEN API-Datensatz - und nur veröffentlichte Kontakte (#121).
         $limitSql = $limit !== null ? "LIMIT ? OFFSET ?" : "";
 
         // Denormalisierte Kopie des Stationsnamens unterdrücken, wenn die Station
@@ -131,6 +131,21 @@ class ApiController extends JsonApiController {
         // Stationen über den Fallback station_name ?: breeding_station heraus, obwohl
         // deren Kontaktdaten korrekt ausgeblendet sind (#151/#122). Freitext ohne
         // Stations-Datensatz hat keine breeding_station_id und bleibt erhalten.
+        //
+        // KONTAKTLISTE (#336): Beide JOINs gehen jetzt auf `contacts` - die
+        // Tabellen persons und breeding_stations sind zusammengeführt. Die
+        // AUSGEGEBENE Feldmenge bleibt dabei exakt dieselbe: aus einem Kontakt
+        // wird ausschließlich `name` gelesen (station_name, breeder_name,
+        // owner_name), und der Name ist für jeden Kontakt öffentlich.
+        //
+        // Deshalb steht hier auch keine contact_public-Prüfung: Sie regelt die
+        // zustellbaren Angaben (E-Mail, Telefon, Anschrift), und von denen
+        // fragt diese Abfrage keine einzige ab. Wer die API später um ein
+        // solches Feld erweitert, muss die Regel aus
+        // docs/kontaktliste-umstellung.md mitbringen - also je Datensatz auf
+        // contact_public = 1 prüfen - und darf sich nicht auf is_published
+        // allein verlassen. Ein `SELECT *` auf contacts hat hier ohnehin
+        // nichts verloren (Lehre aus #293).
         $stmt = $db->prepare("
             SELECT
                 h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.sex, h.breed, h.height_cm, h.status, h.is_deceased, h.death_year, h.image_url,
@@ -143,7 +158,7 @@ class ApiController extends JsonApiController {
                 h.dam_name AS unlinked_dam_name, h.dam_ueln AS unlinked_dam_ueln,
                 hpx.breeder_name, hpx.owner_name
             FROM horses h
-            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
+            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
             LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
             LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
             LEFT JOIN (
@@ -151,7 +166,7 @@ class ApiController extends JsonApiController {
                        GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
                        GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
                 FROM horse_persons hp
-                JOIN persons p ON p.id = hp.person_id AND p.deleted_at IS NULL AND p.is_published = 1
+                JOIN contacts p ON p.id = hp.contact_id AND p.deleted_at IS NULL AND p.is_published = 1
                 GROUP BY hp.horse_id
             ) hpx ON hpx.horse_id = h.id
             WHERE {$whereSql}
@@ -172,7 +187,7 @@ class ApiController extends JsonApiController {
 
     /**
      * Gesamtanzahl der Treffer für die Pagination-Metadaten - dieselben Filter
-     * wie fetchHorses(), aber ohne die Personen-Aggregation (#125).
+     * wie fetchHorses(), aber ohne die Kontakt-Aggregation (#125).
      */
     private function countHorses(array $params): int {
         if (!$this->apiCan('horses', 'view')) {

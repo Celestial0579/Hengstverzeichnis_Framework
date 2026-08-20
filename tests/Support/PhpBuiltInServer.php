@@ -13,7 +13,33 @@ namespace Tests\Support;
 class PhpBuiltInServer {
 
     private const HOST = '127.0.0.1';
-    private const PORT = 8767;
+
+    /**
+     * Standard-Port. Über die Umgebungsvariable HV_TEST_PORT überschreibbar.
+     *
+     * Wozu überschreibbar: Framework und Addons benutzen denselben Helfer und
+     * damit denselben Port. Laufen beide Suiten gleichzeitig - auf einem
+     * Entwicklungshost keine Seltenheit -, bricht die zweite mit der Meldung
+     * aus refuseIfPortIsTaken() ab. Die Meldung ist richtig und der Abbruch
+     * auch; was fehlte, war ein Ausweg, der nicht "warte, bis der andere
+     * fertig ist" heisst.
+     *
+     *     HV_TEST_PORT=8768 composer test -- --testsuite Functional
+     *
+     * Der Abbruch bei belegtem Port bleibt unverändert bestehen: Ein Lauf
+     * gegen eine fremde Instanz ist nach wie vor kein Ergebnis.
+     */
+    private const PORT_DEFAULT = 8767;
+
+    private static function port(): int {
+        $roh = getenv('HV_TEST_PORT');
+        if ($roh === false || !ctype_digit((string)$roh)) {
+            return self::PORT_DEFAULT;
+        }
+        $port = (int)$roh;
+        // Ausserhalb des unprivilegierten Bereichs ist der Wert ein Vertipper.
+        return ($port >= 1024 && $port <= 65535) ? $port : self::PORT_DEFAULT;
+    }
 
     /** @var resource|null */
     private static $process = null;
@@ -21,7 +47,7 @@ class PhpBuiltInServer {
     private static ?string $logFile = null;
 
     public static function baseUrl(): string {
-        return 'http://' . self::HOST . ':' . self::PORT;
+        return 'http://' . self::HOST . ':' . self::port();
     }
 
     /**
@@ -61,7 +87,7 @@ class PhpBuiltInServer {
             // liest - das äußert sich nicht als Fehler, sondern als
             // unerklärlich abgelaufener Cache.
             ['php', '-d', 'date.timezone=' . date_default_timezone_get(),
-                '-S', self::HOST . ':' . self::PORT, '-t', $publicDir],
+                '-S', self::HOST . ':' . self::port(), '-t', $publicDir],
             $descriptorSpec,
             $pipes,
             __DIR__ . '/../..'
@@ -102,7 +128,7 @@ class PhpBuiltInServer {
      * Aussagen.
      */
     private static function refuseIfPortIsTaken(): void {
-        $connection = @fsockopen(self::HOST, self::PORT, $errno, $errstr, 0.5);
+        $connection = @fsockopen(self::HOST, self::port(), $errno, $errstr, 0.5);
         if ($connection === false) {
             return;
         }
@@ -116,8 +142,8 @@ class PhpBuiltInServer {
             . "oder der nächtliche devhost-tests-Lauf.\n"
             . "Nachsehen mit:  ss -ltnp | grep %d",
             self::HOST,
-            self::PORT,
-            self::PORT
+            self::port(),
+            self::port()
         ));
     }
 
@@ -159,12 +185,12 @@ class PhpBuiltInServer {
                     "Der eigene php -S auf %s:%d ist sofort beendet worden (vermutlich Port belegt).\n"
                     . "Protokoll: %s",
                     self::HOST,
-                    self::PORT,
+                    self::port(),
                     self::$logFile !== null ? (string)@file_get_contents(self::$logFile) : '(keines)'
                 ));
             }
 
-            $connection = @fsockopen(self::HOST, self::PORT, $errno, $errstr, 0.5);
+            $connection = @fsockopen(self::HOST, self::port(), $errno, $errstr, 0.5);
             if ($connection !== false) {
                 fclose($connection);
                 return;

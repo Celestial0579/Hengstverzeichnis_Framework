@@ -22,9 +22,32 @@ class PublicController extends BaseController {
             $featuredHorses = $stmt->fetchAll();
         }
 
+        // Erweiterungspunkte der Startseite (#356). Bis v0.7 hatte ausgerechnet
+        // die meistbesuchte Seite des Verzeichnisses keinen einzigen - ein
+        // Addon konnte an der Pferdeseite, an der Kontaktseite und im
+        // Adminbereich etwas beitragen, aber nicht dort, wo die Besucher
+        // ankommen. "Pferd des Tages" (Addons#135) liesse sich ohne diesen
+        // Hook nur bauen, indem man public_home.php im Kern anfasst.
+        //
+        // ZWEI Einhaengepunkte, oben und unten, statt eines: Ein Addon, das
+        // etwas bewerben will, gehoert ueber die Pferdeliste; eines, das
+        // Zusatzinformationen nachreicht, darunter. Mit nur einem Punkt
+        // muessten beide um dieselbe Stelle streiten, und die Reihenfolge
+        // haenge davon ab, welches Addon zuerst geladen wurde.
+        //
+        // Wie bei den uebrigen Abschnitts-Hooks ist jedes Element ein fertiger
+        // HTML-String, der UNESCAPED ausgegeben wird - das Addon ist selbst
+        // fuer die XSS-Vermeidung seines Fragments verantwortlich (siehe
+        // docs/plugin-development.md).
+        $hooks = $this->hooks();
+        $homeSectionsTop = $hooks->applyFilters('home.sections_top', [], $featuredHorses);
+        $homeSectionsBottom = $hooks->applyFilters('home.sections_bottom', [], $featuredHorses);
+
         $this->render('public_home', [
             'title' => \App\I18n\Translator::t('meta.title_home') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
-            'featuredHorses' => $featuredHorses
+            'featuredHorses' => $featuredHorses,
+            'homeSectionsTop' => is_array($homeSectionsTop) ? $homeSectionsTop : [],
+            'homeSectionsBottom' => is_array($homeSectionsBottom) ? $homeSectionsBottom : [],
         ]);
     }
 
@@ -182,7 +205,7 @@ class PublicController extends BaseController {
             // Pferde dieser Seite (#320). Als JOIN in der Abfrage darueber
             // enthielt die Ableitung ein GROUP BY, liess sich deshalb nicht
             // hineinziehen und wurde ueber die gesamte
-            // horse_persons/persons-Menge materialisiert - je Scrollschritt
+            // horse_persons/contacts-Menge materialisiert - je Scrollschritt
             // erneut, obwohl 24 Zeilen gebraucht werden.
             $horses = $this->attachPersonNames($db, $sql, $horses);
         }
@@ -267,10 +290,40 @@ class PublicController extends BaseController {
         // weggeworfen. Nur der volle Seiten-Render braucht sie.
         $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
         $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        // Nur veröffentlichte Stationen/Personen als öffentliche Filteroptionen anbieten
+        // Nur veröffentlichte Kontakte als öffentliche Filteroptionen anbieten
         // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
-        $stations = $db->query("SELECT DISTINCT name FROM breeding_stations WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $persons = $db->query("SELECT DISTINCT name FROM persons WHERE deleted_at IS NULL AND is_published = 1 ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        //
+        // Seit der Zusammenlegung auf `contacts` (#336) stammen beide Listen aus
+        // DERSELBEN Tabelle. Sie einfach beide mit allen veröffentlichten
+        // Kontakten zu füllen, wäre der bequeme, aber falsche Weg: Dann stünde
+        // jede Privatperson im Vorschlagsfeld "Deckstation". Die Listen sind
+        // deshalb auf die Kontakte eingegrenzt, die in der jeweiligen ROLLE
+        // tatsächlich vorkommen - und damit genau auf die, für die der
+        // zugehörige Filter überhaupt einen Treffer liefern kann
+        // (HorseSearchSql: q_station vergleicht bs.name über
+        // horses.breeding_station_id, q_breeder/q_owner vergleichen den Namen
+        // über horse_persons.contact_id).
+        //
+        // Die Einschränkung auf veröffentlichte PFERDE ist dabei kein Beiwerk:
+        // Vorher kamen die Listen ohne Pferdebezug aus der Personen- bzw.
+        // Stationstabelle. Ein Join über unveröffentlichte Pferde machte die
+        // Vorschlagsliste zum Existenz-Orakel für genau die Datensätze, die der
+        // Betreiber zurückhält - dieselbe Überlegung wie bei #121/#122.
+        $stations = $db->query("
+            SELECT DISTINCT c.name
+            FROM contacts c
+            JOIN horses h ON h.breeding_station_id = c.id AND h.deleted_at IS NULL AND h.is_published = 1
+            WHERE c.deleted_at IS NULL AND c.is_published = 1
+            ORDER BY c.name ASC
+        ")->fetchAll(\PDO::FETCH_COLUMN);
+        $persons = $db->query("
+            SELECT DISTINCT c.name
+            FROM contacts c
+            JOIN horse_persons hp ON hp.contact_id = c.id
+            JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
+            WHERE c.deleted_at IS NULL AND c.is_published = 1
+            ORDER BY c.name ASC
+        ")->fetchAll(\PDO::FETCH_COLUMN);
 
         // Minimal-Layout (#260): Das Issue nennt genau diesen fehlenden Schalter.
         // Er wirkt NUR auf die Darstellung; die Frame-Sperre lockert sich davon
@@ -309,15 +362,34 @@ class PublicController extends BaseController {
 
         // Deckstation nur, wenn veröffentlicht und nicht gelöscht - sonst wären
         // Kontaktdaten unveröffentlichter/gelöschter Stationen über die
-        // Pferde-Detailseite abrufbar, obwohl /station?id=... korrekt 404 liefert (#122).
+        // Pferde-Detailseite abrufbar, obwohl /kontakt?id=... korrekt 404 liefert (#122).
+        //
+        // Der Alias `bs` benennt seit #336 die ROLLE "Deckstation dieses
+        // Pferdes", nicht mehr eine eigene Tabelle - dieselbe Begründung wie in
+        // HorseSearchSql::joinSql().
+        //
+        // Die zustellbaren Felder hängen jetzt an bs.contact_public und kommen
+        // ohne Freigabe als NULL an, statt in der View versteckt zu werden: Was
+        // gar nicht erst ankommt, kann der nächste nicht versehentlich ausgeben
+        // (Lehre aus #293). Bis v0.7 schützte hier die Trennung der Tabellen -
+        // eine Geschäftsadresse war vollständig öffentlich, weil sie in einer
+        // eigenen Tabelle ohne PII stand. Nach der Zusammenlegung gibt es diese
+        // Trennung nicht mehr, und die strengere Regel gilt für alle Kontakte.
+        // bs.contact_info steht bewusst nirgends in dieser Liste.
         $db = Database::getInstance();
         $stmt = $db->prepare("
-            SELECT h.*, bs.name as station_name, bs.contact_person as station_contact, bs.address as station_address,
-                   bs.street as station_street, bs.house_number as station_house_number, bs.postal_code as station_postal_code,
+            SELECT h.*, bs.name as station_name,
+                   CASE WHEN bs.contact_public = 1 THEN bs.contact_person END as station_contact,
+                   CASE WHEN bs.contact_public = 1 THEN bs.address END as station_address,
+                   CASE WHEN bs.contact_public = 1 THEN bs.street END as station_street,
+                   CASE WHEN bs.contact_public = 1 THEN bs.house_number END as station_house_number,
+                   CASE WHEN bs.contact_public = 1 THEN bs.postal_code END as station_postal_code,
                    bs.city as station_city, bs.state as station_state, bs.country as station_country,
-                   bs.phone as station_phone, bs.email as station_email, bs.website as station_website
+                   CASE WHEN bs.contact_public = 1 THEN bs.phone END as station_phone,
+                   CASE WHEN bs.contact_public = 1 THEN bs.email END as station_email,
+                   bs.website as station_website
             FROM horses h
-            LEFT JOIN breeding_stations bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
+            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
             WHERE h.id = ? AND h.deleted_at IS NULL AND h.is_published = 1
         ");
         $stmt->execute([$id]);
@@ -327,9 +399,12 @@ class PublicController extends BaseController {
             $this->renderNotFound(\App\I18n\Translator::t('horse.not_found'));
         }
 
-        // Stations-Kontaktblock zusätzlich nur rendern, wenn Gäste Deckstationen
-        // überhaupt sehen dürfen - analog zur eigenen Stationsroute stationDetail() (#122).
-        if (!$this->hasPermission('breeding_stations', 'view')) {
+        // Stations-Kontaktblock zusätzlich nur rendern, wenn Gäste Kontakte
+        // überhaupt sehen dürfen - analog zur eigenen Kontaktroute
+        // contactDetail() (#122). Das Rechte-Modul heißt seit #336 `contacts`
+        // und deckt Personen wie Deckstationen ab; die frühere Trennung in
+        // `persons` und `breeding_stations` ist mit den Tabellen entfallen.
+        if (!$this->hasPermission('contacts', 'view')) {
             // Vollständige Feldliste - die strukturierte Adresse (#256) muss hier
             // genauso mitgenullt werden wie das alte Freitextfeld, sonst wäre der
             // Schutz durch das Nachziehen des Schemas still ausgehebelt.
@@ -349,7 +424,7 @@ class PublicController extends BaseController {
         // wenn station_name fehlt - ohne diese Zeile erschiene der NAME einer
         // unveröffentlichten oder gelöschten Station also weiterhin öffentlich, obwohl
         // der JOIN oben sie bewusst ausblendet (#122). Die Bedingung deckt beide
-        // Ursachen ab: gefilterter JOIN und fehlendes breeding_stations.view des Gastes
+        // Ursachen ab: gefilterter JOIN und fehlendes contacts.view des Gastes
         // (Block darüber) führen gleichermaßen zu leerem station_name.
         // Freie Texteingaben (CSV-Import, Personenzeile ohne Stations-Datensatz) haben
         // KEINE breeding_station_id und bleiben deshalb unangetastet (#151).
@@ -358,15 +433,18 @@ class PublicController extends BaseController {
         }
 
         // Fetch ownership history, person roles and associated breeding stations/studs.
-        // Nur veröffentlichte Personen/Stationen (#121/#122) - unveröffentlichte
+        // Nur veröffentlichte Kontakte (#121/#122) - unveröffentlichte
         // Namen und Kontaktdaten dürfen auf der öffentlichen Seite nicht erscheinen.
-        // Von den strukturierten Personenfeldern (#188, state seit #256,
+        // Von den strukturierten Kontaktfeldern (#188, state seit #256,
         // Kontaktfelder seit #293) werden bewusst NUR
         // city/state/country/membership_status/website selektiert -
-        // email/phone/mobile/street/house_number/postal_code und das
-        // Freitextfeld contact_info bleiben Admin-only und erreichen weder die
-        // View noch den horse.detail_sections-Hook (siehe
-        // docs/plugin-development.md).
+        // email/phone/mobile/street/house_number/postal_code/address/
+        // contact_person und das Freitextfeld contact_info bleiben Admin-only
+        // und erreichen weder die View noch den horse.detail_sections-Hook
+        // (siehe docs/plugin-development.md). Hier steht bewusst KEINE
+        // contact_public-Ausnahme: Diese Liste ist die Zuordnungszeile eines
+        // Pferdes, keine Kontaktseite - wer die freigegebenen Daten sehen will,
+        // folgt dem Verweis auf /kontakt?id=.
         //
         // Die Trennlinie ist nicht die Feldanzahl, sondern die Art der Angabe:
         // Was eine Sendung zustellbar macht, bleibt intern; die grobe
@@ -380,11 +458,19 @@ class PublicController extends BaseController {
         // für zustellbare Angaben, die nach derselben Trennlinie intern
         // gehören. Geschützt hat davor allein is_published; sobald eine
         // Redaktion eine Person freigab, stand die Nummer öffentlich.
+        //
+        // Die Aliasse person_name/station_name/station_id bleiben, obwohl beide
+        // Seiten jetzt aus `contacts` kommen: Sie benennen die ROLLE in dieser
+        // Zeile (wer - und wo), nicht die Herkunftstabelle. Denselben Weg geht
+        // HorseSearchSql mit seinem Alias `bs`. Umbenannt sind nur die echten
+        // Spalten, die es unter dem alten Namen nicht mehr gibt:
+        // hp.person_id -> hp.contact_id, hp.breeding_station_id ->
+        // hp.station_contact_id.
         $stmt = $db->prepare("
             SELECT hp.*, p.name as person_name, p.city, p.state, p.country, p.membership_status, p.website, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
-            LEFT JOIN persons p ON hp.person_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
-            LEFT JOIN breeding_stations bs ON hp.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
+            LEFT JOIN contacts p ON hp.contact_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
+            LEFT JOIN contacts bs ON hp.station_contact_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
             WHERE hp.horse_id = ?
             ORDER BY hp.from_year ASC, hp.id ASC
         ");
@@ -396,28 +482,44 @@ class PublicController extends BaseController {
         //
         // Der Null-Block weiter oben betrifft ausschliesslich das
         // $horse-Array. Diese Abfrage holt bs.name/bs.id ein ZWEITES Mal und
-        // wurde davon nicht erfasst: Wer der Gast-Gruppe
-        // breeding_stations.view entzogen hatte, bekam auf /station?id=7
+        // wurde davon nicht erfasst: Wer der Gast-Gruppe das Recht auf
+        // Kontakte entzogen hatte, bekam auf /kontakt?id=7
         // korrekt 404 und in der Katalog-Filterliste keine Stationen mehr -
         // im Block "Zucht & Personen" von /horse?id=42 stand die Station
         // trotzdem, samt Link auf genau diese 404-Seite.
         //
         // Der Freitext braucht dieselbe Behandlung wie horses.breeding_station
-        // seit #151: Bei GESETZTER breeding_station_id ist er die
+        // seit #151: Bei GESETZTER station_contact_id ist er die
         // denormalisierte Kopie des Stationsnamens (das Formular rendert beide
         // Felder nebeneinander, saveHorsePersons speichert beide). Faellt
         // station_name weg - weil der JOIN auf is_published/deleted_at
         // einschraenkt oder weil das Recht fehlt -, stuende sonst weiterhin
         // der Name der depublizierten Station da, nur aus der anderen Spalte.
-        // Freitext OHNE Stations-ID (CSV-Import, Zeile ohne Datensatz) bleibt
-        // unangetastet, er benennt keinen verborgenen Datensatz.
-        $stationenSichtbar = $this->hasPermission('breeding_stations', 'view');
-        $horsePersons = array_map(static function (array $hp) use ($stationenSichtbar): array {
-            if (!$stationenSichtbar) {
+        // Freitext OHNE Stations-Kontakt (CSV-Import, Zeile ohne Datensatz)
+        // bleibt unangetastet, er benennt keinen verborgenen Datensatz.
+        //
+        // Seit #336 entscheidet EIN Recht (contacts.view) ueber beide Seiten
+        // der Zeile - Person wie Deckstation. Das ist die Folge davon, dass es
+        // die zwei Tabellen nicht mehr gibt; ein Modul je Rolle waere eine
+        // Rechtegrenze ohne Datengrenze dahinter.
+        //
+        // Deshalb faellt hier jetzt auch die PERSONENSEITE weg, wenn das Recht
+        // fehlt. Bis v0.7 traf der Null-Block aus #316 nur die Station: Wer
+        // persons.view entzogen hatte, bekam auf /person?id=5 korrekt 404 und
+        // im Block "Zucht & Personen" trotzdem den Namen samt Link auf genau
+        // diese 404-Seite - dieselbe Ungereimtheit, die #316 fuer Stationen
+        // behoben hat. Beide Verweise zeigen jetzt auf DIESELBE Route
+        // (/kontakt?id=) unter DEMSELBEN Recht; einen davon ungeprueft zu
+        // lassen, waere im selben Block sichtbar widerspruechlich.
+        $kontakteSichtbar = $this->hasPermission('contacts', 'view');
+        $horsePersons = array_map(static function (array $hp) use ($kontakteSichtbar): array {
+            if (!$kontakteSichtbar) {
+                $hp['person_name'] = null;
+                $hp['contact_id'] = null;
                 $hp['station_name'] = null;
                 $hp['station_id'] = null;
             }
-            if (!empty($hp['breeding_station_id']) && empty($hp['station_name'])) {
+            if (!empty($hp['station_contact_id']) && empty($hp['station_name'])) {
                 $hp['breeding_station_text'] = null;
             }
             return $hp;
@@ -472,118 +574,101 @@ class PublicController extends BaseController {
         ]);
     }
 
-    public function stationDetail(): void {
-        $id = $_GET['id'] ?? null;
-        if (!$id) {
-            header("Location: /katalog");
-            exit;
-        }
-
-        // Öffentliche Stationsseite nur, wenn die Gast-Gruppe Deckstationen sehen darf.
-        if (!$this->hasPermission('breeding_stations', 'view')) {
-            $this->renderNotFound(\App\I18n\Translator::t('station.not_found'));
-        }
-
-        // Nur veröffentlichte Stationen (is_published) sind öffentlich erreichbar -
-        // unveröffentlichte liefern wie ein fehlender Datensatz eine 404.
-        $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT * FROM breeding_stations WHERE id = ? AND deleted_at IS NULL AND is_published = 1");
-        $stmt->execute([$id]);
-        $station = $stmt->fetch();
-
-        if (!$station) {
-            $this->renderNotFound(\App\I18n\Translator::t('station.not_found'));
-        }
-
-        // Zugeordnete Pferde nur, wenn Gäste Pferde sehen dürfen UND das jeweilige
-        // Pferd veröffentlicht ist (Status ist für die Sichtbarkeit irrelevant).
-        $horses = [];
-        if ($this->hasPermission('horses', 'view')) {
-            $stmt = $db->prepare("
-                SELECT id, name, ueln, birth_year, color, status, is_deceased, death_year, image_url
-                FROM horses
-                WHERE breeding_station_id = ? AND deleted_at IS NULL AND is_published = 1
-                ORDER BY name ASC
-            ");
-            $stmt->execute([$id]);
-            $horses = $stmt->fetchAll();
-        }
-
-        $pluginDetailSections = $this->hooks()->applyFilters('station.detail_sections', [], $station, $horses);
-
-        $this->render('public_station_detail', [
-            'title' => $station['name'] . ' - ' . \App\I18n\Translator::t('meta.title_station_detail_suffix'),
-            'station' => $station,
-            'horses' => $horses,
-            'pluginDetailSections' => $pluginDetailSections,
-        ]);
-    }
-
     /**
-     * Öffentliche Personenseite (#293). Bis dahin gab es sie nicht: Personen
-     * erschienen nur als Name in der Pferde-Detailseite, ohne eigenen Ort und
-     * ohne Möglichkeit, die Pferde einer Person zusammen zu sehen - anders als
-     * bei Deckstationen, die ihre Seite längst haben.
+     * Öffentliche Kontaktseite (#336) - die eine Seite, die
+     * personDetail() (#293) und stationDetail() ersetzt, seit `persons` und
+     * `breeding_stations` zu `contacts` zusammengeführt sind.
      *
-     * Die Spalten stehen hier bewusst EINZELN statt als `SELECT *`. Bei
-     * Deckstationen ist das anders (deren Anschrift ist eine Geschäftsadresse
-     * und vollständig öffentlich); persons enthält dagegen
-     * E-Mail/Telefon/Mobil/Straße/PLZ und das interne Freitextfeld
-     * contact_info. Ein `SELECT *` würde all das in die View reichen, und der
-     * nächste, der dort etwas ausgibt, hätte es versehentlich veröffentlicht -
-     * genau so ist #293 überhaupt entstanden. Was hier nicht steht, kann nicht
-     * verraten werden.
+     * DIE SPALTEN STEHEN HIER EINZELN, und zwar für JEDEN Kontakt. Bis v0.7
+     * schützte die Trennung der Tabellen selbst: personDetail() wählte eine
+     * Positivliste, stationDetail() durfte `SELECT *` machen, weil eine
+     * Geschäftsadresse in einer eigenen Tabelle ohne PII stand. Diese
+     * Trennung gibt es nicht mehr - der Schutz ist jetzt EIN FELD je
+     * Datensatz (contact_public). Deshalb gilt die strengere der beiden
+     * bisherigen Regeln für alle:
+     *
+     *   immer öffentlich  id, name, city, state, country, membership_status,
+     *                     website, is_breeder, contact_public
+     *   nur bei Freigabe  email, phone, mobile, street, house_number,
+     *                     postal_code, address, contact_person
+     *   nie öffentlich    contact_info
+     *
+     * Bewusst so herum statt "holen und in der View verstecken": Was gar
+     * nicht erst ankommt, kann auch der nächste nicht versehentlich ausgeben
+     * - genau daran ist #293 gescheitert. Ein `SELECT *` auf `contacts` darf
+     * in keinem öffentlichen Pfad stehen. Die Spaltenliste ist eine feste
+     * Aufzählung im Code, kein Eingabewert.
      */
-    public function personDetail(): void {
+    public function contactDetail(): void {
         $id = $_GET['id'] ?? null;
         if (!$id) {
             header("Location: /katalog");
             exit;
         }
 
-        if (!$this->hasPermission('persons', 'view')) {
-            $this->renderNotFound(\App\I18n\Translator::t('person.not_found'));
+        if (!$this->hasPermission('contacts', 'view')) {
+            $this->renderNotFound(\App\I18n\Translator::t('contact.not_found'));
         }
 
         $db = Database::getInstance();
 
-        // Die Kontaktspalten kommen nur mit, wenn der Datensatz sie ausdruecklich
-        // freigibt. Bewusst so herum statt "holen und in der View verstecken":
-        // Was gar nicht erst ankommt, kann auch der naechste nicht versehentlich
-        // ausgeben - genau daran ist #293 gescheitert. Die Spaltenliste ist eine
-        // feste Aufzaehlung im Code, kein Eingabewert.
+        // Zwei Abfragen wie schon bei personDetail(): erst die Freigabe holen,
+        // dann die dazu passende Spaltenliste. Eine einzelne Abfrage mit
+        // CASE-Ausdrücken täte es fachlich auch, aber die Spaltenliste bliebe
+        // dann eine Aufzählung, in die sich ein Feld unauffällig einreihen
+        // kann. So steht die Grenze an einer Stelle, an der man sie sieht.
         $stmt = $db->prepare(
-            "SELECT contact_public FROM persons WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
+            "SELECT contact_public FROM contacts WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
         );
         $stmt->execute([$id]);
         $kontaktFrei = $stmt->fetchColumn();
 
         $spalten = 'id, name, city, state, country, membership_status, website, is_breeder, contact_public';
         if ($kontaktFrei) {
-            $spalten .= ', email, phone, mobile';
+            // Die Anschrift kommt aus `breeding_stations` mit dazu (#336): Für
+            // einen Betrieb war sie dort immer sichtbar, und die Migration
+            // übernimmt dessen Bestandswert für contact_public, damit die
+            // Zusammenlegung nichts wegnimmt, was vorher da war.
+            $spalten .= ', email, phone, mobile, street, house_number, postal_code, address, contact_person';
         }
         $stmt = $db->prepare(
             "SELECT {$spalten}
-             FROM persons
+             FROM contacts
              WHERE id = ? AND deleted_at IS NULL AND is_published = 1"
         );
         $stmt->execute([$id]);
-        $person = $stmt->fetch();
+        $contact = $stmt->fetch();
 
-        if (!$person) {
-            $this->renderNotFound(\App\I18n\Translator::t('person.not_found'));
+        if (!$contact) {
+            $this->renderNotFound(\App\I18n\Translator::t('contact.not_found'));
         }
 
-        // Pferde dieser Person, nach Rolle gruppiert - nur veröffentlichte,
-        // und nur wenn Gäste Pferde überhaupt sehen dürfen (wie bei Stationen).
+        // Ein Kontakt hängt auf ZWEI Wegen an Pferden, und beide gab es vorher
+        // je auf einer eigenen Seite (#336):
+        //
+        //   als Person       horse_persons.contact_id, nach Rolle gruppiert
+        //                    (das war /person)
+        //   als Deckstation  horse_persons.station_contact_id oder
+        //                    horses.breeding_station_id (das war /station)
+        //
+        // Beide Blöcke werden gezeigt. Sie zu einer Liste zu verschmelzen wäre
+        // falsch: "hat dieses Pferd gezüchtet" und "dieses Pferd stand hier"
+        // sind verschiedene Aussagen - dieselbe Überlegung wie bei den zwei
+        // Steckplätzen einer Zuordnungszeile (siehe
+        // docs/kontaktliste-umstellung.md).
+        //
+        // Beides nur bei veröffentlichten Pferden und nur, wenn Gäste Pferde
+        // überhaupt sehen dürfen; der Lebenszyklus-Status ist für die
+        // Sichtbarkeit unerheblich.
         $horsesByRole = [];
+        $stationHorses = [];
         if ($this->hasPermission('horses', 'view')) {
             $stmt = $db->prepare("
                 SELECT DISTINCT hp.role, h.id, h.name, h.ueln, h.birth_year, h.color,
                        h.status, h.is_deceased, h.death_year, h.image_url
                 FROM horse_persons hp
                 JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
-                WHERE hp.person_id = ?
+                WHERE hp.contact_id = ?
                 ORDER BY hp.role ASC, h.name ASC
             ");
             $stmt->execute([$id]);
@@ -592,20 +677,107 @@ class PublicController extends BaseController {
                 unset($row['role']);
                 $horsesByRole[$role][] = $row;
             }
+
+            // horses.breeding_station_id ist die AKTUELLE Deckstation eines
+            // Pferdes, horse_persons.station_contact_id die einer einzelnen
+            // Zuordnungszeile (also auch historische). Die alte Stationsseite
+            // kannte nur den ersten Weg; ein Pferd, das hier nur früher stand,
+            // fehlte dort. EXISTS statt JOIN, damit ein Pferd mit mehreren
+            // passenden Zuordnungszeilen genau einmal erscheint.
+            $stmt = $db->prepare("
+                SELECT h.id, h.name, h.ueln, h.birth_year, h.color,
+                       h.status, h.is_deceased, h.death_year, h.image_url
+                FROM horses h
+                WHERE h.deleted_at IS NULL AND h.is_published = 1
+                  AND (
+                        h.breeding_station_id = ?
+                        OR EXISTS (
+                            SELECT 1 FROM horse_persons hp
+                            WHERE hp.horse_id = h.id AND hp.station_contact_id = ?
+                        )
+                  )
+                ORDER BY h.name ASC
+            ");
+            $stmt->execute([$id, $id]);
+            $stationHorses = $stmt->fetchAll();
         }
 
         // Erweiterungspunkt fuer Addons (Muster: horse.detail_sections, #56).
         // Anlass ist die geplante Kontaktanfrage: Ein Addon soll hier ein
         // Formular anbieten koennen, OHNE dass die Adresse dafuer oeffentlich
         // werden muss.
-        $pluginDetailSections = $this->hooks()->applyFilters('person.detail_sections', [], $person, $horsesByRole);
+        //
+        // person.detail_sections und station.detail_sections laufen als ALIAS
+        // mit denselben Argumenten hinterher, jeweils auf dem Ergebnis des
+        // vorherigen - ein Addon, das einen der alten Namen registriert hat,
+        // laeuft in v0.8 unveraendert weiter. Die Aliasse entfallen in v0.9.0
+        // (siehe docs/plugin-development.md und
+        // docs/kontaktliste-umstellung.md).
+        $pluginDetailSections = $this->hooks()->applyFilters('contact.detail_sections', [], $contact, $horsesByRole, $stationHorses);
+        $pluginDetailSections = $this->hooks()->applyFilters('person.detail_sections', $pluginDetailSections, $contact, $horsesByRole, $stationHorses);
+        $pluginDetailSections = $this->hooks()->applyFilters('station.detail_sections', $pluginDetailSections, $contact, $horsesByRole, $stationHorses);
 
-        $this->render('public_person_detail', [
-            'title' => $person['name'] . ' - ' . \App\I18n\Translator::t('meta.title_person_detail_suffix'),
-            'person' => $person,
+        $this->render('public_contact_detail', [
+            'title' => $contact['name'] . ' - ' . \App\I18n\Translator::t('meta.title_contact_detail_suffix'),
+            'contact' => $contact,
             'horsesByRole' => $horsesByRole,
+            'stationHorses' => $stationHorses,
             'pluginDetailSections' => $pluginDetailSections,
         ]);
+    }
+
+    /**
+     * /person?id= - dauerhafte Weiterleitung auf die Kontaktseite (#336).
+     * Die Adresse steht in Suchmaschinen und in fremden Verlinkungen; sie
+     * darf nicht einfach verschwinden.
+     */
+    public function personRedirect(): void {
+        $this->redirectLegacyContact('person', 'person.not_found');
+    }
+
+    /** /station?id= - Gegenstueck zu personRedirect() (#336). */
+    public function stationRedirect(): void {
+        $this->redirectLegacyContact('station', 'station.not_found');
+    }
+
+    /**
+     * Loest eine alte Personen-/Stationskennung ueber `contact_id_map` auf und
+     * leitet mit 301 auf /kontakt?id=<neu> um.
+     *
+     * OHNE TREFFER GIBT ES 404, NICHT den Katalog. Eine tote Kennung darf
+     * nicht wie ein Treffer aussehen - wer auf /station?id=999 landet, soll
+     * erfahren, dass es diesen Datensatz nicht gibt, und nicht wortlos auf
+     * einer Trefferliste stehen, die mit seiner Anfrage nichts zu tun hat.
+     * Suchmaschinen wuerden aus einer solchen Umleitung ausserdem folgern, die
+     * alte Adresse sei durch den Katalog ersetzt worden.
+     *
+     * Die Sichtbarkeit des Ziels wird hier schon geprueft, obwohl /kontakt sie
+     * ohnehin prueft: Sonst verriete allein die Umleitung, dass es die alte
+     * Kennung einmal gab - bis v0.7 lieferte eine unveroeffentlichte Station
+     * unter /station?id= schlicht 404, und dabei bleibt es.
+     */
+    private function redirectLegacyContact(string $alterTyp, string $fehlerSchluessel): void {
+        $id = $_GET['id'] ?? null;
+        if (!$id || !$this->hasPermission('contacts', 'view')) {
+            $this->renderNotFound(\App\I18n\Translator::t($fehlerSchluessel));
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("
+            SELECT m.contact_id
+            FROM contact_id_map m
+            JOIN contacts c ON c.id = m.contact_id AND c.deleted_at IS NULL AND c.is_published = 1
+            WHERE m.old_type = ? AND m.old_id = ?
+        ");
+        $stmt->execute([$alterTyp, $id]);
+        $neueId = $stmt->fetchColumn();
+
+        if ($neueId === false) {
+            $this->renderNotFound(\App\I18n\Translator::t($fehlerSchluessel));
+        }
+
+        header('Location: /kontakt?id=' . (int)$neueId, true, 301);
+        exit;
     }
 
     public function impressum(): void {

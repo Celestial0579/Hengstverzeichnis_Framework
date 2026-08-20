@@ -171,7 +171,16 @@ final class MatchSuggestionFinder {
         }
 
         // Schritt 3: unveränderte Bewertung, jetzt je Platzhalter nur noch
-        // auf dessen vorgefilterten Kandidaten.
+        // auf dessen vorgefilterten Kandidaten - und ohne die Paare, über die
+        // längst entschieden wurde (#355).
+        //
+        // Der Filter greift NACH der Bewertung, nicht davor: Ein als
+        // "verschieden" abgelegtes Paar soll aus der Liste verschwinden, aber
+        // die Bewertung der übrigen Kandidaten desselben Platzhalters darf
+        // sich dadurch nicht verschieben. Wäre der Kandidat schon vorher
+        // heraus, änderte sich die Rangfolge der anderen mit.
+        $entschieden = MatchLabel::ausgeblendete('horse');
+
         $unlinkedMatches = [];
         foreach ($placeholders as $row) {
             $role = $row['parent_type'];
@@ -181,6 +190,13 @@ final class MatchSuggestionFinder {
                 $row,
                 $candidatesByChild[$role][(int)$row['id']] ?? []
             );
+            if ($entschieden !== []) {
+                $kindId = (int)$row['id'];
+                $suggestions = array_values(array_filter(
+                    $suggestions,
+                    static fn(array $v) => !MatchLabel::istAusgeblendet($entschieden, $kindId, (int)$v['id'])
+                ));
+            }
             if (!empty($suggestions)) {
                 $unlinkedMatches[] = [
                     'child_id' => $row['id'],

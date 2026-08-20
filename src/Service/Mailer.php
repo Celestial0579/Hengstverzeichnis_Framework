@@ -520,6 +520,104 @@ class Mailer {
     }
 
     /**
+     * Das automatische Update wurde wegen unverträglicher Addons
+     * ZURÜCKGESTELLT (#362) - kein Fehlschlag.
+     *
+     * WARUM EINE EIGENE NACHRICHT. Der naheliegende Weg wäre gewesen, die
+     * Fehlschlag-Variante oben mitzubenutzen. Sie ist aber falsch beschriftet:
+     * Es ist nichts fehlgeschlagen. Ein "❌ Automatisches Update
+     * fehlgeschlagen" im Postfach lässt einen Betreiber nach einem Defekt
+     * suchen, den es nicht gibt - und wer zweimal umsonst gesucht hat, sieht
+     * beim dritten Mal nicht mehr hin.
+     *
+     * WAS DRINSTEHEN MUSS. Nicht nur, DASS zurückgestellt wurde, sondern was
+     * zu tun ist. Eine Meldung, die eine Sperre beschreibt, ohne den Ausweg zu
+     * nennen, erzeugt genau den Zustand, den sie verhindern soll: Die Instanz
+     * aktualisiert sich nicht mehr, und niemand weiß, wie er das ändert.
+     * Deshalb stehen alle drei Wege da - aktualisieren, deaktivieren,
+     * entfernen -, mit dem, was sie jeweils kosten.
+     *
+     * @param array<int, string> $blockingAddons Gründe je Addon, wie von
+     *                                           UpdateService::addonsBlockingAutoInstall()
+     */
+    public function sendAutoUpdateBlockedNotification(
+        string $recipientEmail,
+        string $fromVersion,
+        string $toVersion,
+        array $blockingAddons
+    ): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $updatesUrl = $this->getBaseUrl() . 'admin/updates';
+        $storeUrl = $this->getBaseUrl() . 'admin/plugins/store';
+        $pluginsUrl = $this->getBaseUrl() . 'admin/plugins';
+        $anzahl = count($blockingAddons);
+
+        $subject = "⏸️ Automatisches Update auf {$toVersion} zurückgestellt - {$siteName}";
+
+        $items = '';
+        foreach ($blockingAddons as $reason) {
+            $items .= '<li>' . htmlspecialchars($reason) . '</li>';
+        }
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
+                <h2 style='color: #856404;'>Update zurückgestellt - es wartet auf Sie</h2>
+
+                <p>Für <strong>" . htmlspecialchars($siteName) . "</strong> steht Version
+                <strong>" . htmlspecialchars($toVersion) . "</strong> bereit (installiert:
+                <strong>" . htmlspecialchars($fromVersion) . "</strong>). Sie wurde
+                <strong>nicht</strong> eingespielt, weil sie {$anzahl} aktive(s) Addon(s)
+                deaktivieren würde.</p>
+
+                <p><strong>Es ist nichts kaputt.</strong> Die Installation läuft unverändert
+                weiter, samt allen Addons. Das Update wartet, bis Sie entschieden haben.</p>
+
+                <p><strong>Betroffen sind:</strong></p>
+                <ul>{$items}</ul>
+
+                <h3 style='margin-top: 25px;'>Was Sie tun können</h3>
+                <ol style='line-height: 1.6;'>
+                    <li>
+                        <strong>Addon aktualisieren</strong> — der übliche Weg. Sehen Sie im
+                        <a href='{$storeUrl}'>Addon-Store</a> nach, ob es eine Fassung für die
+                        neue Kern-Version gibt. Danach läuft das automatische Update beim
+                        nächsten Lauf von selbst durch.
+                    </li>
+                    <li>
+                        <strong>Addon deaktivieren</strong> — wenn Sie es nicht mehr brauchen
+                        oder eine neue Fassung noch nicht vorliegt. Unter
+                        <a href='{$pluginsUrl}'>Addons verwalten</a>. Die Daten des Addons
+                        bleiben dabei vollständig erhalten; ein späteres Aktivieren stellt
+                        alles wieder her.
+                    </li>
+                    <li>
+                        <strong>Addon entfernen</strong> — wenn es endgültig weg soll. Ebenfalls
+                        unter <a href='{$pluginsUrl}'>Addons verwalten</a>; dort werden Sie
+                        gefragt, ob die Daten des Addons mitgelöscht werden sollen, und Ihnen
+                        wird vorher angezeigt, wie viele Datensätze und Dateien das wären.
+                    </li>
+                    <li>
+                        <strong>Trotzdem jetzt aktualisieren</strong> — wenn Sie den Ausfall der
+                        Addons bewusst in Kauf nehmen. Auf der
+                        <a href='{$updatesUrl}'>Update-Seite</a> steht der Knopf bereit; die
+                        betroffenen Addons werden dort noch einmal namentlich genannt. Sie
+                        werden dabei nicht gelöscht, sondern nur unsichtbar, bis eine passende
+                        Fassung installiert ist.
+                    </li>
+                </ol>
+
+                <p style='color: #6c757d; font-size: 0.9em; margin-top: 25px;'>
+                    Diese Nachricht kommt <strong>einmal je Version</strong>. Solange Sie nichts
+                    unternehmen, bleibt es bei dieser einen Mail - die Instanz aktualisiert sich
+                    dann allerdings auch nicht weiter.
+                </p>
+            </div>
+        ";
+
+        return $this->send($recipientEmail, $subject, $html);
+    }
+
+    /**
      * Periodischer E-Mail-Digest an Admins/Editoren (#52, siehe
      * App\Service\DigestService): fasst Ereignisse zusammen, für die es
      * keine sofortige Benachrichtigung gibt (offene Blutlinien-Match-

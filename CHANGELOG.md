@@ -6,6 +6,51 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.8.0-beta.2] – 2026-08-20
+
+Eine einzige Änderung, aber eine, die genau zu dieser Vorabversion gehört.
+
+### Sicherheit
+
+- **Das unbeaufsichtigte Update spielt nichts mehr ein, was aktive Addons
+  abschalten würde.**
+
+  Bis beta.1 prüfte der nächtliche Lauf ausschließlich die **Versionslinie**
+  (`update_auto_install_scope`). Dass ein Minor-Sprung damit auch dann
+  ausblieb, wenn er sämtliche Addons zerlegt hätte, war ein **Nebeneffekt**
+  und keine Zusicherung: Es galt nur, weil `core_supported_max` zufällig
+  ebenfalls auf Major.Minor läuft. Wer die Reichweite auf `any` stellte, hatte
+  gar keinen Schutz — der Kern wurde getauscht, und alle Addons der alten
+  Linie waren danach fail-closed unsichtbar.
+
+  Genau dieser Zustand bestand nach v0.8.0-beta.1: Kern-Release draußen,
+  Addons-Release der Linie 0.8 noch nicht. Eine Instanz auf dem Beta-Kanal mit
+  `any` hätte den Kern gezogen und ohne Addons dagestanden.
+
+  **Der manuelle Weg bleibt unverändert.** Die Update-Seite warnt seit #197
+  namentlich, welche aktiven Addons ein Update deaktivieren würde, und der
+  Knopf bleibt bedienbar: Wer die Warnung liest und trotzdem aktualisiert,
+  entscheidet informiert. Eine Sperre auch dort ließe jeden stranden, dessen
+  Addon nicht mehr gepflegt wird.
+
+  **Der Betreiber erfährt davon — einmal je Zielversion.** Nicht nur, *dass*
+  zurückgestellt wurde, sondern was zu tun ist: Addon aktualisieren,
+  deaktivieren (die Daten bleiben), entfernen (mit Vorschau, wie viele
+  Datensätze das kostet) oder bewusst trotzdem einspielen. Eine Meldung, die
+  eine Sperre beschreibt, ohne den Ausweg zu nennen, erzeugt genau den
+  Zustand, den sie verhindern soll: Die Instanz aktualisiert sich nicht mehr,
+  und niemand weiß, wie er das ändert.
+
+  Die Nachricht ist bewusst **keine** Fehlschlag-Meldung — es ist nichts
+  fehlgeschlagen. Ein „❌ Automatisches Update fehlgeschlagen" im Postfach
+  ließe nach einem Defekt suchen, den es nicht gibt.
+
+  Bewusst wird **nicht** nachgesehen, ob im Katalog eine passende
+  Addon-Fassung läge: Der Katalog-Cache kann veraltet sein („konnte nicht
+  prüfen" ist nicht „geprüft"), und die Addon-Phase läuft erst **nach** dem
+  Austausch des Kerns — scheiterte sie dort, stünde die Instanz bereits auf
+  dem neuen Kern mit toten Addons.
+
 ## [0.8.0-beta.1] – 2026-08-20
 
 **Breaking Change.** `persons` und `breeding_stations` sind eine Kontaktliste

@@ -30,7 +30,14 @@ $catalogPagination = $catalogPagination ?? null;
                     <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" loading="lazy" decoding="async" style="width: 100%; height: 100%; object-fit: cover;">
                 </div>
             <?php else: ?>
-                <div style="width: 100%; height: 120px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; font-size: 3rem; opacity: 0.4;">
+                <?php // Dieselbe Höhe wie der Bildfall (#350). Der Platzhalter war
+                      // 60px flacher, wodurch Name, UELN, Geburtsjahr und Farbe einer
+                      // bildlosen Kachel auf einer anderen Höhe standen als bei den
+                      // Nachbarkacheln - das Raster wirkte verrutscht. Unten glich sich
+                      // der Knopf über flex wieder an, die Zeilen dazwischen nicht.
+                      // Die Überlegung aus #263 (Container gibt die Höhe fest vor, damit
+                      // beim Nachladen kein Layout-Sprung entsteht) gilt hier genauso. ?>
+                <div style="width: 100%; height: 180px; background: var(--surface-muted); display: flex; align-items: center; justify-content: center; font-size: 3rem; opacity: 0.4;">
                     🐴
                 </div>
             <?php endif; ?>

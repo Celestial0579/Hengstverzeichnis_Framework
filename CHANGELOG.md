@@ -118,6 +118,12 @@ aber er kostet alles, was nach dem Update entstanden ist.
   erzwingt den eingebauten — ein Tippfehler macht ein Formular höchstens
   strenger, nie ungeschützter.
 
+  Der Betreiber wählt den Anbieter unter *Systemeinstellungen* je Formular. Das
+  ist mehr als Bequemlichkeit: Im DSGVO-Formular machen Betroffene ihre Rechte
+  aus Art. 15/17 geltend, und ihre IP-Adresse dabei an einen Drittanbieter zu
+  übertragen ist ausgerechnet dort kaum zu rechtfertigen — anderswo dagegen
+  schon.
+
 - **Ein schmaler Weg zum Protokoll für Addons** (#352):
   `App\Plugin\PluginAudit::log()`. Die Kategorie ist der Slug, der Slug wird
   geprüft (ein Addon kann nicht unter fremdem Namen protokollieren), und der

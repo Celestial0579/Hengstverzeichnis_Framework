@@ -842,6 +842,56 @@ oben. Der frühere Weg (`CREATE TABLE IF NOT EXISTS` direkt in `register()`)
 ist überholt: Er führte das DDL bei **jedem** Request aus (Addons-Issue #75)
 und soll in neuen Plugins nicht mehr verwendet werden.
 
+## Gemeinsame Pferdesuche (#341)
+
+Sieben Addons brachten bis v0.7 je eine eigene Pferdesuche mit — eigene
+JSON-Route, eigene Abfrage, eigener JavaScript-Block. Sieben Kopien derselben
+Sache und sieben Stellen, an denen ein Fehler einzeln behoben werden müsste.
+Zwei davon maskierten die SQL-Platzhalter `%` und `_` nicht, und **keine**
+behandelte den Wettlauf zwischen zwei schnell aufeinanderfolgenden Anfragen:
+Tippt jemand zügig, kann die Antwort auf „Ro" **nach** der Antwort auf „Roga"
+eintreffen und die Liste wieder verschlechtern.
+
+Seit v0.8 gibt es beides einmal im Kern.
+
+### Endpunkt
+
+```
+GET /admin/horses/search?q=<mindestens 2 Zeichen>
+                        &geschlecht=stallion|mare|gelding   (optional)
+                        &rolle=breeder|owner|keeper         (optional)
+                        &nur_mit_farbe=1                    (optional)
+```
+
+Antwort: `[{"id": 42, "label": "Rogar S (DE1, 2010)"}]` — **nur** diese zwei
+Felder. Ein Suchendpunkt ist eine bequeme Stelle, um an Daten zu kommen; was
+hier nicht ausgeliefert wird, kann auch nicht abfließen.
+
+Verlangt eine gültige Sitzung und `horses.view`. Höchstens 50 Treffer: Ohne
+diesen Deckel wäre `?q=a` ein Ein-Klick-Vollexport des Pferdebestands über
+einen Endpunkt, der für eine Auswahlliste gedacht ist.
+
+### Suchfeld
+
+```html
+<input class="hv-pferdesuche" data-ziel="pferd_id" data-geschlecht="stallion">
+<select name="pferd_id" id="pferd_id"></select>
+<script src="/js/horse-search.js"></script>
+```
+
+| Attribut | Bedeutung |
+|---|---|
+| `data-ziel` | **Pflicht.** Die `id` des `<select>`, das befüllt wird |
+| `data-geschlecht` | `stallion` · `mare` · `gelding` — für Formulare, die nur Väter oder nur Mütter anbieten |
+| `data-rolle` | `breeder` · `owner` · `keeper` — nur Pferde mit einer Zuordnung dieser Rolle |
+| `data-nur-mit-farbe` | `1` — nur Pferde mit erfasster Farbe (Farbvererbung) |
+
+Später eingefügte Felder verdrahtet `HvPferdesuche.verdrahten(element)`.
+
+Die Datei entprellt Tastendrucke, verwirft veraltete Antworten und leert die
+Liste bei einem Fehler — **sie lässt die alte Auswahl nicht stehen**, denn eine
+Liste, die zu einem früheren Suchbegriff gehört, sieht aus wie ein Ergebnis.
+
 ## Deinstallation: das Datenregister `owns` (#338)
 
 Bis v0.7 verschwand ein deaktiviertes Addon aus der Übersicht und **liess

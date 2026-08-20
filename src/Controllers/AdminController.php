@@ -332,7 +332,50 @@ class AdminController extends BaseController {
         }
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('captcha_provider', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
         $stmt->execute([$captchaProvider, $captchaProvider]);
-        \App\Service\AuditLogger::log("Spam-Schutz des DSGVO-Formulars geändert", "security", "CAPTCHA-Anbieter: {$captchaProvider}");
+        \App\Service\AuditLogger::log("Spam-Schutz geändert (Vorgabe)", "security", "CAPTCHA-Anbieter: {$captchaProvider}");
+
+        // Abweichende Wahl je Formular (#351).
+        //
+        // Zwei Positivlisten, nicht eine: Der KONTEXT muss angemeldet sein
+        // (CaptchaContext), der ANBIETER muss existieren (Captcha). Ein
+        // unbekannter Kontext würde sonst einen Einstellungsschlüssel
+        // erzeugen, den niemand mehr findet und den keine Oberfläche je
+        // wieder anzeigt - ein Wert, der wirkt und unsichtbar ist.
+        //
+        // Ein leerer Wert LÖSCHT den Eintrag, statt ihn auf '' zu setzen:
+        // "es gilt die Vorgabe" ist die Abwesenheit einer Entscheidung, kein
+        // eigener Zustand.
+        $kontextWahl = $_POST['captcha_context'] ?? [];
+        if (is_array($kontextWahl)) {
+            $bekannteKontexte = \App\Security\CaptchaContext::all();
+            $verfuegbar = \App\Security\Captcha::availableProviders();
+            $geaendert = [];
+            foreach ($kontextWahl as $kontext => $anbieter) {
+                if (!is_string($kontext) || !isset($bekannteKontexte[$kontext])) {
+                    continue;
+                }
+                $schluessel = \App\Security\CaptchaContext::settingKey($kontext);
+                $anbieter = is_string($anbieter) ? trim($anbieter) : '';
+
+                if ($anbieter === '' || !isset($verfuegbar[$anbieter])) {
+                    $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$schluessel]);
+                    continue;
+                }
+
+                $db->prepare(
+                    "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+                )->execute([$schluessel, $anbieter]);
+                $geaendert[] = "{$kontext}={$anbieter}";
+            }
+            if ($geaendert !== []) {
+                \App\Service\AuditLogger::log(
+                    "Spam-Schutz je Formular geändert",
+                    "security",
+                    implode(', ', $geaendert)
+                );
+            }
+        }
 
         // Tracking-Code (Matomo/Google Analytics o. ä.): rohes HTML/JS-Snippet, wird
         // absichtlich unescaped in layout.php ausgegeben - Admin-only vertrauenswürdige

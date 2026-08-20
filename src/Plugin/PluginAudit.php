@@ -65,8 +65,30 @@ final class PluginAudit {
      *                             später nicht mehr zuzuordnen.
      * @param string|null $details Weitere Angaben, sofern sie ohne
      *                             personenbezogene Inhalte auskommen.
+     * @param string|null $urheber Wer gehandelt hat, wenn es NICHT der
+     *                             angemeldete Benutzer ist - etwa 'GAST' für
+     *                             ein öffentliches Formular. Ohne Angabe
+     *                             ermittelt AuditLogger den Benutzer aus der
+     *                             Sitzung und fällt sonst auf 'SYSTEM'
+     *                             zurück.
+     *
+     *                             Der Parameter kam nach: Ein Addon mit
+     *                             öffentlichem Formular (deckanfrage) schrieb
+     *                             seine Einträge bis dahin als 'GAST' und
+     *                             hätte über diesen Weg plötzlich 'SYSTEM'
+     *                             protokolliert - also so, als habe die
+     *                             Anwendung selbst gehandelt. Ein Protokoll,
+     *                             das eine Besuchereingabe als Systemvorgang
+     *                             ausweist, ist als Nachweis schlechter als
+     *                             keines.
      */
-    public static function log(string $slug, string $aktion, ?string $bezug = null, ?string $details = null): void {
+    public static function log(
+        string $slug,
+        string $aktion,
+        ?string $bezug = null,
+        ?string $details = null,
+        ?string $urheber = null
+    ): void {
         $kategorie = self::kategorieFuer($slug);
 
         $zusatz = [];
@@ -82,7 +104,13 @@ final class PluginAudit {
             $zusatz[] = 'behaupteter Slug: ' . $slug;
         }
 
-        AuditLogger::log($aktion, $kategorie, $zusatz === [] ? null : implode(' - ', $zusatz));
+        AuditLogger::log(
+            $aktion,
+            $kategorie,
+            $zusatz === [] ? null : implode(' - ', $zusatz),
+            null,
+            $urheber
+        );
     }
 
     /**
@@ -99,6 +127,22 @@ final class PluginAudit {
         } catch (\Throwable $e) {
             // Kein gebooteter PluginManager (CLI, Test) - dann ist der Slug
             // nicht prüfbar, und ein Eintrag ist trotzdem besser als keiner.
+            return $slug;
+        }
+
+        // EINE LEERE LISTE IST KEIN BEWEIS.
+        //
+        // getInstance() wirft nicht, wenn boot() nie lief - es liefert dann
+        // schlicht ein leeres Verzeichnis. Der erste Anlauf schloss daraus
+        // "der Slug ist unbekannt" und schrieb jeden Eintrag aus einem
+        // CLI-Lauf oder einem nicht gebooteten Kontext unter
+        // 'plugin:unbekannt' weg - also genau die Kennzeichnung, die für
+        // einen Missbrauchsversuch gedacht ist. Der eigene Kommentar oben
+        // sagt das Gegenteil; das ist der Fall, den er meinte.
+        //
+        // Unterschieden wird deshalb: KEIN Verzeichnis heißt "nicht prüfbar",
+        // erst ein gefülltes Verzeichnis ohne den Slug heißt "fremd".
+        if ($bekannt === []) {
             return $slug;
         }
 

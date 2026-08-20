@@ -185,7 +185,7 @@
             $activeCaptcha = \App\Security\Captcha::activeProvider($settings ?? []);
         ?>
         <div class="form-group" style="margin-top: 1.5rem;">
-            <label for="captcha_provider">🛡️ Spam-Schutz des DSGVO-Formulars</label>
+            <label for="captcha_provider">🛡️ Spam-Schutz (Vorgabe für alle Formulare)</label>
             <select id="captcha_provider" name="captcha_provider" class="form-control">
                 <?php foreach ($captchaProviders as $slug => $label): ?>
                     <option value="<?= htmlspecialchars((string)$slug) ?>"<?= $slug === $activeCaptcha ? ' selected' : '' ?>>
@@ -194,8 +194,8 @@
                 <?php endforeach; ?>
             </select>
             <small class="form-hint">
-                Gilt für das öffentliche Formular unter <code>/dsgvo</code>. Unabhängig von der Auswahl greifen
-                dort immer auch das versteckte Fallenfeld und die beiden IP-Zähler.
+                Gilt für alle geschützten Formulare, sofern unten nichts anderes eingestellt ist.
+                Unabhängig von der Auswahl greifen immer auch das versteckte Fallenfeld und die beiden IP-Zähler.
                 <?php if (count($captchaProviders) === 1): ?>
                     <br>Die eingebaute Rechenaufgabe braucht keine Schlüssel, keinen Netzzugang und keine
                     Lockerung der Content-Security-Policy — und überträgt keine Daten an Dritte, was gerade
@@ -208,6 +208,50 @@
                 <?php endif; ?>
             </small>
         </div>
+
+        <?php
+            // Je Formular wählbar (#351).
+            //
+            // Der Kern kannte bis v0.7 nur den einen Kontext 'dsgvo' - die
+            // öffentlichen Formulare dieses Systems liegen aber überwiegend in
+            // Addons (Kontaktanfrage, Deckanfrage, Verkaufsbörse). Genau die,
+            // die Spam bekommen, konnten den vorhandenen Unterbau nicht nutzen.
+            //
+            // Diese Liste erscheint nur, wenn es überhaupt eine Wahl gibt -
+            // also mehr als einen Anbieter. Mit nur der eingebauten Aufgabe
+            // wäre sie eine Spalte identischer Auswahlfelder.
+            $captchaKontexte = \App\Security\CaptchaContext::all();
+        ?>
+        <?php if (count($captchaProviders) > 1): ?>
+        <div class="form-group" style="margin-top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 4px;">
+            <strong>Abweichende Wahl je Formular</strong>
+            <p class="form-hint" style="margin: 0.3rem 0 0.8rem 0;">
+                Leer heißt: Es gilt die Vorgabe oben. Sinnvoll ist eine Abweichung vor allem beim
+                DSGVO-Formular — dort machen Betroffene ihre Rechte aus Art. 15/17 geltend, und ihre
+                IP-Adresse dabei an einen Drittanbieter zu übertragen ist ausgerechnet auf diesem
+                Formular kaum zu rechtfertigen.
+            </p>
+            <?php foreach ($captchaKontexte as $kontext => $beschriftung): ?>
+                <?php $gewaehlt = (string)($settings[\App\Security\CaptchaContext::settingKey((string)$kontext)] ?? ''); ?>
+                <div style="display: flex; gap: 0.8rem; align-items: center; margin-bottom: 0.5rem;">
+                    <label for="captcha_ctx_<?= htmlspecialchars((string)$kontext) ?>" style="flex: 1; margin: 0;">
+                        <?= htmlspecialchars((string)$beschriftung) ?>
+                        <code style="font-size: 0.8rem; color: var(--text-muted);"><?= htmlspecialchars((string)$kontext) ?></code>
+                    </label>
+                    <select id="captcha_ctx_<?= htmlspecialchars((string)$kontext) ?>"
+                            name="captcha_context[<?= htmlspecialchars((string)$kontext) ?>]"
+                            class="form-control" style="flex: 1;">
+                        <option value="">— Vorgabe oben —</option>
+                        <?php foreach ($captchaProviders as $slug => $label): ?>
+                            <option value="<?= htmlspecialchars((string)$slug) ?>"<?= (string)$slug === $gewaehlt ? ' selected' : '' ?>>
+                                <?= htmlspecialchars((string)$label) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
 
         <div class="form-group" style="margin-top: 1.5rem;">
             <label for="tracking_domains">📊 Tracking-Domains (für Matomo/Google Analytics o. Ä.)</label>

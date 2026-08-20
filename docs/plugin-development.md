@@ -259,9 +259,12 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `contact.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars eines Kontakts (`ContactController::edit()`) | `function(array $sections, array $contact): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben und **außerhalb** des Kern-Formulars gerendert (verschachtelte `<form>` wären ungültig). Feuert nur beim Bearbeiten, nicht beim Anlegen. Damit kann ein Addon eigene Angaben am Datensatz pflegen — etwa ein Opt-out für Kontaktanfragen —, **ohne** dass der Kern dafür eine Spalte mitbringt |
 | `contact.after_save` | Action | Nach Anlegen oder Ändern eines Kontakts (#347) | `function(int $contactId, array $postData, bool $isNew): void` |
 | `contact.deleted` | Action | Beim Verschieben eines Kontakts in den Papierkorb (#347) | `function(int $contactId, array $contact): void` — feuert beim Verschieben, nicht erst beim endgültigen Löschen; der Fremdschlüssel-CASCADE greift dort noch nicht (Lage wie `horse.trashed`) |
+| `horse.publish_blockers` | Filter | Nach dem Speichern eines Pferds, bevor das Veröffentlichungs-Häkchen gilt (#335) | `function(array $gruende, int $horseId, array $horse): array` — jeder zurückgegebene String ist ein Einwand und verhindert **nur** die Veröffentlichung, nicht das Speichern. Läuft **nach** dem Speichern gegen den persistierten Stand, denn die Zuordnungen in `horse_persons` entstehen erst nach dem INSERT. Startwert ist die leere Liste: Ein abgestürztes Addon darf keine Veröffentlichung blockieren, sonst könnte niemand den Grund beheben. Beim **De**publizieren greift der Filter ausdrücklich nicht |
+| `horse.search_ids` | Filter | Beim Aufbau der Pferdesuche, öffentlich wie im Adminbereich (#346) | `function(?array $ids, array $request, bool $nurOeffentlich): ?array` — eine **Liste von Pferde-IDs**, auf die eingeschränkt wird, ausdrücklich **kein** SQL-Ausschnitt: Die Suchklassen beruhen darauf, dass kein Anfragewert je in einen SQL-String gerät. `null` = „ich habe nichts beizutragen"; ein **leeres Array** = „keine Treffer". Beides auf dasselbe abzubilden hieße, dass ein Addon „nichts passt" nicht sagen kann |
+| `home.sections_top` · `home.sections_bottom` | Filter | Beim Rendern der Startseite, über bzw. unter der Pferdeliste (#356) | `function(array $sections, array $featuredHorses): array` — jedes Element ist ein fertiger HTML-String und wird **unescaped** ausgegeben. Zwei Punkte statt eines: Was etwas bewirbt, gehört nach oben; was Zusatzinformationen nachreicht, darunter |
 | `person.detail_sections` · `station.detail_sections` · `person.edit_sections` · `station.edit_sections` · `person.after_save` · `station.after_save` · `person.deleted` · `station.deleted` | — | **Alias, entfällt in v0.9.0** | Feuern seit v0.8 **zusätzlich** zu ihren `contact.*`-Gegenstücken, mit denselben Argumenten — ein Addon aus der 0.7-Linie läuft damit unverändert weiter. Bei den Filtern kaskadierend: erst `contact.*`, dann `person.*`, dann `station.*`, jeweils auf dem Ergebnis des vorherigen. Seit `persons` und `breeding_stations` eine Tabelle sind (#336), bekommt ein Addon, das beide Paare registriert hat, denselben Datensatz zweimal — das ist der Grund, die Aliasse nicht dauerhaft zu führen |
 | `captcha.providers` | Filter | Beim Aufbau der Anbieterauswahl in den Systemeinstellungen und bei jeder Prüfung | `function(array $providers): array` — Slug => Anzeigename. Der eingebaute Anbieter `builtin` ist immer enthalten und lässt sich **nicht** überschreiben |
-| `captcha.render` | Filter | Beim Rendern eines geschützten öffentlichen Formulars, wenn der Admin diesen Anbieter gewählt hat | `function(string $html, string $provider, string $context): string` — fertiges Formular**fragment**, wird **unescaped** ausgegeben. `$provider` ist der gewählte Slug (nur reagieren, wenn er der eigene ist), `$context` derzeit `'dsgvo'` |
+| `captcha.render` | Filter | Beim Rendern eines geschützten öffentlichen Formulars, wenn der Admin diesen Anbieter gewählt hat | `function(string $html, string $provider, string $context): string` — fertiges Formular**fragment**, wird **unescaped** ausgegeben. `$provider` ist der gewählte Slug (nur reagieren, wenn er der eigene ist), `$context` ist die angemeldete Formularkennung (Kern: `'dsgvo'`, `'register'`; Addons melden eigene an, siehe unten) |
 | `captcha.verify` | Filter | Beim Absenden eines geschützten Formulars, vor jeder Verarbeitung | `function(?string $verdict, string $provider, string $context, array $input): ?string` — eine der Konstanten `Captcha::OK`/`WRONG`/`EXPIRED`/`TOO_FAST`, oder `null` für „nicht zuständig" |
 | `admin.dashboard_tiles` | Filter | Beim Rendern des Admin-Dashboards | `function(array $tiles): array` — jedes Element: `['url' => string, 'label' => string, 'icon' => string]` |
 | `layout.nav_items` | Filter | Beim Rendern **jeder** öffentlichen Seite, inklusive Plugin-Seiten über `PluginPage::render()` | `function(array $items): array` — jedes Element wie bei den Dashboard-Kacheln: `['url' => string, 'label' => string, 'icon' => string]`. Ergänzt Menüpunkte in der öffentlichen Navigation, hinter „Verzeichnis" und vor dem Anmelde-Knopf. Siehe den Kasten unten — die Einträge werden geprüft, nicht bloß escaped |
@@ -343,16 +346,56 @@ Drei Dinge, auf die ein solches Addon achten muss:
 - **Der eigene Slug ist zu prüfen.** Alle drei Filter laufen für jeden
   Anbieter; ein Callback, der `$provider` ignoriert, würde auch dann antworten,
   wenn der Admin einen anderen Anbieter gewählt hat.
-- **`captcha.verify` gibt `null` zurück, wenn es nicht zuständig ist** - und
-  nur die vier definierten Urteile gelten als Antwort. Alles andere (auch
-  `true`) behandelt der Kern als „nicht geantwortet". Das ist Absicht: Der
-  `HookManager` verschluckt eine Exception im Callback und behält den
-  vorherigen Wert, ein abgestürztes Addon liefert damit `null` und niemals
-  versehentlich ein `OK`.
+- **`captcha.verify` ist eine FILTERKETTE, kein Einzelaufruf.** Das ist der
+  Punkt, an dem die naheliegende Lesart schadet: Es läuft **jedes**
+  installierte Anbieter-Addon, nacheinander, jeweils auf dem Ergebnis des
+  vorherigen. Wer nicht zuständig ist, muss den **hereingereichten Wert
+  unverändert zurückgeben** — nicht `null`. Gibt ein unzuständiges Addon
+  stumpf `null` zurück, löscht es das Urteil des zuständigen, das vor ihm lief,
+  und der Kern fällt auf seine eingebaute Aufgabe zurück, die der Besucher nie
+  zu sehen bekam.
+
+  ```php
+  public function verify(?string $verdict, string $provider, string $context, array $input): ?string {
+      if ($provider !== 'mein-anbieter') {
+          return $verdict;   // NICHT null - siehe oben
+      }
+      return $this->pruefe($input) ? Captcha::OK : Captcha::WRONG;
+  }
+  ```
+
+  Nur die vier definierten Urteile gelten als Antwort; alles andere (auch
+  `true`) behandelt der Kern als „nicht geantwortet". Der Startwert der Kette
+  ist `null`, und das ist Absicht: Der `HookManager` verschluckt eine Exception
+  im Callback und behält den vorherigen Wert — ein abgestürztes Addon liefert
+  damit `null` und niemals versehentlich ein `OK`.
 - **Antwortet niemand, prüft der Kern selbst.** Ein deaktiviertes oder
   abgestürztes Addon lässt das Formular also weder ungeschützt noch sperrt es
   Betroffene aus. Ein Addon darf sich deshalb nicht darauf verlassen, dass sein
   Widget die einzige Hürde ist.
+
+### Eigene Formulare anmelden (#351)
+
+Bis v0.7 kannte der Kern genau einen Kontext (`'dsgvo'`). Die öffentlichen
+Formulare dieses Systems liegen aber überwiegend in Addons — genau die, die
+Spam bekommen, konnten den Unterbau nicht nutzen. Ein Addon meldet seine
+Formulare deshalb an:
+
+```php
+public function captchaContexts(): array {
+    return ['kontaktanfrage' => 'Kontaktanfrage an einen Kontakt'];
+}
+```
+
+Der Betreiber wählt daraufhin unter *Systemeinstellungen* **je Formular**, ob
+und womit geschützt wird. Das ist mehr als Bequemlichkeit: Im DSGVO-Formular
+machen Betroffene ihre Rechte aus Art. 15/17 geltend, und ihre IP-Adresse
+dabei an einen Drittanbieter zu übertragen ist ausgerechnet dort kaum zu
+rechtfertigen — anderswo dagegen schon.
+
+Ein **nicht angemeldeter** Kontext schaltet den Schutz nicht ab, sondern
+erzwingt den eingebauten und wird protokolliert: Ein Tippfehler im
+Kontextnamen macht ein Formular höchstens strenger, nie ungeschützter.
 
 Das gerenderte Fragment wird **in das bestehende Formular** eingesetzt. Ein
 Addon kann keine vorgeschaltete Prüfseite und keinen zweiten Schritt erzwingen -

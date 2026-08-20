@@ -134,7 +134,7 @@ define('APP_KEY', getenv('APP_KEY') ?: ($dbConfig['app_key'] ?? ''));
 // Kern-Version (siehe CHANGELOG.md) - wird von App\Plugin\PluginManager gegen das
 // 'core_compatibility'-Feld im plugin.json-Manifest jedes Plugins geprüft, bevor es
 // geladen wird (siehe docs/plugin-development.md).
-define('CORE_VERSION', '0.8.0-beta.1');
+define('CORE_VERSION', '0.8.0-beta.2');
 
 // In-Place-Selbstaktualisierung (#85). In einer klassischen/Shared-Hosting-
 // Installation gehört der Code demselben Benutzer, unter dem PHP läuft - das

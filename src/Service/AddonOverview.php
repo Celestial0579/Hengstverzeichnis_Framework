@@ -64,7 +64,8 @@ final class AddonOverview {
      * @return array<int, array{
      *   slug: string, name: string, installedVersion: string,
      *   availableVersion: ?string, hasUpdate: bool, enabled: bool,
-     *   manifestError: ?string, reasonCurrent: ?string, reasonTarget: ?string
+     *   manifestError: ?string, reasonCurrent: ?string, reasonTarget: ?string,
+     *   availableSupportsTarget: ?bool
      * }>
      */
     public static function rows(?string $targetVersion = null): array {
@@ -104,9 +105,42 @@ final class AddonOverview {
                 'reasonTarget' => ($manifestError === null && $targetVersion !== null && $targetVersion !== '')
                     ? PluginManager::incompatibilityReason($manifest, $targetVersion)
                     : null,
+                // Gäbe es für die Zielversion überhaupt eine passende
+                // Addon-Fassung? (#364)
+                //
+                // Das ist die Frage, an der sich entscheidet, ob ein Update
+                // Aufsicht braucht: Nicht der Versionssprung an sich ist das
+                // Problem, sondern ein veraltetes Addon, für das es keinen
+                // Ersatz gibt. Wo eine passende Fassung bereitliegt, zieht die
+                // Addon-Phase sie nach dem Kern von selbst mit.
+                //
+                // null heisst ausdrücklich "keine Aussage" - kein Katalog, kein
+                // Eintrag, keine Zielversion. Die Aufrufer behandeln das wie
+                // "kein Update möglich", also strenger: "konnte nicht prüfen"
+                // ist nicht "geprüft, ist in Ordnung".
+                'availableSupportsTarget' => self::availableSupportsTarget($catalogEntry, $targetVersion),
             ];
         }
         return $rows;
+    }
+
+    /**
+     * Unterstützt die im Katalog verfügbare Fassung eines Addons die
+     * Zielversion des anstehenden Kern-Updates? (#364)
+     *
+     * @param array<string, mixed>|null $catalogEntry
+     */
+    private static function availableSupportsTarget(?array $catalogEntry, ?string $targetVersion): ?bool {
+        if ($catalogEntry === null || $targetVersion === null || $targetVersion === '') {
+            return null;
+        }
+        // Der Katalog führt core_compatibility und core_supported_max mit
+        // (Whitelist in GithubAddonRepository) - genau die beiden Felder, die
+        // incompatibilityReason() braucht.
+        if (!isset($catalogEntry['core_supported_max'], $catalogEntry['core_compatibility'])) {
+            return null;
+        }
+        return PluginManager::incompatibilityReason($catalogEntry, $targetVersion) === null;
     }
 
     /**

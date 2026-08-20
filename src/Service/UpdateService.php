@@ -230,6 +230,89 @@ class UpdateService {
     }
 
     /**
+     * Aktive Addons, die die Zielversion nicht unterstützen UND für die es
+     * keine passende Fassung gibt (#362, #364).
+     *
+     * DAS IST DIE EINE REGEL FÜR BEIDE WEGE. Sie beantwortet die Frage
+     * „braucht dieses Update Aufsicht?" - unbeaufsichtigt heisst das
+     * „zurückstellen und melden", von Hand „die Zielversion abtippen".
+     *
+     * ENTSCHEIDEND IST NICHT DER VERSIONSSPRUNG. Ein erster Entwurf hat hier
+     * auf den Linienwechsel abgestellt (0.7.x -> 0.8.x) - das war falsch:
+     * Updates sollen grundsätzlich automatisch laufen, so wie es die beiden
+     * Einstellungen Kanal (stabil/beta) und Reichweite (nur Patch/jede
+     * Version) vorgeben. Ein Linienwechsel, für den passende Addon-Fassungen
+     * bereitliegen, ist unproblematisch - die Addon-Phase zieht sie nach dem
+     * Kern von selbst mit.
+     *
+     * Aufsicht braucht genau ein Fall: ein aktives Addon, das die Zielversion
+     * nicht unterstützt und für das auch im Katalog nichts Passendes liegt.
+     * Dann verschwindet eine Funktion, und niemand kann sie zurückholen.
+     *
+     * `availableSupportsTarget === null` heisst „keine Aussage" (kein
+     * Katalog, kein Eintrag) und wird wie „kein Update möglich" behandelt -
+     * die strengere Seite. „Konnte nicht prüfen" ist nicht „geprüft, ist in
+     * Ordnung".
+     *
+     * Bis v0.8.0-beta.1 prüfte `runAutoInstallIfEligible()` ausschließlich die
+     * Versionslinie (AUTO_SCOPE_*). Dass ein Minor-Sprung damit auch dann
+     * ausblieb, wenn er Addons zerlegt hätte, war ein Nebeneffekt und keine
+     * Zusicherung: Es galt nur, weil `core_supported_max` zufällig ebenfalls
+     * auf Major.Minor läuft. Wer die Reichweite auf AUTO_SCOPE_ANY stellte,
+     * hatte gar keinen Schutz - der Kern wurde getauscht, und sämtliche
+     * Addons der alten Linie waren danach fail-closed unsichtbar. Genau in
+     * diesem Zustand ist das System nach v0.8.0-beta.1 gewesen: Kern-Release
+     * draußen, Addons-Release der Linie 0.8 noch nicht.
+     *
+     * Rein und ohne Netz/DB - dieselbe Trennung wie bei
+     * isEligibleForAutoInstall(), damit die Grenze isoliert prüfbar ist.
+     *
+     * @param array<int, array<string, mixed>> $addonRows Zeilen aus AddonOverview::rows($ziel)
+     * @return array<int, string> Menschenlesbare Gründe, leer = nichts im Weg
+     */
+    public static function addonsBlockingAutoInstall(array $addonRows): array {
+        $gruende = [];
+        foreach ($addonRows as $row) {
+            // Nur AKTIVE Addons. Ein deaktiviertes läuft ohnehin nicht mit;
+            // es aufzuhalten hieße, ein Update wegen etwas zu verweigern, das
+            // niemand benutzt.
+            if (empty($row['enabled'])) {
+                continue;
+            }
+            $grund = $row['reasonTarget'] ?? null;
+            if (!is_string($grund) || $grund === '') {
+                continue;
+            }
+            // Gibt es eine passende Fassung, ist nichts im Weg - die
+            // Addon-Phase zieht sie nach dem Kern mit.
+            if (($row['availableSupportsTarget'] ?? null) === true) {
+                continue;
+            }
+            $gruende[] = sprintf(
+                '%s: %s%s',
+                (string)($row['slug'] ?? '?'),
+                $grund,
+                ($row['availableSupportsTarget'] ?? null) === null
+                    ? ' (kein Katalog-Eintrag - es liess sich nicht feststellen, ob es eine passende Fassung gibt)'
+                    : ' (auch im Addon-Store liegt keine passende Fassung)'
+            );
+        }
+        return $gruende;
+    }
+
+    /**
+     * Merkzettel, für welche Zielversion die Addon-Sperre schon gemeldet
+     * wurde - damit der TÄGLICHE Lauf nicht täglich dieselbe Mail schickt.
+     *
+     * Bewusst ein eigener Schlüssel und nicht der von rememberNotifiedState():
+     * "über diese Version wurde informiert" und "diese Version wurde wegen
+     * Addons zurückgestellt" sind verschiedene Aussagen, und wer den einen
+     * Merkzettel für den anderen benutzt, unterdrückt irgendwann die falsche
+     * Meldung.
+     */
+    private const SETTING_BLOCKED_NOTIFIED = 'update_auto_install_blocked_version';
+
+    /**
      * Vergleicht die aktuell verfügbaren Updates gegen den zuletzt gemeldeten
      * Stand und liefert nur, was NEU ist. Ohne diesen Vergleich stünde alle
      * drei Stunden dieselbe Meldung im Postfach, bis das Update eingespielt
@@ -559,12 +642,19 @@ class UpdateService {
         } else {
             $mailer = new Mailer();
             $autoInstall = self::isAutoInstallEnabled();
+            // Das konkrete Ergebnis statt der Bedingung (#364): Wird DIESE
+            // Version unbeaufsichtigt eingespielt oder nicht? null, wenn gar
+            // keine Kern-Version dabei ist (reine Addon-Meldung).
+            $kernWirdEingespielt = ($autoInstall && $findings['coreIsNew'] && $availableCore !== null)
+                ? self::isEligibleForAutoInstall(self::currentVersion(), $availableCore, self::configuredAutoScope())
+                : null;
             foreach ($recipients as $recipient) {
                 if ($mailer->sendUpdatesAvailableNotification(
                     $recipient,
                     $findings['coreIsNew'] ? $availableCore : null,
                     $findings['newAddons'],
-                    $autoInstall
+                    $autoInstall,
+                    $kernWirdEingespielt
                 )) {
                     $sent++;
                 }
@@ -650,6 +740,40 @@ class UpdateService {
             return;
         }
 
+        // Addon-Sperre (#362). NUR für den unbeaufsichtigten Weg - der
+        // manuelle Knopf warnt namentlich und bleibt bedienbar: Wer die
+        // Warnung liest und trotzdem aktualisiert, entscheidet informiert.
+        // Eine Sperre auch dort ließe jeden stranden, dessen Addon nicht mehr
+        // gepflegt wird.
+        //
+        // Hier gilt die strengere Regel: Unbeaufsichtigt wird nur eingespielt,
+        // was nichts kaputtmacht. Bewusst wird NICHT nachgesehen, ob es im
+        // Katalog eine passende Addon-Version gäbe - der Katalog-Cache kann
+        // veraltet sein ("konnte nicht prüfen" ist nicht "geprüft"), und die
+        // Addon-Phase läuft erst NACH dem Austausch des Kerns. Scheiterte sie
+        // dort, stünde die Instanz bereits auf dem neuen Kern mit toten
+        // Addons - also genau in dem Zustand, den diese Sperre verhindern soll.
+        $blocker = self::addonsBlockingAutoInstall(
+            \App\Service\AddonOverview::rows((string)$check['latest'])
+        );
+        if ($blocker !== []) {
+            AuditLogger::log(
+                'Automatisches Update zurückgestellt: Addons',
+                'update',
+                sprintf(
+                    'Version %s würde %d aktive(s) Addon(s) deaktivieren: %s. '
+                    . 'Manuell unter /admin/updates einspielbar.',
+                    (string)$check['latest'],
+                    count($blocker),
+                    implode(' | ', $blocker)
+                ),
+                null,
+                'SYSTEM'
+            );
+            self::notifyAutoInstallBlockedOnce((string)$check['latest'], $blocker);
+            return;
+        }
+
         $recipients = self::adminRecipients();
         $mailer = new Mailer();
 
@@ -689,6 +813,83 @@ class UpdateService {
             null,
             'SYSTEM'
         );
+    }
+
+    /**
+     * Ist die Addon-Sperre für DIESE Zielversion noch zu melden? (#362)
+     *
+     * Rein und ohne Netz/DB - dieselbe Trennung wie bei
+     * isEligibleForAutoInstall() und addonsBlockingAutoInstall(), damit die
+     * Grenze isoliert prüfbar ist.
+     *
+     * Der Merkzettel hält GENAU EINE Version fest, nicht eine Liste. Das ist
+     * Absicht: Erscheint eine neuere Zielversion, ist das eine neue Lage - die
+     * betroffenen Addons können andere sein, und der Betreiber soll erneut
+     * erfahren, dass sein System stehen bleibt. Eine Liste aller je gemeldeten
+     * Versionen würde dagegen dazu führen, dass er nach einem Rücksprung auf
+     * eine ältere Zielversion (etwa nach dem Zurückziehen eines Releases)
+     * nichts mehr hört.
+     */
+    public static function shouldNotifyBlocked(string $zuletztGemeldet, string $zielVersion): bool {
+        if ($zielVersion === '') {
+            return false; // Ohne Zielversion gibt es nichts zu melden.
+        }
+        return $zuletztGemeldet !== $zielVersion;
+    }
+
+    /**
+     * Meldet die Addon-Sperre - höchstens EINMAL je Zielversion (#362).
+     *
+     * Warum überhaupt gemeldet wird, wo das Überschreiten der eingestellten
+     * Reichweite bewusst stumm bleibt: Die Reichweite hat der Betreiber selbst
+     * gewählt, das Ausbleiben ist dort die gewollte Wirkung. Diese Sperre
+     * dagegen hat er nicht gewählt. Bliebe sie stumm, hörte die Instanz auf,
+     * sich zu aktualisieren, und niemand wüsste warum - der schlechteste
+     * denkbare Zustand für eine Sicherheitsfunktion.
+     *
+     * @param array<int, string> $gruende
+     */
+    private static function notifyAutoInstallBlockedOnce(string $zielVersion, array $gruende): void {
+        try {
+            $settings = self::loadSettings();
+            if (!self::shouldNotifyBlocked(
+                (string)($settings[self::SETTING_BLOCKED_NOTIFIED] ?? ''),
+                $zielVersion
+            )) {
+                return;
+            }
+
+            // Eigene Nachricht, NICHT die Fehlschlag-Variante: Es ist
+            // nichts fehlgeschlagen, und ein "Update fehlgeschlagen" im
+            // Postfach liesse den Betreiber nach einem Defekt suchen, den es
+            // nicht gibt. Sie nennt alle vier Auswege - aktualisieren,
+            // deaktivieren, entfernen, trotzdem einspielen - samt dem, was
+            // jeder kostet.
+            $mailer = new Mailer();
+            foreach (self::adminRecipients() as $empfaenger) {
+                $mailer->sendAutoUpdateBlockedNotification(
+                    $empfaenger,
+                    (string)(defined('CORE_VERSION') ? CORE_VERSION : ''),
+                    $zielVersion,
+                    $gruende
+                );
+            }
+
+            Database::getInstance()->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([self::SETTING_BLOCKED_NOTIFIED, $zielVersion]);
+        } catch (\Throwable $e) {
+            // Eine gescheiterte Meldung darf die Sperre nicht aufheben - der
+            // Protokolleintrag oben steht bereits.
+            AuditLogger::log(
+                'Meldung zur Addon-Sperre fehlgeschlagen',
+                'update',
+                $e->getMessage(),
+                null,
+                'SYSTEM'
+            );
+        }
     }
 
     /**

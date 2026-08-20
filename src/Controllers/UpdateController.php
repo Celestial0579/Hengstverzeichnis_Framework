@@ -206,6 +206,56 @@ class UpdateController extends BaseController {
             exit;
         }
 
+        // Ausdrückliche Bestätigung, wenn Addons auf der Strecke blieben (#364).
+        //
+        // HIER, nicht nur in der View. Ein Eingabefeld im Formular ist keine
+        // Prüfung - ein direkter POST kommt ohne es aus. Die View macht die
+        // Hürde sichtbar, durchgesetzt wird sie an dieser Stelle.
+        //
+        // Das Kriterium ist NICHT der Versionssprung. Updates sollen
+        // grundsätzlich laufen, so wie es Kanal und Reichweite vorgeben; ein
+        // Linienwechsel mit passenden Addon-Fassungen ist unproblematisch.
+        // Reibung braucht genau der Fall, in dem eine Funktion verschwindet
+        // und niemand sie zurückholen kann: ein aktives Addon, das die
+        // Zielversion nicht unterstützt und für das auch im Store nichts
+        // Passendes liegt.
+        //
+        // Ein Bestätigungsdialog hilft dagegen nicht - der wird mit "OK"
+        // beantwortet, ohne gelesen zu werden. Eine Versionsnummer tippt man
+        // nicht versehentlich ab (dasselbe Muster wie beim Löschen von
+        // Addon-Daten, #338).
+        //
+        // Blockiert wird NICHT. Der manuelle Weg muss jede Version einspielen
+        // können - er ist ja gerade der Ausweg, den die Automatik verweigert.
+        try {
+            $vorschau = UpdateService::checkForUpdate();
+        } catch (\Throwable $e) {
+            header("Location: /admin/updates?error=" . urlencode(
+                'Release-Prüfung fehlgeschlagen: ' . $e->getMessage()));
+            exit;
+        }
+
+        $ziel = (string)($vorschau['latest'] ?? '');
+        $verlierer = $ziel === ''
+            ? []
+            : UpdateService::addonsBlockingAutoInstall(\App\Service\AddonOverview::rows($ziel));
+
+        if ($verlierer !== []) {
+            $getippt = trim((string)($_POST['bestaetigung'] ?? ''));
+            if ($getippt !== $ziel) {
+                header("Location: /admin/updates?error=" . urlencode(sprintf(
+                    'Nicht aktualisiert: %d aktive(s) Addon(s) unterstützen %s nicht, und im Addon-Store '
+                    . 'liegt keine passende Fassung. Zum Einspielen muss die Zielversion zur Bestätigung '
+                    . 'eingetippt werden - die Addons werden dabei nicht gelöscht, aber unsichtbar. '
+                    . 'Betroffen: %s',
+                    count($verlierer),
+                    $ziel,
+                    implode(' | ', $verlierer)
+                )));
+                exit;
+            }
+        }
+
         try {
             $result = UpdateService::performUpdate();
         } catch (\Throwable $e) {

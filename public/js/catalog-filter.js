@@ -208,6 +208,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 geparst.innerHTML = data.cards_html;
                 grid.appendChild(geparst.content);
 
+                // Auch hier ausblenden (#337). data.cards_html ist
+                // public_catalog_cards.php, und diese Teilansicht rendert ihren
+                // eigenen [data-catalog-pagination]-Block mit - er wandert also
+                // bei JEDEM Nachladen erneut ins Grid. Das `hidden` vom Start
+                // galt nur für den Knoten, der damals da war; die neuen
+                // stapelten sich sichtbar zwischen den Karten ("2 / 5", Karten,
+                // "3 / 5", …). Der Aufruf beim Filterwechsel (:146) traf das
+                // nicht, weil dort das Grid ersetzt statt ergänzt wird.
+                hideServerPagination();
+
                 currentPage = data.page || (currentPage + 1);
                 totalPages = data.total_pages || totalPages;
                 // data.count ist beim Nachladen null (#320) - die zuletzt

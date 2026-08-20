@@ -6,6 +6,59 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.7.2] – 2026-08-20
+
+Vier Fehlerbehebungen ohne Schemaänderung. Addons der Linie 0.7 laufen
+unverändert weiter (`core_supported_max` vergleicht Major.Minor).
+
+### Behoben
+
+- **Katalog: Seitenzahl und Seitenwechsler stapelten sich beim Nachladen**
+  (#337). `public/js/catalog-filter.js` blendet die serverseitige
+  Seiten-Navigation aus, sobald JavaScript übernimmt — aber nur beim Start und
+  nach einem Filterwechsel, der das Grid *ersetzt*. Der Nachlade-Pfad hängt die
+  Server-Teilansicht an, und `public_catalog_cards.php` rendert ihren eigenen
+  `[data-catalog-pagination]`-Block mit. Mit jeder nachgeladenen Seite kam damit
+  ein weiterer Seitenwechsler mitten in die Kartenliste („2 / 5", Karten,
+  „3 / 5", …). Das `hidden` vom Start galt nur für den Knoten, der damals da
+  war; die Absicht stand längst als Kommentar im Code, nur der Nachlade-Pfad
+  setzte sie nicht um.
+
+- **Katalog: Kacheln ohne Bild standen 60 px höher** (#350).
+  `public_catalog_cards.php` gab dem Bildfall 180 px und dem Platzhalter mit
+  dem 🐴 nur 120 px. Der Textteil einer bildlosen Kachel begann dadurch weiter
+  oben als bei jeder Kachel mit Foto — unten glich sich der Knopf über `flex`
+  wieder an, Überschrift und Datenzeilen dazwischen blieben versetzt. Der
+  Platzhalter hat jetzt dieselbe Höhe; die Überlegung aus #263 (feste Höhe,
+  damit beim Nachladen kein Layout-Sprung entsteht) gilt für ihn genauso.
+
+- **„bis heute" bei gestorbenen Pferden** (#334). Ein offenes `until_year` in
+  den Personen-/Stationszeilen heißt „läuft noch". Bei einem gestorbenen Pferd
+  behauptete das eine laufende Aufstallung: Für ein 2017 verstorbenes Pferd
+  stand dort „Halter / Deckstation (2009 - heute)". An die Stelle tritt jetzt
+  das Todesjahr, wenn es bekannt ist, sonst „?" — geraten wird nichts.
+
+  Dazu die fehlende **Prüfung beim Speichern**: Für Geburts- und Todesjahr gab
+  es sie längst (`death_before_birth`), für die Abstammung ebenso — für die
+  Zeiträume in `horse_persons` fehlte das Gegenstück, und im Bestand standen
+  dadurch Halterzeiträume, die *nach* dem Todesjahr beginnen. Ein solcher
+  Zeitraum wird nun mit `period_after_death` abgelehnt.
+
+- **Telefonnummern sind `tel:`-Links** (#359). Öffentlich gezeigte Nummern
+  waren reiner Text; auf dem Telefon ließ sich damit nicht wählen, ohne sie
+  abzuschreiben. Die E-Mail-Adresse in derselben Tabelle ist längst ein
+  `mailto:`-Link, die Website ein geprüfter externer Link — nur das Telefon
+  blieb Text. Der neue Helfer `App\Helper\TelUrl` macht die Nummer für das
+  `href` maschinenlesbar.
+
+  **Eine Landesvorwahl wird dabei nicht erfunden**: Aus einer führenden `0` ein
+  `+49` zu machen wäre geraten, und der Bestand enthält Deckstationen unter
+  anderem in Dänemark und Norwegen. Die geklammerte Null der internationalen
+  Schreibweise (`+49 (0) 301 …`) entfällt dagegen — sie bedeutet genau das.
+  Was keine eindeutige Nummer ist (Freitext, Zusätze wie „nur vormittags"),
+  bleibt unverlinkter Text. Die Sichtbarkeit ändert sich nicht: verlinkt wird
+  nur, was ohnehin schon öffentlich dasteht.
+
 ## [0.7.1] – 2026-08-19
 
 Reine Fehlerbehebung: die vierzehn Befunde des Codescans vom 2026-08-18

@@ -63,7 +63,7 @@ $statusLabels = [
         <?php if ($kontaktFrei && !empty($station['phone'])): ?>
             <tr style="border-bottom: 1px solid var(--border-color);">
                 <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📞 <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars($station['phone']) ?></td>
+                <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$station['phone']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$station['phone']) ?></a><?php else: ?><?= htmlspecialchars((string)$station['phone']) ?><?php endif; ?></td>
             </tr>
         <?php endif; ?>
         <?php if ($kontaktFrei && !empty($station['email'])): ?>

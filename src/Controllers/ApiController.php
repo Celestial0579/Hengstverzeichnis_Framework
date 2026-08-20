@@ -305,7 +305,10 @@ class ApiController extends JsonApiController {
             'status' => $row['status'],
             'is_deceased' => (bool)$row['is_deceased'],
             'death_year' => $row['death_year'] !== null ? (int)$row['death_year'] : null,
-            'image_url' => $row['image_url'],
+            'image_url' => \App\Helper\MediaUrl::horseImage($row),   // #368: NICHT der rohe
+                //   Speicherpfad. Der wäre eine Adresse ohne Zugriffsprüfung: Wer ihn
+                //   einmal abruft, kennt den Dateinamen und kommt auch nach einer
+                //   Depublikation noch an das Bild. Die Route prüft bei jedem Abruf neu.
             'breeding_station' => $row['station_name'] ?: $row['breeding_station'],
             'sire' => $sireName ? ['name' => $sireName, 'ueln' => $row['linked_sire_ueln'] ?: $row['unlinked_sire_ueln']] : null,
             'dam' => $damName ? ['name' => $damName, 'ueln' => $row['linked_dam_ueln'] ?: $row['unlinked_dam_ueln']] : null,

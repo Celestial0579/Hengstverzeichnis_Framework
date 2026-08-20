@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Det finns inga offentliga uppgifter om denna kontakt.',
     'contact.horses_heading' => '🐴 Hästar kopplade till denna kontakt',
     'contact.no_horses' => 'Det finns för närvarande inga hästar kopplade till denna kontakt i registret.',
+    'contact.horses_truncated' => 'Endast de första {count} hästarna visas — hela listan finns i katalogen.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Juridisk information / Integritetspolicy / GDPR (statiska platshållartexter)

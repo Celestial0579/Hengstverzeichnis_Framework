@@ -79,6 +79,9 @@ final class HorseSearchSql {
      * sie ist absichtlich so schmal, dass nichts hindurchpasst, was aus der
      * Anfrage stammen könnte: ein Aufzählungsfall, sonst nichts.
      */
+    /** Siehe setPluginIdCount(). */
+    private PluginIdCount $pluginIds;
+
     public function add(HorseSearchCondition $condition): void {
         $this->conditions[] = $condition;
     }
@@ -100,9 +103,23 @@ final class HorseSearchSql {
     public function placeholderCount(): int {
         $summe = 0;
         foreach ($this->conditions as $condition) {
-            $summe += $condition->placeholders();
+            $summe += $condition->placeholdersFor($this);
         }
         return $summe;
+    }
+
+    /**
+     * Zahl der Kennungen im Addon-Filter (#371). Anders als bei allen anderen
+     * Bedingungen ist sie nicht fest, sondern haengt davon ab, wie viele
+     * Treffer das Addon geliefert hat - deshalb steht sie hier und nicht als
+     * Konstante am Aufzaehlungsfall.
+     */
+    public function setPluginIdCount(PluginIdCount $anzahl): void {
+        $this->pluginIds = $anzahl;
+    }
+
+    public function pluginIdCount(): int {
+        return ($this->pluginIds ?? PluginIdCount::keine())->anzahl;
     }
 
     /**
@@ -277,11 +294,26 @@ final class HorseSearchSql {
 
             HorseSearchCondition::Description => "h.description LIKE ?",
 
-            // Addon-Filter (#346): EIN gebundener Wert, eine kommagetrennte
-            // ID-Liste. Siehe die Begruendung an HorseSearchCondition::PluginIds.
-            // Eine LEERE Liste trifft nichts - das ist richtig so: Ein Addon,
-            // das "keine Treffer" meint, muss das sagen koennen.
-            HorseSearchCondition::PluginIds => "FIND_IN_SET(h.id, ?)",
+            // Addon-Filter (#346, Laufzeit #371): eine echte IN-Liste mit
+            // einem gebundenen Wert je Kennung.
+            //
+            // Frueher stand hier FIND_IN_SET(h.id, ?) mit EINER kommagetrennten
+            // Zeichenkette. Das war sicherheitsseitig richtig gedacht - ein
+            // gebundener Wert statt einer erzeugten Platzhalterliste - aber
+            // FIND_IN_SET ist nicht sargable: Der Primaerschluessel bleibt
+            // ungenutzt, und fuer JEDE Kandidatenzeile wird die komplette
+            // Zeichenkette tokenisiert. Bei 5.000 Pferden und 3.000 Kennungen
+            // sind das rund 15 Mio. Token-Vergleiche je Abfrage, und der
+            // Filter verhindert zusaetzlich jede Vorselektion.
+            //
+            // Das Sicherheitsargument haelt auch hier: Die Zahl der
+            // Platzhalter ergibt sich aus der LAENGE des Arrays, nie aus einem
+            // Anfragewert - in die Klausel gelangt kein Zeichen von aussen.
+            // Eine LEERE Liste trifft nichts, wie zuvor: Ein Addon, das
+            // "keine Treffer" meint, muss das sagen koennen.
+            HorseSearchCondition::PluginIds => $this->pluginIdCount() > 0
+                ? 'h.id IN (' . implode(',', array_fill(0, $this->pluginIdCount(), '?')) . ')'
+                : '0 = 1',
         };
     }
 

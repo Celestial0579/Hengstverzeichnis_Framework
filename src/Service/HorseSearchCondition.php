@@ -97,9 +97,11 @@ enum HorseSearchCondition {
      * das einen SQL-Ausschnitt beisteuern darf, macht genau diese Zusicherung
      * zunichte, und zwar dauerhaft: Ab dann muesste man jedem Addon glauben.
      *
-     * Eine ID-Liste kann das nicht. Sie geht als EIN gebundener Wert hinein
-     * (FIND_IN_SET), das Addon bekommt also volle Freiheit bei der Auswahl und
-     * keine beim SQL.
+     * Eine ID-Liste kann das nicht. Sie geht als IN-Liste hinein, deren
+     * Platzhalterzahl sich allein aus der Laenge des Arrays ergibt - das Addon
+     * bekommt also volle Freiheit bei der Auswahl und keine beim SQL. Wie
+     * viele Platzhalter es sind, weiss nur HorseSearchSql; deshalb gibt es
+     * neben placeholders() das kontextabhaengige placeholdersFor().
      */
     case PluginIds;
 
@@ -112,6 +114,16 @@ enum HorseSearchCondition {
      * kommen ganz ohne Platzhalter aus. Genau deshalb darf die Zahl hier
      * stehen, ohne den Kontext zu kennen.
      */
+    public function placeholdersFor(HorseSearchSql $sql): int {
+        // Der Addon-Filter ist der einzige Fall mit variabler Laenge (#371):
+        // ein Platzhalter je gelieferter Kennung, und keiner, wenn das Addon
+        // "keine Treffer" gemeldet hat (die Klausel ist dann '0 = 1').
+        if ($this === self::PluginIds) {
+            return $sql->pluginIdCount();
+        }
+        return $this->placeholders();
+    }
+
     public function placeholders(): int {
         return match ($this) {
             self::NotDeleted, self::PublishedOnly, self::Deceased => 0,
@@ -122,6 +134,10 @@ enum HorseSearchCondition {
             // Acht ueln-Spalten plus die weiteren Lebensnummern (#246).
             self::Ueln => 9,
             self::Station, self::Sire, self::Dam => 2,
+            // Variabel (#371) - die tatsaechliche Zahl kennt nur
+            // HorseSearchSql, siehe placeholdersFor(). 0 ist der Zustand
+            // "kein Addon-Filter gesetzt".
+            self::PluginIds => 0,
             default => 1,
         };
     }

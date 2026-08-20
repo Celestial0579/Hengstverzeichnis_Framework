@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Det finnes ingen offentlige opplysninger om denne kontakten.',
     'contact.horses_heading' => '🐴 Hester knyttet til denne kontakten',
     'contact.no_horses' => 'Det er for tiden ingen hester knyttet til denne kontakten i registeret.',
+    'contact.horses_truncated' => 'Bare de første {count} hestene vises — hele listen finnes i katalogen.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Juridisk informasjon / personvern / GDPR (statiske plassholdertekster)

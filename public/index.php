@@ -291,6 +291,12 @@ $router->get('/admin/logs', [App\Controllers\AdminController::class, 'logs']);
 // Admin Plugin Management Routes (#56)
 $router->get('/admin/plugins', [App\Controllers\PluginController::class, 'index']);
 $router->post('/admin/plugins/toggle', [App\Controllers\PluginController::class, 'toggle']);
+// Deinstallation (#373). Ohne diese beiden Zeilen lieferte der gesamte Pfad
+// 404 - Controller, Ansicht und Datenregister waren gebaut, aber nicht
+// erreichbar, und der einzige Weg im Kern, Addon-Nutzdaten auf Knopfdruck zu
+// entfernen, war tot ausgeliefert.
+$router->get('/admin/plugins/uninstall', [App\Controllers\PluginController::class, 'uninstallForm']);
+$router->post('/admin/plugins/uninstall', [App\Controllers\PluginController::class, 'uninstall']);
 
 // Addon-Store: Installation aus registrierten GitHub-Repos (siehe docs/plugin-system-plan.md, Phase 3)
 $router->get('/admin/plugins/store', [App\Controllers\AddonStoreController::class, 'index']);

@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Tästä kontaktista ei ole julkisia tietoja.',
     'contact.horses_heading' => '🐴 Tämän kontaktin hevoset',
     'contact.no_horses' => 'Tälle kontaktille ei ole tällä hetkellä merkitty hevosia rekisterissä.',
+    'contact.horses_truncated' => 'Näytetään vain {count} ensimmäistä hevosta — koko luettelo on luettelossa.',
     'meta.title_contact_detail_suffix' => 'Kontakti',
 
     // Julkaisutiedot / tietosuojaseloste / GDPR (staattiset paikkamerkkitekstit)

@@ -183,6 +183,7 @@ return [
     'contact.no_details' => 'Zu diesem Kontakt sind keine öffentlichen Angaben hinterlegt.',
     'contact.horses_heading' => '🐴 Pferde dieses Kontakts',
     'contact.no_horses' => 'Aktuell sind diesem Kontakt keine Pferde im Verzeichnis zugeordnet.',
+    'contact.horses_truncated' => 'Es werden nur die ersten {count} Pferde angezeigt — die vollständige Liste steht im Katalog.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Impressum / Datenschutz / DSGVO (statische Platzhaltertexte)

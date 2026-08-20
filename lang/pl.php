@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Brak publicznych informacji o tym kontakcie.',
     'contact.horses_heading' => '🐴 Konie przypisane do tego kontaktu',
     'contact.no_horses' => 'Obecnie w rejestrze nie ma koni przypisanych do tego kontaktu.',
+    'contact.horses_truncated' => 'Wyświetlanych jest tylko pierwszych {count} koni — pełna lista znajduje się w katalogu.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Nota prawna / Polityka prywatności / RODO (statyczne teksty zastępcze)

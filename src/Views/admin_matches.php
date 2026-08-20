@@ -231,6 +231,14 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
         </div>
     <?php endif; ?>
 
+    <?php if (!empty($kontaktDubletten['uebersprungen'])): ?>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">
+            <?= (int)$kontaktDubletten['uebersprungen'] ?> Platzhalter-Kontakt(e) nehmen nicht teil.
+            <?php // Ausdrücklich genannt, damit "gefiltert" nicht wie "nichts gefunden"
+                  // aussieht (#370) - vorher meldete die Seite schlicht die reduzierte Zahl. ?>
+        </p>
+    <?php endif; ?>
+
     <?php if (empty($kontaktDubletten['paare'])): ?>
         <p style="color: var(--success-fg);">Keine offenen Vorschläge — alles entschieden oder nichts gefunden.</p>
     <?php else: ?>

@@ -6,6 +6,147 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.8.0] – 2026-08-21
+
+Die stabile Fassung der 0.8er-Linie. Inhaltlich ist sie `0.8.0-beta.2` plus
+die Befunde eines Code-Scans, der vor der Freigabe lief — die beiden
+Vorabversionen bleiben unten dokumentiert.
+
+### Sicherheit
+
+- **Pferdefotos waren über den statischen Pfad weiterhin ohne
+  Sichtbarkeitsprüfung abrufbar** (#366). Mit #262 kam
+  `/media/horse-image` samt der Zusage, dass für Fotos dieselben Regeln
+  gelten wie für die Detailseite. Die Dateien lagen aber weiter unter
+  `public/uploads/horses/`, also **im Webroot**: `public/.htaccess` leitet nur
+  bei `!-f` auf den Front Controller um, eine existierende Bilddatei erreicht
+  ihn also nie. Wer den Dateinamen kannte — aus der API, aus einem
+  Bestandslink, aus dem Bildindex einer Suchmaschine — bekam das Foto auch
+  nach einer Depublikation weiter mit HTTP 200 ausgeliefert. Der Dateiname
+  ändert sich dabei nicht.
+
+  Die Ablage liegt jetzt unter `storage/horses/`, also außerhalb des
+  Webroots — dasselbe, was das Addon `galerie` von Anfang an tut. Ein
+  Migrationsschritt verschiebt vorhandene Dateien (kopieren, Inhalt
+  vergleichen, erst dann die Quelle löschen); bis er durch ist, liefert die
+  geprüfte Route sie weiter aus dem alten Verzeichnis. Zusätzlich sperrt ein
+  `public/uploads/horses/.htaccess` den statischen Weg hart — auch für
+  Instanzen, auf denen die Verschiebung nicht durchläuft.
+
+  **Für Docker-Installationen:** `docker-compose.yml` bringt dafür ein neues
+  Volume `horses_data` mit. Nach dem Image-Wechsel einmal
+  `docker compose up -d` mit der neuen Datei fahren, **bevor** die Migration
+  läuft — sonst landen die Fotos in einem Pfad ohne Volume.
+
+- **`GET /api/horses` gab den rohen Speicherpfad als `image_url` aus**
+  (#368). Alle Views des Kerns und die Addons waren auf
+  `MediaUrl::horseImage()` umgestellt, die JSON-API nicht — ausgerechnet die
+  Stelle, auf die die Begründungen in den Addons zeigen. Ein
+  API-Schlüssel mit `horses.view` genügte, um für jedes veröffentlichte Pferd
+  den Dateinamen einzusammeln; gültig bleiben musste er danach nicht.
+
+  **Nicht abwärtskompatibel:** Das Feld liefert jetzt
+  `/media/horse-image?id=42`. Der bisherige Wert war eine Adresse ohne
+  Zugriffsprüfung.
+
+### Behoben
+
+- **Ein Update brach ab, wenn ein Release ein neues Verzeichnis in einem
+  neuen Verzeichnis mitbrachte** (#365). Die Vorabprüfung meldete
+  „Verzeichnis kann nicht angelegt werden", weil `is_writable()` für einen
+  noch nicht existierenden Elternordner `false` liefert — das Update endete,
+  bevor eine einzige Datei angefasst wurde, beim unbeaufsichtigten Lauf
+  täglich erneut. Der Datei-Zweig kannte den Fall längst und fing ihn ab; der
+  Verzeichnis-Zweig hatte denselben Wächter nicht.
+
+- **Die Referer-Regel in `public/uploads/.htaccess` wirkte invers** (#367).
+  mod_rewrite ersetzt `%{HTTP_HOST}` nur in der TestString-Hälfte einer
+  `RewriteCond`, nicht im Muster — die Bedingung traf deshalb nie, und die
+  negierte Fassung galt für **jeden** nicht leeren Referer. Abrufe von der
+  eigenen Seite bekamen 403, während der einzige Fall, den die Regel bewusst
+  durchlassen wollte, ungeprüft durchlief. Der Block ist mit #366 ersatzlos
+  entfallen.
+
+- **Das Platzhaltermuster `nn` schloss echte Kontakte aus der
+  Dublettensuche aus** (#370). Geprüft wurde per `str_contains()`, also auf
+  Teilstring: Zimmermann, Hermann, Bachmann, Johanna, Sonnenhof — im
+  deutschsprachigen Zuchtwesen ein erheblicher Teil des Bestands — flogen aus
+  dem Kandidatenfeld, und ihre Dubletten erschienen nirgends. Die Seite
+  meldete „nichts gefunden". Verglichen wird jetzt wortweise, und die Zahl
+  der übersprungenen Platzhalter steht auf der Seite.
+
+- **Die Addon-Deinstallation war nicht erreichbar** (#373). Controller,
+  Ansicht und Datenregister waren gebaut und geprüft, die beiden Routen in
+  `public/index.php` fehlten: `GET` wie `POST` auf
+  `/admin/plugins/uninstall` ergaben 404. Der einzige Weg im Kern, Addon-
+  Nutzdaten auf Knopfdruck zu entfernen, war tot ausgeliefert. Die Routen
+  sind nachgetragen, und die Addon-Verwaltung verlinkt sie jetzt auch.
+
+- **`?note[]=x` an `/admin/matches/label` löste einen TypeError aus**
+  (#376). Ein Nicht-String gilt jetzt als „keine Notiz".
+
+### Geschwindigkeit
+
+- **Die Kontakt-Dublettensuche rechnete bei jedem Seitenaufruf neu** (#369).
+  Sie ist ein Kreuzprodukt: 800 Kontakte sind 319.600 Paare. Je Paar liefen
+  acht Normalisierungen mit je zwei `preg_replace` — derselbe Name wurde rund
+  800-mal neu normalisiert, in Summe über 2,5 Mio. Aufrufe. Gemessen kostete
+  ein Aufruf von `/admin/matches` dadurch rund **4,3 s**, und zwar auch beim
+  Blättern durch die Pferde-Vorschläge darüber.
+
+  Drei Änderungen: Die Normalisierung läuft einmal je Kontakt. Ein
+  **beweisbar verlustfreier** Vorfilter überspringt `similar_text()` für
+  Paare, die die Schwelle rechnerisch nicht mehr erreichen können
+  (`similar_text` kann höchstens `2*min(len)/(lenA+lenB)` liefern). Und das
+  Ergebnis liegt in einem Zwischenspeicher, dessen Fingerabdruck über die
+  **Inhalte** von `contacts` und `match_labels` gebildet wird — nicht über
+  Zeitstempel, die nur sekundengenau sind und zwei Änderungen derselben
+  Sekunde nicht auseinanderhalten könnten.
+
+  Ergebnis: 1,3 s kalt, 0,001 s warm.
+
+  Das im Befund vorgeschlagene Blocking über Anfangsbuchstaben und SOUNDEX
+  wurde **nicht** umgesetzt: Es setzt mindestens 88 % Namensähnlichkeit
+  voraus, was nur ohne Ort-Stützung gilt — mit Ort, PLZ und Land genügen rund
+  46 %, und dort hätte es echte Dubletten verschluckt. Ein Test hält das
+  gegen die vollständige Bewertung fest.
+
+- **Der Addon-Suchfilter lief als `FIND_IN_SET` über eine ungedeckelte
+  ID-Liste** (#371). Das ist nicht sargable: Der Primärschlüssel blieb
+  ungenutzt, und für jede Kandidatenzeile wurde die komplette Zeichenkette
+  tokenisiert. Jetzt steht dort eine echte `IN`-Liste, deren Platzhalterzahl
+  sich allein aus der Array-Länge ergibt — das Sicherheitsversprechen der
+  Suchklassen (kein Anfragewert gerät je in einen SQL-String) hält damit
+  weiterhin, durchgesetzt über einen eigenen Typ, den der Signatur-Wächter
+  in `HorseSearchSqlSafetyTest` zulässt.
+
+- **Die öffentliche Kontaktseite las die Deckstations-Pferde per `OR`/`EXISTS`
+  ohne Obergrenze** (#372). Das `OR` zwischen Spaltenvergleich und
+  korrelierter Unterabfrage macht beide Indizes unbrauchbar — jeder Aufruf
+  von `/kontakt?id=…` kostete einen Durchlauf über alle Pferde, und die Seite
+  ist öffentlich und von jeder Pferdeseite verlinkt, wird also auch von
+  Crawlern durchlaufen. Jetzt eine `UNION` (zwei Index-Zugriffe, entdoppelt
+  zugleich) mit einer Obergrenze von 200 Zeilen je Liste; wird gekürzt, sagt
+  die Seite es.
+
+### Tests
+
+- Vorher ungeprüft, jetzt festgenagelt: die Verweigerung der
+  Massen-Veröffentlichung von Kontakten ohne `contacts.publish` (#374), die
+  serverseitige Update-Sperre am **Endpunkt** statt nur als Funktion (#375),
+  die art-abhängige Rechteprüfung von `/admin/matches/label` (#376) und der
+  gesamte Deinstallationspfad inklusive `DROP TABLE` (#373).
+
+- `ContactSuggestionFinder` hatte keinen einzigen Test — jetzt gibt es einen,
+  der die Bewertung gegen ein Orakel ohne Vorfilter hält.
+
+### Migration
+
+`SCHEMA_VERSION` 11 → 12. Der Schritt verschiebt die Pferdefotos aus dem
+Webroot; er ist markergeschützt und wiederholt sich nicht. Bleibt eine Datei
+liegen (Rechte), wird **kein** Marker gesetzt: Sie wird weiter ausgeliefert,
+ist statisch gesperrt, und der nächste Lauf nimmt sie sich erneut vor.
+
 ## [0.8.0-beta.2] – 2026-08-20
 
 Die Update-Automatik sagt jetzt die Wahrheit — und hält an genau der einen

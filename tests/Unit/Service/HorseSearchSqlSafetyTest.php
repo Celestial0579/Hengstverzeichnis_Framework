@@ -160,13 +160,15 @@ class HorseSearchSqlSafetyTest extends TestCase {
             $mit = new HorseSearchSql($nurOeffentlich);
             $mit->add($condition);
 
+            // placeholdersFor() statt placeholders(): Der Addon-Filter hat
+            // seit #371 eine variable Länge, die nur die SQL-Hälfte kennt.
             $this->assertSame(
-                $condition->placeholders(),
+                $condition->placeholdersFor($mit),
                 substr_count($mit->whereSql(), '?') - substr_count($leer->whereSql(), '?'),
-                "Der Ausschnitt für {$condition->name} passt nicht zu placeholders()."
+                "Der Ausschnitt für {$condition->name} passt nicht zu placeholdersFor()."
             );
             $this->assertSame(
-                $condition->placeholders(),
+                $condition->placeholdersFor($mit),
                 $mit->placeholderCount() - $leer->placeholderCount(),
                 "placeholderCount() zählt {$condition->name} falsch."
             );
@@ -185,7 +187,13 @@ class HorseSearchSqlSafetyTest extends TestCase {
      * Gefahr.
      */
     public function testTheGeneratingHalfCannotAcceptRequestData(): void {
-        $erlaubt = [HorseSearchCondition::class, 'bool'];
+        // PluginIdCount ist bewusst dabei, ein blankes 'int' bewusst NICHT
+        // (#371): Das Wertobjekt lässt sich ausschließlich aus einem Array
+        // bilden, seine Zahl ist also immer eine Array-Länge. Ein
+        // Anfragewert kann diese Form gar nicht annehmen. Mit 'int' in der
+        // Liste stünde die Tür dagegen für jede künftige Zahl offen - und
+        // genau das soll dieser Test verhindern.
+        $erlaubt = [HorseSearchCondition::class, 'bool', \App\Service\PluginIdCount::class];
 
         $klasse = new \ReflectionClass(HorseSearchSql::class);
         foreach ($klasse->getMethods(\ReflectionMethod::IS_PUBLIC) as $methode) {
@@ -205,6 +213,63 @@ class HorseSearchSqlSafetyTest extends TestCase {
                 );
             }
         }
+    }
+
+    /**
+     * Die IN-Liste des Addon-Filters (#371), Fall für Fall.
+     *
+     * Der frühere FIND_IN_SET(h.id, ?) hatte eine feste Platzhalterzahl und
+     * war deshalb hier unauffällig - er war aber nicht sargable und zwang die
+     * Katalogabfrage zum Durchlauf über alle Pferde. Die IN-Liste nutzt den
+     * Primärschlüssel; ihr Preis ist eine variable Platzhalterzahl, und die
+     * muss zur Parameterliste passen, sonst bindet PDO versetzt.
+     */
+    public function testPluginFilterBuildsAnInListThatMatchesItsParameterCount(): void {
+        foreach ([0, 1, 3, 25] as $anzahl) {
+            // NICHT range(1, $anzahl): range(1, 0) zählt rückwärts und liefert
+            // [1, 0] statt einer leeren Liste.
+            $ids = $anzahl === 0 ? [] : range(1, $anzahl);
+            $leer = new HorseSearchSql(true);
+            $sql = new HorseSearchSql(true);
+            $sql->setPluginIdCount(\App\Service\PluginIdCount::fromIds($ids));
+            $sql->add(HorseSearchCondition::PluginIds);
+
+            $klausel = $sql->whereSql();
+
+            if ($anzahl === 0) {
+                // "Keine Treffer" muss aussprechbar bleiben - h.id IN () wäre
+                // ein Syntaxfehler.
+                $this->assertStringContainsString('0 = 1', $klausel);
+                $this->assertSame(0, substr_count($klausel, '?'));
+            } else {
+                $this->assertStringContainsString('h.id IN (', $klausel);
+                $this->assertStringNotContainsString('FIND_IN_SET', $klausel);
+            }
+
+            $this->assertSame(
+                $anzahl,
+                substr_count($klausel, '?') - substr_count($leer->whereSql(), '?'),
+                "Klausel für {$anzahl} Kennungen"
+            );
+            $this->assertSame(
+                $anzahl,
+                $sql->placeholderCount() - $leer->placeholderCount(),
+                "placeholderCount() für {$anzahl} Kennungen"
+            );
+        }
+    }
+
+    /**
+     * Und die Naht zur anderen Hälfte: Kennungen aus einem Addon müssen als
+     * gebundene Werte ankommen, nicht in der Klausel stehen.
+     */
+    public function testPluginIdsAreBoundValuesAndNeverPartOfTheClause(): void {
+        $sql = new HorseSearchSql(true);
+        $sql->setPluginIdCount(\App\Service\PluginIdCount::fromIds([4711, 4712]));
+        $sql->add(HorseSearchCondition::PluginIds);
+
+        $this->assertStringNotContainsString('4711', $sql->whereSql());
+        $this->assertStringContainsString('h.id IN (?,?)', $sql->whereSql());
     }
 
     /**

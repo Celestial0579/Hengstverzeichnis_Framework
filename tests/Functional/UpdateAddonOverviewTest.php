@@ -135,6 +135,90 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $this->assertStringContainsString('kompatibel mit Ziel 9.9.9?', $page->body);
     }
 
+    /**
+     * Dieselbe Sperre, aber am ENDPUNKT statt in der Ansicht (#375).
+     *
+     * Der Kommentar an UpdateController::run() begründet ausdrücklich, warum
+     * die Prüfung dort steht und nicht nur in der View: "Ein Eingabefeld im
+     * Formular ist keine Prüfung - ein direkter POST kommt ohne es aus."
+     * Genau dieser direkte POST wurde von keinem Test ausgeführt. Der einzige
+     * Test, den der Commit mitbrachte, prüfte die reinen Entscheidungs-
+     * funktionen von UpdateService, nie den Controller - und ein leerer
+     * Zielversions-String hätte die Sperre lautlos entfallen lassen.
+     *
+     * Der Fall "richtig abgetippt" ist bewusst NICHT dabei: Er liefe in
+     * performUpdate() weiter und würde versuchen, die laufende
+     * Testinstallation zu überschreiben. Geprüft wird stattdessen, dass die
+     * Sperre GREIFT - dass sie sich öffnen lässt, deckt
+     * testTypedTargetVersionPassesTheAddonGate() unten ab.
+     */
+    public function testDirectPostIsRefusedWhenAnActiveAddonCannotFollow(): void {
+        $this->createPluginDir([
+            'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '0.3',
+        ]);
+        $this->enablePlugin();
+        $this->writeReleasesFixture('9.9.9');
+
+        $admin = $this->fixtureInstanceAdmin();
+        $seite = $admin->get('/admin/updates?check=1');
+        $token = $seite->formField('csrf_token') ?? '';
+        $this->assertNotSame('', $token, 'Ohne Token prüft der POST nur den CSRF-Zweig');
+
+        // 1. Ganz ohne Bestätigungsfeld - der direkte POST aus dem Kommentar.
+        $ohne = $admin->post('/admin/updates/run', ['csrf_token' => $token]);
+        $this->assertStringContainsString(
+            'Nicht aktualisiert',
+            urldecode((string)$ohne->location()),
+            'Ein POST ohne abgetippte Zielversion muss abgelehnt werden'
+        );
+        $this->assertStringContainsString(self::SLUG, urldecode((string)$ohne->location()), 'Die Meldung muss das betroffene Addon nennen');
+
+        // 2. Mit falscher Zielversion - ein Feld auszufüllen genügt nicht.
+        $falsch = $admin->post('/admin/updates/run', [
+            'csrf_token' => $admin->get('/admin/updates')->formField('csrf_token') ?? $token,
+            'bestaetigung' => '0.0.0',
+        ]);
+        $this->assertStringContainsString('Nicht aktualisiert', urldecode((string)$falsch->location()));
+    }
+
+    /**
+     * Und die Gegenprobe: Mit der korrekt abgetippten Zielversion greift die
+     * Addon-Sperre NICHT mehr.
+     *
+     * Der Lauf endet danach trotzdem mit einem Fehler - das Release-Fixture
+     * verweist auf https://example.invalid, der Download scheitert also, und
+     * genau deshalb ist der Test hier ungefährlich: Er kommt an der Sperre
+     * vorbei, ohne die laufende Installation anzufassen. Geprüft wird die
+     * Unterscheidung der beiden Meldungen, nicht der Erfolg.
+     */
+    public function testTypedTargetVersionPassesTheAddonGate(): void {
+        $this->createPluginDir([
+            'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '0.3',
+        ]);
+        $this->enablePlugin();
+        $this->writeReleasesFixture('9.9.9');
+
+        $admin = $this->fixtureInstanceAdmin();
+        $seite = $admin->get('/admin/updates?check=1');
+
+        $antwort = $admin->post('/admin/updates/run', [
+            'csrf_token' => $seite->formField('csrf_token') ?? '',
+            'bestaetigung' => '9.9.9',
+        ]);
+
+        $ziel = urldecode((string)$antwort->location());
+        $this->assertStringNotContainsString(
+            'Nicht aktualisiert',
+            $ziel,
+            'Mit korrekt abgetippter Zielversion darf die Addon-Sperre nicht mehr greifen'
+        );
+        // Der Lauf scheitert danach am unerreichbaren Download - das ist der
+        // erwartete Ausgang und der Beleg, dass die Sperre passiert wurde.
+        $this->assertStringContainsString('error=', $ziel);
+    }
+
     public function testAddonUpdateRequiresCsrfToken(): void {
         $admin = $this->authenticatedClient();
 

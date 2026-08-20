@@ -6,7 +6,7 @@
 > automatisches Backup (#59) - vor jedem Update läuft zwingend ein
 > Backup-Lauf; schlägt er fehl, wird das Update abgebrochen. Angewendet wird
 > das unten beschriebene bereinigte Shared-Hosting-Zip; `config/db_config.php`,
-> `public/uploads/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
+> `public/uploads/`, `storage/horses/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
 > laufen wie gewohnt beim nächsten Request (`Database::ensureSchemaUpToDate()`).
 > Während des Einspielens setzt der Update-Lauf den Wartungsmodus (#232), damit
 > parallele Besucher nicht auf einen halb ausgetauschten Codebaum treffen.

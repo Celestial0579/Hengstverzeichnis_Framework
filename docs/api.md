@@ -132,7 +132,7 @@ curl -H "Authorization: Bearer hv_..." \
       "status": "active",
       "is_deceased": false,
       "death_year": null,
-      "image_url": "/uploads/horses/quantum.jpg",
+      "image_url": "/media/horse-image?id=42",
       "breeding_station": "Gestüt Musterhof",
       "sire": { "name": "Quantensprung", "ueln": "DE002TESTM02" },
       "dam": null,

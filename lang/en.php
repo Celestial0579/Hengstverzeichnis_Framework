@@ -166,6 +166,7 @@ return [
     'contact.no_details' => 'No public details are available for this contact.',
     'contact.horses_heading' => '🐴 Horses of this contact',
     'contact.no_horses' => 'No horses are currently assigned to this contact in the directory.',
+    'contact.horses_truncated' => 'Only the first {count} horses are shown — the full list is in the catalogue.',
     'meta.title_contact_detail_suffix' => 'Contact',
 
     // Legal Notice / Privacy Policy / GDPR (static placeholder texts)

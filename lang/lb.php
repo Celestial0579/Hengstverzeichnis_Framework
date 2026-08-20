@@ -174,6 +174,7 @@ return [
     'contact.no_details' => 'Zu dësem Kontakt sinn keng ëffentlech Angaben hannerluecht.',
     'contact.horses_heading' => '🐴 Päerd vun dësem Kontakt',
     'contact.no_horses' => 'Aktuell sinn dësem Kontakt keng Päerd am Verzeechnes zougeuerdent.',
+    'contact.horses_truncated' => 'Et gi just déi éischt {count} Päerd gewisen — déi komplett Lëscht steet am Katalog.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Impressum / Dateschutz / DSGVO (statesch Plazhaltertexter)

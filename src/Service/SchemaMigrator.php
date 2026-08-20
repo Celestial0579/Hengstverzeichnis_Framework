@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 11;
+    public const SCHEMA_VERSION = 12;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -1511,6 +1511,114 @@ final class SchemaMigrator {
             $addIndexLokal('horse_persons', 'idx_horse_persons_station_contact', '`station_contact_id`');
 
             return $meldungen;
+        });
+
+        // 31h. Pferdefotos aus dem Webroot holen (#366, SCHEMA_VERSION 12).
+        //
+        // Bis v0.8.0 lagen sie unter public/uploads/horses/ und wurden vom
+        // Webserver direkt ausgeliefert - an der Sichtbarkeitsprüfung des
+        // MediaControllers vorbei. Ein depubliziertes Pferd blieb unter seinem
+        // unveränderten Dateinamen abrufbar. Neuer Ort: storage/horses/.
+        //
+        // Kopieren, Inhalt vergleichen, erst dann die Quelle löschen. Ein
+        // move/rename wäre kürzer, aber wenn es auf halbem Weg scheitert
+        // (volle Platte, Rechte), ist das Foto weg - und Fotos gibt es nur
+        // einmal. Bleibt etwas liegen, wird KEIN Marker gesetzt: Der Rückfall
+        // in MediaController liefert die Datei weiter, das harte
+        // public/uploads/horses/.htaccess hält den statischen Weg zu, und der
+        // nächste Migrationslauf nimmt sich den Rest vor.
+        $dataStep('366_pferdefotos_aus_dem_webroot', function () use (&$performed): ?array {
+            $quelle = \App\Helper\HorseImagePath::legacyDir();
+            $ziel   = \App\Helper\HorseImagePath::dir();
+
+            // Leere Rückgabe statt einer Meldung: Der Schritt gilt als
+            // erledigt (Marker wird gesetzt), sagt aber nichts. Auf einem
+            // frisch importierten schema.sql darf run() ausschliesslich den
+            // Versionsstempel melden - alles andere wäre Schema-Drift, und
+            // genau darauf besteht SchemaMigratorTest.
+            if (!is_dir($quelle)) {
+                return [];
+            }
+
+            $eintraege = @scandir($quelle);
+            if ($eintraege === false) {
+                $performed[] = 'Pferdefotos (#366): public/uploads/horses ist nicht lesbar - Verschiebung übersprungen, wird erneut versucht';
+                return null;
+            }
+
+            $bilder = [];
+            foreach ($eintraege as $eintrag) {
+                if ($eintrag === '.' || $eintrag === '..') {
+                    continue;
+                }
+                $pfad = $quelle . '/' . $eintrag;
+                // Nur echte Bilddateien. .htaccess bleibt liegen - sie ist es,
+                // die den statischen Weg sperrt.
+                if (!is_file($pfad) || is_link($pfad)) {
+                    continue;
+                }
+                $endung = strtolower(pathinfo($eintrag, PATHINFO_EXTENSION));
+                if (!in_array($endung, ['jpg', 'jpeg', 'png', 'gif', 'webp'], true)) {
+                    continue;
+                }
+                $bilder[] = $eintrag;
+            }
+
+            if ($bilder === []) {
+                return [];
+            }
+
+            if (!is_dir($ziel) && !@mkdir($ziel, 0755, true) && !is_dir($ziel)) {
+                $performed[] = 'Pferdefotos (#366): storage/horses lässt sich nicht anlegen - Verschiebung übersprungen, wird erneut versucht';
+                return null;
+            }
+
+            $verschoben = 0;
+            $liegengeblieben = 0;
+            foreach ($bilder as $datei) {
+                $von = $quelle . '/' . $datei;
+                $nach = $ziel . '/' . $datei;
+
+                if (is_file($nach) && @filesize($nach) === @filesize($von) && @md5_file($nach) === @md5_file($von)) {
+                    // Schon übertragen (abgebrochener Vorlauf) - nur die Quelle räumen.
+                    if (@unlink($von)) {
+                        $verschoben++;
+                    } else {
+                        $liegengeblieben++;
+                    }
+                    continue;
+                }
+
+                if (!@copy($von, $nach) || @md5_file($nach) !== @md5_file($von)) {
+                    @unlink($nach);
+                    $liegengeblieben++;
+                    continue;
+                }
+                if (@unlink($von)) {
+                    $verschoben++;
+                } else {
+                    // Kopie ist heil, Quelle nicht löschbar. Nicht als Erfolg
+                    // zählen - die Datei liegt weiter im Webroot.
+                    $liegengeblieben++;
+                }
+            }
+
+            if ($liegengeblieben > 0) {
+                $performed[] = sprintf(
+                    'Pferdefotos (#366): %d von %d Datei(en) nach storage/horses verschoben, %d liegen noch in '
+                    . 'public/uploads/horses (Rechte prüfen). Sie werden weiter ausgeliefert und sind statisch '
+                    . 'gesperrt; der nächste Migrationslauf versucht es erneut.',
+                    $verschoben,
+                    count($bilder),
+                    $liegengeblieben
+                );
+                return null;
+            }
+
+            return [sprintf(
+                'Pferdefotos (#366): %d Datei(en) aus dem Webroot nach storage/horses verschoben',
+                $verschoben
+            )];
         });
 
         // 32. Dauerhafte Entscheidungen über Dubletten-Vorschläge (#355,

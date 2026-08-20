@@ -1,0 +1,26 @@
+# Pferdefotos werden NICHT statisch ausgeliefert (#366).
+#
+# Sie liegen seit v0.8.0 unter storage/horses/, also ausserhalb des Webroots.
+# Dieses Verzeichnis bleibt nur bestehen, weil auf Bestandsinstallationen noch
+# Dateien darin liegen koennen, solange die Verschiebung (SchemaMigrator,
+# Schritt 366_pferdefotos_aus_dem_webroot) nicht durch ist - und weil ein
+# Betreiber sie von Hand wiederherstellen koennte.
+#
+# Der Grund fuer die harte Sperre: Als statische Datei war ein Foto unabhaengig
+# von is_published abrufbar. public/.htaccess leitet nur bei !-f auf den Front
+# Controller um, eine existierende Bilddatei erreicht ihn also nie - die
+# Sichtbarkeitspruefung in App\Controllers\MediaController lief ins Leere, und
+# das Bild eines depublizierten Pferdes blieb unter seinem unveraenderten
+# Dateinamen erreichbar. CORP und ein Referer-Filter sind Einbettungsschutz,
+# kein Zugriffsschutz; sie halten einen direkten Abruf per curl oder Lesezeichen
+# nicht auf.
+#
+# Ausgeliefert wird ausschliesslich ueber /media/horse-image - dort gelten
+# dieselben Regeln wie fuer die Detailseite (horses.view, is_published,
+# gueltige Sitzung).
+#
+# WICHTIG: Diese Datei gilt nur fuer Apache. Auf nginx/Caddy gehoert das
+# Gegenstueck in die Serverkonfiguration:
+#     location ^~ /uploads/horses/ { deny all; }
+# Wo die Verschiebung durchgelaufen ist, ist das Verzeichnis ohnehin leer.
+Require all denied

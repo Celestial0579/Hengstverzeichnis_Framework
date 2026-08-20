@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Der er ingen offentlige oplysninger om denne kontakt.',
     'contact.horses_heading' => '🐴 Heste tilknyttet denne kontakt',
     'contact.no_horses' => 'Der er i øjeblikket ingen heste tilknyttet denne kontakt i registret.',
+    'contact.horses_truncated' => 'Kun de første {count} heste vises — den fulde liste findes i kataloget.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Kolofon / privatlivspolitik / GDPR (statiske pladsholdertekster)

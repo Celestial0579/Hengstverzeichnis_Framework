@@ -28,6 +28,20 @@ services:
       # ist. Im Image ist das Verzeichnis leer (nur .gitkeep), es wird also
       # nichts Veraltetes in das Volume eingefroren.
       - plugins_data:/var/www/html/plugins
+      # Pferdefotos liegen seit #366 unter storage/horses statt im Webroot -
+      # also NICHT mehr im uploads_data-Volume darueber. Ohne dieses Volume
+      # naehme der dokumentierte Update-Weg (`docker compose pull && up -d`)
+      # jedes hochgeladene Foto mit: Das Verzeichnis laege im
+      # Container-Dateisystem, und ein neuer Container startet mit dem leeren
+      # storage/ aus dem Image. Die Datenbankzeilen mit image_url blieben
+      # stehen, die Dateien nicht. Bewusst nur storage/horses und nicht
+      # storage/ als Ganzes - storage/logs gehoert ins Image.
+      #
+      # BESTANDSINSTALLATIONEN: Nach dem Image-Wechsel einmal
+      # `docker compose up -d` mit DIESER Datei fahren, damit das Volume
+      # existiert, BEVOR die Migration die Fotos aus public/uploads/horses
+      # dorthin verschiebt.
+      - horses_data:/var/www/html/storage/horses
       # HINWEIS zu config/db_config.php: Diese Datei entsteht erst zur
       # Laufzeit und nimmt auf, was im Admin-Bereich unter Systemeinstellungen
       # gepflegt wird - TRUSTED_PROXIES, die Embed-Freigabe, Tracking- und
@@ -77,3 +91,4 @@ volumes:
   db_data:
   uploads_data:
   plugins_data:
+  horses_data:

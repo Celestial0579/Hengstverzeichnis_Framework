@@ -7,6 +7,12 @@ config/db_config.php
 # Von Nutzern hochgeladene Inhalte (Logos, Pferdefotos) - keine Repo-Inhalte
 public/uploads/*
 !public/uploads/.htaccess
+# Das Unterverzeichnis muss ausdruecklich zurueckgeholt werden: Git steigt in
+# ein ausgeschlossenes Verzeichnis gar nicht erst hinab, die Ausnahme fuer die
+# darin liegende .htaccess bliebe sonst wirkungslos (#366).
+!public/uploads/horses/
+public/uploads/horses/*
+!public/uploads/horses/.htaccess
 
 # Lokale Claude-Code-Einstellungen (Tool-Berechtigungen, Dev-Server-Konfig)
 .claude/
@@ -32,3 +38,6 @@ var/*
 # Arbeitsverzeichnis, und Fehlermeldungen einzelner Laeufe landen im Repo.
 storage/logs/*
 !storage/logs/.gitkeep
+# Pferdefotos (#366) - Nutzdaten, nie im Repo, aber das Verzeichnis soll es geben.
+storage/horses/*
+!storage/horses/.gitkeep

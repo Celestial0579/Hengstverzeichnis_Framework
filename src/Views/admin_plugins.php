@@ -123,6 +123,18 @@ $manager = \App\Plugin\PluginManager::getInstance();
                             <?php else: ?>
                                 <span style="color: var(--text-subtle); font-size: 0.85rem;">-</span>
                             <?php endif; ?>
+
+                            <?php // Deinstallation (#373). Sie war gebaut, aber nirgends
+                                  // verlinkt und nicht einmal geroutet - der einzige Weg,
+                                  // Addon-Nutzdaten wieder loszuwerden, war unerreichbar.
+                                  // Ein Verweis, kein Knopf: Gelöscht wird erst auf der
+                                  // Folgeseite, nach Vorschau und abgetipptem Namen. ?>
+                            <a href="/admin/plugins/uninstall?slug=<?= urlencode($slug) ?>"
+                               class="btn btn-secondary"
+                               style="padding: 0.25rem 0.75rem; font-size: 0.85rem;"
+                               title="Addon entfernen - mit Vorschau, welche Tabellen und Dateien betroffen wären.">
+                                Deinstallieren
+                            </a>
                         </td>
                     </tr>
                 <?php endforeach; ?>

@@ -105,6 +105,10 @@ final class HorseSearchCriteria {
             );
         }
 
+        // Vor dem Abzaehlen: Die Laenge des Addon-Filters kennt nur diese
+        // Seite (#371), die Klausel wird daraus gebaut.
+        $sql->setPluginIdCount($this->pluginIds ?? PluginIdCount::keine());
+
         foreach ($this->conditions as $condition) {
             $sql->add($condition);
         }
@@ -314,6 +318,16 @@ final class HorseSearchCriteria {
      * verschluckt die Ausnahme und behaelt den vorherigen Wert) nicht
      * versehentlich alles ausblendet.
      */
+    /**
+     * Bindegrenze fuer den Addon-Filter - siehe applyPluginFilter().
+     * MySQL bindet hoechstens 65.535 Werte je Anweisung; darunter bleibt Luft
+     * fuer die uebrigen Bedingungen der Abfrage.
+     */
+    private const MAX_PLUGIN_IDS = 60000;
+
+    /** Wie viele Kennungen der Addon-Filter geliefert hat (#371). */
+    private PluginIdCount $pluginIds;
+
     private function applyPluginFilter(array $request): void {
         try {
             $ids = \App\Plugin\PluginManager::getInstance()->getHooks()
@@ -326,9 +340,7 @@ final class HorseSearchCriteria {
             return;
         }
 
-        // Nur echte Kennungen, und keine doppelten - FIND_IN_SET vergleicht
-        // Zeichenketten, ein durchgereichter Fremdwert waere hier zwar
-        // gebunden, aber sinnlos.
+        // Nur echte Kennungen, und keine doppelten.
         $sauber = [];
         foreach ($ids as $id) {
             $zahl = (int)$id;
@@ -336,8 +348,28 @@ final class HorseSearchCriteria {
                 $sauber[$zahl] = true;
             }
         }
+        $sauber = array_keys($sauber);
 
-        $this->activate(HorseSearchCondition::PluginIds, implode(',', array_keys($sauber)));
+        // Der Deckel ist eine Protokollgrenze, KEINE Laufzeitgrenze (#371):
+        // MySQL bindet hoechstens 65.535 Werte je Anweisung. Bewusst nicht
+        // niedriger: Ein Kuerzen der Liste wuerde Treffer stillschweigend
+        // unterschlagen - der Benutzer bekaeme eine unvollstaendige Liste, die
+        // wie eine vollstaendige aussieht. Und ein Verwerfen des Filters waere
+        // schlimmer, denn dann erschienen gerade die Pferde, die das Addon
+        // ausschliessen wollte. Fuer die Laufzeit braucht es den Deckel nicht
+        // mehr: `h.id IN (...)` nutzt den Primaerschluessel.
+        if (count($sauber) > self::MAX_PLUGIN_IDS) {
+            error_log(sprintf(
+                'horse.search_ids: %d Kennungen ueberschreiten die Bindegrenze von %d - Liste gekuerzt. '
+                . 'Das Addon sollte selbst ein LIMIT setzen (siehe docs/plugin-development.md).',
+                count($sauber),
+                self::MAX_PLUGIN_IDS
+            ));
+            $sauber = array_slice($sauber, 0, self::MAX_PLUGIN_IDS);
+        }
+
+        $this->pluginIds = PluginIdCount::fromIds($sauber);
+        $this->activate(HorseSearchCondition::PluginIds, ...$sauber);
     }
 
     /**
@@ -351,11 +383,18 @@ final class HorseSearchCriteria {
      * Treffer.
      */
     private function activate(HorseSearchCondition $condition, mixed ...$values): void {
-        if (count($values) !== $condition->placeholders()) {
+        // Der Addon-Filter hat als einziger eine variable Laenge (#371); seine
+        // Stueckzahl wird in applyTo() an HorseSearchSql weitergereicht und
+        // dort gegen die Parameterliste geprueft.
+        $erwartet = $condition === HorseSearchCondition::PluginIds
+            ? count($values)
+            : $condition->placeholders();
+
+        if (count($values) !== $erwartet) {
             throw new \LogicException(sprintf(
                 'Bedingung %s erwartet %d gebundene Werte, bekommen hat sie %d.',
                 $condition->name,
-                $condition->placeholders(),
+                $erwartet,
                 count($values)
             ));
         }

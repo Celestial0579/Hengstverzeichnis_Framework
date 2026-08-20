@@ -16,18 +16,16 @@ Options -Indexes -ExecCGI
     php_flag engine off
 </IfModule>
 
-# --- Einbettungsschutz fuer Pferdefotos (#262) ---
+# --- Einbettungsschutz fuer die verbliebenen Bilder (#262) ---
 #
-# Pferdefotos werden seit #262 ueber /media/horse-image ausgeliefert. Der direkte
-# statische Weg bleibt fuer Bestandslinks erreichbar, aber nicht mehr fuer fremde
-# Seiten: Cross-Origin-Resource-Policy wird vom Browser durchgesetzt und ist von
-# der einbettenden Seite nicht umgehbar.
+# Pferdefotos liegen seit #366 gar nicht mehr hier, sondern unter storage/horses
+# ausserhalb des Webroots; fuer sie gilt zusaetzlich das harte
+# public/uploads/horses/.htaccess. Was hier noch statisch ausgeliefert wird,
+# sind die Branding-Dateien (Logo) - die sollen oeffentlich sein, aber nicht von
+# fremden Seiten eingebettet werden.
 #
-# WICHTIG: Diese Datei gilt nur fuer Apache. Der eigentliche Schutz liegt
-# deshalb im Anwendungscode (App\Controllers\MediaController) - hier steht nur
-# die Absicherung des statischen Restwegs. Eine nginx-/Caddy-Installation
-# braucht das Gegenstueck in ihrer Serverkonfiguration; ohne sie bleibt der
-# statische Pfad ungeschuetzt, waehrend die Anwendung selbst korrekt liefert.
+# WICHTIG: Diese Datei gilt nur fuer Apache. Eine nginx-/Caddy-Installation
+# braucht das Gegenstueck in ihrer Serverkonfiguration.
 <IfModule mod_headers.c>
     <FilesMatch "\.(jpe?g|png|gif|webp)$">
         Header set Cross-Origin-Resource-Policy "same-origin"
@@ -35,13 +33,14 @@ Options -Indexes -ExecCGI
     </FilesMatch>
 </IfModule>
 
-# Referer-Filter als zweite Schicht: greift dort, wo CORP nicht greift (Clients
-# ohne CORP-Unterstuetzung). Ein LEERER Referer wird bewusst durchgelassen -
-# ihn zu blocken braeche direktes Aufrufen, Lesezeichen und Browser, die den
-# Referer grundsaetzlich unterdruecken.
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteCond %{HTTP_REFERER} !^$
-    RewriteCond %{HTTP_REFERER} !^https?://%{HTTP_HOST}(:[0-9]+)?/ [NC]
-    RewriteRule \.(jpe?g|png|gif|webp)$ - [F,L]
-</IfModule>
+# Frueher stand hier zusaetzlich ein Referer-Filter. Er ist ersatzlos entfallen
+# (#367), und zwar nicht nur, weil er ueberfluessig geworden ist: Er war falsch
+# herum wirksam. mod_rewrite ersetzt %{HTTP_HOST} nur in der TestString-Haelfte
+# einer RewriteCond, nicht im CondPattern - das Muster
+#     RewriteCond %{HTTP_REFERER} !^https?://%{HTTP_HOST}(:[0-9]+)?/ [NC]
+# enthielt die Zeichenfolge literal und traf deshalb nie. Damit war die negierte
+# Bedingung fuer JEDEN nicht leeren Referer wahr: Abrufe von der eigenen Seite
+# bekamen 403, waehrend genau der Fall ohne Referer - der einzige, den die Regel
+# bewusst durchlassen wollte - ungeprueft durchlief. Wer so eine Regel wieder
+# aufnimmt, zieht den Host in die TestString-Haelfte:
+#     RewriteCond %{HTTP_REFERER}::%{HTTP_HOST} !^https?://([^/:]+)(?::[0-9]+)?/.*::\1$ [NC]

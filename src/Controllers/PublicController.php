@@ -575,6 +575,15 @@ class PublicController extends BaseController {
     }
 
     /**
+     * Höchstzahl der Pferde, die eine öffentliche Kontaktseite auflistet
+     * (#372). Kein fachlicher Deckel, sondern ein Schutz der Seite: Sie ist
+     * öffentlich, von jeder Pferdeseite verlinkt und wird von Crawlern
+     * durchlaufen. Wer mehr sehen will, findet die vollständige Liste über
+     * den Katalog.
+     */
+    private const MAX_PFERDE_JE_KONTAKT = 200;
+
+    /**
      * Öffentliche Kontaktseite (#336) - die eine Seite, die
      * personDetail() (#293) und stationDetail() ersetzt, seit `persons` und
      * `breeding_stations` zu `contacts` zusammengeführt sind.
@@ -662,17 +671,31 @@ class PublicController extends BaseController {
         // Sichtbarkeit unerheblich.
         $horsesByRole = [];
         $stationHorses = [];
+        $horsesGekuerzt = false;
+        $stationHorsesGekuerzt = false;
         if ($this->hasPermission('horses', 'view')) {
+            // LIMIT auf beiden Abfragen (#372): Die Seite ist öffentlich und
+            // von jeder Pferde-Detailseite aus verlinkt, wird also auch von
+            // Crawlern durchlaufen. Ein Import-Platzhalterkontakt oder ein
+            // Großzüchter, an dem ein erheblicher Teil des Bestands hängt,
+            // rendert sonst den halben Bestand in eine HTML-Seite. Eine Zeile
+            // mehr holen, als angezeigt wird - daran erkennt der Aufrufer,
+            // dass gekürzt wurde, ohne eine zweite COUNT-Abfrage.
+            $deckel = self::MAX_PFERDE_JE_KONTAKT;
+
             $stmt = $db->prepare("
                 SELECT DISTINCT hp.role, h.id, h.name, h.ueln, h.birth_year, h.color,
-                       h.status, h.is_deceased, h.death_year, h.image_url
+                       h.status, h.is_deceased, h.death_year
                 FROM horse_persons hp
                 JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
                 WHERE hp.contact_id = ?
                 ORDER BY hp.role ASC, h.name ASC
+                LIMIT " . ($deckel + 1) . "
             ");
             $stmt->execute([$id]);
-            foreach ($stmt->fetchAll() as $row) {
+            $zeilen = $stmt->fetchAll();
+            $horsesGekuerzt = count($zeilen) > $deckel;
+            foreach (array_slice($zeilen, 0, $deckel) as $row) {
                 $role = (string)($row['role'] ?? '');
                 unset($row['role']);
                 $horsesByRole[$role][] = $row;
@@ -682,24 +705,35 @@ class PublicController extends BaseController {
             // Pferdes, horse_persons.station_contact_id die einer einzelnen
             // Zuordnungszeile (also auch historische). Die alte Stationsseite
             // kannte nur den ersten Weg; ein Pferd, das hier nur früher stand,
-            // fehlte dort. EXISTS statt JOIN, damit ein Pferd mit mehreren
-            // passenden Zuordnungszeilen genau einmal erscheint.
+            // fehlte dort.
+            //
+            // UNION statt OR/EXISTS (#372): Ein OR zwischen einem
+            // indizierbaren Spaltenvergleich und einer korrelierten
+            // Unterabfrage macht beide Indizes unbrauchbar - der Optimizer
+            // muss horses durchlaufen und für JEDE Zeile die Unterabfrage
+            // auswerten. Die beiden Zweige der UNION treffen dagegen je einen
+            // Index (horses.breeding_station_id als Fremdschlüssel,
+            // idx_horse_persons_station_contact), und die UNION entdoppelt
+            // zugleich - ein Pferd mit mehreren passenden Zuordnungszeilen
+            // erscheint genau einmal. Dasselbe Muster benutzt das Addon
+            // zucht-suche, mit derselben Begründung im Kommentar.
             $stmt = $db->prepare("
                 SELECT h.id, h.name, h.ueln, h.birth_year, h.color,
-                       h.status, h.is_deceased, h.death_year, h.image_url
+                       h.status, h.is_deceased, h.death_year
                 FROM horses h
                 WHERE h.deleted_at IS NULL AND h.is_published = 1
-                  AND (
-                        h.breeding_station_id = ?
-                        OR EXISTS (
-                            SELECT 1 FROM horse_persons hp
-                            WHERE hp.horse_id = h.id AND hp.station_contact_id = ?
-                        )
+                  AND h.id IN (
+                        SELECT id FROM horses WHERE breeding_station_id = ?
+                        UNION
+                        SELECT horse_id FROM horse_persons WHERE station_contact_id = ?
                   )
                 ORDER BY h.name ASC
+                LIMIT " . ($deckel + 1) . "
             ");
             $stmt->execute([$id, $id]);
             $stationHorses = $stmt->fetchAll();
+            $stationHorsesGekuerzt = count($stationHorses) > $deckel;
+            $stationHorses = array_slice($stationHorses, 0, $deckel);
         }
 
         // Erweiterungspunkt fuer Addons (Muster: horse.detail_sections, #56).
@@ -722,6 +756,8 @@ class PublicController extends BaseController {
             'contact' => $contact,
             'horsesByRole' => $horsesByRole,
             'stationHorses' => $stationHorses,
+            'horsesGekuerzt' => $horsesGekuerzt,
+            'stationHorsesGekuerzt' => $stationHorsesGekuerzt,
             'pluginDetailSections' => $pluginDetailSections,
         ]);
     }

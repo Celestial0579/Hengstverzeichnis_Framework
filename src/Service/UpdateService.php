@@ -55,6 +55,11 @@ class UpdateService {
     private const PROTECTED_PATHS = [
         'config/db_config.php',
         'public/uploads',
+        // Pferdefotos liegen seit #366 hier statt im Webroot. Ohne diesen
+        // Eintrag stünde der einzige Ort mit Nutzdaten, den ein Release
+        // theoretisch überschreiben könnte, ungeschützt da - 'storage' selbst
+        // ist NICHT geschützt, weil das Archiv storage/logs/.gitkeep mitbringt.
+        'storage/horses',
         'plugins',
         '.env',
     ];
@@ -1084,7 +1089,14 @@ class UpdateService {
                 if (is_dir($dst) && !is_writable($dst)) {
                     throw new \RuntimeException("Verzeichnis ist nicht beschreibbar: {$relPath}");
                 }
-                if (!is_dir($dst) && !is_writable(dirname($dst))) {
+                // Nur meckern, wenn der Elternordner wirklich schon existiert.
+                // Sonst legt copyTree() ihn in diesem Lauf selbst an
+                // (mkdir(..., recursive: true)) - is_writable() liefert für
+                // einen noch nicht existierenden Pfad immer false und würde
+                // jedes neue Verzeichnis in einem neuen Verzeichnis fälschlich
+                // als "nicht anlegbar" melden. Derselbe Wächter steht unten im
+                // Datei-Zweig.
+                if (!is_dir($dst) && is_dir(dirname($dst)) && !is_writable(dirname($dst))) {
                     throw new \RuntimeException("Verzeichnis kann nicht angelegt werden: {$relPath}");
                 }
                 self::assertTreeIsWritable($sourceDir, $targetDir, $relPath);

@@ -164,11 +164,6 @@ class MediaController extends BaseController {
      * CSV-Import oder eine Altdatenübernahme dort etwas anderes hineinschrieb.
      */
     private function resolveUploadPath(string $imageUrl): ?string {
-        $baseDir = realpath(__DIR__ . '/../../public/uploads/horses');
-        if ($baseDir === false) {
-            return null;
-        }
-
         $name = basename(parse_url($imageUrl, PHP_URL_PATH) ?? '');
         if ($name === '' || $name === '.' || $name === '..') {
             return null;
@@ -179,17 +174,31 @@ class MediaController extends BaseController {
             return null;
         }
 
-        $full = realpath($baseDir . '/' . $name);
-        if ($full === false || !is_file($full)) {
-            return null;
-        }
-        // realpath löst Symlinks auf: Ein Link im Upload-Verzeichnis dürfte
-        // sonst auf jede Datei des Systems zeigen.
-        if (!str_starts_with($full, $baseDir . DIRECTORY_SEPARATOR)) {
-            return null;
+        // Erst der Ablageort außerhalb des Webroots, dann der alte darin
+        // (#366). Der Rückfall ist für Instanzen, deren Verschiebung noch
+        // nicht gelaufen ist - er liefert dieselbe Datei, aber weiterhin durch
+        // diese geprüfte Route. Der statische Weg auf denselben Ordner ist
+        // zusätzlich per public/uploads/horses/.htaccess gesperrt.
+        foreach ([\App\Helper\HorseImagePath::dir(), \App\Helper\HorseImagePath::legacyDir()] as $candidate) {
+            $baseDir = realpath($candidate);
+            if ($baseDir === false) {
+                continue;
+            }
+
+            $full = realpath($baseDir . '/' . $name);
+            if ($full === false || !is_file($full)) {
+                continue;
+            }
+            // realpath löst Symlinks auf: Ein Link im Upload-Verzeichnis dürfte
+            // sonst auf jede Datei des Systems zeigen.
+            if (!str_starts_with($full, $baseDir . DIRECTORY_SEPARATOR)) {
+                continue;
+            }
+
+            return $full;
         }
 
-        return $full;
+        return null;
     }
 
     /**

@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Voor dit contact zijn geen openbare gegevens beschikbaar.',
     'contact.horses_heading' => '🐴 Paarden van dit contact',
     'contact.no_horses' => 'Er zijn momenteel geen paarden aan dit contact gekoppeld in het register.',
+    'contact.horses_truncated' => 'Alleen de eerste {count} paarden worden getoond — de volledige lijst staat in de catalogus.',
     'meta.title_contact_detail_suffix' => 'Contact',
 
     // Colofon / Privacyverklaring / AVG (statische plaatshouderteksten)

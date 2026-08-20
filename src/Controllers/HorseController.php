@@ -980,7 +980,11 @@ class HorseController extends BaseController {
         }
 
         $ext = $allowedMimeTypes[$mime];
-        $uploadDir = __DIR__ . '/../../public/uploads/horses/';
+        // Außerhalb des Webroots (#366): Im Webroot lieferte der Webserver
+        // jedes Foto direkt aus, ohne die Sichtbarkeitsprüfung des
+        // MediaControllers. Der zurückgegebene Spaltenwert bleibt unverändert -
+        // er ist eine Kennung, keine Adresse (siehe HorseImagePath).
+        $uploadDir = \App\Helper\HorseImagePath::dir() . '/';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0755, true);
         }
@@ -1247,7 +1251,10 @@ class HorseController extends BaseController {
             $a,
             $b,
             $label === '' ? null : $label,
-            $_POST['note'] ?? null
+            // Nicht-Strings abweisen statt in einen TypeError laufen (#376):
+            // ?note[]=x lieferte sonst eine 500-Seite. Dieselbe Klasse wie bei
+            // HorseSearchCriteria::readString().
+            is_string($_POST['note'] ?? null) ? $_POST['note'] : null
         );
 
         header('Location: /admin/matches?success=label');

@@ -68,7 +68,7 @@ final class PluginDataRegistry {
      * nicht zufällig auch in UpdateService::PROTECTED_PATHS: Das sind die
      * Stellen, an denen die Instanz das hält, was nicht aus dem Release kommt.
      */
-    private const TABU = ['public/uploads', 'plugins', 'config', 'storage/logs', '.git'];
+    private const TABU = ['public/uploads', 'plugins', 'config', 'storage/logs', 'storage/horses', '.git'];
 
     private function __construct() {}
 

@@ -340,8 +340,36 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
     }
 
 
-    private function seedHorseWithPhoto(bool $published): int {
-        $dir = __DIR__ . '/../../public/uploads/horses';
+    /**
+     * Der neue Ablageort außerhalb des Webroots (#366).
+     *
+     * Die übrigen Tests dieser Klasse legen ihre Bilder weiterhin unter
+     * public/uploads/horses ab und belegen damit den RÜCKFALL, der Instanzen
+     * trägt, deren Verschiebung noch nicht gelaufen ist. Dieser hier prüft den
+     * Regelfall: eine Datei in storage/horses, ausgeliefert über dieselbe
+     * geprüfte Route - und für ein unveröffentlichtes Pferd weiterhin nicht.
+     */
+    public function testPhotoInTheNewStorageLocationIsServedAndStillRespectsVisibility(): void {
+        $veroeffentlicht = $this->seedHorseWithPhoto(true, true);
+        $unveroeffentlicht = $this->seedHorseWithPhoto(false, true);
+
+        $gast = $this->newClient();
+
+        $antwort = $gast->get('/media/horse-image?id=' . $veroeffentlicht);
+        $this->assertSame(200, $antwort->statusCode, 'Ein Foto aus storage/horses muss ausgeliefert werden');
+        $this->assertStringStartsWith('image/png', (string)$antwort->header('content-type'));
+
+        $this->assertSame(
+            404,
+            $gast->get('/media/horse-image?id=' . $unveroeffentlicht)->statusCode,
+            'Der neue Ablageort ändert nichts an der Sichtbarkeitsprüfung'
+        );
+    }
+
+    private function seedHorseWithPhoto(bool $published, bool $neuerOrt = false): int {
+        $dir = $neuerOrt
+            ? \App\Helper\HorseImagePath::dir()          // storage/horses (#366)
+            : __DIR__ . '/../../public/uploads/horses';  // alter Ort - deckt den Rückfall ab
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }

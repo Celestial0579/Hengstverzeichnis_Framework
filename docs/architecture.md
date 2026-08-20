@@ -21,7 +21,10 @@ plugins/             Lokal aktivierte Plugins (siehe unten, nicht versioniert au
 public/             Docroot des Webservers (Apache DocumentRoot zeigt hierher)
   index.php          Front-Controller: Autoloader, Routing-Tabelle, Dispatch
   css/, js/          Statische Assets
-  uploads/           Hochgeladene Pferdebilder (persistentes Docker-Volume)
+  uploads/           Branding-Dateien, z. B. das Logo (persistentes Docker-Volume).
+                     Pferdefotos liegen seit #366 NICHT mehr hier, sondern unter
+                     storage/horses - im Webroot lieferte der Webserver sie an der
+                     Sichtbarkeitspruefung vorbei aus.
 src/
   Router.php          Routing + CSRF-Token-Hilfsmethoden
   Database.php         PDO-Singleton + automatisches Schema-Update
@@ -400,7 +403,9 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   Laufs, da das eigentliche Backup zu diesem Zeitpunkt bereits sicher
   hochgeladen ist). Mit der Opt-in-Einstellung „Hochgeladene Dateien
   mitsichern" (`backup_include_uploads`, #233) wird zusätzlich ein
-  tar(.gz)-Archiv von `public/uploads` ans selbe Ziel hochgeladen
+  tar(.gz)-Archiv von `public/uploads` **und `storage/horses`** ans selbe Ziel
+  hochgeladen (die Pferdefotos liegen seit #366 dort; im Archiv stehen sie
+  weiterhin unter `uploads/horses`)
   (`backups/uploads-<Zeitstempel>.tar.gz` neben
   `backups/backup-<Zeitstempel>.sql.gz`); die Rotation läuft getrennt je
   Backup-Art mit derselben Aufbewahrungsanzahl. Status des letzten Laufs

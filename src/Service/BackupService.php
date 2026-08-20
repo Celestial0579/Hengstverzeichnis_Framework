@@ -238,6 +238,16 @@ final class BackupService {
         if (is_dir($dir)) {
             $archive->addDirectoryTree($dir, 'uploads');
         }
+        // Pferdefotos liegen seit #366 außerhalb des Webroots und damit
+        // außerhalb von public/uploads. Ohne diese zweite Zeile enthielte
+        // "Hochgeladene Dateien mitsichern" plötzlich keine Pferdefotos mehr -
+        // und das fiele erst beim Zurückspielen auf. Sie landen im Archiv an
+        // ihrer alten Stelle (uploads/horses), damit der Inhalt derselbe
+        // bleibt wie vor der Verschiebung.
+        $horses = \App\Helper\HorseImagePath::dir();
+        if (is_dir($horses)) {
+            $archive->addDirectoryTree($horses, 'uploads/horses');
+        }
         $archive->close();
     }
 

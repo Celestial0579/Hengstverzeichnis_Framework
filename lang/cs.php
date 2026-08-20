@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'K tomuto kontaktu nejsou k dispozici žádné veřejné údaje.',
     'contact.horses_heading' => '🐴 Koně tohoto kontaktu',
     'contact.no_horses' => 'K tomuto kontaktu nejsou v rejstříku aktuálně evidováni žádní koně.',
+    'contact.horses_truncated' => 'Zobrazuje se pouze prvních {count} koní — úplný seznam najdete v katalogu.',
     'meta.title_contact_detail_suffix' => 'Kontakt',
 
     // Impresum / ochrana osobních údajů / GDPR (statické zástupné texty)

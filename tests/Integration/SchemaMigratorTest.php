@@ -356,4 +356,63 @@ class SchemaMigratorTest extends TestCase {
 
         $this->assertSame([], SchemaMigrator::run(self::$pdo));
     }
+
+    /**
+     * Die Verschiebung der Pferdefotos aus dem Webroot (#366).
+     *
+     * Der Schritt ist der riskanteste des ganzen Migrators: Fotos gibt es nur
+     * einmal. Deshalb kopiert er, vergleicht den Inhalt und löscht die Quelle
+     * erst danach - ein rename(), das auf halbem Weg scheitert, verlöre die
+     * Datei. Geprüft wird beides: dass verschoben wird, und dass ein zweiter
+     * Lauf nichts mehr anfasst.
+     */
+    #[Depends('testRunOnCurrentSchemaOnlyPersistsVersion')]
+    public function testHorsePhotosAreMovedOutOfTheWebroot(): void {
+        $alt = sys_get_temp_dir() . '/' . uniqid('hengst_alt_');
+        $neu = sys_get_temp_dir() . '/' . uniqid('hengst_neu_');
+        mkdir($alt, 0777, true);
+
+        // Ein Bild und zwei Dateien, die NICHT mitwandern dürfen: die
+        // .htaccess sperrt den statischen Weg und bleibt liegen, die .txt ist
+        // kein Bild.
+        file_put_contents($alt . '/horse_1755000000_a1b2c3d4.jpg', 'BILDINHALT');
+        file_put_contents($alt . '/.htaccess', 'Require all denied');
+        file_put_contents($alt . '/notiz.txt', 'kein Bild');
+
+        \App\Helper\HorseImagePath::overrideForTests($neu, $alt);
+        try {
+            // Marker entfernen und Version zurücksetzen, damit der Schritt läuft.
+            self::$pdo->exec("DELETE FROM `settings` WHERE `setting_key` = 'migration_366_pferdefotos_aus_dem_webroot'");
+            self::$pdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
+
+            $schritte = SchemaMigrator::run(self::$pdo);
+
+            $this->assertFileExists($neu . '/horse_1755000000_a1b2c3d4.jpg', 'Das Foto muss im neuen Verzeichnis liegen');
+            $this->assertSame('BILDINHALT', file_get_contents($neu . '/horse_1755000000_a1b2c3d4.jpg'));
+            $this->assertFileDoesNotExist($alt . '/horse_1755000000_a1b2c3d4.jpg', 'Im Webroot darf es nicht liegenbleiben');
+            $this->assertFileExists($alt . '/.htaccess', 'Die Sperre bleibt liegen - sie schützt Instanzen, bei denen der Schritt nicht durchlief');
+            $this->assertFileExists($alt . '/notiz.txt', 'Was kein Bild ist, wird nicht angefasst');
+
+            $this->assertNotEmpty(
+                array_filter($schritte, static fn(string $z) => str_contains($z, 'Pferdefotos (#366)')),
+                'Eine tatsächliche Verschiebung wird gemeldet'
+            );
+
+            // Zweiter Lauf: Marker steht, es passiert nichts mehr.
+            file_put_contents($alt . '/spaeter.jpg', 'DANACH');
+            self::$pdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
+            SchemaMigrator::run(self::$pdo);
+            $this->assertFileExists($alt . '/spaeter.jpg', 'Der Schritt darf sich nicht wiederholen');
+        } finally {
+            \App\Helper\HorseImagePath::overrideForTests(null, null);
+            foreach ([$alt, $neu] as $dir) {
+                foreach (glob($dir . '/{,.}*', GLOB_BRACE) ?: [] as $datei) {
+                    if (is_file($datei)) {
+                        @unlink($datei);
+                    }
+                }
+                @rmdir($dir);
+            }
+        }
+    }
 }

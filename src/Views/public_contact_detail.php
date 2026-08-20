@@ -25,6 +25,8 @@
 $pluginDetailSections = $pluginDetailSections ?? [];
 $horsesByRole = $horsesByRole ?? [];
 $stationHorses = $stationHorses ?? [];
+$horsesGekuerzt = $horsesGekuerzt ?? false;
+$stationHorsesGekuerzt = $stationHorsesGekuerzt ?? false;
 
 // Zuchtstatus seit dem Status-Split (#188) zweiwertig; der Lebensstatus
 // (is_deceased) bekommt in den Listen unten ein eigenes Badge.
@@ -224,6 +226,13 @@ $hatAngaben = !empty($placeParts)
                 <?php endforeach; ?>
             </div>
         <?php endforeach; ?>
+        <?php if (!empty($horsesGekuerzt)): ?>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.8rem;">
+                <?php // Nie stillschweigend kürzen (#372): Eine Liste, die einen Teil
+                      // verschweigt, behauptet Vollständigkeit. ?>
+                <?= htmlspecialchars(App\I18n\Translator::t('contact.horses_truncated', ['count' => count($horsesByRole, COUNT_RECURSIVE) - count($horsesByRole)])) ?>
+            </p>
+        <?php endif; ?>
     <?php endif; ?>
 </div>
 
@@ -242,6 +251,13 @@ $hatAngaben = !empty($placeParts)
                 <?php $horseRow($horse); ?>
             <?php endforeach; ?>
         </div>
+        <?php if (!empty($stationHorsesGekuerzt)): ?>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.8rem;">
+                <?php // Nie stillschweigend kürzen (#372): Eine Liste, die einen Teil
+                      // verschweigt, behauptet Vollständigkeit. ?>
+                <?= htmlspecialchars(App\I18n\Translator::t('contact.horses_truncated', ['count' => count($stationHorses)])) ?>
+            </p>
+        <?php endif; ?>
     </div>
 <?php endif; ?>
 

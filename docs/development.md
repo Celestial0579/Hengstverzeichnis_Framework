@@ -53,6 +53,7 @@ Aufbau von `docker-compose.yml`: ein `app`-Service (PHP 8.5 + Apache, Docroot
 auf `public/`, siehe [Dockerfile](../Dockerfile)) und ein `db`-Service
 (MariaDB 11) mit Healthcheck, sodass die App erst startet, wenn die DB bereit
 ist. `public/uploads` liegt in einem eigenen Docker-Volume (`uploads_data`),
+die Pferdefotos seit #366 in `horses_data` (`storage/horses`),
 damit hochgeladene Pferdebilder Container-Neustarts überleben.
 
 ## Ohne Docker (lokaler PHP-Server)
@@ -212,7 +213,8 @@ Zwei unterstützte Wege, siehe README für Details:
    siehe [releasing.md](releasing.md)).
 2. **Klassisches Shared-Hosting** über den Setup-Wizard, der
    `config/db_config.php` schreibt (Docroot muss auf `public/` zeigen,
-   `config/` und `public/uploads` müssen für den PHP-Prozess beschreibbar sein).
+   `config/`, `public/uploads` und `storage/horses` müssen für den PHP-Prozess
+   beschreibbar sein).
    Für Releases steht dafür ein bereinigtes Source-Zip ohne Dev-Tooling als
    Release-Asset bereit, siehe [releasing.md](releasing.md).
 

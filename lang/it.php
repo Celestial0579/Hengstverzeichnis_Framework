@@ -169,6 +169,7 @@ return [
     'contact.no_details' => 'Non sono disponibili informazioni pubbliche su questo contatto.',
     'contact.horses_heading' => '🐴 Cavalli di questo contatto',
     'contact.no_horses' => 'Al momento non risultano cavalli associati a questo contatto.',
+    'contact.horses_truncated' => 'Vengono mostrati solo i primi {count} cavalli — l\'elenco completo è nel catalogo.',
     'meta.title_contact_detail_suffix' => 'Contatto',
 
     // Note legali / Informativa sulla privacy / GDPR (testi segnaposto statici)

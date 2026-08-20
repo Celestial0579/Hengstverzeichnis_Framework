@@ -270,6 +270,38 @@ class UpdateServiceTest extends TestCase {
     }
 
     /**
+     * Ein Release darf ein neues Verzeichnis IN einem neuen Verzeichnis
+     * mitbringen (#365). Die Vorabprüfung sah das früher als "nicht anlegbar"
+     * an, weil is_writable() für einen noch nicht existierenden Elternordner
+     * false liefert - das Update brach ab, bevor eine einzige Datei angefasst
+     * wurde. copyTree() legt den Baum per mkdir(recursive) selbst an.
+     *
+     * Der Fall ist real: storage/logs/.gitkeep kam in ec659dd dazu, und das
+     * Release-Archiv schließt storage/ nicht aus - eine Installation aus
+     * v0.5.0 oder älter hat das Verzeichnis nicht.
+     */
+    public function testApplyUpdateArchiveCreatesNestedNewDirectories(): void {
+        $target = $this->makeTempDir('hengst_target_');
+
+        $zipPath = $this->makeZip([
+            'hengstverzeichnis-framework-9.9.9/index.php' => 'NEUE VERSION',
+            'hengstverzeichnis-framework-9.9.9/storage/logs/.gitkeep' => '',
+            'hengstverzeichnis-framework-9.9.9/storage/tief/tiefer/datei.txt' => 'X',
+        ]);
+
+        try {
+            $copied = UpdateService::applyUpdateArchive($zipPath, $target);
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame(3, $copied);
+        $this->assertDirectoryExists($target . '/storage/logs');
+        $this->assertFileExists($target . '/storage/logs/.gitkeep');
+        $this->assertSame('X', file_get_contents($target . '/storage/tief/tiefer/datei.txt'));
+    }
+
+    /**
      * Bricht das Kopieren mitten im Baum ab, muss die Installation auf dem
      * Stand VOR dem Update stehen - vorher blieb ein Mischstand aus zwei
      * Versionen zurück, und genau der wird als Nächstes ausgeführt.

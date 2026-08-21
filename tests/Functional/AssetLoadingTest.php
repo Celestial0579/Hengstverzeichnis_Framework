@@ -169,9 +169,28 @@ class AssetLoadingTest extends FunctionalTestCase {
      * in das PHP einen Text hineinschreibt (siehe public/js/confirm-submit.js).
      */
     public function testConfirmDialogsUseDataAttributesInsteadOfInlineHandlers(): void {
-        $body = $this->getOk('/');
-        $this->assertStringContainsString('/js/confirm-submit.js', $body, 'Das Skript für die Sicherheitsabfragen fehlt.');
-        $this->assertStringNotContainsString('onsubmit=', $body);
+        // Das Skript wird auf jeder Seite eingebunden - das prüft die
+        // Startseite mit.
+        $oeffentlich = $this->getOk('/');
+        $this->assertStringContainsString('/js/confirm-submit.js', $oeffentlich, 'Das Skript für die Sicherheitsabfragen fehlt.');
+
+        // Die eigentliche Zusicherung braucht aber eine Seite, auf der
+        // Sicherheitsabfragen ÜBERHAUPT vorkommen. Auf '/' steht kein
+        // einziges Bestätigungsformular - dort war
+        // assertStringNotContainsString('onsubmit=') eine Aussage über nichts
+        // und wäre auch dann grün geblieben, wenn jede Admin-Ansicht wieder
+        // auf onsubmit="return confirm('…')" zurückgebaut worden wäre.
+        $verwaltung = $this->authenticatedClient()->get('/admin/horses');
+        $this->assertSame(200, $verwaltung->statusCode);
+
+        // Positiv UND negativ: Ohne den ersten Teil wird der Test wieder
+        // inhaltsleer, sobald die Formulare einmal verschwinden.
+        $this->assertStringContainsString(
+            'data-confirm=',
+            $verwaltung->body,
+            'Die Pferdeliste muss Sicherheitsabfragen enthalten - sonst prüft die Zeile darunter nichts.'
+        );
+        $this->assertStringNotContainsString('onsubmit=', $verwaltung->body);
     }
 
     private function getOk(string $path): string {

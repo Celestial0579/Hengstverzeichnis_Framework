@@ -82,7 +82,20 @@ class ApiKeyTest extends TestCase {
      * Hälfte des Rechtemodells.
      */
     public function testPermitsRejectsActionOutsideScopeWithoutConsultingOwnerRights(): void {
+        // Der Besitzer bekommt hier ausdrücklich ALLE Rechte (Gruppe `admin`).
+        // Ohne diesen Schritt bewies der Test nichts: Ohne eingespielte
+        // Datenbank wirft GroupMembership::hasPermission() intern und liefert
+        // fail-closed false - assertFalse() wäre also auch dann grün, wenn
+        // ApiKey::permits() den Scope komplett ignorierte und nur noch die
+        // Besitzerrechte fragte. Genau das ist die Aussage, die hier
+        // widerlegt werden soll.
+        $this->seedOwnerWithFullRights();
+
         $key = ['user_id' => 1, 'scope' => ['horses.view']];
+
+        // Gegenprobe zuerst: Was IM Scope liegt, geht durch - sonst könnte
+        // die Fixture stillschweigend kaputt sein und alles wäre false.
+        $this->assertTrue(ApiKey::permits($key, 'horses', 'view'), 'Vorbedingung: der Besitzer darf alles, der Scope erlaubt horses.view');
 
         $this->assertFalse(ApiKey::permits($key, 'horses', 'edit'));
         $this->assertFalse(ApiKey::permits($key, 'persons', 'view'));
@@ -93,9 +106,27 @@ class ApiKeyTest extends TestCase {
      * unlesbar gewordener Scope-Eintrag behandelt, siehe authenticate()).
      */
     public function testPermitsRejectsEverythingForEmptyScope(): void {
+        // Auch hier: Der Besitzer darf alles. Nur so belegt das assertFalse()
+        // den leeren Scope und nicht bloss eine fehlende Datenbank.
+        $this->seedOwnerWithFullRights();
+
         $key = ['user_id' => 1, 'scope' => []];
 
         $this->assertFalse(ApiKey::permits($key, 'horses', 'view'));
+    }
+
+    /**
+     * Benutzer 1 in die eingebaute Gruppe `admin` legen - damit liefert
+     * GroupMembership::hasPermission() für jede Kombination true, und der
+     * Scope ist die einzige verbleibende Schranke.
+     */
+    private function seedOwnerWithFullRights(): void {
+        $pdo = $this->useInMemoryDatabase();
+        $pdo->exec("CREATE TABLE `groups` (id INTEGER PRIMARY KEY, slug TEXT NOT NULL)");
+        $pdo->exec("CREATE TABLE user_groups (user_id INTEGER NOT NULL, group_id INTEGER NOT NULL)");
+        $pdo->exec("CREATE TABLE group_permissions (group_id INTEGER NOT NULL, module TEXT NOT NULL, action TEXT NOT NULL)");
+        $pdo->exec("INSERT INTO `groups` (id, slug) VALUES (1, 'admin')");
+        $pdo->exec("INSERT INTO user_groups (user_id, group_id) VALUES (1, 1)");
     }
 
     public function testMaxKeysPerUserIsFive(): void {

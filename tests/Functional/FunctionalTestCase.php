@@ -47,7 +47,63 @@ abstract class FunctionalTestCase extends TestCase {
      * Formular - hier /admin/users/create.
      */
     protected function currentCsrfToken(HttpClient $client): string {
-        return $client->get('/admin/users/create')->formField('csrf_token') ?? '';
+        return $this->csrfTokenFrom($client, '/admin/users/create');
+    }
+
+    /**
+     * Token von einer AUSDRÜCKLICH genannten Seite - und ein harter Abbruch,
+     * wenn dort keins steht.
+     *
+     * WARUM DER ABBRUCH. currentCsrfToken() lieferte früher stillschweigend
+     * einen leeren String, wenn die Seite kein Formular hergab. Für einen
+     * Admin passiert das nie; für jeden anderen Benutzer schon, denn
+     * /admin/users/create verlangt das Recht `users`. Ein Redakteur bekommt
+     * dort 403 - und sein anschliessender POST scheitert dann am CSRF-Check,
+     * der VOR jeder Rechteprüfung steht.
+     *
+     * Die Folge ist ein Test, der aus dem falschen Grund grün ist: Er
+     * behauptet "die Rechteprüfung greift" und hat sie nie erreicht. Entfernt
+     * jemand die Rechteprüfung im Controller, bleibt er trotzdem grün. Genau
+     * das ist in dieser Suite mehrfach passiert und nur in einer Gegenprobe
+     * aufgefallen.
+     *
+     * Deshalb bricht das Holen jetzt ab, statt eine leere Zeichenkette
+     * weiterzureichen. Wer einen Nicht-Admin testet, nennt eine Seite, die
+     * dieser Benutzer auch sehen darf - siehe editorCsrfToken().
+     */
+    protected function csrfTokenFrom(HttpClient $client, string $pfad): string {
+        $seite = $client->get($pfad);
+        $token = $seite->formField('csrf_token') ?? '';
+        if ($token === '') {
+            self::fail(sprintf(
+                "Kein CSRF-Token auf %s (HTTP %d).\n"
+                . "Diese Sitzung darf die Seite offenbar nicht sehen. Ein leeres Token würde den "
+                . "folgenden POST am CSRF-Check scheitern lassen - der Test wäre grün, ohne die "
+                . "eigentliche Prüfung je erreicht zu haben. Hole das Token von einer Seite, die "
+                . "dieser Benutzer sehen darf (für Redakteure: editorCsrfToken()).",
+                $pfad,
+                $seite->statusCode
+            ));
+        }
+        return $token;
+    }
+
+    /**
+     * Token für einen Benutzer OHNE Verwaltungsrechte an Konten.
+     *
+     * Probiert der Reihe nach Seiten durch, die ein Redakteur mit den
+     * üblichen Rechten sehen kann. Findet keine davon ein Formular, bricht es
+     * ab statt leer zurückzukommen - dieselbe Begründung wie bei
+     * csrfTokenFrom().
+     */
+    protected function editorCsrfToken(HttpClient $client): string {
+        // Das Dashboard ist die richtige Quelle: Es rendert ein Formular mit
+        // Token und steht JEDER angemeldeten Sitzung offen -
+        // AdminController::dashboard() prüft nur checkAuth(), keine
+        // Einzelberechtigung. Damit funktioniert es auch für einen
+        // Testbenutzer ganz ohne Gruppen, und die Tests müssen ihren
+        // Rechte-Zuschnitt nicht verbiegen, nur um an ein Token zu kommen.
+        return $this->csrfTokenFrom($client, '/admin');
     }
 
     /**

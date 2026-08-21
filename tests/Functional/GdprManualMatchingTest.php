@@ -175,6 +175,16 @@ class GdprManualMatchingTest extends FunctionalTestCase {
      * GdprController erzwingt Anmeldung und Admin-Rolle - dass die neue Action
      * das erbt, ist eine Zusicherung, kein Zufall.
      */
+    /**
+     * Zwei Hürden, zwei Nachweise.
+     *
+     * Der anonyme Abruf allein belegt nur die ERSTE: GdprController ruft im
+     * Konstruktor erst checkAuth() und dann requireAdmin(); eine Sitzung ohne
+     * Anmeldung endet schon bei checkAuth() mit einem Redirect auf /login.
+     * requireAdmin() wird dabei nie erreicht - nähme jemand die Zeile heraus,
+     * bliebe dieser Test grün, obwohl danach jeder angemeldete Redakteur die
+     * Personensuche samt personenbezogener Daten abrufen könnte.
+     */
     public function testSearchIsNotReachableWithoutAdminSession(): void {
         $response = $this->newClient()->get('/admin/gdpr/search-persons?q=test');
 
@@ -182,6 +192,21 @@ class GdprManualMatchingTest extends FunctionalTestCase {
             200,
             $response->statusCode,
             'Die Personensuche liefert PII an eine nicht angemeldete Sitzung.'
+        );
+        $this->assertSame('/login', $response->location(), 'Anonym greift die Anmeldepflicht, nicht die Adminpflicht.');
+    }
+
+    public function testSearchIsNotReachableForAnOrdinaryEditor(): void {
+        $admin = $this->adminClient();
+        $unique = uniqid();
+        $editor = $this->createAndLoginEditor($admin, "gdprsuche{$unique}", "gdpr-suche-{$unique}@example.com");
+
+        $response = $editor->get('/admin/gdpr/search-persons?q=test');
+
+        $this->assertSame(
+            403,
+            $response->statusCode,
+            'Die Personensuche gehört Administratoren - eine angemeldete Redakteurssitzung reicht nicht.'
         );
     }
 

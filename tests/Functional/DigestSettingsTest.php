@@ -82,6 +82,30 @@ class DigestSettingsTest extends FunctionalTestCase {
         $this->assertMatchesRegularExpression('/value="admin"\s+checked/', $reloaded->body);
         $this->assertDoesNotMatchRegularExpression('/value="editor"\s+checked/', $reloaded->body);
 
+        // Der unbekannte Slug darf nicht durchgerutscht sein - und das lässt
+        // sich AN DER SEITE nicht ablesen: Die Kästchen entstehen aus der
+        // groups-Tabelle, ein Slug ohne Gruppe rendert gar kein Kästchen.
+        // Ohne diese Zeile wäre der Test auch dann grün, wenn die
+        // Positivliste in AdminController::updateDigestSettings() wegfiele
+        // und 'admin,gibt-es-nicht' gespeichert würde.
+        $this->assertSame(
+            'admin',
+            $this->setting('digest_recipient_groups'),
+            'Ein unbekannter Gruppen-Slug muss serverseitig herausgefiltert werden, nicht nur unsichtbar bleiben'
+        );
+
+        // Und der Fall, der ohne die Positivliste zum stillen leeren
+        // Verteiler führt: AUSSCHLIESSLICH unbekannte Slugs. Nach dem Filtern
+        // bleibt nichts übrig, das muss abgelehnt werden.
+        $nurUnbekannt = $admin->post('/admin/digest', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'digest_enabled' => '0',
+            'digest_interval_hours' => '24',
+            'digest_recipient_groups' => ['gibt-es-nicht', 'auch-nicht'],
+        ]);
+        $this->assertSame('/admin/digest?error=no_recipient_groups', $nurUnbekannt->location());
+        $this->assertSame('admin', $this->setting('digest_recipient_groups'), 'Die abgelehnte Eingabe darf den Bestand nicht überschreiben');
+
         // Leere Auswahl wird abgelehnt.
         $rejected = $admin->post('/admin/digest', [
             'csrf_token' => $this->currentCsrfToken($admin),
@@ -114,5 +138,19 @@ class DigestSettingsTest extends FunctionalTestCase {
         ]);
 
         $this->assertSame('/admin/digest?success=digest_skipped', $response->location());
+    }
+
+    /**
+     * Liest einen gespeicherten Wert direkt aus der Datenbank.
+     *
+     * Nötig, weil die Ansicht ihre Kästchen aus der `groups`-Tabelle baut: Ein
+     * gespeicherter Slug ohne zugehörige Gruppe erzeugt dort gar kein Element
+     * und ist am HTML nicht zu erkennen.
+     */
+    private function setting(string $schluessel): ?string {
+        $stmt = \App\Database::getInstance()->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+        $stmt->execute([$schluessel]);
+        $wert = $stmt->fetchColumn();
+        return $wert === false ? null : (string)$wert;
     }
 }

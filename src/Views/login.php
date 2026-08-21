@@ -43,9 +43,13 @@
     <form action="/login" method="POST">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
+        <?php // Kein type="email" mehr (#348): Der Browser wiese einen
+              // Benutzernamen als ungueltig ab, bevor das Formular ueberhaupt
+              // abgeht. Die Kennung darf beides sein. ?>
         <div class="form-group">
-            <label for="email"><?= htmlspecialchars(App\I18n\Translator::t('auth.email_label')) ?></label>
-            <input type="email" id="email" name="email" class="form-control" required autofocus>
+            <label for="kennung"><?= htmlspecialchars(App\I18n\Translator::t('auth.identifier_label')) ?></label>
+            <input type="text" id="kennung" name="kennung" class="form-control" required autofocus
+                   autocomplete="username" maxlength="100" autocapitalize="none" spellcheck="false">
         </div>
 
         <div class="form-group">

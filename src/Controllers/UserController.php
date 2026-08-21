@@ -5,6 +5,8 @@ namespace App\Controllers;
 
 use App\Database;
 use App\Helper\Paginator;
+use App\Permission\EmailRequirement;
+use App\Security\LoginIdentifier;
 
 class UserController extends BaseController {
 
@@ -19,7 +21,7 @@ class UserController extends BaseController {
         // group_names: für die Anzeige aggregierte Gruppenmitgliedschaft (#66) -
         // ersetzt die frühere "Rolle"-Spalte, seit Gruppen das einzige Rechtesystem sind.
         $stmt = $db->query("
-            SELECT u.id, u.username, u.email, u.created_at, u.totp_enabled,
+            SELECT u.id, u.username, u.email, u.created_at, u.totp_enabled, u.email_2fa_enabled,
                    u.deactivated_at, u.deactivated_reason,
                    GROUP_CONCAT(g.name ORDER BY g.is_builtin DESC, g.name SEPARATOR ', ') AS group_names
             FROM users u
@@ -72,10 +74,8 @@ class UserController extends BaseController {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 
-        $errors = [];
-        if (empty($username)) $errors[] = "Benutzername erforderlich.";
+        $errors = LoginIdentifier::usernameErrors($username);
         if ($this->isReservedUsername($username)) $errors[] = "Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht verwendet werden.";
-        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = "Gültige E-Mail-Adresse erforderlich.";
         if (strlen($password) < 8) $errors[] = "Passwort muss mindestens 8 Zeichen lang sein.";
 
         // Auch Fehler-Renders brauchen die Gruppenliste + die getroffene Auswahl -
@@ -84,6 +84,11 @@ class UserController extends BaseController {
         $db = Database::getInstance();
         $assignableGroups = $this->assignableGroups($db);
         $selectedGroupIds = array_map('intval', (array)($_POST['groups'] ?? []));
+
+        // E-Mail ist seit #348 keine Pflichtangabe mehr - aber nur fuer Konten
+        // OHNE Bearbeitungs- oder Veroeffentlichungsrechte. Was das genau
+        // heisst, steht in EmailRequirement.
+        $errors = array_merge($errors, $this->emailFehler($db, $email, $selectedGroupIds));
 
         if (!empty($errors)) {
             $this->render('admin_user_form', [
@@ -100,15 +105,21 @@ class UserController extends BaseController {
         try {
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, must_change_password) VALUES (?, ?, ?, 1)");
-            $stmt->execute([$username, $email, $passwordHash]);
+            // Leere Eingabe heisst "keine Adresse", nicht "leere Adresse":
+            // Der UNIQUE-Index laesst beliebig viele NULL zu, aber nur EINEN
+            // Leerstring - das zweite Konto ohne Adresse liefe sonst in einen
+            // Duplikatsfehler (#348).
+            $stmt->execute([$username, $email === '' ? null : $email, $passwordHash]);
             $newUserId = (int)$db->lastInsertId();
 
             $this->syncUserGroups($db, $newUserId, $_POST['groups'] ?? []);
 
             \App\Service\AuditLogger::log("Benutzer angelegt", "users", "Benutzer: {$username} ({$email})");
 
-            // Send Welcome E-Mail with initial credentials if requested
-            if (!empty($_POST['send_welcome_email'])) {
+            // Send Welcome E-Mail with initial credentials if requested.
+            // Ohne Adresse gibt es nichts zu versenden - das Erstpasswort
+            // geht dann auf Papier heraus (#348).
+            if (!empty($_POST['send_welcome_email']) && $email !== '') {
                 $mailer = new \App\Service\Mailer();
                 $mailer->sendWelcomeEmail($email, $username, $password);
             }
@@ -186,11 +197,40 @@ class UserController extends BaseController {
         $assignableGroups = $this->assignableGroups($db);
         $selectedGroupIds = array_map('intval', (array)($_POST['groups'] ?? []));
 
+        // Selbstschutz: Der eingeloggte Admin darf sich nicht selbst die
+        // `admin`-Gruppe entziehen - sonst könnte sich der letzte Administrator
+        // versehentlich aussperren (#123). Steht VOR der Pruefung, weil die
+        // Adresspflicht sich nach der Gruppenmenge richtet, die tatsaechlich
+        // gespeichert wird - nicht nach der uebermittelten.
+        $groupIds = $selectedGroupIds;
+        if ((int)$id === (int)($_SESSION['user_id'] ?? 0) && $this->isAdmin()) {
+            $adminGroupId = (int)$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
+            if ($adminGroupId > 0 && !in_array($adminGroupId, $groupIds, true)) {
+                $groupIds[] = $adminGroupId;
+            }
+        }
+
+        // Vor dem Schreiben festhalten: Eine Adressaenderung muss offene
+        // Mailcodes verwerfen (#354, siehe unten).
+        $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        $adresseVorher = trim((string)($stmt->fetchColumn() ?: ''));
+
+        $errors = LoginIdentifier::usernameErrors($username);
         if ($this->isReservedUsername($username)) {
+            $errors[] = "Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht gewählt werden.";
+        }
+        // Adresspflicht nach Rechten (#348) - gegen die Gruppen, die gleich
+        // gespeichert werden. Die Pruefung steht VOR jedem UPDATE: Ein Konto,
+        // dem gerade das Bearbeitungsrecht gegeben wird, darf nicht zuerst
+        // ohne Adresse gespeichert und danach abgelehnt werden.
+        $errors = array_merge($errors, $this->emailFehler($db, $email, $groupIds));
+
+        if ($errors !== []) {
             $this->render('admin_user_form', [
                 'title' => 'Benutzer bearbeiten',
                 'user' => ['id' => $id, 'username' => $username, 'email' => $email],
-                'errors' => ["Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht gewählt werden."],
+                'errors' => $errors,
                 'assignableGroups' => $assignableGroups,
                 'userGroupIds' => $selectedGroupIds
             ]);
@@ -213,7 +253,13 @@ class UserController extends BaseController {
             // durch die Admin-Passwortänderung beendet (#113, siehe
             // BaseController::checkAuth()).
             $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ?, session_version = session_version + 1 WHERE id = ?");
-            $stmt->execute([$username, $email, $passwordHash, $id]);
+            // Leere Eingabe = keine Adresse (NULL), nicht Leerstring - siehe store().
+            $stmt->execute([$username, $email === '' ? null : $email, $passwordHash, $id]);
+
+            // Offene Mailcodes des Kontos verwerfen (#354): Ein vom Admin neu
+            // gesetztes Passwort ist die typische Reaktion auf einen Verdacht,
+            // und ein Code, der schon unterwegs ist, darf sie nicht ueberleben.
+            \App\Security\EmailSecondFactor::discard((int)$id);
 
             // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen
             // (#217): Das Neusetzen des Passworts durch einen Admin ist die
@@ -242,18 +288,27 @@ class UserController extends BaseController {
             }
         } else {
             $stmt = $db->prepare("UPDATE users SET username = ?, email = ? WHERE id = ?");
-            $stmt->execute([$username, $email, $id]);
+            $stmt->execute([$username, $email === '' ? null : $email, $id]);
         }
 
-        // Selbstschutz: Der eingeloggte Admin darf sich nicht selbst die
-        // `admin`-Gruppe entziehen - sonst könnte sich der letzte Administrator
-        // versehentlich aussperren (#123).
-        $groupIds = $selectedGroupIds;
-        if ((int)$id === (int)($_SESSION['user_id'] ?? 0) && $this->isAdmin()) {
-            $adminGroupId = (int)$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
-            if ($adminGroupId > 0 && !in_array($adminGroupId, $groupIds, true)) {
-                $groupIds[] = $adminGroupId;
-            }
+        // Adresse entfernt heisst: kein Mailcode-Faktor mehr (#354). Ohne das
+        // stuende `email_2fa_enabled = 1` neben `email IS NULL` - ein Konto,
+        // dessen zweiter Faktor an eine Adresse geht, die es nicht mehr gibt.
+        // Die Anmeldung wuerde einen Code erzeugen, den niemand bekommt.
+        if ($email === '') {
+            $stmt = $db->prepare("UPDATE users SET email_2fa_enabled = 0 WHERE id = ?");
+            $stmt->execute([$id]);
+        }
+
+        // Bei JEDER Adressaenderung offene Codes verwerfen (#354) - nicht nur
+        // beim Entfernen und nicht nur, wenn zugleich ein Passwort gesetzt
+        // wurde. Der Fall, den das trifft: Ein uebernommenes Postfach, ein
+        // bereits ausgeloester Anmeldecode darin, und der Admin traegt die
+        // Adresse um. Ohne das Verwerfen bleibt der Code im ALTEN Postfach
+        // zehn Minuten lang gueltig. ProfileController::confirmNewEmail()
+        // macht es aus derselben Begruendung.
+        if ($email !== $adresseVorher) {
+            \App\Security\EmailSecondFactor::discard((int)$id);
         }
 
         $this->syncUserGroups($db, (int)$id, $groupIds);
@@ -351,10 +406,20 @@ class UserController extends BaseController {
             $stmt->execute([$id]);
             $targetUsername = $stmt->fetchColumn() ?: "ID {$id}";
 
-            $stmt = $db->prepare("UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL, last_totp_timeslice = NULL WHERE id = ?");
+            // ALLE zweiten Faktoren, nicht nur TOTP (#354). Wer "2FA
+            // zuruecksetzen" drueckt, will den Benutzer wieder hereinlassen -
+            // ein uebrig gebliebener Mailcode-Faktor liesse ihn genau davor
+            // stehen, und der Admin haette keinen Anlass, das zu vermuten.
+            $stmt = $db->prepare(
+                "UPDATE users
+                 SET totp_secret = NULL, totp_enabled = 0, email_2fa_enabled = 0,
+                     backup_codes = NULL, last_totp_timeslice = NULL
+                 WHERE id = ?"
+            );
             $stmt->execute([$id]);
+            \App\Security\EmailSecondFactor::discard((int)$id);
 
-            \App\Service\AuditLogger::log("2FA zurückgesetzt", "users", "2FA für Benutzer {$targetUsername} (ID: {$id}) durch Admin zurückgesetzt");
+            \App\Service\AuditLogger::log("2FA zurückgesetzt", "users", "Alle zweiten Faktoren für Benutzer {$targetUsername} (ID: {$id}) durch Admin zurückgesetzt");
         }
 
         header("Location: /admin/users?success=2fa_reset");
@@ -398,6 +463,33 @@ class UserController extends BaseController {
 
         header("Location: /admin/users/edit?id={$id}&success=api_keys_revoked");
         exit;
+    }
+
+    /**
+     * Pruefung der Adresse beim Anlegen und Aendern eines Kontos (#348).
+     *
+     * Zwei verschiedene Fehler, die gern verwechselt werden: Eine ANGEGEBENE
+     * Adresse muss gueltig sein - immer. Eine FEHLENDE ist nur dann ein
+     * Fehler, wenn die Gruppen des Kontos mehr als Lesen erlauben.
+     *
+     * @param array<int, int> $groupIds Gruppen, die gespeichert werden sollen
+     * @return array<int, string>
+     */
+    private function emailFehler(\PDO $db, string $email, array $groupIds): array {
+        if ($email !== '') {
+            return filter_var($email, FILTER_VALIDATE_EMAIL)
+                ? []
+                : ['Die E-Mail-Adresse ist nicht gültig.'];
+        }
+
+        if (!EmailRequirement::groupsRequireEmail($db, $groupIds)) {
+            return [];
+        }
+
+        return ['Ohne E-Mail-Adresse geht das nur für Konten, die ausschließlich lesen dürfen. '
+              . 'Mindestens eine der gewählten Gruppen gibt Bearbeitungs- oder Veröffentlichungsrechte - '
+              . 'dafür ist eine Adresse Pflicht: Ohne sie gibt es kein "Passwort vergessen", keine '
+              . 'Benachrichtigungen und keinen zweiten Faktor per E-Mail.'];
     }
 
     /**

@@ -88,7 +88,16 @@ class RateLimiter {
         // einem einzelnen Leerzeichen erzeugt weiterhin einen eigenen Zähler.
         // In keinem der verwendeten Bezeichner (E-Mail|IP, Benutzer-ID, IP)
         // kommt Whitespace vor, es gibt also nichts zu erhalten.
-        $normalized = strtolower((string)preg_replace('/\s+/u', '', $identifier));
+        //
+        // mb_strtolower und NICHT strtolower: Die Datenbank vergleicht in
+        // utf8mb4_unicode_ci, also auch bei Umlauten ohne Ruecksicht auf
+        // Gross- und Kleinschreibung. Ein byteweises strtolower() liesse
+        // "MÜLLER" stehen - die Anmeldung faende dasselbe Konto, der Zaehler
+        // fuehrte "MÜLLER" und "müller" aber getrennt, und ein Angreifer
+        // haette doppelt so viele Versuche. Aufgefallen bei #348, seit die
+        // Kennung auch ein Benutzername sein darf; fuer Adressen galt es
+        // vorher genauso.
+        $normalized = mb_strtolower((string)preg_replace('/\s+/u', '', $identifier), 'UTF-8');
         return mb_substr($normalized, 0, 190);
     }
 }

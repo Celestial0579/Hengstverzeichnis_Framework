@@ -103,7 +103,7 @@ class UserManagementTest extends FunctionalTestCase {
             'email' => 'keine-adresse',
             'password' => 'VerwaltungTest123!',
         ]);
-        $this->assertStringContainsString('Gültige E-Mail-Adresse erforderlich.', $invalidEmail->body);
+        $this->assertStringContainsString('Die E-Mail-Adresse ist nicht gültig.', $invalidEmail->body);
 
         // Zu kurzes Passwort (< 8 Zeichen).
         $shortPassword = $admin->post('/admin/users/store', [
@@ -352,12 +352,12 @@ class UserManagementTest extends FunctionalTestCase {
         $loginPage = $client->get('/login');
         $loginAttempt = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             // Endgültiges Passwort nach dem erzwungenen Wechsel der
             // Erstanmeldung, siehe FunctionalTestCase::createAndLoginEditor().
             'password' => 'EditorTestNeu456!',
         ]);
-        $this->assertStringContainsString('Ungültige E-Mail oder Passwort.', $loginAttempt->body, 'Ein gelöschtes Konto darf sich nicht mehr anmelden können.');
+        $this->assertStringContainsString('Ungültige Zugangsdaten.', $loginAttempt->body, 'Ein gelöschtes Konto darf sich nicht mehr anmelden können.');
     }
 
     public function testAdminCannotDeleteOrDegradeOwnAccount(): void {
@@ -482,7 +482,9 @@ class UserManagementTest extends FunctionalTestCase {
         $this->createdUsernames[] = $username;
         $this->createAndLoginEditor($admin, $username, $email);
         $activeBefore = $admin->get('/admin/users?search=' . urlencode($username));
-        $this->assertStringContainsString('🔒 Aktiv', $activeBefore->body, 'Das Konto muss vor dem Reset aktives 2FA haben.');
+        // Seit #354 nennt die Liste das Verfahren beim Namen (App/Mailcode),
+        // statt nur "Aktiv" zu sagen - der Mailcode ist deutlich schwaecher.
+        $this->assertStringContainsString('🔒 App', $activeBefore->body, 'Das Konto muss vor dem Reset aktives 2FA haben.');
 
         $userId = $this->findUserIdByUsername($admin, $username);
 
@@ -493,7 +495,7 @@ class UserManagementTest extends FunctionalTestCase {
         ]);
         $this->assertSame(403, $csrfAttempt->statusCode, 'Der 2FA-Reset muss CSRF-geschützt sein.');
         $stillActive = $admin->get('/admin/users?search=' . urlencode($username));
-        $this->assertStringContainsString('🔒 Aktiv', $stillActive->body);
+        $this->assertStringContainsString('🔒 App', $stillActive->body);
 
         // Echter Reset: Status kippt auf "Ausstehend" (totp_secret,
         // backup_codes und Replay-Schutz werden serverseitig geleert).
@@ -511,7 +513,7 @@ class UserManagementTest extends FunctionalTestCase {
         $loginPage = $client->get('/login');
         $loginResponse = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             // Endgültiges Passwort nach dem erzwungenen Wechsel der
             // Erstanmeldung, siehe FunctionalTestCase::createAndLoginEditor().
             'password' => 'EditorTestNeu456!',

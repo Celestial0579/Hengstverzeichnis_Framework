@@ -6,6 +6,105 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.9.0-beta.2] – 2026-08-21
+
+Zweites Beta der 0.9er-Linie: der **Anmelde-Block** des Meilensteins. Es
+fehlen noch #339 (Galerie im Kern), #344 (Sprach-Addons), #345 und #349.
+
+> Der passende Addons-Release ist `v0.9.0-beta.2`. An der
+> Kompatibilitätslinie ändert sich nichts (`core_supported_max: "0.9"`).
+
+### ⚠️ Bruchstelle: das Anmeldeformular
+
+Das Feld des Anmeldeformulars heisst nicht mehr `email`, sondern `kennung`, und
+es ist kein `type="email"` mehr. Wer das Formular automatisiert bedient (eigene
+Skripte, Monitoring-Checks), muss den Feldnamen anpassen. Für Menschen ändert
+sich nichts ausser der Beschriftung.
+
+### Neu
+
+- **Anmeldung mit dem Benutzernamen oder der E-Mail-Adresse** (#348). Beides
+  führt zum selben Konto; welches gemeint ist, entscheidet die Datenlage und
+  nicht eine Weiche am `@`. Trifft eine Eingabe wegen eines Bestandsnamens
+  **zwei** Konten, wird sie abgelehnt statt geraten — die Migration meldet
+  solche Paare beim Update, damit sie auffallen, bevor jemand vor der Tür
+  steht.
+
+- **Die E-Mail-Adresse ist keine Pflichtangabe mehr** (#348) — für Konten
+  **ohne** Bearbeitungs- oder Veröffentlichungsrechte. Genau dafür ist es
+  gedacht: Verbandsmitglieder mit Einblick, Praktikanten, ein gemeinsames Konto
+  für die Geschäftsstelle. Für die heute eine Adresse zu erfinden, ist der
+  schlechteste aller Wege — sie ist entweder falsch oder gehört jemand anderem.
+
+  Die Regel greift an **zwei** Stellen, nicht nur beim Anlegen: Auch die
+  **Rechtevergabe** an eine Gruppe wird abgelehnt, wenn Mitglieder ohne Adresse
+  darin sind, und nennt sie beim Namen. Ohne das wäre die Regel Zierde — eine
+  Gruppe bekommt später ein Bearbeitungsrecht, und alle ihre Mitglieder haben
+  eines.
+
+- **Zweiter Faktor per E-Mail** (#354), als Wahlmöglichkeit neben TOTP.
+  Sechsstelliger Einmalcode, zehn Minuten gültig, fünf Versuche, danach
+  verbraucht. Einzurichten unter `/profil` — mit einem Probecode, der einmal
+  richtig eingegeben werden muss: Eine falsch eingetragene Adresse sperrte das
+  Konto sonst in genau dem Moment aus, in dem der Faktor scharf wird.
+
+  **Er ist der schwächste der gängigen zweiten Faktoren** — wer das Postfach
+  hat, hat den Faktor. Das steht so auf der Seite, und **für Administratoren
+  ist er gesperrt**. Wird ein Konto später Administrator, verlangt die
+  Anmeldung zusätzlich TOTP.
+
+### Geändert
+
+- **Der Anmelde-Zähler hängt am Konto, nicht an der Schreibweise.** Sonst hätte
+  ein Angreifer seit #348 gegen dasselbe Konto zwei Töpfe: fünf Versuche über
+  den Benutzernamen, fünf über die Adresse.
+
+- **`RateLimiter` faltet Bezeichner mehrbyte-fähig.** Das bisherige
+  `strtolower()` liess „MÜLLER" stehen, während die Datenbank es als „müller"
+  fand — zwei Zähler für ein Konto. Betraf auch Adressen mit Umlauten und galt
+  damit schon vor #348.
+
+- **Der Admin-Reset der Zwei-Faktor-Anmeldung räumt jetzt *alle* Faktoren ab**,
+  nicht nur TOTP. Ein übrig gebliebener Mailcode-Faktor liesse den Benutzer
+  genau davor stehen, wovon der Reset ihn befreien soll.
+
+- **Backup-Codes lassen sich mit jedem zweiten Faktor neu erzeugen**, nicht nur
+  mit TOTP. Ein Konto, dessen einziger Faktor der Mailcode ist, käme sonst nie
+  wieder an frische — und wäre nach dem letzten verbrauchten ausgesperrt,
+  sobald einmal keine Mail ankommt.
+
+- **Die Benutzerliste nennt das Verfahren beim Namen** (App/Mailcode) statt nur
+  „Aktiv". Der Unterschied in der Stärke gehört sichtbar dorthin, wo jemand die
+  Konten durchsieht.
+
+- `SCHEMA_VERSION` 15 → 16: `users.email_2fa_enabled`, Tabelle
+  `email_2fa_codes`.
+
+### Aus der Codeprüfung dieser Runde
+
+Vier Befunde einer adversarischen Durchsicht des eigenen Standes, alle vor dem
+Merge behoben und je mit einer Gegenprobe belegt (Schutz raus → Test rot →
+Schutz zurück):
+
+- **Der Mailcode liess sich über die TOTP-Einrichtung umgehen.** `/2fa/setup`
+  und `/2fa/enable` fragten nur `totp_enabled` ab — für ein Konto, dessen
+  einziger Faktor der Mailcode ist, war die Step-up-Schranke aus #112 damit
+  wirkungslos. Wer nur das Passwort kannte, holte sich dort ein frisches
+  Secret und war angemeldet, mit den Backup-Codes des Opfers überschrieben.
+  Beide Stellen fragen jetzt nach **jedem** Faktor; damit ein Mailcode-Konto
+  trotzdem eine App nachrüsten kann, lässt sich der Step-up auch mit dem
+  Mailcode führen.
+- **Der Papierkorb war der dritte, unbewachte Zustandsübergang.** „Konto
+  löschen → Gruppe Bearbeitungsrecht geben → Konto zurückholen" ergab ein
+  aktives Konto mit Schreibrecht und ohne Adresse. Die Wiederherstellung
+  prüft jetzt selbst.
+- **`read` galt fälschlich als Schreibrecht.** Der Kern legt für jede
+  Plugin-Zusatzfunktion `feature_<key>`/`read` an — eine reine Leseaktion. Die
+  Adressregel kannte nur `view` und hätte damit in jeder Installation mit
+  Addons genau den Fall abgelehnt, für den #348 gebaut wurde.
+- **Ein Adresswechsel durch den Admin verwarf offene Mailcodes nicht.** Der
+  Code im alten Postfach blieb zehn Minuten gültig.
+
 ## [0.9.0-beta.1] – 2026-08-21
 
 Erstes Beta der 0.9er-Linie: der **Konten-Block** des Meilensteins „Konten,

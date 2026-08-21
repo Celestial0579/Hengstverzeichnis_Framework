@@ -31,6 +31,7 @@ addon_repos       (konfigurierte Addon-Store-Quellen samt Katalog-Cache)
 settings          (Key/Value: Branding, SMTP, System-Einstellungen,
                    feature_visibility__<key>, Cron-/Backup-/Digest-Status)
 password_resets   (Einmal-Tokens für "Passwort vergessen")
+email_2fa_codes   (Einmalcodes des zweiten Faktors per E-Mail, #354)
 login_attempts    (Rate-Limiting: Login, Login je IP, 2FA, Backup-Code,
                    Passwort-Reset, Registrierung, DSGVO-Formular)
 gdpr_requests     (öffentliches DSGVO-Kontaktformular)
@@ -166,7 +167,19 @@ der Pferde-Detailseite (inkl. der an Plugins übergebenen) sind dann `null`.
 Admin-Bereich-Accounts. Rechte ergeben sich ausschließlich aus der
 Gruppenmitgliedschaft (`groups`/`user_groups`/`group_permissions`, siehe
 [security.md](security.md#autorisierung)) – es gibt keine Rollen-Spalte mehr.
-2FA (`totp_secret`, `totp_enabled`) ist **pro Gruppe konfigurierbar**
+Angemeldet wird mit `username` **oder** `email` (#348) – neue Benutzernamen
+dürfen deshalb kein `@` enthalten, sonst wäre die Kennung mehrdeutig.
+`email` ist seit v0.9 **NULL-bar**: Konten ohne Bearbeitungs- oder
+Veröffentlichungsrechte dürfen ohne Adresse geführt werden (die Regel steht in
+`App\Permission\EmailRequirement`). `UNIQUE` bleibt – MariaDB lässt beliebig
+viele `NULL` zu, aber nur *einen* Leerstring; „keine Adresse" wird deshalb
+konsequent als `NULL` gespeichert.
+
+Zweite Faktoren: TOTP (`totp_secret`, `totp_enabled`) und Einmalcode per
+E-Mail (`email_2fa_enabled`, #354). Welche ein Konto hat, beantwortet
+ausschließlich `App\Security\SecondFactors`; die Speicherung bleibt bewusst
+beim Material des jeweiligen Verfahrens, damit Schalter und Geheimnis nicht
+auseinanderlaufen. Die 2FA-**Pflicht** ist **pro Gruppe konfigurierbar**
 (`groups.require_2fa`); zwingend bleibt sie für `admin`-Mitglieder und
 Benutzer ohne Gruppe. `backup_codes` enthält ausschließlich
 `password_hash()`-Hashes der Einmal-Codes, nie Klartext. Weitere Spalten:
@@ -174,17 +187,31 @@ Benutzer ohne Gruppe. `backup_codes` enthält ausschließlich
 `last_totp_timeslice` (TOTP-Replay-Schutz),
 `email_verification_token`/`-_expires_at` (Selfservice-Registrierung).
 `must_change_password` erzwingt eine Passwortänderung beim nächsten Login
-(z. B. nach Admin-initiiertem Reset). `deleted_at` für Soft-Delete.
+(z. B. nach Admin-initiiertem Reset). `deleted_at` für Soft-Delete,
+`deactivated_at`/`deactivated_reason`/`unprotected_since` für die Sperre und
+die 180-Tage-Regel (#358).
 
 ### `password_resets`
 Einmal-Token (`token`, `expires_at`) für den "Passwort vergessen"-Flow,
 15 Minuten gültig (siehe `AuthController`/`Mailer::sendPasswordResetEmail`).
 
+### `email_2fa_codes`
+Einmalcodes des zweiten Faktors per E-Mail (#354). Primärschlüssel
+`(user_id, purpose)` – je Vorgang gibt es genau *einen* gültigen Code, ein neu
+angeforderter löst den alten ab. `purpose` trennt den Anmeldefaktor (`login`)
+vom Probecode beim Einschalten (`setup`). Gespeichert wird nur
+`code_hash` (`password_hash()`), dazu `expires_at` und `attempts`;
+Fremdschlüssel auf `users` mit `ON DELETE CASCADE`.
+
 ### `login_attempts`
 Fehlversuchs-Log für `RateLimiter` (siehe [security.md](security.md)),
-`type` ∈ {`login`, `login_ip`, `2fa`, `backup`, `password_reset`,
-`registration`, `dsgvo_request`} — Plugins können eigene `type`-Werte
-ergänzen —, mit `identifier` (E-Mail/Username bzw. IP) und `ip_address`.
+`type` ∈ {`login`, `login_ip`, `2fa`, `2fa_email_send`, `backup`,
+`password_reset`, `registration`, `dsgvo_request`, `profile_*`} — Plugins
+können eigene `type`-Werte ergänzen —, mit `identifier` und `ip_address`.
+Beim Login ist der `identifier` seit #348 `uid:<id>|<ip>`, sobald das Konto
+gefunden wurde, sonst `kennung:<normalisiert>|<ip>`: Der Zähler hängt am
+Konto, nicht an der Schreibweise, sonst gäbe die zweite gültige Kennung
+doppelt so viele Versuche.
 
 ### `gdpr_requests`
 Öffentliches DSGVO-Kontaktformular (`request_type` ∈ {`info`, `deletion`}).

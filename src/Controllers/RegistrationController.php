@@ -69,7 +69,14 @@ class RegistrationController extends BaseController {
         $passwordConfirm = $_POST['password_confirm'] ?? '';
 
         $error = null;
-        if ($username === '' || strlen($username) > 50) {
+        // Auch hier gilt das `@`-Verbot aus #348: Der Benutzername ist seit
+        // v0.9 eine Anmeldekennung neben der E-Mail-Adresse, und die beiden
+        // Namensraeume duerfen sich nicht ueberschneiden. Sonst legte sich
+        // jemand per Selbstregistrierung einen Benutzernamen an, der die
+        // Adresse eines fremden Kontos ist - und beide kaemen nicht mehr
+        // hinein (AuthController::findeKontoFuerAnmeldung() weist die
+        // mehrdeutige Kennung fail-closed ab).
+        if ($username === '' || strlen($username) > 50 || \App\Security\LoginIdentifier::looksLikeEmail($username)) {
             $error = \App\I18n\Translator::t('register.username_invalid');
         } elseif ($this->isReservedUsername($username)) {
             $error = \App\I18n\Translator::t('register.username_reserved');

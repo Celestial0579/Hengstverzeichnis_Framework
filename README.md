@@ -47,7 +47,10 @@ und Variante B unten).
   Gruppen-/Berechtigungssystem (Matrix Modul × Aktion; eingebaute Gruppen
   `admin`, `editor` und `public` für Gäste) samt optionaler
   Selfservice-Registrierung
-- 2FA (TOTP) mit konfigurierbarer Pflicht pro Gruppe, optional Microsoft
+- Anmeldung mit Benutzername **oder** E-Mail-Adresse; die Adresse ist nur für
+  Konten mit Bearbeitungs- oder Veröffentlichungsrechten Pflicht (#348)
+- 2FA wahlweise per Authentikator-App (TOTP) oder Einmalcode per E-Mail (#354),
+  mit konfigurierbarer Pflicht pro Gruppe, optional Microsoft
   Entra ID SSO, Session-Hardening, Rate-Limiting, revisionssicheres Audit-Log
 - JSON-API mit benutzergebundenen, rechtebegrenzten API-Schlüsseln
 - Plugin-System mit Hooks, eigenem Addon-Store und Referenz-Plugin
@@ -61,7 +64,7 @@ und Variante B unten).
 
 ## Bekannte Einschränkungen
 
-- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 38 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Benutzerverwaltung, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks und Abstammungs-Validierung. Ergänzend läuft nächtlich ein Browser-basierter End-to-End-Parcours (siehe [tests/e2e/](tests/e2e/)) sowie manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
+- **Automatisierte Testsuite** (PHPUnit, siehe [docs/development.md](docs/development.md#tests)) läuft dreistufig in CI bei jedem PR: Unit-Tests der reinen Logik ohne DB, Integrationstests (Schema, Backups, Scheduler, Pedigree) gegen eine echte Testdatenbank, sowie HTTP-Funktionstests gegen eine automatisch gestartete Instanz — inzwischen 71 Funktionstest-Klassen von Login/2FA über API-Schlüssel, Benutzerverwaltung, Gruppen-Berechtigungen, DSGVO-Verwaltung und Papierkorb bis zu Plugin-Hooks und Abstammungs-Validierung. Ergänzend läuft nächtlich ein Browser-basierter End-to-End-Parcours (siehe [tests/e2e/](tests/e2e/)) sowie manuelle/geskriptete Smoke-Tests vor Releases, siehe [CHANGELOG.md](CHANGELOG.md).
 
 Fehlt dir eine Funktion oder stößt du auf einen Bug? Bitte über [Issues](../../issues) melden.
 

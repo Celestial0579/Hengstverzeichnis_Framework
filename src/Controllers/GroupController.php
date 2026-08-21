@@ -5,6 +5,7 @@ namespace App\Controllers;
 
 use App\Database;
 use App\Helper\Paginator;
+use App\Permission\EmailRequirement;
 use App\Permission\PermissionRegistry;
 use App\Service\AuditLogger;
 use PDO;
@@ -132,8 +133,14 @@ class GroupController extends BaseController {
         $perPage = Paginator::readPerPage($_GET);
         $result = Paginator::paginate($searchableGroups, $perPage, (int)($_GET['page'] ?? 1));
 
+        // Einmal-Hinweis aus einer abgelehnten Rechtevergabe (#348) - lesen
+        // heisst verbrauchen, sonst klebt er am naechsten Seitenaufruf.
+        $emailPflichtHinweis = $_SESSION['groups_email_pflicht'] ?? null;
+        unset($_SESSION['groups_email_pflicht']);
+
         $this->render('admin_groups', [
             'title' => 'Gruppen & Berechtigungen',
+            'emailPflichtHinweis' => $emailPflichtHinweis,
             'groups' => $groups,
             'pagedGroups' => $result['items'],
             'search' => $search,
@@ -242,6 +249,16 @@ class GroupController extends BaseController {
         // die deaktivierten Checkboxen der View reichen nicht, eine manipulierte
         // Anfrage darf `public` keine Schreibrechte unterschieben (#218).
         $pairs = $this->restrictForGuest($group, $this->flattenSelectedPermissions($selected));
+
+        // Adresspflicht nach Rechten (#348): Bekommt eine Gruppe ein
+        // Bearbeitungs- oder Veroeffentlichungsrecht, haben es auf einen
+        // Schlag ALLE ihre Mitglieder - auch die ohne E-Mail-Adresse. Eine
+        // Regel, die nur beim Anlegen eines Kontos greift, waere damit Zierde.
+        if (!$this->adressenReichen($db, $groupId, $group['name'], $pairs)) {
+            header("Location: /admin/groups?group={$groupId}&error=email_required");
+            exit;
+        }
+
         $this->replacePermissions($db, $groupId, $pairs);
 
         AuditLogger::log("Berechtigungen aktualisiert", "groups", "Gruppe: {$group['name']}");
@@ -343,7 +360,17 @@ class GroupController extends BaseController {
         // Auch beim Kopieren gilt die Gast-Beschränkung: "von Administrator auf
         // die Gast-Gruppe kopieren" würde sonst per Ein-Klick sämtliche
         // Verwaltungsrechte (inkl. aller Plugin-Aktionen) an Anonyme vergeben (#218).
-        $this->replacePermissions($db, $targetGroupId, $this->restrictForGuest($target, $pairs));
+        $zuUebernehmen = $this->restrictForGuest($target, $pairs);
+
+        // Auch hier die Adresspflicht (#348) - "von Administrator kopieren"
+        // ist der schnellste Weg, einer Gruppe auf einen Schlag alle
+        // Schreibrechte zu geben.
+        if (!$this->adressenReichen($db, $targetGroupId, $target['name'], $zuUebernehmen)) {
+            header("Location: /admin/groups?group={$targetGroupId}&error=email_required");
+            exit;
+        }
+
+        $this->replacePermissions($db, $targetGroupId, $zuUebernehmen);
 
         AuditLogger::log(
             "Berechtigungen kopiert",
@@ -353,6 +380,46 @@ class GroupController extends BaseController {
 
         header("Location: /admin/groups?group={$targetGroupId}&success=copied");
         exit;
+    }
+
+    /**
+     * Duerfen dieser Gruppe die genannten Rechte gegeben werden - oder fehlt
+     * Mitgliedern dafuer die E-Mail-Adresse? (#348)
+     *
+     * Legt im Verweigerungsfall die betroffenen Konten in der Session ab. Ein
+     * blosses "geht nicht" waere hier nutzlos: Der Admin muesste raten,
+     * welches der Konten gemeint ist. Die Namen passen nicht in eine
+     * URL - deshalb die Session, ausgelesen und geleert in index().
+     *
+     * @param array<int, array{module:string, action:string}> $pairs
+     */
+    private function adressenReichen(PDO $db, int $groupId, string $groupName, array $pairs): bool {
+        if (!EmailRequirement::pairsRequireEmail($pairs)) {
+            return true;
+        }
+
+        $ohneAdresse = EmailRequirement::accountsWithoutEmail($db, [$groupId]);
+        if ($ohneAdresse === []) {
+            return true;
+        }
+
+        $_SESSION['groups_email_pflicht'] = [
+            'gruppe' => $groupName,
+            'konten' => array_column($ohneAdresse, 'username'),
+        ];
+
+        AuditLogger::log(
+            "Rechtevergabe abgelehnt",
+            "groups",
+            sprintf(
+                'Gruppe "%s" sollte Bearbeitungs- oder Veroeffentlichungsrechte bekommen, aber %d '
+                . 'Mitglied(er) haben keine E-Mail-Adresse (#348)',
+                $groupName,
+                count($ohneAdresse)
+            )
+        );
+
+        return false;
     }
 
     /**

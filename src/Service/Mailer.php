@@ -700,6 +700,38 @@ class Mailer {
         return $this->send($currentEmail, "Änderung Ihrer E-Mail-Adresse - {$siteName}", $html);
     }
 
+    /**
+     * Einmalcode fuer den zweiten Faktor (#354).
+     *
+     * Bewusst karg: kein Link, kein Knopf, nichts zum Anklicken. Eine Mail,
+     * die zum Klicken einlaedt, ist die Vorlage fuer die Phishing-Nachricht,
+     * die genau diesen Code abfragt. Hier steht nur der Code, seine
+     * Gueltigkeit und der Hinweis, was zu tun ist, wenn man ihn nicht
+     * angefordert hat.
+     */
+    public function sendSecondFactorCode(string $userEmail, string $code, int $gueltigMinuten): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $sicher = htmlspecialchars($code, ENT_QUOTES, 'UTF-8');
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
+                <h2>Ihr Anmeldecode</h2>
+                <p>Code fuer die Anmeldung bei {$siteName}:</p>
+                <p style='font-size:2rem;letter-spacing:0.35rem;font-weight:bold;margin:1.5rem 0;'>{$sicher}</p>
+                <p>Er gilt {$gueltigMinuten} Minuten und nur ein einziges Mal.</p>
+                <p style='color:#a00;'><strong>Haben Sie sich nicht angemeldet?</strong> Dann kennt jemand Ihr
+                   Passwort. Aendern Sie es und melden Sie sich beim Verwaltungsteam. Geben Sie diesen Code
+                   niemandem &ndash; niemand aus dem Verwaltungsteam wird Sie danach fragen.</p>
+            </div>
+        ";
+
+        $text = "Ihr Anmeldecode fuer {$siteName}: {$code}\n"
+              . "Gueltig {$gueltigMinuten} Minuten, einmalig verwendbar.\n"
+              . "Haben Sie sich nicht angemeldet? Dann kennt jemand Ihr Passwort - bitte aendern Sie es.";
+
+        return $this->send($userEmail, "Anmeldecode {$code} - {$siteName}", $html, $text);
+    }
+
     public function sendAdminDigest(
         string $recipientEmail,
         int $matchSuggestionCount,

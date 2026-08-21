@@ -7,6 +7,10 @@
  * einer deutschen Schluesselverwaltung waere ein Bruch mitten im Ablauf.
  *
  * @var array $konto
+ * @var array<int, string> $faktoren Aktive zweite Faktoren (#354)
+ * @var bool $emailFaktorErlaubt
+ * @var bool $istAdmin
+ * @var bool $mailcodeAngefordert Liegt ein gueltiger Probecode bereit?
  * @var int $backupCodesOffen
  * @var array<int, string> $neueCodes
  */
@@ -16,6 +20,9 @@ $meldungen = [
     'email_requested' => 'Bestätigungslink an die neue Adresse geschickt. Sie gilt erst, wenn er angeklickt wurde.',
     'email_changed' => 'E-Mail-Adresse bestätigt und übernommen.',
     'email_cancelled' => 'Adressänderung abgebrochen.',
+    'code_sent' => 'Probecode verschickt. Er gilt 10 Minuten.',
+    'email_factor_on' => 'Zweiter Faktor per E-Mail eingeschaltet.',
+    'email_factor_off' => 'Zweiter Faktor per E-Mail ausgeschaltet.',
 ];
 $fehler = [
     'current_password_wrong' => 'Das aktuelle Passwort stimmt nicht.',
@@ -28,6 +35,10 @@ $fehler = [
     'email_invalid' => 'Bitte eine gültige E-Mail-Adresse angeben (höchstens 100 Zeichen).',
     'email_unchanged' => 'Das ist bereits Ihre Adresse.',
     'email_token_invalid' => 'Der Bestätigungslink ist ungültig oder abgelaufen.',
+    'code_wrong' => 'Der Code aus der E-Mail stimmt nicht, ist abgelaufen oder wurde schon verwendet.',
+    'code_send_failed' => 'Der Code konnte nicht versendet werden. Bitte prüfen Sie die Mail-Einstellungen oder wenden Sie sich an das Verwaltungsteam.',
+    'no_email' => 'Ohne hinterlegte E-Mail-Adresse gibt es keinen Faktor per E-Mail.',
+    'email_factor_not_allowed' => 'Für dieses Konto ist der Mailcode als zweiter Faktor nicht zugelassen.',
 ];
 $csrf = App\Router::generateCsrfToken();
 ?>
@@ -82,31 +93,121 @@ $csrf = App\Router::generateCsrfToken();
     </form>
 </div>
 
+<?php
+// Zweite Faktoren (#354). Die Seite fuehrt sie NEBENEINANDER auf, statt einen
+// einzelnen Schalter zu zeigen: Es gibt heute zwei Verfahren, und mit
+// Passkeys (#353) kommt ein drittes dazu.
+$hatTotp = in_array(App\Security\SecondFactors::TOTP, $faktoren, true);
+$hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
+?>
 <div class="card" style="max-width: 780px; margin-top: 1.5rem;">
     <h2 style="font-size: 1.15rem; margin-top: 0;">Zwei-Faktor-Anmeldung</h2>
-    <?php if (empty($konto['totp_enabled'])): ?>
-        <p style="color: var(--text-muted);">Noch nicht eingerichtet.</p>
+
+    <?php if ($faktoren === []): ?>
+        <p style="color: var(--text-muted);">Noch kein zweiter Faktor eingerichtet.</p>
+    <?php endif; ?>
+
+    <h3 style="font-size: 1rem; margin-bottom: 0.3rem;">Authentikator-App (TOTP)</h3>
+    <p style="color: var(--text-muted); margin-top: 0;">
+        Der stärkere der beiden Faktoren: Der Code entsteht auf Ihrem Gerät und geht nirgends über das Netz.
+        <?= $hatTotp ? 'Eingerichtet.' : 'Nicht eingerichtet.' ?>
+    </p>
+    <?php if (!$hatTotp): ?>
         <a href="/2fa/setup" class="btn">Jetzt einrichten</a>
-    <?php else: ?>
+    <?php endif; ?>
+
+    <h3 style="font-size: 1rem; margin-top: 1.6rem; margin-bottom: 0.3rem;">Einmalcode per E-Mail</h3>
+    <p style="color: var(--text-muted); margin-top: 0;">
+        <strong>Der schwächste der gängigen zweiten Faktoren:</strong> Wer Zugriff auf Ihr Postfach hat, hat
+        damit auch diesen Faktor. Er schützt gut gegen gestohlene Passwortlisten, kaum gegen einen
+        übernommenen Mailzugang &ndash; und die Zustellung ist der unzuverlässigste Teil daran. Wenn Sie die
+        Wahl haben, nehmen Sie die Authentikator-App.
+    </p>
+
+    <?php if ($hatMailcode): ?>
+        <p style="color: var(--text-muted);">Eingeschaltet für <strong><?= htmlspecialchars((string)$konto['email']) ?></strong>.</p>
+        <?php // Der Knopf gehoert AUCH hierher, nicht nur in den Einschalt-Zweig:
+              // Fuer neue Backup-Codes verlangt dieses Konto einen gueltigen
+              // Mailcode (es hat ja keine App), und der Hinweis weiter unten
+              // verwiese sonst auf einen Knopf, den es auf dieser Seite gar
+              // nicht gibt. ?>
+        <form method="POST" action="/profil/2fa/email/code" style="margin-bottom:1rem;">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+            <button type="submit" class="btn btn-secondary"><?= $mailcodeAngefordert ? 'Neuen Code schicken' : 'Code schicken (für neue Backup-Codes)' ?></button>
+        </form>
+        <form method="POST" action="/profil/2fa/email/aus"
+              data-confirm="Zweiten Faktor per E-Mail ausschalten?">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+            <label for="off_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
+            <input type="password" id="off_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
+            <button type="submit" class="btn btn-secondary" style="margin-top:1rem;">Ausschalten</button>
+        </form>
+    <?php elseif ($istAdmin): ?>
+        <p style="color: var(--danger-fg);">
+            Für Administratoren nicht zugelassen. Ein Konto mit allen Rechten soll nicht an einem Postfach
+            hängen &ndash; richten Sie die Authentikator-App ein.
+        </p>
+    <?php elseif (empty($konto['email'])): ?>
         <p style="color: var(--text-muted);">
-            Eingerichtet. Noch <strong><?= (int)$backupCodesOffen ?></strong> ungenutzte Backup-Code(s).
+            Nicht möglich: Für Ihr Konto ist keine E-Mail-Adresse hinterlegt. Tragen Sie unten eine ein,
+            wenn Sie diesen Faktor nutzen wollen.
+        </p>
+    <?php else: ?>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+            Zum Einschalten schicken wir einen Probecode an <strong><?= htmlspecialchars((string)$konto['email']) ?></strong>.
+            Erst wenn er einmal richtig eingegeben wurde, wird der Faktor scharf &ndash; eine falsch
+            eingetragene Adresse sperrte Sie sonst in genau dem Moment aus.
+        </p>
+        <form method="POST" action="/profil/2fa/email/code" style="margin-bottom:1rem;">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+            <button type="submit" class="btn btn-secondary"><?= $mailcodeAngefordert ? 'Neuen Probecode schicken' : 'Probecode schicken' ?></button>
+        </form>
+        <?php if ($mailcodeAngefordert): ?>
+            <form method="POST" action="/profil/2fa/email/ein">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                <label for="on_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
+                <input type="password" id="on_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
+                <label for="on_code" style="display:block; font-weight:bold; margin-top:0.8rem;">Probecode aus der E-Mail</label>
+                <input type="text" id="on_code" name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="padding:0.5rem;">
+                <button type="submit" class="btn" style="margin-top:1rem;">Einschalten</button>
+            </form>
+        <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if ($faktoren !== []): ?>
+        <h3 style="font-size: 1rem; margin-top: 1.6rem; margin-bottom: 0.3rem;">Backup-Codes</h3>
+        <p style="color: var(--text-muted); margin-top: 0;">
+            Noch <strong><?= (int)$backupCodesOffen ?></strong> ungenutzte Backup-Code(s).
             <?php if ($backupCodesOffen <= 2): ?>
                 <span style="color: var(--danger-fg); font-weight: bold;">Das wird knapp &ndash; erzeugen Sie neue.</span>
             <?php endif; ?>
+            Sie sind der Rückweg, wenn das Gerät fehlt oder keine Mail ankommt.
         </p>
-        <form method="POST" action="/profil/backup-codes"
-              data-confirm="Neue Backup-Codes erzeugen? Die bisherigen verlieren damit sofort ihre Gültigkeit.">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
-                Verlangt Passwort <em>und</em> einen gültigen Code aus Ihrer App &ndash; derselbe Maßstab
-                wie beim Einrichten. Zehn frische Backup-Codes sind dasselbe Material wie ein neues Geheimnis.
+        <?php if (!$hatTotp && !$mailcodeAngefordert): ?>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                Für neue Backup-Codes brauchen wir einen gültigen Code aus Ihrer E-Mail &ndash; fordern Sie
+                oben einen Probecode an.
             </p>
-            <label for="bc_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
-            <input type="password" id="bc_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
-            <label for="bc_totp" style="display:block; font-weight:bold; margin-top:0.8rem;">6-stelliger Code</label>
-            <input type="text" id="bc_totp" name="totp_code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="padding:0.5rem;">
-            <button type="submit" class="btn" style="margin-top:1rem;">Backup-Codes neu erzeugen</button>
-        </form>
+        <?php else: ?>
+            <form method="POST" action="/profil/backup-codes"
+                  data-confirm="Neue Backup-Codes erzeugen? Die bisherigen verlieren damit sofort ihre Gültigkeit.">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
+                    Verlangt Passwort <em>und</em> einen gültigen zweiten Faktor &ndash; derselbe Maßstab
+                    wie beim Einrichten. Zehn frische Backup-Codes sind dasselbe Material wie ein neues Geheimnis.
+                </p>
+                <label for="bc_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
+                <input type="password" id="bc_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
+                <?php if ($hatTotp): ?>
+                    <label for="bc_totp" style="display:block; font-weight:bold; margin-top:0.8rem;">6-stelliger Code aus der App</label>
+                    <input type="text" id="bc_totp" name="totp_code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="padding:0.5rem;">
+                <?php else: ?>
+                    <label for="bc_mail" style="display:block; font-weight:bold; margin-top:0.8rem;">Probecode aus der E-Mail</label>
+                    <input type="text" id="bc_mail" name="email_code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="padding:0.5rem;">
+                <?php endif; ?>
+                <button type="submit" class="btn" style="margin-top:1rem;">Backup-Codes neu erzeugen</button>
+            </form>
+        <?php endif; ?>
     <?php endif; ?>
 </div>
 

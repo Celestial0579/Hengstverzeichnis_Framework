@@ -55,7 +55,7 @@ class ForcePasswordChangeGuardTest extends FunctionalTestCase {
         $loginPage = $client->get('/login');
         $login = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             'password' => $password,
         ]);
         // Konto ohne Gruppen: 2FA ist Pflicht (fail-safe in userRequires2fa()).
@@ -123,7 +123,7 @@ class ForcePasswordChangeGuardTest extends FunctionalTestCase {
         $probePage = $probe->get('/login');
         $withAttackerPassword = $probe->post('/login', [
             'csrf_token' => $probePage->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             'password' => $attackerPassword,
         ]);
         $this->assertNull(
@@ -135,7 +135,7 @@ class ForcePasswordChangeGuardTest extends FunctionalTestCase {
         $probe2Page = $probe2->get('/login');
         $withAdminPassword = $probe2->post('/login', [
             'csrf_token' => $probe2Page->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             'password' => $adminSetPassword,
         ]);
         $this->assertSame(

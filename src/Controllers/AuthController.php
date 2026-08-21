@@ -4,6 +4,9 @@
 namespace App\Controllers;
 
 use App\Database;
+use App\Security\EmailSecondFactor;
+use App\Security\LoginIdentifier;
+use App\Security\SecondFactors;
 use App\Security\Totp;
 
 class AuthController extends BaseController {
@@ -22,27 +25,27 @@ class AuthController extends BaseController {
             $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
-        // Am Rand trimmen, nicht erst im Zähler: Die Adresse geht sowohl in
-        // die Benutzersuche als auch in den Bezeichner des Rate-Limiters, und
-        // ein angehängtes Leerzeichen darf nicht zwei verschiedene Dinge
-        // bedeuten (siehe App\Security\RateLimiter::normalizeIdentifier()).
-        $email = trim((string)($_POST['email'] ?? ''));
+        // Angemeldet wird mit dem Benutzernamen ODER der E-Mail-Adresse
+        // (#348). Am Rand trimmen, nicht erst im Zähler: Die Kennung geht
+        // sowohl in die Benutzersuche als auch in den Bezeichner des
+        // Rate-Limiters, und ein angehängtes Leerzeichen darf nicht zwei
+        // verschiedene Dinge bedeuten (siehe
+        // App\Security\RateLimiter::normalizeIdentifier()).
+        $kennung = trim((string)($_POST['kennung'] ?? ''));
         $password = $_POST['password'] ?? '';
 
         // Zwei getrennte Zähler (Issue #115): Der Konto-Zähler ist an die
-        // Client-IP gekoppelt (email|ip), damit ein Angreifer mit gezielten
-        // Fehlversuchen nicht beliebige bekannte E-Mail-Adressen global
-        // aussperren kann (Account-Lockout-DoS). Der zusätzliche reine
-        // IP-Zähler (höheres Limit) bremst Passwort-Spraying über viele
-        // Konten von derselben Adresse. Beide Zähler bleiben durch den
-        // fail-open-Charakter des RateLimiters bei DB-Fehlern ausfallsicher.
+        // Client-IP gekoppelt, damit ein Angreifer mit gezielten Fehlversuchen
+        // nicht beliebige bekannte Konten global aussperren kann
+        // (Account-Lockout-DoS). Der zusätzliche reine IP-Zähler (höheres
+        // Limit) bremst Passwort-Spraying über viele Konten von derselben
+        // Adresse. Beide Zähler bleiben durch den fail-open-Charakter des
+        // RateLimiters bei DB-Fehlern ausfallsicher.
         $clientIp = \App\Security\ClientIp::resolve();
-        $accountIdentifier = $email . '|' . $clientIp;
 
-        if (
-            \App\Security\RateLimiter::tooManyAttempts($accountIdentifier, 'login')
-            || \App\Security\RateLimiter::tooManyAttempts($clientIp, 'login_ip', 20)
-        ) {
+        // Die reine IP-Bremse braucht keine Kontokenntnis und steht deshalb
+        // vor der Suche.
+        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'login_ip', 20)) {
             $this->render('login', [
                 'title' => \App\I18n\Translator::t('meta.title_login_failed'),
                 'error' => \App\I18n\Translator::t('auth.rate_limited_login')
@@ -50,10 +53,41 @@ class AuthController extends BaseController {
             return;
         }
 
-        $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, password_hash, totp_enabled, totp_secret, email_verification_token FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
+        $user = $this->findeKontoFuerAnmeldung($kennung);
+
+        // DER KONTO-ZÄHLER HÄNGT AM KONTO, NICHT AN DER SCHREIBWEISE (#348).
+        //
+        // Bis v0.8 war der Schlüssel "email|ip" - solange es nur eine mögliche
+        // Kennung gab, war das dasselbe. Seit man sich auch mit dem
+        // Benutzernamen anmelden kann, ist es das nicht mehr: Ein Angreifer
+        // probierte fünfmal "anna", dann fünfmal "anna@example.org" und hätte
+        // gegen DASSELBE Konto die doppelte Zahl an Versuchen. Deshalb steht
+        // die Kontokennung im Schlüssel, sobald das Konto gefunden ist.
+        //
+        // Trifft die Eingabe kein Konto, bleibt die normalisierte Kennung der
+        // Schlüssel - es gibt nichts Besseres, und es gibt auch nichts zu
+        // erraten. Das Präfix trennt beide Fälle sauber: Ohne es teilte sich
+        // ein Konto mit der ID 5 einen Zähler mit jemandem, der "5" eintippt.
+        $accountIdentifier = ($user !== null
+            ? 'uid:' . (int)$user['id']
+            : 'kennung:' . LoginIdentifier::normalize($kennung)) . '|' . $clientIp;
+
+        if (\App\Security\RateLimiter::tooManyAttempts($accountIdentifier, 'login')) {
+            $this->render('login', [
+                'title' => \App\I18n\Translator::t('meta.title_login_failed'),
+                'error' => \App\I18n\Translator::t('auth.rate_limited_login')
+            ]);
+            return;
+        }
+
+        if ($user === null) {
+            // Gleich lange Antwort, egal ob es das Konto gibt (#348).
+            // Ohne diesen Vergleich kostet ein Treffer eine bcrypt-Prüfung
+            // und ein Fehlschlag nichts - die Uhr verriete damit, welche
+            // Benutzernamen und Adressen existieren. Der Abdruck unten
+            // gehört zu keinem Konto und trifft nie.
+            password_verify($password, self::VERGLEICHSHASH);
+        }
 
         if ($user && password_verify($password, $user['password_hash'])) {
             // Selfservice-Registrierung (#83): Ein gesetzter Verifizierungs-
@@ -68,7 +102,7 @@ class AuthController extends BaseController {
                 ]);
                 return;
             }
-            // Nur den eigenen Konto-Zähler (email|ip) zurücksetzen - der reine
+            // Nur den eigenen Konto-Zähler zurücksetzen - der reine
             // IP-Zähler bleibt bestehen, damit ein erfolgreicher Login nicht
             // die Spuren von Spraying-Versuchen gegen andere Konten löscht.
             \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
@@ -80,10 +114,24 @@ class AuthController extends BaseController {
             // einen für das Konto der anderen verwenden.
             $this->discardExistingSessionState();
 
-            if ($user['totp_enabled']) {
-                // Prompt for 2FA Code
+            // Welche zweiten Faktoren hat das Konto? Die Frage beantwortet
+            // ausschliesslich SecondFactors (#354) - hier steht nur noch,
+            // wohin die einzelnen Verfahren fuehren.
+            $faktoren = SecondFactors::fromRow($user);
+            if ($faktoren !== []) {
                 $_SESSION['pending_2fa_user_id'] = $user['id'];
-                header("Location: /login/2fa");
+
+                // Bei mehreren Faktoren fuehrt der Weg zum staerkeren; der
+                // Mailcode bleibt von dort aus als Ausweichweg erreichbar.
+                if (in_array(SecondFactors::TOTP, $faktoren, true)) {
+                    header("Location: /login/2fa");
+                    exit;
+                }
+
+                // Der Code wird HIER erzeugt und versendet, nicht beim
+                // Anzeigen des Formulars: Ein GET, der Mail verschickt, tut
+                // das auch beim Neuladen und beim Vorausladen des Browsers.
+                $this->sendeAnmeldecode((int)$user['id'], (string)($user['email'] ?? ''));
                 exit;
             }
 
@@ -108,6 +156,204 @@ class AuthController extends BaseController {
             'title' => \App\I18n\Translator::t('meta.title_login_failed'),
             'error' => \App\I18n\Translator::t('auth.invalid_credentials')
         ]);
+    }
+
+    /**
+     * Ein bcrypt-Abdruck, der zu keinem Konto gehoert.
+     *
+     * Nur dafuer da, dass eine Anmeldung mit unbekannter Kennung dieselbe
+     * Rechenzeit kostet wie eine mit bekannter (#348). Der Klartext dazu ist
+     * nie irgendwo gespeichert worden - er wurde einmal zufaellig erzeugt und
+     * verworfen.
+     */
+    private const VERGLEICHSHASH = '$2y$12$Erfpy1ZDvtcZJBDSxhPRIOWrAl4dgHp7UJ/MtqcizNVn.cpDd1eaC';
+
+    /**
+     * Findet das Konto zu einer Anmeldekennung - Benutzername ODER
+     * E-Mail-Adresse (#348).
+     *
+     * WARUM EINE ODER-ABFRAGE UND KEINE FALLUNTERSCHEIDUNG AM `@`. Naheliegend
+     * waere: enthaelt die Eingabe ein `@`, ist sie eine Adresse, sonst ein
+     * Benutzername. Das stimmt fuer alles, was ab v0.9 neu entsteht - neue
+     * Benutzernamen duerfen kein `@` mehr enthalten. Es stimmt aber nicht fuer
+     * den Bestand: Wer heute "kunde@example.org" als Benutzernamen hat, kaeme
+     * mit einer solchen Weiche nicht mehr hinein, obwohl sein Konto eindeutig
+     * auffindbar ist. Die ODER-Abfrage findet beide Namensraeume und laesst
+     * die Eindeutigkeit von der Datenlage entscheiden.
+     *
+     * WARUM `LIMIT 2` UND EIN ABBRUCH BEI ZWEI TREFFERN. Genau ein Fall ist
+     * mehrdeutig: Der Benutzername des einen Kontos ist die Adresse eines
+     * anderen. Beide Spalten sind UNIQUE, mehr als zwei Zeilen kann es also
+     * nicht geben. Statt zu raten, welches Konto gemeint ist, wird die
+     * Anmeldung abgelehnt - fail-closed. Die Migration meldet solche Faelle
+     * beim Update (siehe SchemaMigrator, Schritt 35b), damit sie auffallen,
+     * bevor jemand vor der Tuer steht.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function findeKontoFuerAnmeldung(string $kennung): ?array {
+        if ($kennung === '') {
+            return null;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "SELECT id, username, email, password_hash, totp_enabled, email_2fa_enabled, email_verification_token
+             FROM users
+             WHERE (email = ? OR username = ?) AND deleted_at IS NULL AND deactivated_at IS NULL
+             LIMIT 2"
+        );
+        $stmt->execute([$kennung, $kennung]);
+        $treffer = $stmt->fetchAll();
+
+        if (count($treffer) === 1) {
+            return $treffer[0];
+        }
+
+        if (count($treffer) > 1) {
+            \App\Service\AuditLogger::log(
+                "Anmeldung abgelehnt: mehrdeutige Kennung",
+                "auth",
+                sprintf(
+                    'Die Kennung trifft %d Konten - ein Benutzername entspricht der E-Mail-Adresse eines '
+                    . 'anderen Kontos (#348). Solange das so ist, kann sich keines der beiden anmelden.',
+                    count($treffer)
+                )
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Das Konto zu einer laufenden Zwei-Faktor-Anmeldung, sofern es noch
+     * anmeldefaehig ist.
+     *
+     * Zwischen Faktor 1 und Faktor 2 koennen Minuten liegen. In dieser Zeit
+     * kann das Konto geloescht oder gesperrt worden sein (#358) - dann darf
+     * der zweite Faktor es nicht mehr hereinlassen.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function aktivesKonto(int $userId): ?array {
+        $db = Database::getInstance();
+        $stmt = $db->prepare(
+            "SELECT id, username, email, totp_enabled, email_2fa_enabled
+             FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL"
+        );
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Erzeugt einen Anmeldecode, verschickt ihn und leitet zum Eingabefeld
+     * weiter (#354).
+     *
+     * Der Versand ist gedrosselt. Ohne die Bremse waere er ein Verstaerker:
+     * Wer ein Passwort kennt, koennte beliebig oft Mail an die hinterlegte
+     * Adresse ausloesen.
+     *
+     * Ein fehlgeschlagener Versand wird SICHTBAR gemeldet. Ein Formular, das
+     * auf einen Code wartet, fuer den nie eine Mail kommt, ist der
+     * unangenehmste denkbare Zustand - die Seite weist dann ausdruecklich auf
+     * die Backup-Codes hin.
+     */
+    private function sendeAnmeldecode(int $userId, string $email): void {
+        $ziel = '/login/2fa/email';
+
+        // Faktor aktiv, aber keine Adresse: Diesen Zustand verhindern
+        // UserController (Adresse entfernt -> Faktor aus) und
+        // ProfileController (Faktor nur mit Adresse einschaltbar). Sollte er
+        // doch entstehen, ist die richtige Antwort NICHT, den Faktor zu
+        // ueberspringen - das liesse jemanden mit einem Schritt weniger
+        // herein. Stattdessen die Seite mit dem Versandfehler: Sie verweist
+        // auf die Backup-Codes, und die sind der vorgesehene Rueckweg.
+        if (trim($email) === '') {
+            header("Location: {$ziel}?fehler=versand");
+            return;
+        }
+
+        if (\App\Security\RateLimiter::tooManyAttempts(
+            (string)$userId,
+            EmailSecondFactor::RESEND_LIMITER_TYPE,
+            EmailSecondFactor::RESEND_MAX,
+            EmailSecondFactor::RESEND_WINDOW
+        )) {
+            header("Location: {$ziel}?fehler=gedrosselt");
+            return;
+        }
+        \App\Security\RateLimiter::recordAttempt((string)$userId, EmailSecondFactor::RESEND_LIMITER_TYPE);
+
+        $code = EmailSecondFactor::issue($userId, EmailSecondFactor::PURPOSE_LOGIN);
+        $versandt = (new \App\Service\Mailer())->sendSecondFactorCode(
+            $email,
+            $code,
+            (int)round(EmailSecondFactor::TTL_SECONDS / 60)
+        );
+
+        \App\Service\AuditLogger::log(
+            $versandt ? "Anmeldecode versendet" : "Anmeldecode konnte nicht versendet werden",
+            "auth",
+            $versandt
+                ? "Zweiter Faktor per E-Mail angefordert"
+                : "Der Mailversand schlug fehl - der Benutzer wird auf die Backup-Codes verwiesen",
+            $userId
+        );
+
+        header("Location: {$ziel}" . ($versandt ? '' : '?fehler=versand'));
+    }
+
+    /**
+     * Wohin ein Konto mit diesen Faktoren zum Nachweis geschickt wird.
+     *
+     * Eine Stelle, damit die Weiche nicht an drei Orten getrennt gepflegt
+     * wird - jeder vergessene Ort waere ein Weg am Faktor vorbei.
+     *
+     * @param array<int, string> $faktoren
+     */
+    private static function faktorPfad(array $faktoren): string {
+        return in_array(SecondFactors::TOTP, $faktoren, true) ? '/login/2fa' : '/login/2fa/email';
+    }
+
+    /**
+     * Beschriftung des Kontos in der Authentikator-App.
+     *
+     * Seit #348 kann `email` NULL sein. Totp::getOtpAuthUrl() verlangt einen
+     * String, und eine leere Beschriftung waere in einer App mit mehreren
+     * Konten wertlos - also der Benutzername, der ohnehin die zweite gueltige
+     * Anmeldekennung ist.
+     *
+     * @param array<string, mixed> $user
+     */
+    private function totpLabel(array $user): string {
+        $email = trim((string)($user['email'] ?? ''));
+        return $email !== '' ? $email : (string)($user['username'] ?? 'Konto');
+    }
+
+    /**
+     * Gemeinsamer Abschluss aller zweiten Faktoren.
+     *
+     * WARUM HIER NOCH EINE HUERDE STEHT. Der Mailcode ist der schwaechste
+     * Faktor (#354), und Administratoren wird er deshalb gar nicht erst
+     * angeboten (SecondFactors::emailFactorAllowedFor()). Ein Konto kann aber
+     * SPAETER in die Gruppe `admin` kommen - dann haette es alle Rechte und
+     * als einzigen Faktor einen Mailcode. Statt das hinzunehmen oder das
+     * Konto auszusperren, verlangt die Anmeldung an dieser Stelle die
+     * Einrichtung von TOTP: nach bestandenem zweiten Faktor, nicht davor.
+     */
+    private function afterSecondFactor(int $userId, string $redirectSuccess = '/admin'): void {
+        if (
+            \App\Permission\GroupMembership::isAdmin($userId)
+            && !SecondFactors::has($userId, SecondFactors::TOTP)
+        ) {
+            $_SESSION['pending_2fa_user_id'] = $userId;
+            header("Location: /2fa/setup?grund=starker_faktor");
+            exit;
+        }
+
+        $this->completeLogin($userId, $redirectSuccess);
     }
 
     /**
@@ -211,22 +457,28 @@ class AuthController extends BaseController {
             exit;
         }
 
-        $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
-        $stmt->execute([$userId]);
-        $user = $stmt->fetch();
-
-        if (!$user) {
+        $user = $this->aktivesKonto($userId);
+        if ($user === null) {
             header("Location: /login");
             exit;
         }
 
-        // Step-up-Reauth (#112): Ist 2FA bereits aktiv, darf eine bestehende
-        // Session die Konfiguration (neues Secret + neue Backup-Codes) nur nach
-        // erneuter Bestätigung von Passwort UND aktuellem TOTP-Code ändern -
-        // sonst könnte ein Angreifer mit übernommener Session (z. B.
-        // unbeaufsichtigter Arbeitsplatz) die 2FA dauerhaft an sich binden.
-        if ((int)$user['totp_enabled'] === 1) {
+        // Step-up-Reauth (#112): Hat das Konto SCHON einen zweiten Faktor,
+        // darf eine bestehende Session die Konfiguration (neues Secret + neue
+        // Backup-Codes) nur nach erneuter Bestätigung ändern - sonst könnte
+        // ein Angreifer mit übernommener Session (z. B. unbeaufsichtigter
+        // Arbeitsplatz) die 2FA dauerhaft an sich binden.
+        //
+        // GEFRAGT WIRD NACH JEDEM FAKTOR, NICHT NUR NACH TOTP. Bis v0.8 war
+        // `totp_enabled = 0` gleichbedeutend mit "kein zweiter Faktor" - seit
+        // #354 nicht mehr. Wer nur diese Spalte prüft, lässt ein Konto, dessen
+        // einziger Faktor der Mailcode ist, hier ohne jeden Nachweis durch:
+        // Der Angreifer bräuchte nur das Passwort, holte sich auf dieser Seite
+        // ein frisches TOTP-Secret, bestätigte es mit dem eigenen Gerät und
+        // wäre angemeldet - mit dem Mailcode nie in Berührung gekommen und mit
+        // den Backup-Codes des Opfers überschrieben.
+        $vorhandeneFaktoren = SecondFactors::fromRow($user);
+        if ($vorhandeneFaktoren !== []) {
             // Die Neukonfiguration darf nur die eigene, angemeldete Sitzung
             // dieses Kontos anstoßen. Eine Sitzung, die als jemand anderes
             // angemeldet ist, zählt hier ausdrücklich NICHT als Nachweis -
@@ -234,12 +486,17 @@ class AuthController extends BaseController {
             // Step-up dessen Secret zu überschreiben.
             if ((int)($_SESSION['user_id'] ?? 0) !== $userId) {
                 // Pending-Session hat nur das Passwort bewiesen - für Konten
-                // mit aktiver 2FA führt der Weg ausschließlich über /login/2fa.
-                header("Location: /login/2fa");
+                // mit zweitem Faktor führt der Weg ausschließlich über dessen
+                // Eingabeseite.
+                header("Location: " . self::faktorPfad($vorhandeneFaktoren));
                 exit;
             }
             if (!$this->hasFresh2faReauth($userId)) {
-                $this->render('2fa_reauth', ['title' => '2FA-Änderung bestätigen']);
+                $this->render('2fa_reauth', [
+                    'title' => '2FA-Änderung bestätigen',
+                    'faktoren' => $vorhandeneFaktoren,
+                    'mailcodeAngefordert' => EmailSecondFactor::pending($userId, EmailSecondFactor::PURPOSE_SETUP),
+                ]);
                 return;
             }
         }
@@ -254,7 +511,10 @@ class AuthController extends BaseController {
         $_SESSION['totp_setup'] = ['user_id' => $userId, 'secret' => $secret, 'backup_codes' => $backupCodes];
 
         $siteName = $this->settings['site_name'] ?? 'Hengstverzeichnis';
-        $otpAuthUrl = Totp::getOtpAuthUrl($user['email'], $siteName, $secret);
+        // Seit #348 darf `email` NULL sein - die Authentikator-App braucht
+        // aber eine Beschriftung. Dann steht der Benutzername darin; er ist
+        // ohnehin die andere gueltige Anmeldekennung.
+        $otpAuthUrl = Totp::getOtpAuthUrl($this->totpLabel($user), $siteName, $secret);
 
         $this->render('2fa_setup', [
             'title' => '2FA Einrichtung',
@@ -290,21 +550,42 @@ class AuthController extends BaseController {
         }
 
         $password = $_POST['password'] ?? '';
-        $code = trim($_POST['totp_code'] ?? '');
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT password_hash, totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
+        $stmt = $db->prepare(
+            "SELECT password_hash, totp_secret, totp_enabled, email_2fa_enabled, last_totp_timeslice
+             FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL"
+        );
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
+        $faktoren = is_array($user) ? SecondFactors::fromRow($user) : [];
 
-        if ($user && !empty($user['totp_secret']) && password_verify($password, $user['password_hash'])) {
-            $decryptedSecret = \App\Security\Crypto::decrypt($user['totp_secret']) ?? $user['totp_secret'];
-            $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
-            $matchedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, $code, $lastSlice);
+        if ($user && $faktoren !== [] && password_verify($password, $user['password_hash'])) {
+            $bestanden = false;
 
-            if ($matchedSlice !== null) {
-                $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
-                $update->execute([$matchedSlice, $userId]);
+            if (in_array(SecondFactors::TOTP, $faktoren, true) && !empty($user['totp_secret'])) {
+                $decryptedSecret = \App\Security\Crypto::decrypt($user['totp_secret']) ?? $user['totp_secret'];
+                $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
+                $matchedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, trim($_POST['totp_code'] ?? ''), $lastSlice);
+
+                if ($matchedSlice !== null) {
+                    $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
+                    $update->execute([$matchedSlice, $userId]);
+                    $bestanden = true;
+                }
+            } else {
+                // Konto ohne TOTP, aber mit Mailcode (#354): Der Step-up muss
+                // sich mit dem Faktor fuehren lassen, den das Konto HAT. Sonst
+                // waere die Seite fuer diese Konten eine Sackgasse - sie
+                // koennten nie eine Authentikator-App nachruesten.
+                $bestanden = EmailSecondFactor::verify(
+                    (int)$userId,
+                    EmailSecondFactor::PURPOSE_SETUP,
+                    (string)($_POST['email_code'] ?? '')
+                );
+            }
+
+            if ($bestanden) {
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
 
                 // Mit der Konto-ID, nicht als blanker Zeitstempel: Der
@@ -323,8 +604,58 @@ class AuthController extends BaseController {
 
         $this->render('2fa_reauth', [
             'title' => '2FA-Änderung bestätigen',
-            'error' => 'Passwort oder 6-stelliger Code ungültig. Bitte versuchen Sie es erneut.'
+            'faktoren' => $faktoren,
+            'mailcodeAngefordert' => EmailSecondFactor::pending((int)$userId, EmailSecondFactor::PURPOSE_SETUP),
+            'error' => 'Passwort oder Code ungültig. Bitte versuchen Sie es erneut.'
         ]);
+    }
+
+    /**
+     * Probecode fuer den Step-up an die hinterlegte Adresse (#354).
+     *
+     * Braucht ein Konto, dessen einziger Faktor der Mailcode ist, um eine
+     * Authentikator-App nachzuruesten: Die Reauth-Seite verlangt einen
+     * gueltigen Faktor, und den gibt es hier.
+     */
+    public function sendReauthCode(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
+        }
+
+        // Ausdruecklich nur die eigene, angemeldete Sitzung - genau wie der
+        // Step-up selbst. Eine Pending-Session hat erst das Passwort bewiesen.
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+        if ($userId <= 0) {
+            header("Location: /login");
+            exit;
+        }
+
+        $konto = $this->aktivesKonto($userId);
+        if ($konto === null || empty($konto['email_2fa_enabled']) || empty($konto['email'])) {
+            header("Location: /2fa/setup");
+            exit;
+        }
+
+        if (\App\Security\RateLimiter::tooManyAttempts(
+            (string)$userId,
+            EmailSecondFactor::RESEND_LIMITER_TYPE,
+            EmailSecondFactor::RESEND_MAX,
+            EmailSecondFactor::RESEND_WINDOW
+        )) {
+            header("Location: /2fa/setup");
+            exit;
+        }
+        \App\Security\RateLimiter::recordAttempt((string)$userId, EmailSecondFactor::RESEND_LIMITER_TYPE);
+
+        $code = EmailSecondFactor::issue($userId, EmailSecondFactor::PURPOSE_SETUP);
+        (new \App\Service\Mailer())->sendSecondFactorCode(
+            (string)$konto['email'],
+            $code,
+            (int)round(EmailSecondFactor::TTL_SECONDS / 60)
+        );
+
+        header("Location: /2fa/setup");
+        exit;
     }
 
     public function enable2fa(): void {
@@ -339,23 +670,23 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
-        $stmt->execute([$userId]);
-        $dbUser = $stmt->fetch();
-        if (!$dbUser) {
+        $dbUser = $this->aktivesKonto($userId);
+        if ($dbUser === null) {
             header("Location: /login");
             exit;
         }
 
-        // Step-up-Reauth (#112): Bei bereits aktiver 2FA muss die Session die
-        // Neukonfiguration zuvor über /2fa/reauth freigeschaltet haben - die
-        // Prüfung aus show2faSetup() wird hier serverseitig wiederholt, damit
-        // ein direkter POST sie nicht umgehen kann. Wortgleich, weil beide
-        // Wege für sich allein tragen müssen: /2fa/setup gibt das neue Secret
-        // bereits aus, ein Fix nur hier käme zu spät.
-        if ((int)$dbUser['totp_enabled'] === 1) {
+        // Step-up-Reauth (#112): Hat das Konto schon einen zweiten Faktor, muss
+        // die Session die Neukonfiguration zuvor über /2fa/reauth freigeschaltet
+        // haben - die Prüfung aus show2faSetup() wird hier serverseitig
+        // wiederholt, damit ein direkter POST sie nicht umgehen kann.
+        // Wortgleich, weil beide Wege für sich allein tragen müssen:
+        // /2fa/setup gibt das neue Secret bereits aus, ein Fix nur hier käme
+        // zu spät. Zur Frage "welcher Faktor zählt" siehe show2faSetup().
+        $vorhandeneFaktoren = SecondFactors::fromRow($dbUser);
+        if ($vorhandeneFaktoren !== []) {
             if ((int)($_SESSION['user_id'] ?? 0) !== $userId) {
-                header("Location: /login/2fa");
+                header("Location: " . self::faktorPfad($vorhandeneFaktoren));
                 exit;
             }
             if (!$this->hasFresh2faReauth($userId)) {
@@ -396,7 +727,7 @@ class AuthController extends BaseController {
             $this->render('2fa_setup', [
                 'title' => '2FA Einrichtung',
                 'secret' => $secret,
-                'otpAuthUrl' => Totp::getOtpAuthUrl($dbUser['email'], $siteName, $secret),
+                'otpAuthUrl' => Totp::getOtpAuthUrl($this->totpLabel($dbUser), $siteName, $secret),
                 'backupCodes' => $backupCodesRaw,
                 'error' => 'Ungültiger 6-stelliger Code. Bitte versuchen Sie es erneut.'
             ]);
@@ -417,7 +748,7 @@ class AuthController extends BaseController {
         // Server-State der Einrichtung und Reauth-Freischaltung verbrauchen.
         unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth']);
 
-        $this->completeLogin($userId, '/admin?2fa=enabled');
+        $this->afterSecondFactor($userId, '/admin?2fa=enabled');
     }
 
     public function show2faVerify(): void {
@@ -426,7 +757,26 @@ class AuthController extends BaseController {
             exit;
         }
 
-        $this->render('2fa_verify', ['title' => \App\I18n\Translator::t('meta.title_2fa_confirm')]);
+        $this->render('2fa_verify', [
+            'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
+            // Hat das Konto BEIDE Faktoren, bleibt der Mailcode von hier aus
+            // als Ausweichweg erreichbar - sonst waere der Weg dorthin nur
+            // ueber ein erneutes Anmelden zu finden.
+            'mailcodeMoeglich' => $this->mailcodeMoeglich(),
+        ]);
+    }
+
+    /**
+     * Steht dem laufenden Anmeldevorgang der Mailcode als zweiter Weg offen?
+     */
+    private function mailcodeMoeglich(): bool {
+        $userId = $_SESSION['pending_2fa_user_id'] ?? null;
+        if (!$userId) {
+            return false;
+        }
+        $konto = $this->aktivesKonto((int)$userId);
+
+        return $konto !== null && !empty($konto['email_2fa_enabled']) && !empty($konto['email']);
     }
 
     public function process2faVerify(): void {
@@ -445,7 +795,8 @@ class AuthController extends BaseController {
         if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
             $this->render('2fa_verify', [
                 'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
-                'error' => \App\I18n\Translator::t('auth.rate_limited_2fa')
+                'error' => \App\I18n\Translator::t('auth.rate_limited_2fa'),
+                'mailcodeMoeglich' => $this->mailcodeMoeglich(),
             ]);
             return;
         }
@@ -472,7 +823,7 @@ class AuthController extends BaseController {
                 $update->execute([$matchedSlice, $userId]);
 
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
-                $this->completeLogin($userId, '/admin');
+                $this->afterSecondFactor((int)$userId, '/admin');
             }
         }
 
@@ -480,8 +831,124 @@ class AuthController extends BaseController {
 
         $this->render('2fa_verify', [
             'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
+            'error' => \App\I18n\Translator::t('auth.invalid_2fa_code'),
+            'mailcodeMoeglich' => $this->mailcodeMoeglich(),
+        ]);
+    }
+
+    /**
+     * Eingabefeld fuer den Anmeldecode aus der E-Mail (#354).
+     *
+     * Verschickt selbst NICHTS. Der Code entsteht im POST, der hierher
+     * weiterleitet (loginSubmit() bzw. resendEmail2faCode()) - ein GET, der
+     * Mail ausloest, tut das auch beim Neuladen und beim Vorausladen des
+     * Browsers.
+     */
+    public function showEmail2faVerify(): void {
+        if (!isset($_SESSION['pending_2fa_user_id'])) {
+            header("Location: /login");
+            exit;
+        }
+
+        $this->render('2fa_email_verify', [
+            'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
+            'error' => $this->versandfehlerText($_GET['fehler'] ?? null),
+        ]);
+    }
+
+    /**
+     * Uebersetzt den Fehlermarker aus der URL in eine Meldung. Der Marker
+     * steht in der URL und nicht in der Session, weil er einen abgeschlossenen
+     * Vorgang beschreibt - beim naechsten Versuch soll er weg sein.
+     */
+    private function versandfehlerText(?string $marker): ?string {
+        return match ($marker) {
+            'versand'    => \App\I18n\Translator::t('auth.2fa_email_send_failed'),
+            'gedrosselt' => \App\I18n\Translator::t('auth.2fa_email_send_throttled'),
+            default      => null,
+        };
+    }
+
+    public function processEmail2faVerify(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
+        }
+
+        $userId = $_SESSION['pending_2fa_user_id'] ?? null;
+        if (!$userId) {
+            header("Location: /login");
+            exit;
+        }
+        $userId = (int)$userId;
+
+        // DERSELBE Zaehler wie beim TOTP-Code, nicht ein eigener: Wer zwei
+        // Verfahren hat, soll dadurch nicht doppelt so viele Rateversuche
+        // bekommen. Die Versuchsgrenze JE CODE (EmailSecondFactor::
+        // MAX_ATTEMPTS) kommt zusaetzlich dazu und verbraucht den Code.
+        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+            $this->render('2fa_email_verify', [
+                'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
+                'error' => \App\I18n\Translator::t('auth.rate_limited_2fa')
+            ]);
+            return;
+        }
+
+        // Zwischen Passwort und Code koennen Minuten liegen - das Konto kann
+        // in dieser Zeit gesperrt worden sein (#358).
+        $konto = $this->aktivesKonto($userId);
+        if ($konto === null) {
+            unset($_SESSION['pending_2fa_user_id']);
+            header("Location: /login");
+            exit;
+        }
+
+        if (
+            !empty($konto['email_2fa_enabled'])
+            && EmailSecondFactor::verify($userId, EmailSecondFactor::PURPOSE_LOGIN, (string)($_POST['code'] ?? ''))
+        ) {
+            \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
+            $this->afterSecondFactor($userId, '/admin');
+        }
+
+        \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
+        \App\Service\AuditLogger::log(
+            "Anmeldecode abgelehnt",
+            "auth",
+            "Falscher, abgelaufener oder bereits verbrauchter Code",
+            $userId,
+            (string)$konto['username']
+        );
+
+        $this->render('2fa_email_verify', [
+            'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
             'error' => \App\I18n\Translator::t('auth.invalid_2fa_code')
         ]);
+    }
+
+    /**
+     * Neuen Code anfordern. Loest den alten ab (Primaerschluessel der
+     * Tabelle) und ist ueber denselben Topf gedrosselt wie der erste Versand.
+     */
+    public function resendEmail2faCode(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
+        }
+
+        $userId = $_SESSION['pending_2fa_user_id'] ?? null;
+        if (!$userId) {
+            header("Location: /login");
+            exit;
+        }
+
+        $konto = $this->aktivesKonto((int)$userId);
+        if ($konto === null || empty($konto['email_2fa_enabled']) || empty($konto['email'])) {
+            unset($_SESSION['pending_2fa_user_id']);
+            header("Location: /login");
+            exit;
+        }
+
+        $this->sendeAnmeldecode((int)$userId, (string)$konto['email']);
+        exit;
     }
 
     public function showBackupCode(): void {
@@ -551,7 +1018,7 @@ class AuthController extends BaseController {
             $stmt = $db->prepare("UPDATE users SET backup_codes = ? WHERE id = ?");
             $stmt->execute([json_encode($updatedCodes), $userId]);
 
-            $this->completeLogin($userId, '/admin?backup_code_used=1');
+            $this->afterSecondFactor((int)$userId, '/admin?backup_code_used=1');
         }
 
         \App\Security\RateLimiter::recordAttempt((string)$userId, 'backup');
@@ -761,6 +1228,13 @@ class AuthController extends BaseController {
         $stmt->execute([$reset['email']]);
         $account = $stmt->fetch();
         if ($account) {
+            // Ein noch unterwegs befindlicher Anmeldecode gehoert in denselben
+            // Zug wie Sitzungen und API-Schluessel (#354): Der Passwortwechsel
+            // ist die Reaktion auf einen Verdacht, und ein Code, der schon in
+            // einem fremden Postfach liegt, waere sonst der einzige Rest, der
+            // ihn ueberlebt.
+            EmailSecondFactor::discard((int)$account['id']);
+
             $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$account['id']);
             if ($revokedKeys > 0) {
                 // Benutzer-Kontext explizit übergeben: Beim Reset per E-Mail-
@@ -886,6 +1360,10 @@ class AuthController extends BaseController {
         // übernimmt den neuen Stand direkt und bleibt angemeldet.
         $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1 WHERE id = ?");
         $stmt->execute([$hash, $userId]);
+
+        // Offene Mailcodes verwerfen (#354) - dieselbe Begruendung wie in
+        // updatePassword().
+        EmailSecondFactor::discard((int)$userId);
 
         // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen (#217) -
         // dieselbe Begründung wie in updatePassword(): Die session_version-

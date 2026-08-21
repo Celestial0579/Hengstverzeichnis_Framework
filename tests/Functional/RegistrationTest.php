@@ -69,7 +69,7 @@ class RegistrationTest extends FunctionalTestCase {
             $loginPage = $client->get('/login');
             $blockedLogin = $client->post('/login', [
                 'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-                'email' => $email,
+                'kennung' => $email,
                 'password' => 'Registrier123!',
             ]);
             $this->assertStringContainsString('bestätigen Sie zunächst Ihre E-Mail-Adresse', $blockedLogin->body);
@@ -98,7 +98,7 @@ class RegistrationTest extends FunctionalTestCase {
             //    gewähltes Passwort).
             $login = $client->post('/login', [
                 'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-                'email' => $email,
+                'kennung' => $email,
                 'password' => 'Registrier123!',
             ]);
             $this->assertSame('/admin', $login->location(), "Login nach Verifizierung sollte direkt durchlaufen, Body: {$login->body}");

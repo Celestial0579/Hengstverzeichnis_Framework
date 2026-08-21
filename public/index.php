@@ -174,10 +174,18 @@ $router->post('/force-password-change', [App\Controllers\AuthController::class, 
 $router->get('/2fa/setup', [App\Controllers\AuthController::class, 'show2faSetup']);
 $router->post('/2fa/enable', [App\Controllers\AuthController::class, 'enable2fa']);
 $router->post('/2fa/reauth', [App\Controllers\AuthController::class, 'process2faReauth']);
+// Probecode fuer den Step-up - fuer Konten, deren einziger Faktor der
+// Mailcode ist (#354). Ohne ihn koennten sie nie TOTP nachruesten.
+$router->post('/2fa/reauth/code', [App\Controllers\AuthController::class, 'sendReauthCode']);
 $router->get('/2fa/verify', [App\Controllers\AuthController::class, 'show2faVerify']);
 $router->post('/2fa/verify', [App\Controllers\AuthController::class, 'process2faVerify']);
 $router->get('/login/2fa', [App\Controllers\AuthController::class, 'show2faVerify']);
 $router->post('/login/2fa', [App\Controllers\AuthController::class, 'process2faVerify']);
+// Zweiter Faktor per E-Mail (#354). Der Versand haengt ausschliesslich an
+// POST-Routen: Ein GET, der Mail ausloest, tut das auch beim Neuladen.
+$router->get('/login/2fa/email', [App\Controllers\AuthController::class, 'showEmail2faVerify']);
+$router->post('/login/2fa/email', [App\Controllers\AuthController::class, 'processEmail2faVerify']);
+$router->post('/login/2fa/email/senden', [App\Controllers\AuthController::class, 'resendEmail2faCode']);
 $router->get('/2fa/backup', [App\Controllers\AuthController::class, 'showBackupCode']);
 $router->post('/2fa/backup', [App\Controllers\AuthController::class, 'processBackupCode']);
 
@@ -227,6 +235,10 @@ $router->post('/admin/users/reactivate', [App\Controllers\UserController::class,
 $router->get('/profil', [App\Controllers\ProfileController::class, 'index']);
 $router->post('/profil/passwort', [App\Controllers\ProfileController::class, 'changePassword']);
 $router->post('/profil/backup-codes', [App\Controllers\ProfileController::class, 'regenerateBackupCodes']);
+// Zweiter Faktor per E-Mail: anfordern, einschalten, ausschalten (#354).
+$router->post('/profil/2fa/email/code', [App\Controllers\ProfileController::class, 'requestEmailFactorCode']);
+$router->post('/profil/2fa/email/ein', [App\Controllers\ProfileController::class, 'enableEmailFactor']);
+$router->post('/profil/2fa/email/aus', [App\Controllers\ProfileController::class, 'disableEmailFactor']);
 $router->post('/profil/email', [App\Controllers\ProfileController::class, 'requestEmailChange']);
 // Ohne Anmeldung: Der Link geht an die NEUE Adresse, deren Empfaenger nicht
 // zwingend angemeldet ist. Der Besitz des Tokens ist der Nachweis.

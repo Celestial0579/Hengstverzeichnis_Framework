@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 15;
+    public const SCHEMA_VERSION = 16;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -435,6 +435,12 @@ final class SchemaMigrator {
         $addColumn('users', 'deactivated_reason', 'VARCHAR(64) NULL DEFAULT NULL');
         $addColumn('users', 'unprotected_since', 'DATETIME NULL DEFAULT NULL');
 
+        // 37. Zweiter Faktor per E-Mail (#354, SCHEMA_VERSION 16).
+        // NOT NULL mit Default 0: Ein Konto, dessen Faktor-Zustand "unbekannt"
+        // waere, muesste die Anmeldung fail-closed behandeln - einfacher ist
+        // ein Wert, den es nicht gibt.
+        $addColumn('users', 'email_2fa_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
+
         // 36. Adressaenderung in der Selbstbedienung (#357, SCHEMA_VERSION 15).
         $addColumn('users', 'pending_email', 'VARCHAR(100) NULL DEFAULT NULL');
         $addColumn('users', 'pending_email_token', 'VARCHAR(64) NULL DEFAULT NULL');
@@ -465,6 +471,20 @@ final class SchemaMigrator {
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX (`identifier`, `type`),
             INDEX (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // 11b. Einmalcodes fuer den zweiten Faktor per E-Mail (#354,
+        // SCHEMA_VERSION 16). Siehe database/schema.sql fuer die Begruendung
+        // von Abdruck-Speicherung und Primaerschluessel.
+        $createTable('email_2fa_codes', "CREATE TABLE IF NOT EXISTS `email_2fa_codes` (
+            `user_id` INT NOT NULL,
+            `purpose` VARCHAR(20) NOT NULL,
+            `code_hash` VARCHAR(255) NOT NULL,
+            `expires_at` DATETIME NOT NULL,
+            `attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`user_id`, `purpose`),
+            FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // 12. Plugin-System (siehe src/Plugin/PluginManager.php, #56): Aktivierungsstatus
@@ -1689,6 +1709,12 @@ final class SchemaMigrator {
                      SET `unprotected_since` = `created_at`
                      WHERE `deleted_at` IS NULL
                        AND `unprotected_since` IS NULL
+                       -- Bewusst nur totp_enabled, ohne email_2fa_enabled aus
+                       -- #354: Dieser Schritt laeuft einmalig beim Sprung auf
+                       -- die Fassung, die die Spalte ueberhaupt erst anlegt -
+                       -- sie steht dabei zwangslaeufig auf 0. Die laufende
+                       -- Regel fragt dagegen SecondFactors (siehe
+                       -- DormantAccountService::unprotectedPredicate()).
                        AND (`totp_enabled` = 0 OR `totp_enabled` IS NULL)
                        AND (`email` IS NULL OR `email` = '')"
                 );
@@ -1708,6 +1734,55 @@ final class SchemaMigrator {
                 'Ruhende Konten (#358): Fristanker fuer %d Konto/Konten ohne zweiten Faktor und ohne '
                 . 'E-Mail gesetzt; die 180-Tage-Frist laeuft ab deren Anlagedatum',
                 $betroffen
+            )];
+        });
+
+        // 35b. Mehrdeutige Anmeldekennungen melden (#348).
+        //
+        // Ab v0.9 meldet man sich mit dem Benutzernamen ODER der
+        // E-Mail-Adresse an. Neue Benutzernamen duerfen deshalb kein `@`
+        // enthalten (LoginIdentifier::usernameErrors()). Bestandsnamen aber
+        // schon - und wenn einer davon die Adresse eines ANDEREN Kontos ist,
+        // waere die Eingabe mehrdeutig. Die Anmeldung weist diesen Fall
+        // fail-closed ab (AuthController::loginSubmit()); niemand wird also
+        // faelschlich eingelassen, aber die Betroffenen kaemen ohne Zutun
+        // nicht mehr hinein. Deshalb wird es hier gemeldet, statt still
+        // umbenannt zu werden: Welcher Name weichen soll, kann diese
+        // Migration nicht wissen.
+        //
+        // Gemeldet wird EINMAL, beim Sprung auf diese Fassung. Ein Marker
+        // wird dabei gesetzt (Rueckgabe ist eine Liste, kein null) - das ist
+        // hier auch die einzige Wahl: $dataStep verwirft die Meldung eines
+        // Schrittes, der null zurueckgibt, eine Wiederholung waere also eine
+        // Wiederholung von nichts. Der Hinweis steht damit im Protokoll des
+        // Updates, und der Laufzeitschutz (fail-closed bei der Anmeldung)
+        // traegt unabhaengig davon weiter.
+        $dataStep('348_mehrdeutige_kennungen', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('users')) {
+                return null;
+            }
+            try {
+                $treffer = $pdo->query(
+                    "SELECT u.username
+                     FROM `users` u
+                     JOIN `users` a ON a.id <> u.id AND a.email = u.username
+                     WHERE u.deleted_at IS NULL AND a.deleted_at IS NULL
+                     ORDER BY u.username ASC"
+                )->fetchAll(\PDO::FETCH_COLUMN);
+            } catch (\Throwable $e) {
+                return null;
+            }
+
+            if (!$treffer) {
+                return [];
+            }
+
+            return [sprintf(
+                'Anmeldung (#348): %d Benutzername(n) entsprechen der E-Mail-Adresse eines anderen Kontos '
+                . '(%s). Die Anmeldung weist eine solche Eingabe als mehrdeutig ab - bitte einen der beiden '
+                . 'Werte aendern.',
+                count($treffer),
+                implode(', ', array_slice($treffer, 0, 10)) . (count($treffer) > 10 ? ' ...' : '')
             )];
         });
 

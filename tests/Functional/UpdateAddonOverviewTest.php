@@ -442,7 +442,7 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
         $loginPage = $client->get('/login');
         $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => self::$adminEmail,
+            'kennung' => self::$adminEmail,
             'password' => self::$adminPassword,
         ]);
         $verifyPage = $client->get('/login/2fa');

@@ -16,6 +16,17 @@
         Zur Erhöhung der Sicherheit ist die 2-Faktor-Authentifizierung für alle Benutzer verpflichtet. Bitte richten Sie Ihre Authentikator-App (z. B. Google Authenticator, 1Password, Bitwarden) ein.
     </p>
 
+    <?php // Kommt jemand hierher, weil sein Konto Administrator geworden ist,
+          // waehrend sein einziger Faktor der Mailcode war (#354), gehoert der
+          // Grund auf die Seite - sonst sieht die Aufforderung willkuerlich aus. ?>
+    <?php if (($_GET['grund'] ?? '') === 'starker_faktor'): ?>
+        <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Ihr Konto hat Administratorrechte. Dafür genügt der Einmalcode per E-Mail nicht &ndash;
+            wer Zugriff auf das Postfach hat, hätte damit auch den zweiten Faktor. Bitte richten Sie
+            zusätzlich eine Authentikator-App ein.
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($error)): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?= htmlspecialchars($error) ?>

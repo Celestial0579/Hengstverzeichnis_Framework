@@ -2,6 +2,7 @@
 // src/Views/2fa_verify.php
 /**
  * @var string|null $error
+ * @var bool $mailcodeMoeglich Hat das Konto zusaetzlich den Mailcode (#354)?
  */
 ?>
 <div class="card" style="max-width: 400px; margin: 4rem auto;">
@@ -28,6 +29,16 @@
     </form>
 
     <div style="text-align: center; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+        <?php if (!empty($mailcodeMoeglich)): ?>
+            <?php // Als Formular, nicht als Link: Der Versand ist eine
+                  // Aktion mit Nebenwirkung und gehoert nicht hinter ein GET. ?>
+            <form action="/login/2fa/email/senden" method="POST" style="margin-bottom: 0.8rem;">
+                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                <button type="submit" class="btn btn-secondary" style="width: 100%; font-size: 0.9rem;">
+                    <?= htmlspecialchars(App\I18n\Translator::t('auth.2fa_email_use_instead')) ?>
+                </button>
+            </form>
+        <?php endif; ?>
         <a href="/2fa/backup" style="font-size: 0.9rem; color: var(--text-muted); text-decoration: none;">
             <?= htmlspecialchars(App\I18n\Translator::t('auth.2fa_lost_phone')) ?>
         </a>

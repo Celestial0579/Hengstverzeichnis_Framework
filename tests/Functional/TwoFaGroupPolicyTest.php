@@ -56,7 +56,7 @@ class TwoFaGroupPolicyTest extends FunctionalTestCase {
         $loginPage = $client->get('/login');
         $loginResponse = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => "no2fa-{$unique}@example.com",
+            'kennung' => "no2fa-{$unique}@example.com",
             'password' => 'OhneZweiFa123!',
         ]);
         $this->assertSame('/force-password-change', $loginResponse->location(), "Login ohne 2FA-Pflicht sollte direkt (bis auf Passwortwechsel) abgeschlossen sein, Body: {$loginResponse->body}");
@@ -84,7 +84,7 @@ class TwoFaGroupPolicyTest extends FunctionalTestCase {
         $secondLoginPage = $secondClient->get('/login');
         $secondLogin = $secondClient->post('/login', [
             'csrf_token' => $secondLoginPage->formField('csrf_token') ?? '',
-            'email' => "no2fa-{$unique}@example.com",
+            'kennung' => "no2fa-{$unique}@example.com",
             'password' => 'OhneZweiFaNeu456!',
         ]);
         $this->assertSame('/2fa/setup', $secondLogin->location(), 'Nach Aktivieren der Gruppen-Pflicht muss der nächste Login das 2FA-Setup erzwingen');

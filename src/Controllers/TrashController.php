@@ -156,6 +156,35 @@ class TrashController extends BaseController {
         exit;
     }
 
+    /**
+     * Wuerde dieses Konto nach der Wiederherstellung Rechte haben, fuer die
+     * eine E-Mail-Adresse Pflicht ist - und keine besitzen? (#348)
+     */
+    private function kontoBrauchtAdresse(\PDO $db, int $userId): bool {
+        $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $adresse = trim((string)($stmt->fetchColumn() ?: ''));
+
+        if ($adresse !== '') {
+            return false;
+        }
+
+        $braucht = \App\Permission\EmailRequirement::userRequiresEmail($db, $userId);
+        if ($braucht) {
+            \App\Service\AuditLogger::log(
+                "Wiederherstellung abgelehnt",
+                "trash",
+                sprintf(
+                    'Konto ID %d hat keine E-Mail-Adresse, seine Gruppen geben aber Bearbeitungs- '
+                    . 'oder Veroeffentlichungsrechte (#348)',
+                    $userId
+                )
+            );
+        }
+
+        return $braucht;
+    }
+
     public function restore(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
@@ -170,6 +199,22 @@ class TrashController extends BaseController {
 
         if ($id > 0) {
             $db = Database::getInstance();
+
+            // Adresspflicht nach Rechten (#348) - der DRITTE Zeitpunkt.
+            //
+            // Die Gruppenzugehoerigkeiten ueberleben den Soft-Delete. Bekommt
+            // eine Gruppe ein Bearbeitungsrecht, waehrend eines ihrer
+            // Mitglieder ohne Adresse im Papierkorb liegt, laesst die Pruefung
+            // dort das durch (geloeschte Konten zaehlen bewusst nicht mit,
+            // sonst blockierte ein nie zurueckgeholtes Konto die Rechtevergabe
+            // fuer immer). Beim Zurueckholen entstuende damit genau der
+            // Zustand, den beide anderen Pruefungen verweigern: ein aktives
+            // Konto mit Schreibrecht und ohne Rueckweg.
+            if ($type === 'user' && $this->kontoBrauchtAdresse($db, $id)) {
+                header("Location: /admin/trash?error=email_required");
+                exit;
+            }
+
             $stmt = match ($type) {
                 'horse' => $db->prepare("UPDATE horses SET deleted_at = NULL WHERE id = ?"),
                 'contact' => $db->prepare("UPDATE contacts SET deleted_at = NULL WHERE id = ?"),

@@ -94,6 +94,12 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   hinterlegt, bekäme die Frist nie zurückgesetzt.
 - `email` – seit #348 **optional** (`NULL` erlaubt). `UNIQUE` bleibt; MariaDB
   lässt beliebig viele `NULL` zu.
+- `pending_email` / `pending_email_token` / `pending_email_expires_at` –
+  beantragte, noch **nicht gültige** Adresse aus der Selbstbedienung (#357).
+  Gespeichert wird nur der SHA-256-Abdruck des Tokens (Muster
+  `password_resets`), Frist 48 Stunden. Bis zur Bestätigung gilt die
+  bisherige Adresse — sonst trüge sich ein Angreifer mit übernommener Sitzung
+  eine eigene ein und bekäme damit den Passwort-Reset-Weg.
 
 ### `horse_registrations`
 Weitere Lebensnummern / Registriernummern je Pferd (#246):

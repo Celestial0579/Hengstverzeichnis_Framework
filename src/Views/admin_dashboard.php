@@ -87,6 +87,12 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
             <a href="/api-keys" class="btn btn-secondary" style="<?= $tileStyle ?>">
                 🔑 API-Schlüssel
             </a>
+            <!-- Ebenfalls Selfservice (#357): das eigene Passwort, der eigene
+                 zweite Faktor, die eigene Adresse. Ohne Rechtepruefung - die
+                 Seite arbeitet ausschliesslich auf der eigenen Konto-ID. -->
+            <a href="/profil" class="btn btn-secondary" style="<?= $tileStyle ?>">
+                👤 Mein Profil
+            </a>
         </div>
     </div>
 

@@ -221,6 +221,18 @@ $router->post('/admin/users/revoke-api-keys', [App\Controllers\UserController::c
 // tot ausgeliefert (#373).
 $router->post('/admin/users/reactivate', [App\Controllers\UserController::class, 'reactivate']);
 
+// Selbstbedienung fuer das eigene Konto (#357). Sechs Routen - und ja, sie
+// gehoeren gezaehlt: Eine vergessene Route liefert ein tot ausgeliefertes
+// Feature (#373).
+$router->get('/profil', [App\Controllers\ProfileController::class, 'index']);
+$router->post('/profil/passwort', [App\Controllers\ProfileController::class, 'changePassword']);
+$router->post('/profil/backup-codes', [App\Controllers\ProfileController::class, 'regenerateBackupCodes']);
+$router->post('/profil/email', [App\Controllers\ProfileController::class, 'requestEmailChange']);
+// Ohne Anmeldung: Der Link geht an die NEUE Adresse, deren Empfaenger nicht
+// zwingend angemeldet ist. Der Besitz des Tokens ist der Nachweis.
+$router->get('/profil/email/bestaetigen', [App\Controllers\ProfileController::class, 'confirmNewEmail']);
+$router->post('/profil/email/abbrechen', [App\Controllers\ProfileController::class, 'cancelEmailChange']);
+
 // Admin Kontaktverwaltung (#336): eine Verwaltung für Personen UND
 // Deckstationen, seit beide in `contacts` liegen. Ersetzt die getrennten
 // Routen /admin/persons und /admin/breeding-stations samt ihrer Controller.

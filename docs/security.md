@@ -6,6 +6,32 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
 
 ## Authentifizierung & Sessions
 
+### Selbstbedienung `/profil` (#357)
+
+Steht **jedem angemeldeten Benutzer** offen und arbeitet ausschliesslich auf
+`$_SESSION['user_id']` — es gibt keinen Parameter, über den sich ein fremdes
+Konto adressieren liesse. Drei Punkte, die dort mehr sind als Bequemlichkeit:
+
+- **Passwortwechsel** zählt `session_version` hoch **und** ruft
+  `ApiKey::revokeAllForUser()`. Ohne beides bewirkte er weniger als der
+  erzwungene Wechsel, während die Seite dem Benutzer das Gegenteil verspricht.
+  Die eigene Sitzung endet mit — bei einem Verdacht ist „alle Sitzungen sind
+  weg, auch meine" die ehrlichere Zusage.
+- **Backup-Codes neu erzeugen** verlangt Passwort **und** TOTP, denselben
+  Maßstab wie die 2FA-Einrichtung (#112): Zehn frische Codes sind dasselbe
+  Material wie ein neues Geheimnis. Der verbrauchte Zeitschlitz wird
+  mitgeschrieben, sonst löchert die Aktion den Replay-Schutz (#111).
+- **Adressänderung** braucht das aktuelle Passwort, gilt erst nach Bestätigung
+  über einen Link an die NEUE Adresse — und schickt gleichzeitig einen Hinweis
+  an die BISHERIGE. Den kann ein Angreifer nicht verhindern; er ist der
+  einzige Weg, auf dem der rechtmäßige Eigentümer von einer Übernahme erfährt,
+  solange sie noch rückgängig zu machen ist.
+
+`GET /profil/email/bestaetigen` ist bewusst **ohne** Anmeldung erreichbar: Der
+Empfänger der neuen Adresse ist nicht zwingend angemeldet, und der Besitz des
+Tokens ist der Nachweis. Deshalb ruft `ProfileController` `checkAuth()` je
+Aktion statt im Konstruktor.
+
 ### Gesperrte Konten (#358)
 
 `users.deactivated_at` ist ein eigener Zustand neben `deleted_at`. Geprüft wird

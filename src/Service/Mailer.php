@@ -652,6 +652,54 @@ class Mailer {
      *        E-Mail deaktiviert werden (#358). Vorgabewerte, damit vorhandene
      *        Aufrufer nicht brechen.
      */
+    /**
+     * Bestaetigungslink an die NEUE Adresse (#357). Bis er angeklickt ist,
+     * gilt weiterhin die alte - eine unbestaetigte Adresse darf den
+     * Passwort-Reset-Weg nicht uebernehmen.
+     */
+    public function sendProfileEmailChangeConfirmation(string $newEmail, string $token): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $link = $this->getBaseUrl() . 'profil/email/bestaetigen?token=' . urlencode($token);
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
+                <h2>E-Mail-Adresse bestätigen</h2>
+                <p>Für Ihr Konto bei {$siteName} wurde diese Adresse als neue E-Mail-Adresse hinterlegt.
+                   Sie gilt erst, wenn Sie sie hier bestätigen:</p>
+                <p><a href='{$link}' style='display:inline-block;padding:10px 18px;background:#2a52be;color:#fff;text-decoration:none;border-radius:4px;'>Adresse bestätigen</a></p>
+                <p style='color:#666;font-size:0.9rem;'>Der Link gilt 48 Stunden. Haben Sie das nicht veranlasst,
+                   ignorieren Sie diese Nachricht &ndash; ohne Bestätigung ändert sich nichts.</p>
+            </div>
+        ";
+
+        return $this->send($newEmail, "E-Mail-Adresse bestätigen - {$siteName}", $html);
+    }
+
+    /**
+     * Hinweis an die BISHERIGE Adresse (#357).
+     *
+     * Der eigentliche Schutz gegen eine stille Kontouebernahme: Wer eine
+     * fremde Sitzung uebernimmt und die Adresse umtraegt, kann diese Nachricht
+     * nicht verhindern - der rechtmaessige Eigentuemer erfaehrt davon, solange
+     * die alte Adresse noch gilt.
+     */
+    public function sendProfileEmailChangeNotice(string $currentEmail, string $newEmail): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $neu = htmlspecialchars($newEmail, ENT_QUOTES, 'UTF-8');
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
+                <h2>Änderung Ihrer E-Mail-Adresse angefordert</h2>
+                <p>Für Ihr Konto bei {$siteName} wurde beantragt, die E-Mail-Adresse auf <strong>{$neu}</strong> zu ändern.</p>
+                <p>Solange die neue Adresse nicht bestätigt ist, bleibt diese hier gültig.</p>
+                <p style='color:#a00;'><strong>Waren Sie das nicht?</strong> Dann hat jemand Zugriff auf Ihr Konto.
+                   Ändern Sie sofort Ihr Passwort und melden Sie sich beim Verwaltungsteam.</p>
+            </div>
+        ";
+
+        return $this->send($currentEmail, "Änderung Ihrer E-Mail-Adresse - {$siteName}", $html);
+    }
+
     public function sendAdminDigest(
         string $recipientEmail,
         int $matchSuggestionCount,

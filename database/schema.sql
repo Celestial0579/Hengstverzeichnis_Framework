@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS `users` (
     -- verifiziert, Login gesperrt. Admin-angelegte Konten: immer NULL.
     `email_verification_token` VARCHAR(64) NULL DEFAULT NULL,
     `email_verification_expires_at` DATETIME NULL DEFAULT NULL,
+    -- Selbstbedienung: Adresse hinterlegen oder aendern (#357). Die neue
+    -- Adresse gilt ERST, wenn sie bestaetigt wurde - sonst traegt sich ein
+    -- Angreifer mit uebernommener Sitzung eine eigene ein und uebernimmt damit
+    -- den Passwort-Reset-Weg. Gespeichert wird nur der SHA-256-Abdruck des
+    -- Tokens, nie das Token selbst (Muster: password_resets).
+    `pending_email` VARCHAR(100) NULL DEFAULT NULL,
+    `pending_email_token` VARCHAR(64) NULL DEFAULT NULL,
+    `pending_email_expires_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL,
     -- GESPERRT ist nicht GELOESCHT (#358). Bis v0.8 war beides dieselbe

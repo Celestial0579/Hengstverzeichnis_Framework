@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 14;
+    public const SCHEMA_VERSION = 15;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -434,6 +434,11 @@ final class SchemaMigrator {
         $addColumn('users', 'deactivated_at', 'DATETIME NULL DEFAULT NULL');
         $addColumn('users', 'deactivated_reason', 'VARCHAR(64) NULL DEFAULT NULL');
         $addColumn('users', 'unprotected_since', 'DATETIME NULL DEFAULT NULL');
+
+        // 36. Adressaenderung in der Selbstbedienung (#357, SCHEMA_VERSION 15).
+        $addColumn('users', 'pending_email', 'VARCHAR(100) NULL DEFAULT NULL');
+        $addColumn('users', 'pending_email_token', 'VARCHAR(64) NULL DEFAULT NULL');
+        $addColumn('users', 'pending_email_expires_at', 'DATETIME NULL DEFAULT NULL');
 
         // 9. Passwortänderungs-Zwang für neue/zurückgesetzte Benutzer. Früher ein
         // ungegatetes ALTER TABLE, das bei jedem Lauf einen (verschluckten)

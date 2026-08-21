@@ -13,6 +13,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['success'] ?? '') === 'password_changed'): ?>
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Passwort geändert. Bitte melden Sie sich neu an &ndash; alle bisherigen Sitzungen wurden beendet.
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['success']) && $_GET['success'] === 'email_verified'): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars(App\I18n\Translator::t('auth.email_verified_success')) ?>

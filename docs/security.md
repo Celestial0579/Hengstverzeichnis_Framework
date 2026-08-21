@@ -114,7 +114,9 @@ unveröffentlichte Vorfahren nur als Platzhalter, und die an Plugins
 [plugin-development.md](plugin-development.md)).
 
 **API-Schlüssel** (`src/Security/ApiKey.php`, [api.md](api.md)) sind eine
-eigene, session-unabhängige Auth-Fläche: max. 5 je Benutzer, gespeichert
+eigene, session-unabhängige Auth-Fläche: max. 5 GÜLTIGE je Benutzer
+(abgelaufene zählen nicht mit, #340), mit Pflicht-Ablauf von höchstens zwei
+Jahren ab Ausstellung, gespeichert
 nur als SHA-256-Hash, effektive Rechte stets die **Schnittmenge** aus den
 aktuellen Rechten des Besitzers und dem Scope des Schlüssels — ein
 Schlüssel kann nie mehr als sein Besitzer, und Rechteverlust wirkt sofort.

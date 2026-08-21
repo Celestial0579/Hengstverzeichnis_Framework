@@ -23,6 +23,30 @@ class ApiKeyAuthTest extends FunctionalTestCase {
 
     use ApiKeyHelper;
 
+    /**
+     * Präfixe der in dieser Klasse angelegten Schlüssel.
+     *
+     * WARUM DAS SEIN MUSS: Die Functional-Suite teilt sich EIN Admin-Konto,
+     * und je Konto sind höchstens fünf gültige Schlüssel erlaubt. Bleiben die
+     * Schlüssel dieser Klasse stehen, scheitern spätere Klassen (ApiStatsTest)
+     * mit `limit_reached` an einer Zusicherung, die mit ihnen nichts zu tun
+     * hat. Genau das ist beim Bau der Ablauftests passiert.
+     *
+     * @var array<int, string>
+     */
+    private array $eigeneSchluessel = [];
+
+    protected function tearDown(): void {
+        if ($this->eigeneSchluessel !== []) {
+            $stmt = \App\Database::getInstance()->prepare('DELETE FROM api_keys WHERE token_prefix = ?');
+            foreach ($this->eigeneSchluessel as $praefix) {
+                $stmt->execute([$praefix]);
+            }
+            $this->eigeneSchluessel = [];
+        }
+        parent::tearDown();
+    }
+
     public function testApiIsUnreachableWithoutValidKey(): void {
         // Erzwingt die Ersteinrichtung der Testinstanz (ensureProvisioned()
         // hängt an authenticatedClient()). Ohne diesen Aufruf antwortet eine
@@ -54,6 +78,74 @@ class ApiKeyAuthTest extends FunctionalTestCase {
             $anonymous->header('Access-Control-Allow-Origin'),
             'Seit der Schlüsselpflicht darf kein Wildcard-CORS-Header mehr gesetzt sein.'
         );
+    }
+
+    /**
+     * Ein ABGELAUFENER Schlüssel muss dieselbe Antwort liefern wie ein
+     * unbekannter (#340).
+     *
+     * Sonst wird die 401 zum Orakel: Wer eine Fundgrube alter Schlüssel
+     * durchprobiert, erführe an einer abweichenden Meldung, welche davon
+     * einmal echt waren - und damit, wo sich weiteres Suchen lohnt. Die
+     * Versuchung, hier hilfsbereit `'error' => 'expired'` zu ergänzen, ist
+     * genau deshalb festgenagelt.
+     */
+    public function testExpiredKeyIsIndistinguishableFromAnUnknownOne(): void {
+        $admin = $this->authenticatedClient();
+        $u = uniqid();
+        $token = $this->createApiKey($admin, "Ablauftest {$u}");
+        $this->eigeneSchluessel[] = substr($token, 0, 11);
+
+        $client = $this->newClient();
+        $gueltig = $client->get('/api/horses', $this->bearer($token));
+        $this->assertSame(200, $gueltig->statusCode, 'Vorbedingung: der Schlüssel gilt zunächst');
+
+        // Nur den Ablauf zurückdatieren - NICHT widerrufen. Sonst prüfte der
+        // Test den Widerrufsweg, den es schon gab.
+        \App\Database::getInstance()
+            ->prepare('UPDATE api_keys SET expires_at = NOW() - INTERVAL 1 SECOND WHERE token_prefix = ?')
+            ->execute([substr($token, 0, 11)]);
+
+        $abgelaufen = $client->get('/api/horses', $this->bearer($token));
+        $unbekannt = $client->get('/api/horses', $this->bearer('hv_' . str_repeat('0', 64)));
+
+        $this->assertSame(401, $abgelaufen->statusCode);
+        $this->assertSame(
+            $unbekannt->body,
+            $abgelaufen->body,
+            'Abgelaufen und unbekannt müssen byteweise dieselbe Antwort ergeben.'
+        );
+        $this->assertNull(
+            $abgelaufen->header('X-Api-Key-Expires-At'),
+            'Ein abgelaufener Schlüssel darf auch keinen Ablauf-Hinweis mehr bekommen - das wäre dieselbe Auskunft durch die Hintertür.'
+        );
+    }
+
+    /**
+     * Und die Gegenrichtung: Solange der Schlüssel noch gilt, aber bald
+     * abläuft, MUSS die Gegenstelle es erfahren - vor dem Stillstand, nicht
+     * danach.
+     */
+    public function testSoonExpiringKeyCarriesAWarningHeader(): void {
+        $admin = $this->authenticatedClient();
+        $u = uniqid();
+        $token = $this->createApiKey($admin, "Bald faellig {$u}");
+        $this->eigeneSchluessel[] = substr($token, 0, 11);
+
+        \App\Database::getInstance()
+            ->prepare('UPDATE api_keys SET expires_at = NOW() + INTERVAL 3 DAY WHERE token_prefix = ?')
+            ->execute([substr($token, 0, 11)]);
+
+        $antwort = $this->newClient()->get('/api/horses', $this->bearer($token));
+
+        $this->assertSame(200, $antwort->statusCode);
+        $this->assertNotNull($antwort->header('X-Api-Key-Expires-At'));
+        // Zwischen dem UPDATE und der Anfrage vergeht Zeit; je nachdem, ob die
+        // Sekunde schon gekippt ist, sind es 2 oder 3 Tage. Auf eine exakte
+        // Zahl zu prüfen wäre ein Test, der gelegentlich grundlos rot wird.
+        $rest = (int)$antwort->header('X-Api-Key-Expires-In-Days');
+        $this->assertGreaterThanOrEqual(2, $rest);
+        $this->assertLessThanOrEqual(3, $rest);
     }
 
     public function testValidKeyWorksAndRevokedKeyIsRejectedImmediately(): void {

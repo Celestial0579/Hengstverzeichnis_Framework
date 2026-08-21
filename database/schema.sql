@@ -546,6 +546,13 @@ CREATE TABLE IF NOT EXISTS `api_keys` (
     `issued_session_version` INT NOT NULL DEFAULT 1,
     `last_used_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Pflicht-Ablaufdatum (#340), hoechstens zwei Jahre ab Ausstellung.
+    -- Die Frist beginnt bei der Ausstellung und wird durch Benutzung NICHT
+    -- verlaengert: Sonst hielte gerade der vergessene, aber noch laufende
+    -- Schluessel sich selbst am Leben. Der Vorgabewert ist bewusst die
+    -- aktuelle Zeit, also "sofort abgelaufen" - wer die Spalte beim INSERT
+    -- vergisst, bekommt einen unbrauchbaren Schluessel statt eines ewigen.
+    `expires_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `revoked_at` DATETIME NULL DEFAULT NULL,
     INDEX `idx_api_keys_user` (`user_id`, `revoked_at`),
     FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE

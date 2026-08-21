@@ -55,6 +55,27 @@ final class ApiKey {
      */
     public const MAX_KEYS_PER_USER = 5;
 
+    /**
+     * Längste zulässige Laufzeit eines Schlüssels in Tagen (#340).
+     *
+     * Zwei Jahre, und zwar als Obergrenze ohne Schalter: Ein Schlüssel, der
+     * einmal ausgestellt wurde und dessen Besitzer sein Passwort nie ändert,
+     * war vorher unbegrenzt gültig - auch wenn er längst in einem alten
+     * Skript, einem Backup oder einem abgelegten Repository lag und niemand
+     * mehr wusste, dass es ihn gibt.
+     *
+     * Die Frist beginnt bei der AUSSTELLUNG, nicht bei der letzten Nutzung.
+     * Eine Verlängerung durch Benutzung hielte genau den vergessenen, aber
+     * laufenden Schlüssel dauerhaft am Leben.
+     */
+    public const MAX_LIFETIME_DAYS = 730;
+
+    /** Vorgabe, wenn der Benutzer nichts anderes wählt. */
+    public const DEFAULT_LIFETIME_DAYS = 365;
+
+    /** Ab hier gilt ein Schlüssel als "läuft bald ab" (Anzeige und API-Hinweis). */
+    public const EXPIRY_WARNING_DAYS = 30;
+
     /** Erkennbares Präfix im Klartext-Schlüssel (hilft z. B. Secret-Scannern). */
     private const TOKEN_PREFIX = 'hv_';
 
@@ -87,9 +108,12 @@ final class ApiKey {
      *
      * @param array<int, string>|null $scope Liste erlaubter "modul.aktion"-Paare;
      *        null = "alle Rechte des Besitzers" (dynamisch, kein Einfrieren).
-     * @return array{ok: bool, token?: string, error?: string}
+     * @param int|null $lifetimeDays Laufzeit in Tagen; null = Vorgabe.
+     *        Wird hart auf MAX_LIFETIME_DAYS gedeckelt - die Obergrenze ist
+     *        serverseitig und nicht über das Formular zu umgehen.
+     * @return array{ok: bool, token?: string, error?: string, expires_at?: string}
      */
-    public static function create(int $userId, string $label, ?array $scope): array {
+    public static function create(int $userId, string $label, ?array $scope, ?int $lifetimeDays = null): array {
         $label = trim($label);
         if ($label === '') {
             return ['ok' => false, 'error' => 'missing_label'];
@@ -118,6 +142,7 @@ final class ApiKey {
         }
 
         $token = self::generateToken();
+        $expiresAt = self::expiryFromLifetime($lifetimeDays);
 
         try {
             // INSERT ... SELECT statt "erst session_version lesen, dann
@@ -127,8 +152,8 @@ final class ApiKey {
             // eine bereits veraltete issued_session_version mitgäbe - und für
             // einen gelöschten Benutzer entsteht gar kein Schlüssel.
             $stmt = Database::getInstance()->prepare(
-                "INSERT INTO api_keys (user_id, label, token_hash, token_prefix, scope_permissions, issued_session_version)
-                 SELECT u.id, ?, ?, ?, ?, u.session_version
+                "INSERT INTO api_keys (user_id, label, token_hash, token_prefix, scope_permissions, issued_session_version, expires_at)
+                 SELECT u.id, ?, ?, ?, ?, u.session_version, ?
                  FROM users u
                  WHERE u.id = ? AND u.deleted_at IS NULL"
             );
@@ -137,6 +162,7 @@ final class ApiKey {
                 self::hashToken($token),
                 substr($token, 0, self::DISPLAY_PREFIX_LENGTH),
                 $scope === null ? null : json_encode(array_values($scope)),
+                $expiresAt,
                 $userId,
             ]);
             if ($stmt->rowCount() === 0) {
@@ -146,7 +172,24 @@ final class ApiKey {
             return ['ok' => false, 'error' => 'db_error'];
         }
 
-        return ['ok' => true, 'token' => $token];
+        return ['ok' => true, 'token' => $token, 'expires_at' => $expiresAt];
+    }
+
+    /**
+     * Rechnet eine gewünschte Laufzeit in einen Ablaufzeitpunkt um.
+     *
+     * Serverseitig gedeckelt: Ein manipuliertes Formularfeld kann die
+     * Obergrenze nicht anheben. Werte unter einem Tag werden auf einen Tag
+     * angehoben - ein Schlüssel, der sofort abläuft, wäre kein Schlüssel,
+     * sondern eine Fehlbedienung.
+     */
+    public static function expiryFromLifetime(?int $lifetimeDays): string {
+        $tage = $lifetimeDays ?? self::DEFAULT_LIFETIME_DAYS;
+        $tage = max(1, min($tage, self::MAX_LIFETIME_DAYS));
+
+        return (new \DateTimeImmutable('now'))
+            ->add(new \DateInterval('P' . $tage . 'D'))
+            ->format('Y-m-d H:i:s');
     }
 
     /**
@@ -173,10 +216,11 @@ final class ApiKey {
             // session_version und macht damit alle älteren Schlüssel ungültig,
             // genau wie die Sessions (BaseController::checkAuth()).
             $stmt = Database::getInstance()->prepare(
-                "SELECT k.id, k.user_id, k.scope_permissions
+                "SELECT k.id, k.user_id, k.scope_permissions, k.expires_at
                  FROM api_keys k
                  JOIN users u ON u.id = k.user_id AND u.deleted_at IS NULL
                  WHERE k.token_hash = ? AND k.revoked_at IS NULL
+                   AND k.expires_at > NOW()
                    AND k.issued_session_version = u.session_version
                  LIMIT 1"
             );
@@ -206,7 +250,23 @@ final class ApiKey {
             'id' => (int)$row['id'],
             'user_id' => (int)$row['user_id'],
             'scope' => $scope,
+            'expires_at' => (string)$row['expires_at'],
         ];
+    }
+
+    /**
+     * Verbleibende Tage bis zum Ablauf, oder null, wenn kein Ablauf bekannt
+     * ist. Grundlage fuer den Hinweis an die Gegenstelle (#340) - die soll es
+     * merken, BEVOR der Zugang stehenbleibt, nicht danach.
+     *
+     * @param array{expires_at?: string} $key
+     */
+    public static function daysUntilExpiry(array $key): ?int {
+        $bis = strtotime((string)($key['expires_at'] ?? ''));
+        if ($bis === false || empty($key['expires_at'])) {
+            return null;
+        }
+        return (int)floor(($bis - time()) / 86400);
     }
 
     /**
@@ -233,7 +293,8 @@ final class ApiKey {
     public static function forUser(int $userId): array {
         try {
             $stmt = Database::getInstance()->prepare(
-                "SELECT id, label, token_prefix, scope_permissions, last_used_at, created_at
+                "SELECT id, label, token_prefix, scope_permissions, last_used_at, created_at, expires_at,
+                        (expires_at <= NOW()) AS is_expired
                  FROM api_keys
                  WHERE user_id = ? AND revoked_at IS NULL
                  ORDER BY created_at DESC"
@@ -248,7 +309,11 @@ final class ApiKey {
     public static function countActive(int $userId): int {
         try {
             $stmt = Database::getInstance()->prepare(
-                "SELECT COUNT(*) FROM api_keys WHERE user_id = ? AND revoked_at IS NULL"
+                // Abgelaufene zaehlen NICHT mit: Der Weg aus einem Ablauf
+                // heraus ist "neu ausstellen" (#340). Zaehlten sie mit, waere
+                // das Limit nach zwei Jahren erreicht und der Benutzer koennte
+                // sich nicht mehr helfen, ohne vorher aufzuraeumen.
+                "SELECT COUNT(*) FROM api_keys WHERE user_id = ? AND revoked_at IS NULL AND expires_at > NOW()"
             );
             $stmt->execute([$userId]);
             return (int)$stmt->fetchColumn();

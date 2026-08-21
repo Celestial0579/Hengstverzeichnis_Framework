@@ -134,64 +134,39 @@ class ApiKeyTest extends TestCase {
     }
 
     /**
-     * Kernaussage von #217: Ein Schlüssel ist an die session_version seines
-     * Besitzers zum Ausstellungszeitpunkt gekoppelt. Erhöht eine
-     * Passwortänderung die session_version, wird derselbe Schlüssel von
-     * authenticate() abgelehnt - er überlebt die Incident-Response-Kette
-     * "Passwort zurücksetzen -> alle Zugänge tot" nicht mehr.
+     * WO DIE PRUEFUNG VON authenticate() STEHT - UND WARUM NICHT HIER.
+     *
+     * Diese Klasse spielt eine In-Memory-SQLite in den Database-Singleton, damit
+     * die Unit-Suite ohne Datenbank laeuft. Das traegt fuer reine Logik
+     * (permits(), Hashes, Formate) und fuer create(), dessen INSERT keine
+     * engineabhaengigen Funktionen benutzt.
+     *
+     * authenticate() prueft seit #340 zusaetzlich `expires_at > NOW()`. Das ist
+     * eine ZEITBASIERTE Sicherheitspruefung, und genau dort gehen die beiden
+     * Engines auseinander: SQLite kennt NOW() gar nicht, und sein
+     * CURRENT_TIMESTAMP liefert UTC, waehrend MariaDB die Sitzungszeitzone
+     * nimmt - auf diesem Host zwei Stunden Unterschied. Ein hier gruener Test
+     * wuerde also weder dieselbe Funktion noch dieselbe Uhr benutzen wie die
+     * Produktion.
+     *
+     * Die Kopplung an session_version (#217) und der Ablauf (#340) werden
+     * deshalb in tests/Integration/ApiKeyLifecycleTest.php gegen eine echte
+     * MariaDB geprueft. Nicht hierher zurueckholen, auch nicht "nur schnell".
      */
-    public function testAuthenticateRejectsKeyIssuedBeforePasswordChange(): void {
-        $pdo = $this->useInMemoryDatabase();
-        $pdo->exec("INSERT INTO users (id, session_version) VALUES (1, 1)");
-
-        $created = ApiKey::create(1, 'Kopplungstest', null);
-        $this->assertTrue($created['ok'], 'Anlegen des Schlüssels sollte gelingen.');
-        $token = $created['token'];
-
-        // Vor der Passwortänderung: Schlüssel ist gültig und gehört Benutzer 1.
-        $before = ApiKey::authenticate($token);
-        $this->assertNotNull($before, 'Ein frisch ausgestellter Schlüssel muss gültig sein.');
-        $this->assertSame(1, $before['user_id']);
-
-        // Passwortänderung simulieren: exakt das Statement-Muster der
-        // Passwort-Pfade (session_version + 1, siehe AuthController/UserController).
-        $pdo->exec("UPDATE users SET session_version = session_version + 1 WHERE id = 1");
-
-        $this->assertNull(
-            ApiKey::authenticate($token),
-            'Nach einer Passwortänderung muss ein zuvor ausgestellter Schlüssel abgelehnt werden.'
-        );
-
-        // Ein NEUER Schlüssel übernimmt den aktuellen Stand und funktioniert -
-        // die Kopplung sperrt gezielt Altbestand, nicht das Konto.
-        $recreated = ApiKey::create(1, 'Nach der Änderung', null);
-        $this->assertTrue($recreated['ok']);
-        $this->assertNotNull(
-            ApiKey::authenticate($recreated['token']),
-            'Ein nach der Passwortänderung ausgestellter Schlüssel muss gültig sein.'
-        );
-    }
 
     /**
-     * create() übernimmt die session_version des Besitzers atomar im
-     * INSERT ... SELECT - für einen unbekannten (oder gelöschten) Besitzer
-     * entsteht deshalb gar kein Schlüssel, statt einer verwaisten Zeile mit
-     * geratenem Stand.
+     * AUCH create() WIRD NICHT MEHR HIER GEPRUEFT.
+     *
+     * create() ruft countActive(), und das fragt seit #340
+     * `expires_at > NOW()` ab. In der SQLite-Fassung wirft diese Abfrage,
+     * countActive() faengt fail-closed ab und liefert MAX_KEYS_PER_USER -
+     * create() bricht dann mit 'limit_reached' ab, nicht daran, dass es den
+     * Besitzer nicht gibt. Ein Test auf `ok === false` waere hier also gruen,
+     * ohne die geprueft geglaubte Zusicherung je erreicht zu haben.
+     *
+     * Siehe tests/Integration/ApiKeyLifecycleTest.php.
      */
-    public function testCreateRefusesForUnknownOwner(): void {
-        $this->useInMemoryDatabase();
 
-        $result = ApiKey::create(999, 'Verwaist', null);
-
-        $this->assertFalse($result['ok']);
-        $this->assertArrayNotHasKey('token', $result, 'Für einen unbekannten Besitzer darf kein Schlüsselwert entstehen.');
-    }
-
-    /**
-     * Baut eine In-Memory-SQLite-Datenbank mit den von ApiKey benötigten
-     * Tabellen (Minimal-Schema analog database/schema.sql) und injiziert sie
-     * in den Database-Singleton. tearDown() räumt die Injektion wieder ab.
-     */
     private function useInMemoryDatabase(): \PDO {
         $pdo = new \PDO('sqlite::memory:', null, null, [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
@@ -212,6 +187,10 @@ class ApiKeyTest extends TestCase {
             issued_session_version INTEGER NOT NULL DEFAULT 1,
             last_used_at TEXT NULL DEFAULT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            -- Pflicht-Ablauf (#340). Der Default ist bewusst die aktuelle Zeit,
+            -- also sofort abgelaufen: Wer die Spalte beim INSERT vergisst,
+            -- bekommt einen unbrauchbaren Schluessel statt eines ewigen.
+            expires_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             revoked_at TEXT NULL DEFAULT NULL
         )");
 

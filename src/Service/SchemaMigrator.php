@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 12;
+    public const SCHEMA_VERSION = 13;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -762,6 +762,18 @@ final class SchemaMigrator {
         // entspricht dem session_version-Startwert, Bestandsschlüssel von
         // Benutzern ohne zwischenzeitliche Passwortänderung bleiben gültig.
         $addColumn('api_keys', 'issued_session_version', 'INT NOT NULL DEFAULT 1');
+
+        // 33. Pflicht-Ablaufdatum fuer API-Schluessel (#340, SCHEMA_VERSION 13).
+        //
+        // BESTANDSSCHLUESSEL LAUFEN MIT DEM UPDATE AB - ohne Uebergangsfrist.
+        // Das ist eine bewusste Bruchstelle: Ein Schluessel unbekannten
+        // Alters, der weiterlaeuft, ist genau der Zustand, den #340 beendet.
+        // Der Spaltendefault CURRENT_TIMESTAMP setzt vorhandene Zeilen auf den
+        // Zeitpunkt des Updates; ApiKey::authenticate() verlangt
+        // `expires_at > NOW()`, sie sind damit ab dem Einspielen ungueltig.
+        // Laufende Anbindungen brechen ab, bis ein neuer Schluessel eingetragen
+        // ist - das gehoert auffaellig in die Release Notes.
+        $addColumn('api_keys', 'expires_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
         // 26. Indizes für den Blutlinien-Vorfilter (#215): der MatchSuggestion-
         // Finder holt Kandidaten jetzt gezielt über (deleted_at, sire_id) bzw.
@@ -1618,6 +1630,45 @@ final class SchemaMigrator {
             return [sprintf(
                 'Pferdefotos (#366): %d Datei(en) aus dem Webroot nach storage/horses verschoben',
                 $verschoben
+            )];
+        });
+
+        // 33b. Bestandsschlüssel ausdrücklich ablaufen lassen (#340).
+        //
+        // Der Spaltendefault CURRENT_TIMESTAMP allein genügt NICHT. Er wird
+        // von der Datenbank in DEREN Sitzungszeitzone ausgewertet, und
+        // Database::alignSessionTimeZone() läuft nur für Verbindungen aus
+        // Database::getInstance() - database/migrate.php baut ausdrücklich
+        // eine eigene PDO, Restore-Werkzeuge dürfen SchemaMigrator::run() mit
+        // beliebiger Verbindung aufrufen. Steht die Datenbank vor der
+        // PHP-Zeitzone, läge der gesetzte Wert aus Sicht von
+        // ApiKey::authenticate() in der ZUKUNFT - und die Bestandsschlüssel
+        // liefen weiter. Das ist genau der Zustand, den #340 beendet.
+        //
+        // created_at ist dagegen beweisbar vergangen: Der Schlüssel wurde
+        // ausgestellt, bevor diese Migration lief.
+        $dataStep('340_bestandsschluessel_ablaufen', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('api_keys')) {
+                return null;
+            }
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `api_keys` LIKE 'expires_at'");
+                if (!$stmt || $stmt->rowCount() === 0) {
+                    return null;
+                }
+                $betroffen = $pdo->exec('UPDATE `api_keys` SET `expires_at` = `created_at`');
+            } catch (\Throwable $e) {
+                return null;
+            }
+
+            if (!$betroffen) {
+                return [];
+            }
+
+            return [sprintf(
+                'API-Schlüssel (#340): %d Bestandsschlüssel auf ihren Ausstellungszeitpunkt datiert und damit '
+                . 'abgelaufen - laufende Anbindungen brauchen einen neuen Schlüssel',
+                $betroffen
             )];
         });
 

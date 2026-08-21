@@ -145,7 +145,7 @@ abstract class FunctionalTestCase extends TestCase {
         $loginPage = $client->get('/login');
         $loginResponse = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => self::$adminEmail,
+            'kennung' => self::$adminEmail,
             'password' => self::$adminPassword,
         ]);
         self::assertSame(
@@ -206,7 +206,7 @@ abstract class FunctionalTestCase extends TestCase {
         $loginPage = $client->get('/login');
         $loginResponse = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             'password' => $password,
         ]);
         self::assertSame(
@@ -298,6 +298,33 @@ abstract class FunctionalTestCase extends TestCase {
      * dieses listet immer ALLE Gruppen vollständig, unabhängig von Suche/Pagination
      * der Übersichtstabelle (siehe GroupController::index()).
      */
+    /**
+     * Legt eine Gruppe OHNE 2FA-Pflicht an und gibt ihre ID zurueck (#84).
+     *
+     * Fuer Tests, die den Anmeldeweg selbst untersuchen: Ein Konto ohne
+     * 2FA-Zwang landet nach dem Passwort direkt im Ziel, statt zuerst durch
+     * die TOTP-Einrichtung zu muessen.
+     */
+    protected function createGroupWithoutTwoFa(HttpClient $admin, string $name): int {
+        $groupsPage = $admin->get('/admin/groups');
+        $createResponse = $admin->post('/admin/groups/create', [
+            'csrf_token' => $groupsPage->formField('csrf_token') ?? '',
+            'name' => $name,
+        ]);
+        preg_match('/group=(\d+)/', (string)$createResponse->location(), $matches);
+        self::assertNotEmpty($matches, "Konnte Gruppen-ID zu '{$name}' nicht ermitteln, Body: {$createResponse->body}");
+        $groupId = (int)$matches[1];
+
+        $toggle = $admin->post('/admin/groups/require-2fa', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'group_id' => (string)$groupId,
+            // require_2fa bewusst NICHT gesetzt -> 0
+        ]);
+        self::assertSame("/admin/groups?group={$groupId}&success=require_2fa_updated", $toggle->location());
+
+        return $groupId;
+    }
+
     protected function findBuiltinGroupId(HttpClient $admin, string $exactName): int {
         $page = $admin->get('/admin/groups');
         $pattern = '/<option value="(\d+)"[^>]*>\s*' . preg_quote($exactName, '/') . '\b/';
@@ -333,6 +360,48 @@ abstract class FunctionalTestCase extends TestCase {
      * .github/workflows/tests.yml) genau einmal pro Prozess durch und schließt
      * die verpflichtende 2FA-Einrichtung ab.
      */
+    /**
+     * Warum die Ersteinrichtung nicht griff - in der Reihenfolge, in der es
+     * tatsaechlich vorkommt.
+     *
+     * WARUM DAS HIER STEHT. Die Meldung nannte frueher nur die
+     * Umgebungsvariablen. Die haeufigste Ursache ist aber eine ANDERE: eine
+     * Testdatenbank, in der noch ein Lauf von vorhin steht. Dann meldet
+     * /setup "schon eingerichtet", leitet nach /login, und ALLE Tests der
+     * Suite scheitern - jeder mit einem Fehlerbild, das nach einem Codefehler
+     * aussieht. Wer der genannten Spur folgt, prueft eine halbe Stunde lang
+     * Umgebungsvariablen, die in Ordnung sind.
+     */
+    private static function setupDiagnose(): string {
+        $fehlend = [];
+        foreach (['ADMIN_EMAIL', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SITE_NAME', 'APP_KEY', 'DB_NAME'] as $name) {
+            if (getenv($name) === false || getenv($name) === '') {
+                $fehlend[] = $name;
+            }
+        }
+        if ($fehlend !== []) {
+            return 'Diese Umgebungsvariablen fehlen: ' . implode(', ', $fehlend) . '. ';
+        }
+
+        try {
+            $db = \App\Database::getInstance();
+            $konten = (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn();
+            if ($konten > 0) {
+                return sprintf(
+                    'Die Testdatenbank "%s" ist NICHT LEER (%d Konto/Konten) - /setup haelt die Instanz '
+                    . 'fuer bereits eingerichtet und leitet nach /login. Datenbank neu anlegen und den '
+                    . 'Lauf wiederholen. ',
+                    getenv('DB_NAME') ?: '?',
+                    $konten
+                );
+            }
+        } catch (\Throwable $e) {
+            return 'Die Testdatenbank ist nicht erreichbar (' . $e->getMessage() . '). ';
+        }
+
+        return 'Umgebungsvariablen gesetzt und Datenbank leer - die Ursache liegt woanders. ';
+    }
+
     private static function ensureProvisioned(): void {
         if (self::$adminEmail !== null) {
             return;
@@ -347,8 +416,7 @@ abstract class FunctionalTestCase extends TestCase {
         self::assertSame(
             '/2fa/setup',
             $setupResponse->location(),
-            "Automatische Ersteinrichtung sollte zu /2fa/setup weiterleiten - Umgebungsvariablen " .
-            "(ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD/SITE_NAME/APP_KEY/DB_*) korrekt gesetzt? " .
+            "Automatische Ersteinrichtung sollte zu /2fa/setup weiterleiten. " . self::setupDiagnose() .
             "Body: {$setupResponse->body}"
         );
 

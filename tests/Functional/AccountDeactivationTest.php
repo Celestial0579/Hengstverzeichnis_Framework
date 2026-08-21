@@ -66,12 +66,12 @@ class AccountDeactivationTest extends FunctionalTestCase {
         $seite = $client->get('/login');
         $antwort = $client->post('/login', [
             'csrf_token' => $seite->formField('csrf_token') ?? '',
-            'email' => $email,
+            'kennung' => $email,
             'password' => 'EditorTestNeu456!',
         ]);
 
         $this->assertNull($antwort->location(), 'Ein deaktiviertes Konto darf nicht angemeldet werden.');
-        $this->assertStringContainsString('Ungültige E-Mail oder Passwort.', $antwort->body,
+        $this->assertStringContainsString('Ungültige Zugangsdaten.', $antwort->body,
             'Die Meldung bleibt generisch - die Anmeldemaske darf kein Orakel für Kontozustände werden.');
     }
 

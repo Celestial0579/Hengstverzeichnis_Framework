@@ -41,8 +41,18 @@ $apiKeys = $apiKeys ?? [];
         </div>
 
         <div class="form-group">
-            <label for="email">E-Mail-Adresse *</label>
-            <input type="email" id="email" name="email" class="form-control" value="<?= htmlspecialchars($old['email'] ?? $user['email'] ?? '') ?>" required>
+            <?php // Seit #348 keine Pflichtangabe mehr - aber nur fuer Konten, die
+                  // ausschliesslich lesen duerfen. Deshalb kein `required` mehr:
+                  // Die Regel haengt an den Gruppen und wird serverseitig
+                  // geprueft (UserController::emailFehler()), nicht am Formular. ?>
+            <label for="email">E-Mail-Adresse</label>
+            <input type="email" id="email" name="email" class="form-control" value="<?= htmlspecialchars($old['email'] ?? $user['email'] ?? '') ?>">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                Pflicht für alle, die mehr dürfen als lesen. Ein Konto ohne Adresse kann sich nur mit dem
+                Benutzernamen anmelden, hat kein &bdquo;Passwort vergessen&ldquo; (nur das Verwaltungsteam
+                setzt das Passwort neu) und bekommt keine Benachrichtigungen. Bleibt es zusätzlich ohne
+                zweiten Faktor, wird es nach 180 Tagen deaktiviert.
+            </small>
         </div>
 
         <div class="form-group">
@@ -81,6 +91,11 @@ $apiKeys = $apiKeys ?? [];
                     <input type="checkbox" name="send_welcome_email" value="1" checked style="width: auto; height: 1.2rem; cursor: pointer;">
                     ✉️ Willkommens-E-Mail mit Zugangsdaten automatisch senden
                 </label>
+                <p style="color: var(--text-subtle); font-size: 0.8rem; margin: 0.3rem 0 0 0;">
+                    Ohne hinterlegte E-Mail-Adresse geht nichts hinaus (#348) &ndash; das Erstpasswort
+                    muss dann auf anderem Weg zum Konto gelangen. Es ist ohnehin nur einmal gültig:
+                    Bei der ersten Anmeldung wird ein neues verlangt.
+                </p>
             </div>
         <?php endif; ?>
 

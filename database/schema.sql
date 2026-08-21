@@ -20,6 +20,12 @@ INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES
 -- Users Table
 CREATE TABLE IF NOT EXISTS `users` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
+    -- Anmeldekennung neben der E-Mail-Adresse (#348). Deshalb darf ein
+    -- Benutzername KEIN `@` enthalten: Beide Namensraeume liegen im selben
+    -- Eingabefeld, und "kunde@example.org" als Benutzername koennte die
+    -- Adresse eines anderen Kontos sein. Durchgesetzt beim Anlegen und
+    -- Aendern (App\Security\LoginIdentifier::usernameErrors()); Bestandsnamen,
+    -- die es verletzen, weist die Anmeldung fail-closed als mehrdeutig ab.
     `username` VARCHAR(50) NOT NULL UNIQUE,
     -- Optional seit #348: Konten OHNE Bearbeitungs- oder
     -- Veroeffentlichungsrechte duerfen ohne Adresse gefuehrt werden (das
@@ -34,6 +40,14 @@ CREATE TABLE IF NOT EXISTS `users` (
     `password_hash` VARCHAR(255) NOT NULL,
     `totp_secret` VARCHAR(255) NULL,
     `totp_enabled` TINYINT(1) DEFAULT 0,
+    -- Zweiter Faktor per E-Mail-Einmalcode (#354). Eigene Spalte neben
+    -- totp_enabled statt eines Registers in einer weiteren Tabelle: Das
+    -- Material jedes Verfahrens liegt in dieser Zeile, Schalter und Geheimnis
+    -- werden damit im selben UPDATE gesetzt und koennen nicht auseinander
+    -- laufen. Die Frage "welche Faktoren hat dieses Konto" beantwortet
+    -- ausschliesslich App\Security\SecondFactors - dort steht die
+    -- ausfuehrliche Begruendung.
+    `email_2fa_enabled` TINYINT(1) NOT NULL DEFAULT 0,
     `backup_codes` TEXT NULL,
     `passkeys` TEXT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
@@ -78,6 +92,29 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
     `token` VARCHAR(64) NOT NULL UNIQUE,
     `expires_at` DATETIME NOT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Einmalcodes fuer den zweiten Faktor per E-Mail (#354)
+--
+-- Gespeichert wird nur der Abdruck des Codes, nie der Code selbst - dasselbe
+-- Verfahren wie bei den Backup-Codes, und aus demselben Grund. `password_hash`
+-- statt SHA-256, obwohl der Code nur sechs Stellen hat: GERADE deshalb. Eine
+-- Million Moeglichkeiten sind mit einem schnellen Hash in Sekunden
+-- durchprobiert, wenn die Tabelle einmal in fremde Haende geraet.
+--
+-- Der Primaerschluessel (user_id, purpose) haelt je Vorgang genau EINEN
+-- gueltigen Code: Ein neu angeforderter loest den alten ab. Der Zweck trennt
+-- den Anmeldefaktor vom Probecode beim Einschalten - ein Nachweis gilt fuer
+-- den Vorgang, fuer den er ausgestellt wurde.
+CREATE TABLE IF NOT EXISTS `email_2fa_codes` (
+    `user_id` INT NOT NULL,
+    `purpose` VARCHAR(20) NOT NULL,
+    `code_hash` VARCHAR(255) NOT NULL,
+    `expires_at` DATETIME NOT NULL,
+    `attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_id`, `purpose`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Kontakte (Personen, Deckstationen, Höfe - ein Datensatz je Gegenüber, #336)

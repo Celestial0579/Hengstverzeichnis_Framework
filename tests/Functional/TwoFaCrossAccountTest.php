@@ -74,7 +74,7 @@ class TwoFaCrossAccountTest extends FunctionalTestCase {
         //    damit für das Opfer erbracht, mehr nicht.
         $login = $attacker->post('/login', [
             'csrf_token' => $csrf,
-            'email' => $victimEmail,
+            'kennung' => $victimEmail,
             'password' => $victimPassword,
         ]);
         $this->assertSame('/login/2fa', $login->location(), "Login mit dem Passwort des Opfers muss zur 2FA-Abfrage führen, Body: {$login->body}");
@@ -112,7 +112,7 @@ class TwoFaCrossAccountTest extends FunctionalTestCase {
         $victimLoginPage = $victim->get('/login');
         $victimLogin = $victim->post('/login', [
             'csrf_token' => $victimLoginPage->formField('csrf_token') ?? '',
-            'email' => $victimEmail,
+            'kennung' => $victimEmail,
             'password' => $victimPassword,
         ]);
         $this->assertSame('/login/2fa', $victimLogin->location(), "Body: {$victimLogin->body}");
@@ -151,7 +151,7 @@ class TwoFaCrossAccountTest extends FunctionalTestCase {
         self::resetTotpReplayGuard(self::$adminEmail);
         $login = $editor->post('/login', [
             'csrf_token' => $csrf,
-            'email' => self::$adminEmail,
+            'kennung' => self::$adminEmail,
             'password' => self::$adminPassword,
         ]);
         $this->assertSame('/login/2fa', $login->location(), "Body: {$login->body}");

@@ -17,10 +17,12 @@ Konto adressieren liesse. Drei Punkte, die dort mehr sind als Bequemlichkeit:
   erzwungene Wechsel, während die Seite dem Benutzer das Gegenteil verspricht.
   Die eigene Sitzung endet mit — bei einem Verdacht ist „alle Sitzungen sind
   weg, auch meine" die ehrlichere Zusage.
-- **Backup-Codes neu erzeugen** verlangt Passwort **und** TOTP, denselben
-  Maßstab wie die 2FA-Einrichtung (#112): Zehn frische Codes sind dasselbe
-  Material wie ein neues Geheimnis. Der verbrauchte Zeitschlitz wird
-  mitgeschrieben, sonst löchert die Aktion den Replay-Schutz (#111).
+- **Backup-Codes neu erzeugen** verlangt Passwort **und** einen gültigen
+  zweiten Faktor, denselben Maßstab wie die 2FA-Einrichtung (#112): Zehn
+  frische Codes sind dasselbe Material wie ein neues Geheimnis. Welcher Faktor,
+  entscheidet das Konto — TOTP, wenn vorhanden, sonst der Mailcode (#354). Bei
+  TOTP wird der verbrauchte Zeitschlitz mitgeschrieben, sonst löchert die
+  Aktion den Replay-Schutz (#111).
 - **Adressänderung** braucht das aktuelle Passwort, gilt erst nach Bestätigung
   über einen Link an die NEUE Adresse — und schickt gleichzeitig einen Hinweis
   an die BISHERIGE. Den kann ein Angreifer nicht verhindern; er ist der
@@ -31,6 +33,114 @@ Konto adressieren liesse. Drei Punkte, die dort mehr sind als Bequemlichkeit:
 Empfänger der neuen Adresse ist nicht zwingend angemeldet, und der Besitz des
 Tokens ist der Nachweis. Deshalb ruft `ProfileController` `checkAuth()` je
 Aktion statt im Konstruktor.
+
+### Anmeldung mit Benutzername oder E-Mail (#348)
+
+Das Anmeldefeld heisst seit v0.9 `kennung` und nimmt **beides** an. Vier Punkte
+tragen dabei die Sicherheit:
+
+- **Getrennte Namensräume.** Neue Benutzernamen dürfen kein `@` enthalten
+  (`LoginIdentifier::usernameErrors()`, durchgesetzt in `UserController` und in
+  der Selbstregistrierung). Sonst könnte ein Benutzername die Adresse eines
+  anderen Kontos sein.
+- **Fail-closed bei Mehrdeutigkeit.** Gesucht wird mit
+  `WHERE (email = ? OR username = ?) … LIMIT 2` — das findet auch Bestandsnamen
+  mit `@`. Treffen zwei Konten, wird die Anmeldung abgelehnt und protokolliert,
+  statt zu raten. Die Migration meldet solche Paare beim Update (Schritt 35b).
+- **Der Zähler hängt am Konto, nicht an der Schreibweise.** Der Schlüssel ist
+  `uid:<id>|ip`, sobald das Konto gefunden ist, sonst
+  `kennung:<normalisiert>|ip`. Wäre er weiterhin die Eingabe, hätte ein
+  Angreifer gegen dasselbe Konto zwei Töpfe — fünf Versuche über den
+  Benutzernamen, fünf über die Adresse. `RateLimiter::normalizeIdentifier()`
+  faltet dafür mit `mb_strtolower`: Die Datenbank vergleicht
+  `utf8mb4_unicode_ci`, ein byteweises `strtolower()` zählte „MÜLLER" und
+  „müller" getrennt.
+- **Gleich lange Antwort.** Trifft die Kennung kein Konto, läuft trotzdem ein
+  `password_verify()` gegen einen festen Vergleichsabdruck. Ohne das verriete
+  die Dauer, welche Benutzernamen und Adressen es gibt.
+
+**Die E-Mail-Adresse ist keine Pflichtangabe mehr** — aber nur für Konten ohne
+Bearbeitungs- oder Veröffentlichungsrechte. Die Regel steht in
+`App\Permission\EmailRequirement`: Pflicht, sobald eine Gruppe des Kontos eine
+Aktion erlaubt, die **nicht** in `READ_ONLY_ACTIONS` steht (auch auf
+Addon-Modulen), oder es Mitglied von `admin` ist. Lesend sind **zwei**
+Aktionen: `view` und `read` — letztere legt `FeatureRegistry` für jede
+Plugin-Zusatzfunktion an (`feature_<key>`/`read`). Eine Positivliste, keine
+Liste der Schreibaktionen: Eine unbekannte Plugin-Aktion muss als schreibend
+gelten, das verlangt höchstens eine Adresse zu viel — andersherum entstünde ein
+Konto mit Rechten und ohne Rückweg. `admin` braucht den Sonderfall, weil die Gruppe
+systemseitig alle Rechte hat und absichtlich **keine** Zeilen in
+`group_permissions` — wer nur die Tabelle abfragt, hält Administratoren für
+Nur-Leser.
+
+Geprüft wird an **drei** Zeitpunkten, nicht nur einem:
+
+1. Beim **Anlegen/Ändern** eines Kontos (`UserController`).
+2. Bei der **Rechtevergabe** an eine Gruppe (`GroupController::updatePermissions()`
+   und `copyPermissions()`). Ohne diesen wäre die Regel Zierde — eine Gruppe
+   bekommt später ein Bearbeitungsrecht, und alle ihre Mitglieder haben eines.
+   Die Ablehnung nennt die betroffenen Konten.
+3. Beim **Zurückholen aus dem Papierkorb** (`TrashController::restore()`). Die
+   Gruppenzugehörigkeiten überleben den Soft-Delete, gelöschte Konten zählen
+   bei Punkt 2 aber bewusst nicht mit (sonst blockierte ein nie
+   zurückgeholtes Konto die Rechtevergabe für immer). Ohne diesen dritten
+   Punkt liesse sich der verbotene Zustand über den Umweg
+   „löschen → Rechte vergeben → wiederherstellen" doch herstellen.
+
+### Zweiter Faktor per E-Mail (#354)
+
+Der Einmalcode per Mail ist **der schwächste der gängigen zweiten Faktoren**:
+Wer das Postfach hat, hat den Faktor. Er wird trotzdem angeboten, weil er für
+viele der einzige ist, den sie tatsächlich einrichten — aber ehrlich
+beschriftet und mit Schranken:
+
+- **Für Administratoren gesperrt** (`SecondFactors::emailFactorAllowedFor()`).
+  Wird ein Konto *später* Administrator, verlangt die Anmeldung nach dem
+  bestandenen zweiten Faktor zusätzlich die Einrichtung von TOTP
+  (`AuthController::afterSecondFactor()`) — nicht davor, sonst führte der Weg
+  am Faktor vorbei.
+- **Gespeichert wird nur der Abdruck** (`password_hash`, nicht SHA-256 —
+  gerade *weil* der Code nur sechs Stellen hat), mit Ablaufzeitpunkt und
+  Versuchszähler. Nach `MAX_ATTEMPTS` ist der Code **verbraucht**, nicht nur
+  gebremst.
+- **Der Zweck ist Teil des Primärschlüssels.** Ein Probecode aus der
+  Einrichtung lässt sich nicht als Anmeldefaktor einlösen.
+- **Ein Nachweis pro Zähler.** Die Codeprüfung läuft über denselben
+  RateLimiter-Topf (`2fa`) wie TOTP — sonst gäbe das zweite Verfahren doppelt
+  so viele Rateversuche. Der Versand hat einen eigenen, engeren Topf, damit er
+  kein Verstärker für fremde Postfächer wird.
+- **Versand nur über POST.** Ein GET, der Mail auslöst, tut das auch beim
+  Neuladen und beim Vorausladen des Browsers.
+- **Ein Probecode vor dem Einschalten.** Eine falsch eingetragene Adresse
+  sperrte das Konto sonst in genau dem Moment aus, in dem der Faktor scharf
+  wird. Die Bestätigung aus der Selbstregistrierung (#83) reicht dafür nicht —
+  admin-angelegte Konten tragen dort `NULL`.
+- **Backup-Codes entstehen beim Einschalten**, falls es noch keine gibt: Der
+  Mailversand ist der unzuverlässigste Teil, und sie sind der Rückweg.
+- **Ein Passwortwechsel verwirft offene Codes** (`EmailSecondFactor::discard()`)
+  — in allen vier Wegen: Selbstbedienung, Reset per Link, erzwungener Wechsel
+  und Neusetzung durch einen Admin. Ebenso beim Bestätigen einer neuen Adresse,
+  denn offene Codes gingen an die alte.
+
+- **Die Step-up-Schranke (#112) fragt nach JEDEM Faktor, nicht nach TOTP.**
+  Bis v0.8 war `totp_enabled = 0` gleichbedeutend mit „kein zweiter Faktor".
+  Wer nur diese Spalte prüft, lässt ein Mailcode-Konto auf `/2fa/setup` und
+  `/2fa/enable` ohne jeden Nachweis durch: Der Angreifer bräuchte nur das
+  Passwort, holte sich dort ein frisches TOTP-Secret, bestätigte es mit dem
+  eigenen Gerät — und wäre angemeldet, mit den Backup-Codes des Opfers
+  überschrieben. Beide Wege prüfen deshalb `SecondFactors::fromRow()`, und
+  beide für sich allein (`/2fa/setup` gibt das Secret bereits aus, ein Fix nur
+  im POST käme zu spät).
+- **Der Step-up ist mit dem Faktor führbar, den das Konto hat.** Für ein Konto
+  ohne TOTP verlangt `/2fa/reauth` einen Mailcode, den `POST /2fa/reauth/code`
+  ausstellt. Ohne das wäre die Schranke oben eine Sackgasse: Ein
+  Mailcode-Konto könnte nie eine Authentikator-App nachrüsten.
+
+Welche Faktoren ein Konto hat, beantwortet **ausschliesslich**
+`App\Security\SecondFactors` — Speicherung bleibt beim Material des jeweiligen
+Verfahrens (`users.totp_*`, `users.email_2fa_enabled`), damit Schalter und
+Geheimnis nicht auseinanderlaufen können. Die 180-Tage-Regel aus #358 fragt
+denselben Ort (`sqlHasAnyFactor()`).
 
 ### Gesperrte Konten (#358)
 
@@ -47,7 +157,7 @@ Tokens und das abschliessende `UPDATE` filtern getrennt. Ohne den Filter am
 `UPDATE` bliebe ein vor der Sperre verschickter Link bis zu 15 Minuten lang ein
 Weg, ihr ein frisches Passwort unterzuschieben.
 
-Die Anmeldemaske bleibt generisch (`Ungültige E-Mail oder Passwort.`) — die
+Die Anmeldemaske bleibt generisch (`Ungültige Zugangsdaten.`) — die
 eigene Meldung erscheint nur nach einer beendeten Sitzung, hängt also am
 URL-Marker und nicht an einer Eingabe. `SetupController::needsSetup()` prüft
 `deactivated_at` bewusst **nicht**: Ein gesperrtes Admin-Konto zählt weiter als

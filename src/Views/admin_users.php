@@ -94,9 +94,17 @@
                             <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem;">
+                            <?php // Beide Verfahren getrennt anzeigen (#354): "Aktiv" allein
+                                  // sagte nicht, WELCHER Faktor - und der Mailcode ist
+                                  // deutlich schwaecher als die App. Wer die Liste
+                                  // durchsieht, soll das sehen. ?>
                             <?php if (!empty($user['totp_enabled'])): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--success-soft-bg); color: var(--success-fg); font-weight: 600;">🔒 Aktiv</span>
-                            <?php else: ?>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--success-soft-bg); color: var(--success-fg); font-weight: 600;">🔒 App</span>
+                            <?php endif; ?>
+                            <?php if (!empty($user['email_2fa_enabled'])): ?>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;" title="Einmalcode per E-Mail - der schwächste der gängigen zweiten Faktoren">📧 Mailcode</span>
+                            <?php endif; ?>
+                            <?php if (empty($user['totp_enabled']) && empty($user['email_2fa_enabled'])): ?>
                                 <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;">⚠️ Ausstehend</span>
                             <?php endif; ?>
                             <?php // Gesperrt ist nicht geloescht (#358) - der Zustand
@@ -121,8 +129,8 @@
                                 </form>
                             <?php endif; ?>
 
-                            <?php if (!empty($user['totp_enabled'])): ?>
-                                <form action="/admin/users/reset-2fa" method="POST" data-confirm="Möchten Sie die 2-Faktor-Authentifizierung für den Benutzer '<?= htmlspecialchars(($user['username'])) ?>' wirklich zurücksetzen? Der Benutzer muss 2FA bei der nächsten Anmeldung neu einrichten." style="display:inline;">
+                            <?php if (!empty($user['totp_enabled']) || !empty($user['email_2fa_enabled'])): ?>
+                                <form action="/admin/users/reset-2fa" method="POST" data-confirm="Möchten Sie ALLE zweiten Faktoren (App und Mailcode) für den Benutzer '<?= htmlspecialchars(($user['username'])) ?>' wirklich zurücksetzen? Der Benutzer muss bei der nächsten Anmeldung neu einrichten." style="display:inline;">
                                     <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                     <input type="hidden" name="id" value="<?= $user['id'] ?>">
                                     <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; background-color: #fd7e14;">🔑 2FA Reset</button>

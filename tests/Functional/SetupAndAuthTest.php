@@ -35,12 +35,12 @@ class SetupAndAuthTest extends FunctionalTestCase {
 
         $response = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => self::$adminEmail ?? 'irrelevant@example.com',
+            'kennung' => self::$adminEmail ?? 'irrelevant@example.com',
             'password' => 'definitiv-das-falsche-passwort',
         ]);
 
         $this->assertSame(200, $response->statusCode);
-        $this->assertStringContainsString('Ungültige E-Mail oder Passwort', $response->body);
+        $this->assertStringContainsString('Ungültige Zugangsdaten', $response->body);
         $this->assertNull($response->location());
     }
 

@@ -65,14 +65,21 @@ final class DormantAccountService {
      * Die EINE Definition von "ungeschützt": kein zweiter Faktor UND keine
      * E-Mail-Adresse.
      *
-     * Steht hier und nur hier. Kommt mit #354 ein zweiter Faktor per E-Mail
-     * dazu, wird er an dieser Stelle ergänzt - und wirkt damit sofort in
-     * Fristanker, Vorwarnung und Deaktivierung gleichermaßen. Zwei Kopien
-     * dieser Bedingung wären genau die Drift, an der die Regel später
+     * Steht hier und nur hier - und die Liste der Verfahren steht nicht
+     * einmal hier, sondern in App\Security\SecondFactors. Mit #354 kam der
+     * Mailcode dazu; kommen Passkeys (#353), aendert sich dort eine Zeile und
+     * Fristanker, Vorwarnung und Deaktivierung ziehen von selbst mit. Zwei
+     * Kopien dieser Bedingung waeren genau die Drift, an der die Regel spaeter
      * auseinanderliefe.
+     *
+     * Dass ein Konto mit Mailcode-Faktor zwangslaeufig auch eine Adresse hat,
+     * macht den ersten Teil der Bedingung fuer dieses Verfahren zwar
+     * rechnerisch entbehrlich - aber die Bedingung soll lesbar sagen, was sie
+     * meint, und nicht auf einer Nebenbedingung eines einzelnen Verfahrens
+     * ruhen.
      */
     private static function unprotectedPredicate(string $alias = 'u'): string {
-        return "({$alias}.totp_enabled = 0 OR {$alias}.totp_enabled IS NULL) "
+        return "NOT " . \App\Security\SecondFactors::sqlHasAnyFactor($alias) . " "
              . "AND ({$alias}.email IS NULL OR {$alias}.email = '')";
     }
 

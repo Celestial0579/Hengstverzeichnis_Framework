@@ -32,17 +32,17 @@ class LoginRateLimitTest extends FunctionalTestCase {
             $loginPage = $client->get('/login');
             $response = $client->post('/login', [
                 'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-                'email' => $targetEmail,
+                'kennung' => $targetEmail,
                 'password' => 'falsches-passwort',
             ]);
-            $this->assertStringContainsString('Ungültige E-Mail oder Passwort.', $response->body);
+            $this->assertStringContainsString('Ungültige Zugangsdaten.', $response->body);
         }
 
         // 6. Versuch für dieselbe Adresse: gesperrt.
         $loginPage = $client->get('/login');
         $blocked = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => $targetEmail,
+            'kennung' => $targetEmail,
             'password' => 'falsches-passwort',
         ]);
         $this->assertStringContainsString('Zu viele fehlgeschlagene Anmeldeversuche', $blocked->body);
@@ -52,10 +52,10 @@ class LoginRateLimitTest extends FunctionalTestCase {
         // E-Mail-Lockout nach 5 Versuchen).
         $otherResponse = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => "anderes-konto-{$unique}@example.com",
+            'kennung' => "anderes-konto-{$unique}@example.com",
             'password' => 'falsches-passwort',
         ]);
-        $this->assertStringContainsString('Ungültige E-Mail oder Passwort.', $otherResponse->body);
+        $this->assertStringContainsString('Ungültige Zugangsdaten.', $otherResponse->body);
         $this->assertStringNotContainsString('Zu viele fehlgeschlagene Anmeldeversuche', $otherResponse->body);
 
         // Die andere Hälfte der Zusicherung - und die eigentliche: DIESELBE
@@ -82,10 +82,10 @@ class LoginRateLimitTest extends FunctionalTestCase {
         $loginPage = $client->get('/login');
         $vonUnsererIp = $client->post('/login', [
             'csrf_token' => $loginPage->formField('csrf_token') ?? '',
-            'email' => $andereEmail,
+            'kennung' => $andereEmail,
             'password' => 'falsches-passwort',
         ]);
-        $this->assertStringContainsString('Ungültige E-Mail oder Passwort.', $vonUnsererIp->body);
+        $this->assertStringContainsString('Ungültige Zugangsdaten.', $vonUnsererIp->body);
         $this->assertStringNotContainsString(
             'Zu viele fehlgeschlagene Anmeldeversuche',
             $vonUnsererIp->body,

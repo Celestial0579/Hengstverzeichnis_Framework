@@ -41,6 +41,17 @@
         </div>
     <?php endif; ?>
 
+    <?php // Adresspflicht nach Rechten (#348): Ein Konto ohne Adresse darf nicht
+          // in Gruppen zurueckkehren, die inzwischen Bearbeitungsrechte haben. ?>
+    <?php if (($_GET['error'] ?? '') === 'email_required'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Nicht wiederhergestellt: Das Konto hat keine E-Mail-Adresse, seine Gruppen geben inzwischen
+            aber Bearbeitungs- oder Veröffentlichungsrechte. Tragen Sie zuerst eine Adresse ein oder
+            nehmen Sie das Konto aus diesen Gruppen &ndash; ohne Adresse gibt es kein
+            &bdquo;Passwort vergessen&ldquo;, keine Benachrichtigungen und keinen zweiten Faktor per E-Mail.
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['error']) && $_GET['error'] === 'retention_period_30_days'): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             ⚠️ <strong>Hinweis zur Aufbewahrungsfrist:</strong> Editoren können Elemente erst nach Ablauf der 30-Tage-Frist endgültig löschen. Für eine sofortige Löschung wenden Sie sich an einen Administrator.

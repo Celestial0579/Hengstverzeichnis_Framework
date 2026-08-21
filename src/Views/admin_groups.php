@@ -24,6 +24,9 @@ $errorMessages = [
     'protected_group' => 'Die Berechtigungen dieser Gruppe können nicht verändert werden.',
     'unknown_group' => 'Unbekannte Gruppe.',
     'save_failed' => 'Speichern fehlgeschlagen. Bitte erneut versuchen.',
+    // #348: Bearbeitungs- oder Veroeffentlichungsrechte setzen eine
+    // E-Mail-Adresse voraus. Welche Konten fehlen, steht im Block darunter.
+    'email_required' => 'Nicht gespeichert: Mit diesen Rechten braucht jedes Mitglied der Gruppe eine E-Mail-Adresse.',
 ];
 
 $groupsById = [];
@@ -67,7 +70,20 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
         <div class="card" style="background-color: var(--success-soft-bg); color: var(--success-fg);">Aktion erfolgreich ausgeführt.</div>
     <?php endif; ?>
     <?php if (isset($_GET['error']) && isset($errorMessages[$_GET['error']])): ?>
-        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);"><?= htmlspecialchars($errorMessages[$_GET['error']]) ?></div>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);">
+            <?= htmlspecialchars($errorMessages[$_GET['error']]) ?>
+            <?php if (!empty($emailPflichtHinweis['konten'])): ?>
+                <p style="margin-top:0.6rem;">
+                    Diese Konten brauchen zuerst eine Adresse:
+                    <strong><?= htmlspecialchars(implode(', ', $emailPflichtHinweis['konten'])) ?></strong>
+                </p>
+                <p style="margin-bottom:0; font-size:0.9rem;">
+                    Ohne Adresse gibt es kein &bdquo;Passwort vergessen&ldquo;, keine Benachrichtigungen und
+                    keinen zweiten Faktor per E-Mail &ndash; für Konten, die nur lesen dürfen, ist das in
+                    Ordnung, für Bearbeiter nicht.
+                </p>
+            <?php endif; ?>
+        </div>
     <?php endif; ?>
 
     <!-- Kompakte Übersicht aller Gruppen -->

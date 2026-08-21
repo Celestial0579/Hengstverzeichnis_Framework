@@ -76,6 +76,16 @@ class PluginUninstallTest extends FunctionalTestCase {
 
     // ---- Die drei Hürden vor dem Löschen -------------------------------
 
+    /**
+     * Beide Routen gehören Administratoren - durchgesetzt im Konstruktor des
+     * PluginControllers.
+     *
+     * Das Token stammt bewusst aus einer Seite, die dieser Benutzer sehen
+     * darf. Mit einem leeren Token prüfte der POST nur den CSRF-Zweig, der
+     * VOR der Admin-Pflicht antwortet: Nähme jemand das requireAdmin() heraus,
+     * bliebe dieser Test grün, obwohl der Weg zum DROP TABLE dann für jeden
+     * Redakteur offenstünde.
+     */
     public function testUninstallRequiresAdminOnBothRoutes(): void {
         $admin = $this->adminMitFixtureDaten();
         $u = uniqid();
@@ -83,7 +93,7 @@ class PluginUninstallTest extends FunctionalTestCase {
 
         $this->assertSame(403, $redakteur->get('/admin/plugins/uninstall?slug=' . self::SLUG)->statusCode);
         $this->assertSame(403, $redakteur->post('/admin/plugins/uninstall', [
-            'csrf_token' => $this->currentCsrfToken($redakteur),
+            'csrf_token' => $this->editorCsrfToken($redakteur),
             'slug' => self::SLUG,
             'daten' => 'loeschen',
             'bestaetigung' => self::SLUG,
@@ -193,6 +203,7 @@ class PluginUninstallTest extends FunctionalTestCase {
         $stmt->execute([self::EINSTELLUNG]);
         return (int)$stmt->fetchColumn() > 0;
     }
+
 
     private static function installPluginFixture(): void {
         self::removePluginDir();

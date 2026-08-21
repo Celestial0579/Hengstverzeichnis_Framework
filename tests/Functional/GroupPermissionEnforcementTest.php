@@ -267,6 +267,30 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
             'Alte Modulnamen dürfen kein Recht erzeugen - schon gar nicht auf contacts, das beide Bereiche zusammenfasst'
         );
 
+        // Und derselbe Nachweis DATENBANKSEITIG. Die Zeile darüber allein
+        // genügt nicht: Die Matrix rendert ihre Kästchen aus
+        // PermissionRegistry::modules(), und dort stehen `persons` und
+        // `breeding_stations` seit #336 nicht mehr. Ein Recht auf einen
+        // katalogfremden Modulnamen KANN dort also gar nicht erscheinen -
+        // die Sonde wäre auch dann leer, wenn der Endpunkt die Zeilen
+        // klaglos schriebe. Genau das ist der Unterschied zwischen "wird
+        // nicht angezeigt" und "wird verworfen", und nur das zweite behauptet
+        // dieser Test.
+        //
+        // Dass es kein Formalismus ist: GroupMembership::groupsHavePermission()
+        // fragt group_permissions ohne jede Katalogprüfung ab. Eine
+        // durchgerutschte Zeile wirkte also für jeden hasPermission()-Aufruf,
+        // Addon-Routen eingeschlossen.
+        $zeilen = \App\Database::getInstance()->prepare(
+            'SELECT module, action FROM group_permissions WHERE group_id = ? ORDER BY module, action'
+        );
+        $zeilen->execute([$groupId]);
+        $this->assertSame(
+            [],
+            $zeilen->fetchAll(\PDO::FETCH_NUM),
+            'Ein POST mit katalogfremden Modulnamen darf nicht eine einzige Zeile in group_permissions hinterlassen'
+        );
+
         // Gegenprobe, dass der Endpunkt überhaupt funktioniert: Derselbe Weg
         // mit dem neuen Namen vergibt das Recht sehr wohl. Ohne sie bewiese
         // der Test oben auch dann nichts, wenn das Speichern schlicht kaputt

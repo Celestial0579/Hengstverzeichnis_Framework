@@ -448,9 +448,22 @@ class UpdateRunTest extends TestCase {
         $this->assertSame(1, $this->countAuditEntries('Automatisches Update übersprungen'));
     }
 
-    /** Ohne Opt-in passiert auch dann nichts, wenn die Aufgabe direkt aufgerufen wird. */
+    /**
+     * Ohne Opt-in passiert auch dann nichts, wenn die Aufgabe direkt
+     * aufgerufen wird.
+     *
+     * DIE REICHWEITE MUSS HIER AUSDRÜCKLICH AUF 'any' STEHEN. Ohne sie greift
+     * der Standard `patch_only`, und die veröffentlichte 9.9.9 liegt dann
+     * ohnehin ausserhalb der laufenden Kern-Linie - der Abbruch käme also von
+     * der Reichweiten-Hürde, nicht vom fehlenden Opt-in. Der Test wäre grün
+     * geblieben, wenn man die Opt-in-Prüfung am Anfang von
+     * runAutoInstallIfEligible() ersatzlos streicht; genau die soll er aber
+     * halten. Mit 'any' ist das fehlende Opt-in die einzige verbleibende
+     * Schranke.
+     */
     public function testAutoInstallDoesNothingWithoutOptIn(): void {
         $this->configureBackup();
+        $this->setSetting('update_auto_install_scope', 'any');
         $target = $this->makeTempDir();
         UpdateService::overrideBaseDirForTests($target);
         $this->publishRelease('9.9.9', ['neue-datei.txt' => 'darf nicht ankommen']);

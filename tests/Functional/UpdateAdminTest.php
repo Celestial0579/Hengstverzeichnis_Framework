@@ -107,13 +107,25 @@ class UpdateAdminTest extends FunctionalTestCase {
         $this->assertSame('0', $this->setting('update_auto_install'));
     }
 
+    /**
+     * Der Endpunkt gehört Administratoren - durchgesetzt im Konstruktor des
+     * UpdateControllers.
+     *
+     * DAS TOKEN MUSS ECHT SEIN. Es kommt deshalb aus einer Gruppe, die dem
+     * Testbenutzer eine Seite mit Formular öffnet. Mit einem LEEREN Token
+     * (so stand es hier bis #377) prüfte der Test nichts: Nähme jemand das
+     * requireAdmin() aus dem Konstruktor, liefe der POST in den CSRF-Check
+     * dahinter - und der antwortet ebenfalls mit 403. Der Test wäre grün
+     * geblieben, obwohl jeder Redakteur die Update-Automatik hätte umstellen
+     * können.
+     */
     public function testAutomationRequiresAdmin(): void {
         $admin = $this->authenticatedClient();
         $unique = uniqid();
         $editor = $this->createAndLoginEditor($admin, "autoupd{$unique}", "auto-update-{$unique}@example.com");
 
         $response = $editor->post('/admin/updates/automation', [
-            'csrf_token' => $this->currentCsrfToken($editor),
+            'csrf_token' => $this->editorCsrfToken($editor),
             'update_notify' => '1',
             'update_auto_install' => '1',
         ]);

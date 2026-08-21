@@ -140,11 +140,54 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
      * CSV-Import oder eine Altdatenübernahme dort etwas anderes hineinschrieb.
      */
     public function testStoredPathCannotEscapeTheUploadDirectory(): void {
-        $id = $this->seedHorse(true, '/uploads/horses/../../../config/config.php');
-        $this->assertSame(404, $this->newClient()->get('/media/horse-image?id=' . $id)->statusCode);
+        // WICHTIG: Beide Fälle brauchen eine EXISTIERENDE Datei.
+        //
+        // Vorher standen hier nur Verweise auf 'config.php' - eine Datei
+        // dieses Namens gibt es in keinem der beiden Bildverzeichnisse.
+        // resolveUploadPath() brach deshalb schon an `realpath() === false`
+        // ab, und der 404 bewies gar nichts: Er kam so oder so, auch ohne
+        // Endungs-Positivliste, ohne basename() und ohne die
+        // Präfixprüfung. Ein leerer Ordner ist kein Nachweis.
 
-        $id2 = $this->seedHorse(true, '/uploads/horses/config.php');
-        $this->assertSame(404, $this->newClient()->get('/media/horse-image?id=' . $id2)->statusCode);
+        // 1. Erlaubte Endung fehlt, Datei existiert aber: Das hält nur die
+        //    Positivliste auf. Ohne sie läge hier eine PHP-Datei im
+        //    Auslieferungsweg.
+        $verzeichnis = __DIR__ . '/../../public/uploads/horses';
+        if (!is_dir($verzeichnis)) {
+            mkdir($verzeichnis, 0755, true);
+        }
+        $skript = $verzeichnis . '/ausbruch_' . uniqid() . '.php';
+        file_put_contents($skript, "<?php // DB_PASS=streng-geheim");
+        $this->seededFiles[] = $skript;
+
+        $id = $this->seedHorse(true, '/uploads/horses/' . basename($skript));
+        $antwort = $this->newClient()->get('/media/horse-image?id=' . $id);
+        $this->assertSame(404, $antwort->statusCode, 'Eine Datei mit nicht erlaubter Endung darf nie ausgeliefert werden');
+        $this->assertStringNotContainsString('DB_PASS', $antwort->body, 'Der Inhalt darf unter keinen Umständen im Rumpf stehen');
+
+        // 2. Erlaubte Endung, Datei existiert - liegt aber AUSSERHALB des
+        //    Bildverzeichnisses und wird über einen relativen Pfad
+        //    angesteuert. Das hält basename() auf: Es reduziert den
+        //    gespeicherten Wert auf den reinen Dateinamen, der im
+        //    Bildverzeichnis dann nicht existiert.
+        $ausserhalb = __DIR__ . '/../../storage/ausbruch_' . uniqid() . '.png';
+        file_put_contents($ausserhalb, base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+        ));
+        $this->seededFiles[] = $ausserhalb;
+
+        $id2 = $this->seedHorse(true, '/uploads/horses/../' . basename($ausserhalb));
+        $this->assertSame(
+            404,
+            $this->newClient()->get('/media/horse-image?id=' . $id2)->statusCode,
+            'Ein relativer Pfad darf das Bildverzeichnis nicht verlassen'
+        );
+
+        // 3. Und die Gegenprobe, damit die beiden 404 oben nicht bloss
+        //    "irgendetwas ist kaputt" bedeuten: Dieselbe Datei am richtigen
+        //    Ort wird sehr wohl ausgeliefert.
+        $erlaubt = $this->seedHorseWithPhoto(true);
+        $this->assertSame(200, $this->newClient()->get('/media/horse-image?id=' . $erlaubt)->statusCode);
     }
 
     /**

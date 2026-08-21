@@ -135,7 +135,7 @@ class RegistrationController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, username FROM users WHERE email_verification_token = ? AND email_verification_expires_at > NOW() AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT id, username FROM users WHERE email_verification_token = ? AND email_verification_expires_at > NOW() AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$token]);
         $user = $stmt->fetch();
 

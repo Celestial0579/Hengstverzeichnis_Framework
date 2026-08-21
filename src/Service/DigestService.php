@@ -64,8 +64,12 @@ final class DigestService {
     public static function run(): void {
         $matchSuggestionCount = self::countOpenMatchSuggestions();
         $expiringTrashCount = self::countExpiringTrashItems();
+        // Vorwarnung vor der Deaktivierung ruhender Konten (#358). Sie gehoert
+        // hierher, weil der Betroffene selbst nicht erreichbar ist - das Konto
+        // hat ja gerade keine E-Mail-Adresse.
+        $pendingDeactivations = DormantAccountService::dueSoon();
 
-        if ($matchSuggestionCount === 0 && $expiringTrashCount === 0) {
+        if ($matchSuggestionCount === 0 && $expiringTrashCount === 0 && $pendingDeactivations === []) {
             self::recordStatus('ok', null, 0);
             return;
         }
@@ -81,7 +85,7 @@ final class DigestService {
         $sentCount = 0;
         $failedRecipients = [];
         foreach ($recipients as $recipientEmail) {
-            if ($mailer->sendAdminDigest($recipientEmail, $matchSuggestionCount, $expiringTrashCount)) {
+            if ($mailer->sendAdminDigest($recipientEmail, $matchSuggestionCount, $expiringTrashCount, $pendingDeactivations)) {
                 $sentCount++;
             } else {
                 $failedRecipients[] = $recipientEmail;
@@ -166,7 +170,7 @@ final class DigestService {
             FROM users u
             JOIN user_groups ug ON ug.user_id = u.id
             JOIN `groups` g ON g.id = ug.group_id
-            WHERE g.slug IN ({$placeholders}) AND u.deleted_at IS NULL
+            WHERE g.slug IN ({$placeholders}) AND u.deleted_at IS NULL AND u.deactivated_at IS NULL
         ");
         $stmt->execute($slugs);
         return array_values(array_filter($stmt->fetchAll(\PDO::FETCH_COLUMN)));

@@ -253,6 +253,7 @@ return [
 
     // Login / 2FA / Passwort vergessen (öffentlich erreichbarer Auth-Flow)
     'auth.password_reset_success' => '✓ Passwort erfolgreich geändert. Bitte melden Sie sich an.',
+    'auth.account_deactivated' => 'Dieses Konto wurde deaktiviert, weil länger als 180 Tage weder ein zweiter Faktor noch eine E-Mail-Adresse hinterlegt war. Das Verwaltungsteam kann es wieder einschalten.',
     'auth.email_label' => 'E-Mail',
     'auth.password_label' => 'Passwort',
     'auth.forgot_password_link' => 'Passwort vergessen?',

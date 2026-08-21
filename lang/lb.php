@@ -244,6 +244,7 @@ return [
 
     // Login / 2FA / Passwuert vergiess (ëffentlech erreechbaren Auth-Flow)
     'auth.password_reset_success' => '✓ Passwuert erfollegräich geännert. Mellt Iech w.e.g. un.',
+    'auth.account_deactivated' => 'Dëse Kont gouf deaktivéiert, well e méi wéi 180 Deeg weder en zweete Faktor nach eng E-Mail-Adress hat. D\'Verwaltung kann en erëm aschalten.',
     'auth.email_label' => 'E-Mail',
     'auth.password_label' => 'Passwuert',
     'auth.forgot_password_link' => 'Passwuert vergiess?',

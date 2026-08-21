@@ -51,7 +51,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, password_hash, totp_enabled, totp_secret, email_verification_token FROM users WHERE email = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT id, password_hash, totp_enabled, totp_secret, email_verification_token FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
@@ -212,7 +212,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -293,7 +293,7 @@ class AuthController extends BaseController {
         $code = trim($_POST['totp_code'] ?? '');
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT password_hash, totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT password_hash, totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -339,7 +339,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT email, totp_enabled FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$userId]);
         $dbUser = $stmt->fetch();
         if (!$dbUser) {
@@ -451,7 +451,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT totp_secret, last_totp_timeslice FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -515,7 +515,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT backup_codes FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT backup_codes FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
@@ -601,7 +601,12 @@ class AuthController extends BaseController {
         $email = trim($_POST['email'] ?? '');
         if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT id FROM users WHERE email = ?");
+            // Gelöschte und deaktivierte Konten bekommen keinen Reset-Link
+            // (#358). Diese Stelle filterte bis dahin GAR NICHT - ein Konto im
+            // Papierkorb konnte sich per Mail ein neues Passwort setzen lassen.
+            // Die Antwort bleibt für alle Fälle identisch, die Route ist also
+            // weiterhin kein Orakel für vorhandene Adressen.
+            $stmt = $db->prepare("SELECT id FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
@@ -735,7 +740,15 @@ class AuthController extends BaseController {
         // bestehenden Sessions dieses Benutzers sofort ungültig werden (#113) -
         // gerade der Passwort-Reset ist die typische Reaktion auf einen
         // Kompromittierungsverdacht.
-        $stmt = $db->prepare("UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE email = ?");
+        // Der Filter gehört AUCH hier hin (#358), nicht nur in die Abfrage
+        // weiter unten: Ein Reset-Link, der vor der Sperre verschickt wurde,
+        // ist danach noch bis zu 15 Minuten gültig. Ohne den Filter setzte er
+        // dem gesperrten Konto ein frisches Passwort - und die Sperre haette
+        // ein Zeitfenster, in dem sie sich aushebeln laesst.
+        $stmt = $db->prepare(
+            "UPDATE users SET password_hash = ?, session_version = session_version + 1
+             WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL"
+        );
         $stmt->execute([$newPasswordHash, $reset['email']]);
 
         // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen (#217):
@@ -744,7 +757,7 @@ class AuthController extends BaseController {
         // zusätzlich dauerhaft und in der Schlüsselverwaltung sichtbar. Ein
         // Schlüssel darf den Passwort-Reset (die typische Reaktion auf einen
         // Kompromittierungsverdacht) nicht als zweites Credential überleben.
-        $stmt = $db->prepare("SELECT id, username FROM users WHERE email = ?");
+        $stmt = $db->prepare("SELECT id, username FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$reset['email']]);
         $account = $stmt->fetch();
         if ($account) {
@@ -836,7 +849,7 @@ class AuthController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$userId]);
         $currentHash = (string)$stmt->fetchColumn();
 

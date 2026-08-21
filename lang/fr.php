@@ -237,6 +237,7 @@ return [
 
     // Connexion / 2FA / Mot de passe oublié (flux d'authentification public)
     'auth.password_reset_success' => '✓ Mot de passe modifié avec succès. Veuillez vous connecter.',
+    'auth.account_deactivated' => 'Ce compte a été désactivé car il n\'avait ni deuxième facteur ni adresse e-mail pendant plus de 180 jours. L\'équipe d\'administration peut le réactiver.',
     'auth.email_label' => 'E-mail',
     'auth.password_label' => 'Mot de passe',
     'auth.forgot_password_link' => 'Mot de passe oublié ?',

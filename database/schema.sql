@@ -21,7 +21,16 @@ INSERT IGNORE INTO `settings` (`setting_key`, `setting_value`) VALUES
 CREATE TABLE IF NOT EXISTS `users` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `username` VARCHAR(50) NOT NULL UNIQUE,
-    `email` VARCHAR(100) NOT NULL UNIQUE,
+    -- Optional seit #348: Konten OHNE Bearbeitungs- oder
+    -- Veroeffentlichungsrechte duerfen ohne Adresse gefuehrt werden (das
+    -- Verwaltungsteam legt sie fuer Mitglieder an, das Erstpasswort geht auf
+    -- Papier heraus). UNIQUE bleibt - MariaDB laesst beliebig viele NULL zu,
+    -- aber keine zwei gleichen Adressen.
+    --
+    -- Wer keine Adresse hat, hat auch keinen Weg ueber "Passwort vergessen":
+    -- Nur ein Admin kann das Passwort neu setzen. Und ohne zweiten Faktor
+    -- greift nach 180 Tagen die Deaktivierung aus #358.
+    `email` VARCHAR(100) NULL DEFAULT NULL UNIQUE,
     `password_hash` VARCHAR(255) NOT NULL,
     `totp_secret` VARCHAR(255) NULL,
     `totp_enabled` TINYINT(1) DEFAULT 0,
@@ -36,7 +45,22 @@ CREATE TABLE IF NOT EXISTS `users` (
     `email_verification_expires_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL,
-    INDEX `idx_users_deleted` (`deleted_at`)
+    -- GESPERRT ist nicht GELOESCHT (#358). Bis v0.8 war beides dieselbe
+    -- Spalte: Was der Code "deaktiviert" nannte, war in Wahrheit deleted_at,
+    -- also der Papierkorb. Eine Sperre, die sich nicht von einer Loeschung
+    -- unterscheiden laesst, kann man weder gezielt aufheben noch begruenden.
+    `deactivated_at` DATETIME NULL DEFAULT NULL,
+    -- Stabiler Grundschluessel, kein Freitext: Die Oberflaeche uebersetzt ihn,
+    -- und spaetere Gruende (Sperre durch einen Admin) bleiben unterscheidbar.
+    `deactivated_reason` VARCHAR(64) NULL DEFAULT NULL,
+    -- Fristanker fuer die 180-Tage-Regel: SEIT WANN steht das Konto ohne
+    -- zweiten Faktor UND ohne E-Mail da? NULL = derzeit nicht in diesem
+    -- Zustand. created_at taugt dafuer NICHT - wer einem alten Konto die
+    -- Adresse entzieht, waere sonst sofort ueberfaellig, und wer eine
+    -- hinterlegt, bekaeme die Frist nie zurueckgesetzt.
+    `unprotected_since` DATETIME NULL DEFAULT NULL,
+    INDEX `idx_users_deleted` (`deleted_at`),
+    INDEX `idx_users_deactivated` (`deactivated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Password Resets

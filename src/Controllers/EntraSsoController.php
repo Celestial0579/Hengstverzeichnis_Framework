@@ -211,7 +211,7 @@ class EntraSsoController extends BaseController {
 
         // Kein Auto-Provisioning: nur bestehende, aktive lokale Konten.
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, email_verification_token FROM users WHERE email = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("SELECT id, email_verification_token FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 

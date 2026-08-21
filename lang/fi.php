@@ -237,6 +237,7 @@ return [
 
     // Kirjautuminen / 2FA / unohtunut salasana (julkisesti saavutettava kirjautumisprosessi)
     'auth.password_reset_success' => '✓ Salasana vaihdettu onnistuneesti. Kirjaudu sisään.',
+    'auth.account_deactivated' => 'Tämä tili poistettiin käytöstä, koska siinä ei ollut yli 180 päivään toista tunnistustekijää eikä sähköpostiosoitetta. Ylläpito voi ottaa sen uudelleen käyttöön.',
     'auth.email_label' => 'Sähköposti',
     'auth.password_label' => 'Salasana',
     'auth.forgot_password_link' => 'Unohditko salasanasi?',

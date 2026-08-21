@@ -237,6 +237,7 @@ return [
 
     // Login / 2FA / password dimenticata (flusso di autenticazione raggiungibile pubblicamente)
     'auth.password_reset_success' => '✓ Password modificata con successo. Effettua l\'accesso.',
+    'auth.account_deactivated' => 'Questo account è stato disattivato perché per oltre 180 giorni non aveva né un secondo fattore né un indirizzo e-mail. L\'amministrazione può riattivarlo.',
     'auth.email_label' => 'E-mail',
     'auth.password_label' => 'Password',
     'auth.forgot_password_link' => 'Password dimenticata?',

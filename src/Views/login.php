@@ -19,6 +19,15 @@
         </div>
     <?php endif; ?>
 
+    <?php // Deaktiviertes Konto (#358). Kein Enumerationsrisiko: Die Meldung
+          // haengt am URL-Marker, den checkAuth() nach einer beendeten Sitzung
+          // setzt - nicht an einer Eingabe im Anmeldeformular. ?>
+    <?php if (($_GET['error'] ?? '') === 'account_deactivated'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <?= htmlspecialchars(App\I18n\Translator::t('auth.account_deactivated')) ?>
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($error)): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($error) ?>

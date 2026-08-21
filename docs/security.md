@@ -6,6 +6,28 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
 
 ## Authentifizierung & Sessions
 
+### Gesperrte Konten (#358)
+
+`users.deactivated_at` ist ein eigener Zustand neben `deleted_at`. Geprüft wird
+er überall dort, wo bisher nur der Papierkorb geprüft wurde:
+`BaseController::checkAuth()` (laufende Sitzungen enden beim nächsten Aufruf,
+mit `?error=account_deactivated`), der Login, alle fünf 2FA-Zwischenschritte,
+der erzwungene Passwortwechsel, SSO, die E-Mail-Verifizierung der
+Selbstregistrierung, `ApiKey::authenticate()` und `ApiKey::create()`, sowie die
+Empfängerlisten von Digest und Update-Benachrichtigung.
+
+Ausdrücklich **beide** Reset-Pfade: Das Anfordern eines Links, das Einlösen des
+Tokens und das abschliessende `UPDATE` filtern getrennt. Ohne den Filter am
+`UPDATE` bliebe ein vor der Sperre verschickter Link bis zu 15 Minuten lang ein
+Weg, ihr ein frisches Passwort unterzuschieben.
+
+Die Anmeldemaske bleibt generisch (`Ungültige E-Mail oder Passwort.`) — die
+eigene Meldung erscheint nur nach einer beendeten Sitzung, hängt also am
+URL-Marker und nicht an einer Eingabe. `SetupController::needsSetup()` prüft
+`deactivated_at` bewusst **nicht**: Ein gesperrtes Admin-Konto zählt weiter als
+vorhandener Administrator, sonst böte die Installation nach einer Sperre wieder
+den Setup-Assistenten an.
+
 - **Passwort-Hashing:** `password_hash()` mit `PASSWORD_DEFAULT` (bcrypt).
 - **2FA-Pflicht pro Gruppe konfigurierbar (#84):** TOTP-2FA
   (`src/Security/Totp.php`, RFC-6238-kompatibel, 30s-Zeitfenster, ±1 Fenster

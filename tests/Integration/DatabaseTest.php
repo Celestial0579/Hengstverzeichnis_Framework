@@ -146,6 +146,10 @@ class DatabaseTest extends TestCase {
         $this->assertColumnExists($pdo, 'users', 'backup_codes');
         $this->assertColumnExists($pdo, 'users', 'must_change_password');
         $this->assertColumnExists($pdo, 'users', 'deleted_at');
+        // Gesperrt ist nicht geloescht (#358) - drei eigene Spalten.
+        $this->assertColumnExists($pdo, 'users', 'deactivated_at');
+        $this->assertColumnExists($pdo, 'users', 'deactivated_reason');
+        $this->assertColumnExists($pdo, 'users', 'unprotected_since');
 
         // Neue Spalten auf `horses` (Abstammung, Deckstation, Papierkorb)
         $this->assertColumnExists($pdo, 'horses', 'foreign_ueln');

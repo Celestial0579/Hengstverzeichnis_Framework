@@ -237,6 +237,7 @@ return [
 
     // Inloggning / 2FA / Glömt lösenord (publikt åtkomligt autentiseringsflöde)
     'auth.password_reset_success' => '✓ Lösenordet har ändrats. Vänligen logga in.',
+    'auth.account_deactivated' => 'Detta konto inaktiverades eftersom det i mer än 180 dagar varken hade en andra faktor eller en e-postadress. Administrationen kan slå på det igen.',
     'auth.email_label' => 'E-post',
     'auth.password_label' => 'Lösenord',
     'auth.forgot_password_link' => 'Glömt lösenordet?',

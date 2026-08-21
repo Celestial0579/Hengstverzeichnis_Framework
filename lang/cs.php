@@ -237,6 +237,7 @@ return [
 
     // Přihlášení / 2FA / zapomenuté heslo (veřejně dostupný autentizační proces)
     'auth.password_reset_success' => '✓ Heslo bylo úspěšně změněno. Přihlaste se prosím.',
+    'auth.account_deactivated' => 'Tento účet byl deaktivován, protože déle než 180 dní neměl ani druhý faktor, ani e-mailovou adresu. Správa jej může znovu aktivovat.',
     'auth.email_label' => 'E-mail',
     'auth.password_label' => 'Heslo',
     'auth.forgot_password_link' => 'Zapomněli jste heslo?',

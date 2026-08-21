@@ -155,7 +155,7 @@ final class ApiKey {
                 "INSERT INTO api_keys (user_id, label, token_hash, token_prefix, scope_permissions, issued_session_version, expires_at)
                  SELECT u.id, ?, ?, ?, ?, u.session_version, ?
                  FROM users u
-                 WHERE u.id = ? AND u.deleted_at IS NULL"
+                 WHERE u.id = ? AND u.deleted_at IS NULL AND u.deactivated_at IS NULL"
             );
             $stmt->execute([
                 $label,
@@ -218,7 +218,7 @@ final class ApiKey {
             $stmt = Database::getInstance()->prepare(
                 "SELECT k.id, k.user_id, k.scope_permissions, k.expires_at
                  FROM api_keys k
-                 JOIN users u ON u.id = k.user_id AND u.deleted_at IS NULL
+                 JOIN users u ON u.id = k.user_id AND u.deleted_at IS NULL AND u.deactivated_at IS NULL
                  WHERE k.token_hash = ? AND k.revoked_at IS NULL
                    AND k.expires_at > NOW()
                    AND k.issued_session_version = u.session_version

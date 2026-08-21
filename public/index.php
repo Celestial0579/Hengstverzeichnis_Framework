@@ -84,6 +84,7 @@ $pluginManager->boot();
 \App\Service\BackupService::registerScheduledTask();
 \App\Service\DigestService::registerScheduledTask();
 \App\Service\UpdateService::registerScheduledTask();
+\App\Service\DormantAccountService::registerScheduledTask();
 
 $router = new Router();
 
@@ -215,6 +216,10 @@ $router->post('/admin/users/update', [App\Controllers\UserController::class, 'up
 $router->post('/admin/users/delete', [App\Controllers\UserController::class, 'delete']);
 $router->post('/admin/users/reset-2fa', [App\Controllers\UserController::class, 'reset2fa']);
 $router->post('/admin/users/revoke-api-keys', [App\Controllers\UserController::class, 'revokeApiKeys']);
+// Wieder einschalten nach einer Deaktivierung (#358). Route und
+// Controllermethode gehoeren in denselben Schritt - ein Feature ohne Route ist
+// tot ausgeliefert (#373).
+$router->post('/admin/users/reactivate', [App\Controllers\UserController::class, 'reactivate']);
 
 // Admin Kontaktverwaltung (#336): eine Verwaltung für Personen UND
 // Deckstationen, seit beide in `contacts` liegen. Ersetzt die getrennten

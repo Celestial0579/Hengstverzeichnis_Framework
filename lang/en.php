@@ -234,6 +234,7 @@ return [
 
     // Login / 2FA / Forgot password (publicly reachable auth flow)
     'auth.password_reset_success' => '✓ Password changed successfully. Please sign in.',
+    'auth.account_deactivated' => 'This account was deactivated because it had neither a second factor nor an email address on file for more than 180 days. The administration team can switch it back on.',
     'auth.email_label' => 'Email',
     'auth.password_label' => 'Password',
     'auth.forgot_password_link' => 'Forgot password?',

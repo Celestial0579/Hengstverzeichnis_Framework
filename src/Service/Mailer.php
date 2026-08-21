@@ -646,7 +646,18 @@ class Mailer {
      * keine sofortige Benachrichtigung gibt (offene Blutlinien-Match-
      * Vorschläge, bald ablaufende Papierkorb-Fristen).
      */
-    public function sendAdminDigest(string $recipientEmail, int $matchSuggestionCount, int $expiringTrashCount): bool {
+    /**
+     * @param array<int, array{id: int, username: string, due_at: string}> $pendingDeactivations
+     *        Konten, die in Kuerze wegen fehlendem zweiten Faktor UND fehlender
+     *        E-Mail deaktiviert werden (#358). Vorgabewerte, damit vorhandene
+     *        Aufrufer nicht brechen.
+     */
+    public function sendAdminDigest(
+        string $recipientEmail,
+        int $matchSuggestionCount,
+        int $expiringTrashCount,
+        array $pendingDeactivations = []
+    ): bool {
         $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
         $matchesUrl = $this->getBaseUrl() . 'admin/matches';
         $trashUrl = $this->getBaseUrl() . 'admin/trash';
@@ -669,6 +680,32 @@ class Mailer {
                     <td style='padding: 10px; border-bottom: 1px solid #eee;'>🗑️ Papierkorb-Einträge nahe der 30-Tage-Frist</td>
                     <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>{$expiringTrashCount}</td>
                     <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right;'><a href='{$trashUrl}'>Ansehen</a></td>
+                </tr>
+            ";
+        }
+
+        if ($pendingDeactivations !== []) {
+            // Die Vorwarnung geht an das Verwaltungsteam, nicht an die
+            // Betroffenen: Diese Konten haben definitionsgemaess keine
+            // E-Mail-Adresse, ihre Eigentuemer sind ueber dieses System gar
+            // nicht erreichbar (#358).
+            $usersUrl = $this->getBaseUrl() . 'admin/users';
+            $anzahl = count($pendingDeactivations);
+            $namen = array_map(
+                static fn(array $k): string => htmlspecialchars((string)$k['username'], ENT_QUOTES, 'UTF-8')
+                    . ' (' . htmlspecialchars((string)$k['due_at'], ENT_QUOTES, 'UTF-8') . ')',
+                array_slice($pendingDeactivations, 0, 20)
+            );
+            $liste = implode(', ', $namen);
+            if ($anzahl > 20) {
+                $liste .= ' … und ' . ($anzahl - 20) . ' weitere';
+            }
+
+            $items .= "
+                <tr>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee;'>⛔ Konten ohne zweiten Faktor und ohne E-Mail, bald f&auml;llig zur Deaktivierung<br><span style='color:#666; font-size: 0.85rem;'>{$liste}</span></td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>{$anzahl}</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right;'><a href='{$usersUrl}'>Ansehen</a></td>
                 </tr>
             ";
         }

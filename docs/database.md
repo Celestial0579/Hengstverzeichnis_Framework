@@ -82,6 +82,24 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   geführt sein. Ein gesetztes `death_year` impliziert `is_deceased = 1`
   (serverseitig normalisiert); `death_year < birth_year` wird abgelehnt
 - `deleted_at` – Soft-Delete (Papierkorb), `NULL` = aktiv
+- `deactivated_at` / `deactivated_reason` – **Sperre**, seit #358 ein eigener
+  Zustand neben `deleted_at`. Bis v0.8 war beides dieselbe Spalte: Was der Code
+  „deaktiviert" nannte, war der Papierkorb — eine Sperre liess sich damit weder
+  begründen noch gezielt aufheben. `deactivated_reason` ist ein stabiler
+  Schlüssel (z. B. `dormant_no_factor_no_email`), kein Freitext.
+- `unprotected_since` – Fristanker für die 180-Tage-Regel (#358): seit wann
+  steht das Konto ohne zweiten Faktor **und** ohne E-Mail da? `NULL` = derzeit
+  nicht in diesem Zustand. `created_at` taugt dafür nicht — wer einem alten
+  Konto die Adresse entzieht, wäre sonst sofort überfällig, und wer eine
+  hinterlegt, bekäme die Frist nie zurückgesetzt.
+- `email` – seit #348 **optional** (`NULL` erlaubt). `UNIQUE` bleibt; MariaDB
+  lässt beliebig viele `NULL` zu.
+- `pending_email` / `pending_email_token` / `pending_email_expires_at` –
+  beantragte, noch **nicht gültige** Adresse aus der Selbstbedienung (#357).
+  Gespeichert wird nur der SHA-256-Abdruck des Tokens (Muster
+  `password_resets`), Frist 48 Stunden. Bis zur Bestätigung gilt die
+  bisherige Adresse — sonst trüge sich ein Angreifer mit übernommener Sitzung
+  eine eigene ein und bekäme damit den Passwort-Reset-Weg.
 
 ### `horse_registrations`
 Weitere Lebensnummern / Registriernummern je Pferd (#246):

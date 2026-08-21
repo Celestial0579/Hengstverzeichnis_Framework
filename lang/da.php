@@ -237,6 +237,7 @@ return [
 
     // Login / 2FA / glemt adgangskode (offentligt tilgængeligt auth-flow)
     'auth.password_reset_success' => '✓ Adgangskoden er ændret. Log venligst ind.',
+    'auth.account_deactivated' => 'Denne konto blev deaktiveret, fordi den i mere end 180 dage hverken havde en anden faktor eller en e-mailadresse. Administrationen kan slå den til igen.',
     'auth.email_label' => 'E-mail',
     'auth.password_label' => 'Adgangskode',
     'auth.forgot_password_link' => 'Glemt adgangskode?',

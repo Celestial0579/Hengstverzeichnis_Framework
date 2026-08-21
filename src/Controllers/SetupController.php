@@ -74,6 +74,11 @@ class SetupController extends BaseController {
             $stmt = $db->query("
                 SELECT COUNT(*) FROM user_groups ug
                 JOIN `groups` g ON g.id = ug.group_id
+                -- BEWUSST OHNE deactivated_at (#358): Ein deaktiviertes
+                -- Admin-Konto zaehlt weiterhin als vorhandener Administrator.
+                -- Sonst hielte sich die Installation nach einer Sperre fuer
+                -- uneingerichtet und boete den Setup-Assistenten wieder an -
+                -- also einen Weg, sich ohne Anmeldung ein Adminkonto anzulegen.
                 JOIN users u ON u.id = ug.user_id AND u.deleted_at IS NULL
                 WHERE g.slug = 'admin'
             ");
@@ -363,7 +368,7 @@ class SetupController extends BaseController {
             try {
                 $testPdo->exec($sql);
             } catch (PDOException $e) {
-                // Ignore errors if table already exists, proceed to insert admin
+                error_log('SCHEMA-IMPORT-FEHLER: ' . $e->getMessage());
             }
         }
 

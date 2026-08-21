@@ -8,12 +8,24 @@ namespace Tests\Functional;
  * App\Service\Scheduler, App\Controllers\CronController und die Admin-
  * Verwaltung unter /admin/cron): Admin-Pflicht/CSRF-Schutz der Verwaltung
  * sowie das Secret-basierte Schutzschema des öffentlichen Auslöse-Endpunkts
- * /cron/run. Es sind bewusst keine konkreten Aufgaben registriert (siehe
- * Scheduler-Klassendoc) - dieser Test deckt daher nur die Infrastruktur
- * selbst ab (leere "ran"-Liste bei gültigem Secret), nicht das Ausführen
- * einer echten Aufgabe.
+ * /cron/run.
+ *
+ * Seit #358 IST eine konkrete Aufgabe registriert (users.deactivate_dormant,
+ * täglich). Die Zusicherung lautet deshalb nicht mehr "die ran-Liste ist
+ * leer", sondern "sie enthält höchstens die bekannten Aufgaben" - eine
+ * unbekannte Aufgabe im Ergebnis wäre ein Fund. Ein starres assertSame([])
+ * hätte hier bei jeder neuen Cron-Aufgabe rot geschlagen, ohne dass etwas
+ * kaputt gewesen wäre.
  */
 class CronTest extends FunctionalTestCase {
+
+    /** Aufgaben, die der Kern registriert und die deshalb laufen dürfen. */
+    private const BEKANNTE_AUFGABEN = [
+        'backup.external',
+        'digest.admin_editor',
+        'update.check',
+        'users.deactivate_dormant',
+    ];
 
     public function testCronSettingsPageRequiresAdmin(): void {
         $admin = $this->authenticatedClient();
@@ -75,7 +87,18 @@ class CronTest extends FunctionalTestCase {
         $this->assertSame(200, $correctSecretResponse->statusCode);
         $payload = json_decode($correctSecretResponse->body, true);
         $this->assertIsArray($payload);
-        $this->assertSame([], $payload['ran']);
+        // Die Eintraege sind Objekte (name/status), keine blossen Namen -
+        // ein array_diff darauf ergibt "Array to string conversion" und
+        // vergleicht Unsinn.
+        $namen = array_map(static fn(array $e): string => (string)$e['name'], $payload['ran']);
+        $this->assertSame(
+            [],
+            array_values(array_diff($namen, self::BEKANNTE_AUFGABEN)),
+            'Der Lauf hat eine Aufgabe ausgeführt, die dieser Test nicht kennt.'
+        );
+        foreach ($payload['ran'] as $eintrag) {
+            $this->assertSame('ok', $eintrag['status'], "Aufgabe {$eintrag['name']} ist nicht sauber durchgelaufen.");
+        }
 
         // Der frühere Query-Parameter-Weg (?token=) wird aus Sicherheitsgründen
         // nicht mehr akzeptiert - Secrets im Query-String landen in Access-Logs
@@ -97,6 +120,12 @@ class CronTest extends FunctionalTestCase {
         $response = $admin->post('/admin/cron/run-now', [
             'csrf_token' => $this->currentCsrfToken($admin),
         ]);
-        $this->assertSame('/admin/cron?success=run_now&ran=0', $response->location());
+        // Wie viele Aufgaben tatsächlich fällig waren, hängt davon ab, was in
+        // diesem Prozess vorher schon lief - festgenagelt wird der Weg, nicht
+        // die Zahl.
+        $this->assertMatchesRegularExpression(
+            '#^/admin/cron\?success=run_now&ran=\d+$#',
+            (string)$response->location()
+        );
     }
 }

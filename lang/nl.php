@@ -237,6 +237,7 @@ return [
 
     // Login / 2FA / Wachtwoord vergeten (openbaar bereikbare auth-flow)
     'auth.password_reset_success' => '✓ Wachtwoord succesvol gewijzigd. Meld u nu aan.',
+    'auth.account_deactivated' => 'Dit account is gedeactiveerd omdat het langer dan 180 dagen geen tweede factor en geen e-mailadres had. Het beheerteam kan het weer inschakelen.',
     'auth.email_label' => 'E-mail',
     'auth.password_label' => 'Wachtwoord',
     'auth.forgot_password_link' => 'Wachtwoord vergeten?',

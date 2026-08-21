@@ -646,7 +646,66 @@ class Mailer {
      * keine sofortige Benachrichtigung gibt (offene Blutlinien-Match-
      * Vorschläge, bald ablaufende Papierkorb-Fristen).
      */
-    public function sendAdminDigest(string $recipientEmail, int $matchSuggestionCount, int $expiringTrashCount): bool {
+    /**
+     * @param array<int, array{id: int, username: string, due_at: string}> $pendingDeactivations
+     *        Konten, die in Kuerze wegen fehlendem zweiten Faktor UND fehlender
+     *        E-Mail deaktiviert werden (#358). Vorgabewerte, damit vorhandene
+     *        Aufrufer nicht brechen.
+     */
+    /**
+     * Bestaetigungslink an die NEUE Adresse (#357). Bis er angeklickt ist,
+     * gilt weiterhin die alte - eine unbestaetigte Adresse darf den
+     * Passwort-Reset-Weg nicht uebernehmen.
+     */
+    public function sendProfileEmailChangeConfirmation(string $newEmail, string $token): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $link = $this->getBaseUrl() . 'profil/email/bestaetigen?token=' . urlencode($token);
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
+                <h2>E-Mail-Adresse bestätigen</h2>
+                <p>Für Ihr Konto bei {$siteName} wurde diese Adresse als neue E-Mail-Adresse hinterlegt.
+                   Sie gilt erst, wenn Sie sie hier bestätigen:</p>
+                <p><a href='{$link}' style='display:inline-block;padding:10px 18px;background:#2a52be;color:#fff;text-decoration:none;border-radius:4px;'>Adresse bestätigen</a></p>
+                <p style='color:#666;font-size:0.9rem;'>Der Link gilt 48 Stunden. Haben Sie das nicht veranlasst,
+                   ignorieren Sie diese Nachricht &ndash; ohne Bestätigung ändert sich nichts.</p>
+            </div>
+        ";
+
+        return $this->send($newEmail, "E-Mail-Adresse bestätigen - {$siteName}", $html);
+    }
+
+    /**
+     * Hinweis an die BISHERIGE Adresse (#357).
+     *
+     * Der eigentliche Schutz gegen eine stille Kontouebernahme: Wer eine
+     * fremde Sitzung uebernimmt und die Adresse umtraegt, kann diese Nachricht
+     * nicht verhindern - der rechtmaessige Eigentuemer erfaehrt davon, solange
+     * die alte Adresse noch gilt.
+     */
+    public function sendProfileEmailChangeNotice(string $currentEmail, string $newEmail): bool {
+        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $neu = htmlspecialchars($newEmail, ENT_QUOTES, 'UTF-8');
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
+                <h2>Änderung Ihrer E-Mail-Adresse angefordert</h2>
+                <p>Für Ihr Konto bei {$siteName} wurde beantragt, die E-Mail-Adresse auf <strong>{$neu}</strong> zu ändern.</p>
+                <p>Solange die neue Adresse nicht bestätigt ist, bleibt diese hier gültig.</p>
+                <p style='color:#a00;'><strong>Waren Sie das nicht?</strong> Dann hat jemand Zugriff auf Ihr Konto.
+                   Ändern Sie sofort Ihr Passwort und melden Sie sich beim Verwaltungsteam.</p>
+            </div>
+        ";
+
+        return $this->send($currentEmail, "Änderung Ihrer E-Mail-Adresse - {$siteName}", $html);
+    }
+
+    public function sendAdminDigest(
+        string $recipientEmail,
+        int $matchSuggestionCount,
+        int $expiringTrashCount,
+        array $pendingDeactivations = []
+    ): bool {
         $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
         $matchesUrl = $this->getBaseUrl() . 'admin/matches';
         $trashUrl = $this->getBaseUrl() . 'admin/trash';
@@ -669,6 +728,32 @@ class Mailer {
                     <td style='padding: 10px; border-bottom: 1px solid #eee;'>🗑️ Papierkorb-Einträge nahe der 30-Tage-Frist</td>
                     <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>{$expiringTrashCount}</td>
                     <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right;'><a href='{$trashUrl}'>Ansehen</a></td>
+                </tr>
+            ";
+        }
+
+        if ($pendingDeactivations !== []) {
+            // Die Vorwarnung geht an das Verwaltungsteam, nicht an die
+            // Betroffenen: Diese Konten haben definitionsgemaess keine
+            // E-Mail-Adresse, ihre Eigentuemer sind ueber dieses System gar
+            // nicht erreichbar (#358).
+            $usersUrl = $this->getBaseUrl() . 'admin/users';
+            $anzahl = count($pendingDeactivations);
+            $namen = array_map(
+                static fn(array $k): string => htmlspecialchars((string)$k['username'], ENT_QUOTES, 'UTF-8')
+                    . ' (' . htmlspecialchars((string)$k['due_at'], ENT_QUOTES, 'UTF-8') . ')',
+                array_slice($pendingDeactivations, 0, 20)
+            );
+            $liste = implode(', ', $namen);
+            if ($anzahl > 20) {
+                $liste .= ' … und ' . ($anzahl - 20) . ' weitere';
+            }
+
+            $items .= "
+                <tr>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee;'>⛔ Konten ohne zweiten Faktor und ohne E-Mail, bald f&auml;llig zur Deaktivierung<br><span style='color:#666; font-size: 0.85rem;'>{$liste}</span></td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;'>{$anzahl}</td>
+                    <td style='padding: 10px; border-bottom: 1px solid #eee; text-align: right;'><a href='{$usersUrl}'>Ansehen</a></td>
                 </tr>
             ";
         }

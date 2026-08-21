@@ -20,6 +20,7 @@ class UserController extends BaseController {
         // ersetzt die frühere "Rolle"-Spalte, seit Gruppen das einzige Rechtesystem sind.
         $stmt = $db->query("
             SELECT u.id, u.username, u.email, u.created_at, u.totp_enabled,
+                   u.deactivated_at, u.deactivated_reason,
                    GROUP_CONCAT(g.name ORDER BY g.is_builtin DESC, g.name SEPARATOR ', ') AS group_names
             FROM users u
             LEFT JOIN user_groups ug ON ug.user_id = u.id
@@ -265,6 +266,45 @@ class UserController extends BaseController {
         }
 
         header("Location: /admin/users?success=updated");
+        exit;
+    }
+
+    /**
+     * POST /admin/users/reactivate - eine Deaktivierung aufheben (#358).
+     *
+     * Der Fristanker wird dabei mit zurückgesetzt (siehe
+     * DormantAccountService::reactivate()). Ohne das deaktivierte der nächste
+     * Nachtlauf dasselbe Konto sofort wieder, und der Knopf hier wäre eine
+     * Attrappe.
+     */
+    public function reactivate(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            header("Location: /admin/users?error=unknown_user");
+            exit;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT username, deactivated_reason FROM users WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$id]);
+        $konto = $stmt->fetch();
+
+        if (!$konto || !\App\Service\DormantAccountService::reactivate($id)) {
+            header("Location: /admin/users?error=unknown_user");
+            exit;
+        }
+
+        \App\Service\AuditLogger::log(
+            'Konto wieder eingeschaltet',
+            'users',
+            sprintf('%s (vorheriger Grund: %s)', $konto['username'], $konto['deactivated_reason'] ?? '-')
+        );
+
+        header("Location: /admin/users?success=reactivated");
         exit;
     }
 

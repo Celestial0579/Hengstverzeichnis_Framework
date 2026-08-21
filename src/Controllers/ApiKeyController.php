@@ -68,7 +68,11 @@ class ApiKeyController extends BaseController {
             ));
         }
 
-        $result = ApiKey::create($userId, $label, $scope);
+        // Die Laufzeit kommt aus dem Formular, die Obergrenze NICHT: Sie wird
+        // in ApiKey::expiryFromLifetime() serverseitig gedeckelt. Ein
+        // manipuliertes Feld kann sie damit nicht anheben (#340).
+        $laufzeit = filter_var($_POST['lifetime_days'] ?? null, FILTER_VALIDATE_INT);
+        $result = ApiKey::create($userId, $label, $scope, $laufzeit === false ? null : $laufzeit);
 
         if (!$result['ok']) {
             header('Location: /api-keys?error=' . urlencode((string)$result['error']));
@@ -79,6 +83,7 @@ class ApiKeyController extends BaseController {
             'API-Schlüssel erstellt',
             'security',
             'Bezeichnung: ' . $label . ' (Rechte: ' . ($scope === null ? 'alle eigenen' : implode(', ', $scope)) . ')'
+            . ', gültig bis ' . ($result['expires_at'] ?? '?')
         );
 
         $_SESSION['api_key_new_token'] = $result['token'];

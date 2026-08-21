@@ -237,6 +237,7 @@ return [
 
     // Logowanie / 2FA / Zapomniane hasło (publicznie dostępny proces uwierzytelniania)
     'auth.password_reset_success' => '✓ Hasło zostało pomyślnie zmienione. Prosimy się zalogować.',
+    'auth.account_deactivated' => 'To konto zostało dezaktywowane, ponieważ przez ponad 180 dni nie miało ani drugiego składnika, ani adresu e-mail. Administracja może je ponownie włączyć.',
     'auth.email_label' => 'E-mail',
     'auth.password_label' => 'Hasło',
     'auth.forgot_password_link' => 'Nie pamiętasz hasła?',

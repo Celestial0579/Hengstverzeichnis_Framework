@@ -932,7 +932,7 @@ class UpdateService {
                 FROM users u
                 JOIN user_groups ug ON ug.user_id = u.id
                 JOIN `groups` g ON g.id = ug.group_id
-                WHERE g.slug = 'admin' AND u.deleted_at IS NULL AND u.email <> ''
+                WHERE g.slug = 'admin' AND u.deleted_at IS NULL AND u.deactivated_at IS NULL AND u.email <> ''
             ")->fetchAll(\PDO::FETCH_COLUMN);
         } catch (\Throwable $e) {
             return [];

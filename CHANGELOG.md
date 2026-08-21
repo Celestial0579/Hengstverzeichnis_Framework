@@ -6,6 +6,71 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [0.9.0-beta.1] – 2026-08-21
+
+Erstes Beta der 0.9er-Linie: der **Konten-Block** des Meilensteins „Konten,
+Anmeldung, Responsives". Die übrigen Punkte (#348 Anmeldung über den
+Benutzernamen, #354 zweiter Faktor per E-Mail, #339 Galerie im Kern, #344
+Sprach-Addons, #345/#349) folgen in den nächsten Betas.
+
+> **Alle Addons brauchen die Linie 0.9.** Ein Addon mit
+> `core_supported_max: "0.8"` ist auf diesem Kern fail-closed unsichtbar — das
+> ist die Kompatibilitätsmechanik, kein Fehler. Der passende Addons-Release ist
+> `v0.9.0-beta.1`.
+
+### ⚠️ Bruchstelle: API-Schlüssel
+
+**Bestandsschlüssel laufen mit dem Update ab** (#340), ohne Übergangsfrist.
+Laufende Anbindungen brechen ab, bis unter `/api-keys` ein neuer Schlüssel
+ausgestellt und eingetragen ist. Das ist Absicht: Ein Schlüssel unbekannten
+Alters, der unbegrenzt weiterläuft, ist genau der Zustand, den #340 beendet.
+
+### Sicherheit
+
+- **API-Schlüssel haben ein Pflicht-Ablaufdatum** (#340), höchstens zwei Jahre
+  ab Ausstellung. Die Frist verlängert sich **nicht** durch Benutzung — sonst
+  hielte gerade der vergessene, aber noch laufende Schlüssel sich selbst am
+  Leben. Läuft einer in weniger als 30 Tagen ab, tragen die API-Antworten
+  `X-Api-Key-Expires-In-Days`; danach antwortet die API mit demselben `401` wie
+  auf einen unbekannten Schlüssel. Die Obergrenze ist serverseitig.
+
+- **„Gesperrt" ist nicht mehr dasselbe wie „gelöscht"** (#358). Bis v0.8 war
+  beides `users.deleted_at`; eine Sperre liess sich weder begründen noch
+  gezielt aufheben. Jetzt `deactivated_at` mit eigenem Grund, geprüft an allen
+  Türen — Login, Sitzung, die fünf 2FA-Zwischenschritte, SSO, API-Schlüssel,
+  Digest- und Update-Empfänger.
+
+  Dabei fielen **zwei Reset-Pfade** auf, die bis dahin **gar nicht** filterten,
+  nicht einmal auf `deleted_at`: Ein Konto im Papierkorb konnte sich per Mail
+  ein neues Passwort setzen lassen.
+
+- **Konten ohne zweiten Faktor und ohne E-Mail werden nach 180 Tagen
+  deaktiviert** (#358), nicht gelöscht. Täglich über `/cron/run`, Vorwarnung 14
+  Tage vorher im Digest an die Administratoren — der Betroffene hat
+  definitionsgemäss keine Adresse und ist nicht erreichbar. Zwei Schutzgurte:
+  eine Karenz nach dem Update (sonst räumte der erste Lauf den Altbestand am
+  selben Tag ab, bevor irgendwer die Vorwarnung sah) und das **letzte aktive
+  Admin-Konto**, das nie deaktiviert wird.
+
+### Neu
+
+- **Profilseite `/profil`** (#357) für jeden angemeldeten Benutzer. Bis jetzt
+  konnte niemand sein eigenes Passwort ändern — es blieb der Umweg über
+  „Passwort vergessen" und eine Mail, und **Konten ohne Adresse hatten diesen
+  Umweg nicht**. Dazu: Restzahl der Backup-Codes und Neuerzeugung (Passwort
+  **und** TOTP), Adresse hinterlegen oder ändern mit Bestätigung, Verweis auf
+  die API-Schlüssel.
+
+  Der Passwortwechsel beendet **alle** Sitzungen des Kontos und widerruft alle
+  API-Schlüssel — dasselbe wie der erzwungene Wechsel.
+
+- **`users.email` ist optional** (Teil von #348, vorgezogen). Ohne das ist die
+  180-Tage-Regel nicht prüfbar; sie handelt ja von Konten ohne Adresse.
+
+### Migration
+
+`SCHEMA_VERSION` 12 → 15. Läuft beim nächsten Seitenaufruf.
+
 ## [0.8.0] – 2026-08-21
 
 Die stabile Fassung der 0.8er-Linie. Inhaltlich ist sie `0.8.0-beta.2` plus

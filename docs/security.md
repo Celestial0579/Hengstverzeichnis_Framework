@@ -6,6 +6,54 @@ die implementierten Schutzmaßnahmen auf Code-Ebene.
 
 ## Authentifizierung & Sessions
 
+### Selbstbedienung `/profil` (#357)
+
+Steht **jedem angemeldeten Benutzer** offen und arbeitet ausschliesslich auf
+`$_SESSION['user_id']` — es gibt keinen Parameter, über den sich ein fremdes
+Konto adressieren liesse. Drei Punkte, die dort mehr sind als Bequemlichkeit:
+
+- **Passwortwechsel** zählt `session_version` hoch **und** ruft
+  `ApiKey::revokeAllForUser()`. Ohne beides bewirkte er weniger als der
+  erzwungene Wechsel, während die Seite dem Benutzer das Gegenteil verspricht.
+  Die eigene Sitzung endet mit — bei einem Verdacht ist „alle Sitzungen sind
+  weg, auch meine" die ehrlichere Zusage.
+- **Backup-Codes neu erzeugen** verlangt Passwort **und** TOTP, denselben
+  Maßstab wie die 2FA-Einrichtung (#112): Zehn frische Codes sind dasselbe
+  Material wie ein neues Geheimnis. Der verbrauchte Zeitschlitz wird
+  mitgeschrieben, sonst löchert die Aktion den Replay-Schutz (#111).
+- **Adressänderung** braucht das aktuelle Passwort, gilt erst nach Bestätigung
+  über einen Link an die NEUE Adresse — und schickt gleichzeitig einen Hinweis
+  an die BISHERIGE. Den kann ein Angreifer nicht verhindern; er ist der
+  einzige Weg, auf dem der rechtmäßige Eigentümer von einer Übernahme erfährt,
+  solange sie noch rückgängig zu machen ist.
+
+`GET /profil/email/bestaetigen` ist bewusst **ohne** Anmeldung erreichbar: Der
+Empfänger der neuen Adresse ist nicht zwingend angemeldet, und der Besitz des
+Tokens ist der Nachweis. Deshalb ruft `ProfileController` `checkAuth()` je
+Aktion statt im Konstruktor.
+
+### Gesperrte Konten (#358)
+
+`users.deactivated_at` ist ein eigener Zustand neben `deleted_at`. Geprüft wird
+er überall dort, wo bisher nur der Papierkorb geprüft wurde:
+`BaseController::checkAuth()` (laufende Sitzungen enden beim nächsten Aufruf,
+mit `?error=account_deactivated`), der Login, alle fünf 2FA-Zwischenschritte,
+der erzwungene Passwortwechsel, SSO, die E-Mail-Verifizierung der
+Selbstregistrierung, `ApiKey::authenticate()` und `ApiKey::create()`, sowie die
+Empfängerlisten von Digest und Update-Benachrichtigung.
+
+Ausdrücklich **beide** Reset-Pfade: Das Anfordern eines Links, das Einlösen des
+Tokens und das abschliessende `UPDATE` filtern getrennt. Ohne den Filter am
+`UPDATE` bliebe ein vor der Sperre verschickter Link bis zu 15 Minuten lang ein
+Weg, ihr ein frisches Passwort unterzuschieben.
+
+Die Anmeldemaske bleibt generisch (`Ungültige E-Mail oder Passwort.`) — die
+eigene Meldung erscheint nur nach einer beendeten Sitzung, hängt also am
+URL-Marker und nicht an einer Eingabe. `SetupController::needsSetup()` prüft
+`deactivated_at` bewusst **nicht**: Ein gesperrtes Admin-Konto zählt weiter als
+vorhandener Administrator, sonst böte die Installation nach einer Sperre wieder
+den Setup-Assistenten an.
+
 - **Passwort-Hashing:** `password_hash()` mit `PASSWORD_DEFAULT` (bcrypt).
 - **2FA-Pflicht pro Gruppe konfigurierbar (#84):** TOTP-2FA
   (`src/Security/Totp.php`, RFC-6238-kompatibel, 30s-Zeitfenster, ±1 Fenster
@@ -114,7 +162,9 @@ unveröffentlichte Vorfahren nur als Platzhalter, und die an Plugins
 [plugin-development.md](plugin-development.md)).
 
 **API-Schlüssel** (`src/Security/ApiKey.php`, [api.md](api.md)) sind eine
-eigene, session-unabhängige Auth-Fläche: max. 5 je Benutzer, gespeichert
+eigene, session-unabhängige Auth-Fläche: max. 5 GÜLTIGE je Benutzer
+(abgelaufene zählen nicht mit, #340), mit Pflicht-Ablauf von höchstens zwei
+Jahren ab Ausstellung, gespeichert
 nur als SHA-256-Hash, effektive Rechte stets die **Schnittmenge** aus den
 aktuellen Rechten des Besitzers und dem Scope des Schlüssels — ein
 Schlüssel kann nie mehr als sein Besitzer, und Rechteverlust wirkt sofort.

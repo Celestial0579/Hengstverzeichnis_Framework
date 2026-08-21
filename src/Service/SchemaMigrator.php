@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 12;
+    public const SCHEMA_VERSION = 15;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -407,6 +407,39 @@ final class SchemaMigrator {
         $addColumn('breeding_stations', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
         $addColumn('users', 'deleted_at', 'DATETIME NULL DEFAULT NULL');
 
+        // 34. Gesperrt ist nicht geloescht (#358, SCHEMA_VERSION 14).
+        // Ohne AFTER-Klausel: Die Reihenfolge der Spalten haengt auf
+        // Bestandsinstallationen davon ab, welche Migrationen sie schon
+        // gesehen haben - ein AFTER auf eine Spalte, die dort noch weiter
+        // hinten steht, scheitert.
+        // 35. E-Mail-Adresse ist keine Pflichtangabe mehr (#348).
+        // Idempotent ueber die Abfrage von IS_NULLABLE - ein MODIFY bei jedem
+        // Lauf waere zwar folgenlos, aber auf grossen Tabellen unnoetig teuer.
+        try {
+            $stmt = $pdo->query(
+                "SELECT IS_NULLABLE FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email'"
+            );
+            $nullable = $stmt ? (string)$stmt->fetchColumn() : 'YES';
+            if ($nullable === 'NO') {
+                $pdo->exec("ALTER TABLE `users` MODIFY `email` VARCHAR(100) NULL DEFAULT NULL");
+                $performed[] = 'users.email ist keine Pflichtangabe mehr (#348)';
+            }
+        } catch (\Throwable $e) {
+            // Bestandsinstallation ohne information_schema-Zugriff: dann
+            // bleibt die Spalte NOT NULL, und Konten ohne Adresse lassen sich
+            // schlicht nicht anlegen. Fail-closed in die harmlose Richtung.
+        }
+
+        $addColumn('users', 'deactivated_at', 'DATETIME NULL DEFAULT NULL');
+        $addColumn('users', 'deactivated_reason', 'VARCHAR(64) NULL DEFAULT NULL');
+        $addColumn('users', 'unprotected_since', 'DATETIME NULL DEFAULT NULL');
+
+        // 36. Adressaenderung in der Selbstbedienung (#357, SCHEMA_VERSION 15).
+        $addColumn('users', 'pending_email', 'VARCHAR(100) NULL DEFAULT NULL');
+        $addColumn('users', 'pending_email_token', 'VARCHAR(64) NULL DEFAULT NULL');
+        $addColumn('users', 'pending_email_expires_at', 'DATETIME NULL DEFAULT NULL');
+
         // 9. Passwortänderungs-Zwang für neue/zurückgesetzte Benutzer. Früher ein
         // ungegatetes ALTER TABLE, das bei jedem Lauf einen (verschluckten)
         // Duplicate-Column-Fehler warf - jetzt regulär über den SHOW-COLUMNS-Guard.
@@ -696,6 +729,7 @@ final class SchemaMigrator {
         $addIndex('persons', 'idx_persons_deleted_name', '`deleted_at`, `name`');
         $addIndex('breeding_stations', 'idx_bs_deleted_name', '`deleted_at`, `name`');
         $addIndex('users', 'idx_users_deleted', '`deleted_at`');
+        $addIndex('users', 'idx_users_deactivated', '`deactivated_at`');
 
         // 20. Geschlecht (#165) und Rasse (#163) für Pferde. NULL = unbekannt
         // (Altbestand); die Geschlechts-Validierung der Abstammung (#166/#167)
@@ -762,6 +796,18 @@ final class SchemaMigrator {
         // entspricht dem session_version-Startwert, Bestandsschlüssel von
         // Benutzern ohne zwischenzeitliche Passwortänderung bleiben gültig.
         $addColumn('api_keys', 'issued_session_version', 'INT NOT NULL DEFAULT 1');
+
+        // 33. Pflicht-Ablaufdatum fuer API-Schluessel (#340, SCHEMA_VERSION 13).
+        //
+        // BESTANDSSCHLUESSEL LAUFEN MIT DEM UPDATE AB - ohne Uebergangsfrist.
+        // Das ist eine bewusste Bruchstelle: Ein Schluessel unbekannten
+        // Alters, der weiterlaeuft, ist genau der Zustand, den #340 beendet.
+        // Der Spaltendefault CURRENT_TIMESTAMP setzt vorhandene Zeilen auf den
+        // Zeitpunkt des Updates; ApiKey::authenticate() verlangt
+        // `expires_at > NOW()`, sie sind damit ab dem Einspielen ungueltig.
+        // Laufende Anbindungen brechen ab, bis ein neuer Schluessel eingetragen
+        // ist - das gehoert auffaellig in die Release Notes.
+        $addColumn('api_keys', 'expires_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
         // 26. Indizes für den Blutlinien-Vorfilter (#215): der MatchSuggestion-
         // Finder holt Kandidaten jetzt gezielt über (deleted_at, sire_id) bzw.
@@ -1618,6 +1664,89 @@ final class SchemaMigrator {
             return [sprintf(
                 'Pferdefotos (#366): %d Datei(en) aus dem Webroot nach storage/horses verschoben',
                 $verschoben
+            )];
+        });
+
+        // 34b. Fristanker fuer die 180-Tage-Regel setzen (#358).
+        //
+        // Bestandskonten, die heute schon ohne zweiten Faktor und ohne
+        // E-Mail dastehen, bekommen created_at als Anker - das ist der
+        // frueheste belegbare Zeitpunkt, seit dem der Zustand besteht.
+        // Zusaetzlich wird der Karenzbeginn gesetzt: Der erste Lauf nach dem
+        // Update darf nicht den kompletten Altbestand am selben Tag
+        // abraeumen, ohne dass jemand die Vorwarnung gesehen hat.
+        $dataStep('a358_fristanker_backfill', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('users')) {
+                return null;
+            }
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'unprotected_since'");
+                if (!$stmt || $stmt->rowCount() === 0) {
+                    return null;
+                }
+                $betroffen = (int)$pdo->exec(
+                    "UPDATE `users`
+                     SET `unprotected_since` = `created_at`
+                     WHERE `deleted_at` IS NULL
+                       AND `unprotected_since` IS NULL
+                       AND (`totp_enabled` = 0 OR `totp_enabled` IS NULL)
+                       AND (`email` IS NULL OR `email` = '')"
+                );
+                $pdo->prepare(
+                    "INSERT INTO settings (setting_key, setting_value) VALUES ('dormant_rule_active_since', ?)
+                     ON DUPLICATE KEY UPDATE setting_value = setting_value"
+                )->execute([gmdate('Y-m-d H:i:s')]);
+            } catch (\Throwable $e) {
+                return null;
+            }
+
+            if ($betroffen === 0) {
+                return [];
+            }
+
+            return [sprintf(
+                'Ruhende Konten (#358): Fristanker fuer %d Konto/Konten ohne zweiten Faktor und ohne '
+                . 'E-Mail gesetzt; die 180-Tage-Frist laeuft ab deren Anlagedatum',
+                $betroffen
+            )];
+        });
+
+        // 33b. Bestandsschlüssel ausdrücklich ablaufen lassen (#340).
+        //
+        // Der Spaltendefault CURRENT_TIMESTAMP allein genügt NICHT. Er wird
+        // von der Datenbank in DEREN Sitzungszeitzone ausgewertet, und
+        // Database::alignSessionTimeZone() läuft nur für Verbindungen aus
+        // Database::getInstance() - database/migrate.php baut ausdrücklich
+        // eine eigene PDO, Restore-Werkzeuge dürfen SchemaMigrator::run() mit
+        // beliebiger Verbindung aufrufen. Steht die Datenbank vor der
+        // PHP-Zeitzone, läge der gesetzte Wert aus Sicht von
+        // ApiKey::authenticate() in der ZUKUNFT - und die Bestandsschlüssel
+        // liefen weiter. Das ist genau der Zustand, den #340 beendet.
+        //
+        // created_at ist dagegen beweisbar vergangen: Der Schlüssel wurde
+        // ausgestellt, bevor diese Migration lief.
+        $dataStep('340_bestandsschluessel_ablaufen', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('api_keys')) {
+                return null;
+            }
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `api_keys` LIKE 'expires_at'");
+                if (!$stmt || $stmt->rowCount() === 0) {
+                    return null;
+                }
+                $betroffen = $pdo->exec('UPDATE `api_keys` SET `expires_at` = `created_at`');
+            } catch (\Throwable $e) {
+                return null;
+            }
+
+            if (!$betroffen) {
+                return [];
+            }
+
+            return [sprintf(
+                'API-Schlüssel (#340): %d Bestandsschlüssel auf ihren Ausstellungszeitpunkt datiert und damit '
+                . 'abgelaufen - laufende Anbindungen brauchen einen neuen Schlüssel',
+                $betroffen
             )];
         });
 

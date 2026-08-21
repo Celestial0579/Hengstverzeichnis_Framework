@@ -237,6 +237,7 @@ return [
 
     // Innlogging / 2FA / glemt passord (offentlig tilgjengelig autentiseringsflyt)
     'auth.password_reset_success' => '✓ Passordet ble endret. Vennligst logg inn.',
+    'auth.account_deactivated' => 'Denne kontoen ble deaktivert fordi den i mer enn 180 dager verken hadde en annen faktor eller en e-postadresse. Administrasjonen kan slå den på igjen.',
     'auth.email_label' => 'E-post',
     'auth.password_label' => 'Passord',
     'auth.forgot_password_link' => 'Glemt passord?',

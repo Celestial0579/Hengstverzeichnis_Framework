@@ -23,7 +23,10 @@ $successMessages = [
     'revoked' => 'Der API-Schlüssel wurde widerrufen und ist sofort ungültig.',
 ];
 
-$activeCount = count($keys);
+// Abgelaufene zaehlen NICHT als aktiv (#340) - sonst stuende hier nach der
+// Migration "7/5", und der Anlegen-Knopf waere gesperrt, obwohl kein einziger
+// Schluessel mehr gilt. Dieselbe Zaehlung wie ApiKey::countActive().
+$activeCount = count(array_filter($keys, static fn(array $k): bool => empty($k['is_expired'])));
 $limitReached = $activeCount >= $maxKeys;
 ?>
 <div class="card" style="max-width: 850px; margin: 2rem auto;">
@@ -112,6 +115,20 @@ $limitReached = $activeCount >= $maxKeys;
                 </p>
             </fieldset>
 
+            <label for="lifetime_days" style="display: block; font-weight: bold; margin-top: 1.2rem;">Gültig für</label>
+            <select id="lifetime_days" name="lifetime_days" style="padding: 0.5rem; margin-top: 0.2rem;">
+                <option value="30">30 Tage</option>
+                <option value="90">90 Tage</option>
+                <option value="365" selected>1 Jahr</option>
+                <option value="730">2 Jahre (Höchstdauer)</option>
+            </select>
+            <p style="margin: 0.4rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);">
+                Länger als zwei Jahre geht nicht (#340). Die Frist beginnt bei der Ausstellung und
+                verlängert sich <strong>nicht</strong> durch Benutzung &ndash; sonst hielte gerade ein
+                vergessener, aber noch laufender Schlüssel sich selbst am Leben. Ist ein Schlüssel
+                abgelaufen, wird ein neuer ausgestellt; reaktiviert wird keiner.
+            </p>
+
             <button type="submit" class="btn btn-primary" style="margin-top: 1.2rem;">Schlüssel erstellen</button>
         </form>
     <?php endif; ?>
@@ -128,6 +145,7 @@ $limitReached = $activeCount >= $maxKeys;
                     <th style="padding: 0.5rem;">Schlüssel</th>
                     <th style="padding: 0.5rem;">Rechte</th>
                     <th style="padding: 0.5rem;">Zuletzt genutzt</th>
+                    <th style="padding: 0.5rem;">Gültig bis</th>
                     <th style="padding: 0.5rem;"></th>
                 </tr>
             </thead>
@@ -142,6 +160,25 @@ $limitReached = $activeCount >= $maxKeys;
                         <td style="padding: 0.5rem;"><code><?= htmlspecialchars((string)$key['token_prefix']) ?>…</code></td>
                         <td style="padding: 0.5rem; font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($scopeText) ?></td>
                         <td style="padding: 0.5rem; font-size: 0.9rem;"><?= htmlspecialchars((string)($key['last_used_at'] ?? 'nie')) ?></td>
+                        <?php
+                        // Abgelaufene Schluessel als solche kenntlich machen statt
+                        // sie weiter als "aktiv" zu fuehren (#340).
+                        $abgelaufen = !empty($key['is_expired']);
+                        $restTage = null;
+                        if (!$abgelaufen && !empty($key['expires_at'])) {
+                            $bis = strtotime((string)$key['expires_at']);
+                            $restTage = $bis === false ? null : (int)floor(($bis - time()) / 86400);
+                        }
+                        $baldFaellig = $restTage !== null && $restTage <= App\Security\ApiKey::EXPIRY_WARNING_DAYS;
+                        ?>
+                        <td style="padding: 0.5rem; font-size: 0.9rem; <?= $abgelaufen || $baldFaellig ? 'color: var(--danger-fg); font-weight: bold;' : '' ?>">
+                            <?= htmlspecialchars((string)($key['expires_at'] ?? '')) ?>
+                            <?php if ($abgelaufen): ?>
+                                <br><span style="font-size: 0.8rem;">abgelaufen &ndash; bitte neu ausstellen</span>
+                            <?php elseif ($baldFaellig): ?>
+                                <br><span style="font-size: 0.8rem;">läuft in <?= (int)$restTage ?> Tag(en) ab</span>
+                            <?php endif; ?>
+                        </td>
                         <td style="padding: 0.5rem;">
                             <form method="POST" action="/api-keys/revoke" style="margin: 0;"
                                   data-confirm="Diesen Schlüssel wirklich widerrufen? Anwendungen, die ihn nutzen, verlieren sofort den Zugriff." >

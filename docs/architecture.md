@@ -97,6 +97,13 @@ und ggf. `requireAdmin()` auf, außer bei öffentlichen Controllern):
 | `ImportController` | CSV-Massenimport von Pferden |
 | `RegistrationController` / `EntraSsoController` | Selfservice-Registrierung und optionaler Entra-ID-Login |
 | `CronController` | Zeitgesteuerte Aufgaben (Header-Secret, siehe Scheduler) |
+
+Registrierte Cron-Aufgaben: `backup.external`, `digest.admin_editor`,
+`update.check` und seit #358 `users.deactivate_dormant` (täglich) — sie
+deaktiviert Konten, die länger als 180 Tage weder einen zweiten Faktor noch
+eine E-Mail-Adresse führen, und verschont dabei das letzte aktive Admin-Konto.
+Die Vorwarnung läuft 14 Tage vorher über den Digest an die Administratoren; der
+Betroffene selbst ist definitionsgemäss nicht erreichbar.
 | `UpdateController` | Auto-Update mit Pflicht-Backup und Kanalwahl |
 
 Details zu den einzelnen Features (Merge-Tool, Pedigree-Aufbau, GDPR-Workflow

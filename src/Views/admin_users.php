@@ -99,9 +99,27 @@
                             <?php else: ?>
                                 <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--warning-soft-bg); color: var(--warning-fg); font-weight: 600;">⚠️ Ausstehend</span>
                             <?php endif; ?>
+                            <?php // Gesperrt ist nicht geloescht (#358) - der Zustand
+                                  // gehoert sichtbar in die Liste, sonst findet ihn
+                                  // niemand wieder, um ihn aufzuheben. ?>
+                            <?php if (!empty($user['deactivated_at'])): ?>
+                                <br><span style="display: inline-block; margin-top: 0.3rem; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--danger-soft-bg); color: var(--danger-fg); font-weight: 600;"
+                                          title="Grund: <?= htmlspecialchars((string)($user['deactivated_reason'] ?? '-')) ?>">
+                                    ⛔ Deaktiviert seit <?= htmlspecialchars(substr((string)$user['deactivated_at'], 0, 10)) ?>
+                                </span>
+                            <?php endif; ?>
                         </td>
                         <td style="padding: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                             <a href="/admin/users/edit?id=<?= $user['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
+
+                            <?php if (!empty($user['deactivated_at'])): ?>
+                                <form action="/admin/users/reactivate" method="POST" style="display:inline;"
+                                      data-confirm="Konto '<?= htmlspecialchars((string)$user['username']) ?>' wieder einschalten? Die 180-Tage-Frist beginnt damit von vorn - ohne zweiten Faktor oder E-Mail-Adresse wird das Konto erneut fällig.">
+                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                    <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">
+                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Wieder einschalten</button>
+                                </form>
+                            <?php endif; ?>
 
                             <?php if (!empty($user['totp_enabled'])): ?>
                                 <form action="/admin/users/reset-2fa" method="POST" data-confirm="Möchten Sie die 2-Faktor-Authentifizierung für den Benutzer '<?= htmlspecialchars(($user['username'])) ?>' wirklich zurücksetzen? Der Benutzer muss 2FA bei der nächsten Anmeldung neu einrichten." style="display:inline;">

@@ -26,7 +26,14 @@ Grund akzeptiert auch der Cron-Endpunkt sein Secret nur noch per Header
 Jeder angemeldete Benutzer verwaltet seine eigenen Schlüssel unter
 **`/api-keys`** (auch als Kachel „🔑 API-Schlüssel" im Dashboard):
 
-- **Maximal 5 aktive Schlüssel** je Benutzer.
+- **Maximal 5 gültige Schlüssel** je Benutzer. Abgelaufene zählen nicht mit —
+  sonst wäre nach zwei Jahren kein neuer mehr ausstellbar, ohne vorher
+  aufzuräumen (#340).
+- **Jeder Schlüssel läuft ab**, spätestens zwei Jahre nach der Ausstellung.
+  Die Frist verlängert sich **nicht** durch Benutzung. Läuft ein Schlüssel in
+  weniger als 30 Tagen ab, tragen die Antworten `X-Api-Key-Expires-At` und
+  `X-Api-Key-Expires-In-Days`; danach antwortet die API mit demselben `401`
+  wie auf einen unbekannten Schlüssel.
 - Der Klartext-Schlüssel wird **genau einmal** direkt nach dem Anlegen
   angezeigt. Gespeichert wird nur sein SHA-256-Hash - er kann später nicht
   erneut abgerufen werden (wie die 2FA-Backup-Codes). Geht er verloren:

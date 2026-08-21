@@ -49,6 +49,22 @@ abstract class JsonApiController extends BaseController {
             $key = ApiKey::authenticate($token);
             if ($key !== null) {
                 $this->apiKey = $key;
+
+                // Hinweis an die Gegenstelle, solange der Schluessel noch
+                // gilt, aber bald ablaeuft (#340). Ein Zugang, der ohne
+                // Vorwarnung stehenbleibt, faellt erst auf, wenn schon etwas
+                // kaputt ist - und dann sucht jemand den Fehler an der
+                // falschen Stelle.
+                $restTage = ApiKey::daysUntilExpiry($key);
+                if ($restTage !== null && $restTage <= ApiKey::EXPIRY_WARNING_DAYS) {
+                    header('X-Api-Key-Expires-At: ' . $key['expires_at']);
+                    header('X-Api-Key-Expires-In-Days: ' . $restTage);
+                    header(sprintf(
+                        'Warning: 299 - "API-Schluessel laeuft in %d Tag(en) ab (%s). Bitte unter /api-keys einen neuen ausstellen."',
+                        $restTage,
+                        $key['expires_at']
+                    ));
+                }
                 return;
             }
         }

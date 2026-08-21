@@ -173,13 +173,21 @@ abstract class BaseController {
         // RateLimiter).
         try {
             $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT deleted_at, session_version FROM users WHERE id = ?");
+            $stmt = $db->prepare("SELECT deleted_at, deactivated_at, session_version FROM users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
             $currentUser = $stmt->fetch();
 
-            if (!$currentUser || $currentUser['deleted_at'] !== null) {
+            // Zwei Zustände, zwei Meldungen (#358). Bis v0.8 war beides
+            // dieselbe Spalte; wer eine Sperre aufheben wollte, musste den
+            // Papierkorb bemühen.
+            $istGeloescht = !$currentUser || $currentUser['deleted_at'] !== null;
+            $istDeaktiviert = $currentUser && ($currentUser['deactivated_at'] ?? null) !== null;
+
+            if ($istGeloescht || $istDeaktiviert) {
                 \App\Service\AuditLogger::log(
-                    "Session beendet: Benutzerkonto gelöscht oder deaktiviert",
+                    $istDeaktiviert && !$istGeloescht
+                        ? "Session beendet: Benutzerkonto deaktiviert"
+                        : "Session beendet: Benutzerkonto gelöscht",
                     "auth",
                     "User ID " . $_SESSION['user_id']
                 );
@@ -190,7 +198,7 @@ abstract class BaseController {
                     setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
                 }
                 session_destroy();
-                header("Location: /login?error=account_disabled");
+                header("Location: /login?error=" . ($istDeaktiviert && !$istGeloescht ? 'account_deactivated' : 'account_disabled'));
                 exit;
             }
 

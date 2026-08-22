@@ -227,6 +227,21 @@ class UpdateController extends BaseController {
         //
         // Blockiert wird NICHT. Der manuelle Weg muss jede Version einspielen
         // können - er ist ja gerade der Ausweg, den die Automatik verweigert.
+        // Das Pflicht-Backup ZUERST, noch vor der Release-Abfrage.
+        //
+        // performUpdate() prueft es ohnehin - aber erst nach einem Gang ins
+        // Netz. Eine Installation ohne eingerichtetes Backup holte damit die
+        // Release-Liste, nur um danach abzubrechen; und ist das Netz gerade
+        // nicht erreichbar, bekam der Betreiber "Release-Pruefung
+        // fehlgeschlagen" statt des wahren Grundes und suchte am falschen
+        // Ende. Die Meldung selbst steht in UpdateService, damit es sie nur
+        // einmal gibt.
+        $hindernis = UpdateService::backupHindernis();
+        if ($hindernis !== null) {
+            header("Location: /admin/updates?error=" . urlencode($hindernis));
+            exit;
+        }
+
         try {
             $vorschau = UpdateService::checkForUpdate();
         } catch (\Throwable $e) {

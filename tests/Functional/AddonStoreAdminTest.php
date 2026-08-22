@@ -18,6 +18,28 @@ use Tests\Support\HttpClient;
  */
 class AddonStoreAdminTest extends FunctionalTestCase {
 
+    /**
+     * Katalog-Cache vorbelegen, BEVOR die Store-Seite geöffnet wird.
+     *
+     * Ohne Cache holt `/admin/plugins/store` den Katalog live von
+     * api.github.com. Damit misst dieser Test die Erreichbarkeit von GitHub
+     * statt die eigene Seite: Ohne Netz - im nächtlichen Lauf, hinter einem
+     * Egress-Filter, bei erschöpftem Ratelimit - läuft die Anfrage zehn
+     * Sekunden ins Timeout und der Test wird rot, obwohl nichts kaputt ist.
+     * `tests/Integration/UpdateRunTest.php` macht es aus genau diesem Grund
+     * seit Langem so; hier fehlte es.
+     *
+     * Ein leerer Katalog genügt: Geprüft wird die Seite mit ihren
+     * Repo-Zeilen, nicht der Inhalt des Stores.
+     */
+    protected function setUp(): void {
+        parent::setUp();
+
+        \App\Database::getInstance()->exec(
+            "UPDATE addon_repos SET cached_catalog_json = '[]', cached_at = NOW() WHERE is_official = 1"
+        );
+    }
+
     public function testStorePageRequiresAdmin(): void {
         $admin = $this->authenticatedClient();
         $unique = uniqid();

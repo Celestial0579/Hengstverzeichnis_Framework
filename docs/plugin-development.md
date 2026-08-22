@@ -828,11 +828,46 @@ Verwendung im Plugin-Code:
   Schlüssel selbst zurück (nie eine leere Zeichenkette) - fehlende
   Übersetzungen fallen beim Testen sofort optisch auf, statt lautlos zu
   verschwinden.
-- **Verfügbare Locales sind kern-seitig fest** (`Translator::getAvailableLocales()`,
-  seit #198 zwölf Sprachen: `de`, `en`, `da`, `nl`, `fr`, `lb`, `it`, `cs`,
-  `pl`, `nb`, `sv`, `fi`) - ein Plugin kann bestehende Sprachdateien um
-  weitere Schlüssel ergänzen, aber (Phase 1) keine komplett neue Locale zur
-  Kern-Auswahl hinzufügen.
+- **Verfügbar ist, wozu es eine Datei gibt** (`Translator::getAvailableLocales()`).
+  Der Kern bringt seit v0.9.0 nur noch `de` (Quellsprache) und `en` mit; die
+  Namen aller bekannten Sprachen kennt er weiterhin
+  (`Translator::knownLocales()`), aber eine Sprache erscheint erst im
+  Umschalter, wenn ihre Datei da ist.
+
+### Ein Addon bringt eine SPRACHE für den Kern mit (#344)
+
+Der Abschnitt oben beschreibt den einen Fall: ein Addon bringt **seine eigenen
+Texte** mit. Seit v0.9.0 gibt es den umgekehrten — ein Addon bringt eine
+**zusätzliche Sprache für die Kern-Domäne** mit. Auch das ist Konvention statt
+Manifest-Pflicht:
+
+```
+plugins/sprache-nl/
+  lang/
+    core/
+      nl.php    // der VOLLSTÄNDIGE Schlüsselsatz des Kerns
+```
+
+Jede `<code>.php` unter `lang/core/` wird beim Laden als Sprache für die
+Kern-Domäne angemeldet (`Translator::registerCoreLocale()`).
+
+- **Den Anzeigenamen liefert der Kern**, nicht das Addon. Sonst stünde im
+  Umschalter einmal „Nederlands" und einmal „Niederländisch". Für eine
+  Sprache, die der Kern nicht kennt, darf das Addon einen Namen mitgeben.
+- **Was im Kern liegt, gewinnt.** `de.php` und `en.php` lassen sich von einem
+  Addon nicht überschreiben.
+- **Fehlende Schlüssel fallen auf Deutsch zurück** — sichtbar bleibt Text, nie
+  ein leerer Platz. Das ist bequem und gefährlich zugleich: Eine unvollständige
+  Übersetzung sieht nicht nach einem Fehler aus. Deshalb zeigt der
+  Adminbereich je Sprache die Abdeckung („nl: 287 von 302 Schlüsseln"), und
+  das Addons-Repo prüft die Vollständigkeit in
+  `tests/Unit/SprachAddonVollstaendigkeitTest.php`.
+- **Ein Sprach-Addon bringt eine Sprache mit und sonst nichts** — keine Hooks,
+  keine Routen, keine Berechtigungen, keine Tabellen.
+- **Fehlt das Addon**, ist die Sprache nicht wählbar, und der Adminbereich
+  sagt es: auf dem Dashboard und in den Systemeinstellungen. Eine Oberfläche,
+  die nach einem Update stumm auf Deutsch fällt, ist das Erste, was ein
+  Benutzer bemerkt, und das Letzte, was jemand im Protokoll sucht.
 
 Das Referenz-Plugin (`docs/examples/demo-plugin/`) demonstriert dies
 vollständig: `lang/de.php`/`lang/en.php` sowie deren Nutzung in

@@ -32,26 +32,50 @@ class AdminDashboardI18nTest extends FunctionalTestCase {
     }
 
     /**
-     * Stichprobe einer der zehn neuen Sprachen (#198): ?lang=fr übersetzt
-     * die öffentliche Seite, der Mechanismus ist für alle neuen Locales
-     * derselbe (Vollständigkeit je Locale prüft LocaleCompletenessTest).
+     * Englisch ist die zweite Pflichtsprache des Kerns (#344) - ?lang=en
+     * übersetzt die öffentliche Seite, ohne dass ein Addon nötig wäre.
      */
-    public function testNewLocaleIsServedViaLangSwitch(): void {
+    public function testDieZweiteKernspracheWirdUeberDenSchalterAusgeliefert(): void {
         $client = $this->newClient();
 
-        $french = $client->get('/?lang=fr');
-        $this->assertSame(200, $french->statusCode);
-        // <html lang="fr"> belegt, dass die Locale wirklich aktiv ist.
-        $this->assertStringContainsString('lang="fr"', $french->body);
-        $this->assertStringContainsString('Mentions légales', $french->body);
+        $english = $client->get('/?lang=en');
+        $this->assertSame(200, $english->statusCode);
+        // <html lang="en"> belegt, dass die Locale wirklich aktiv ist.
+        $this->assertStringContainsString('lang="en"', $english->body);
+
+        $client->get('/?lang=de');
+    }
+
+    /**
+     * Und eine Sprache OHNE Addon fällt sauber zurück, statt eine halbe
+     * Übersetzung zu zeigen (#344).
+     *
+     * Bis v0.8 lagen alle zwölf Sprachen im Kern; seither sind zehn davon
+     * Addons. `?lang=fr` darf jetzt nicht mehr greifen - und schon gar nicht
+     * eine Seite liefern, auf der die Hälfte französisch und die Hälfte
+     * deutsch ist.
+     */
+    public function testEineSpracheOhneAddonFaelltSauberZurueck(): void {
+        $client = $this->newClient();
+
+        $franzoesisch = $client->get('/?lang=fr');
+
+        $this->assertSame(200, $franzoesisch->statusCode);
+        $this->assertStringContainsString('lang="de"', $franzoesisch->body);
+        $this->assertStringNotContainsString('lang="fr"', $franzoesisch->body);
 
         $client->get('/?lang=de');
     }
 
     /**
      * Der Sprachumschalter im Footer ist seit #198 ein Dropdown: beschriftet,
-     * mit allen zwölf Sprachen (Eigennamen), aktiver Locale als selected und
-     * einem <noscript>-Absenden-Knopf für Besucher ohne JavaScript.
+     * mit den VERFÜGBAREN Sprachen (Eigennamen), aktiver Locale als selected
+     * und einem <noscript>-Absenden-Knopf für Besucher ohne JavaScript.
+     *
+     * Verfügbar heisst seit #344: Deutsch und Englisch aus dem Kern, alles
+     * Weitere nur mit dem passenden Sprach-Addon. Der Umschalter darf keine
+     * Sprache anbieten, die beim Klick auf Deutsch zurückfällt - deshalb
+     * zählt dieser Test genau zwei.
      */
     public function testFooterLanguageSwitcherIsALabelledDropdown(): void {
         $client = $this->newClient();
@@ -63,13 +87,16 @@ class AdminDashboardI18nTest extends FunctionalTestCase {
         $this->assertStringContainsString('<noscript><button type="submit"', $page->body);
 
         $this->assertSame(
-            12,
+            2,
             substr_count($page->body, '<option value="'),
-            'Der Umschalter muss alle zwölf Sprachen anbieten'
+            'Ohne Sprach-Addon bietet der Umschalter genau die beiden Kernsprachen an (#344)'
         );
-        foreach (['Deutsch', 'English', 'Dansk', 'Nederlands', 'Français', 'Lëtzebuergesch',
-                  'Italiano', 'Čeština', 'Polski', 'Norsk bokmål', 'Svenska', 'Suomi'] as $endonym) {
+        foreach (['Deutsch', 'English'] as $endonym) {
             $this->assertStringContainsString('>' . $endonym . '</option>', $page->body);
+        }
+        // Und keine Sprache, zu der es keine Datei gibt.
+        foreach (['Nederlands', 'Français', 'Svenska'] as $ohneAddon) {
+            $this->assertStringNotContainsString('>' . $ohneAddon . '</option>', $page->body);
         }
 
         // Aktive Locale (de als Default) ist vorausgewählt.

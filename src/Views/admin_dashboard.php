@@ -45,6 +45,27 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </form>
     </div>
 
+    <?php // Fehlende Sprach-Addons (#344).
+          //
+          // AUF DEM DASHBOARD und nicht nur in den Systemeinstellungen: Wer
+          // den Kern hebt, ohne das Sprach-Addon zu installieren, sieht seine
+          // Oberflaeche ploetzlich auf Deutsch - und sucht den Grund
+          // ueberall, nur nicht in einer Einstellungsseite, die er seit
+          // Monaten nicht geoeffnet hat. #344 haelt ausdruecklich fest, dass
+          // das nicht stumm passieren darf. Nur fuer Administratoren: Wer es
+          // nicht aendern kann, dem nuetzt der Hinweis nichts. ?>
+    <?php $fehlendeSprachen = $isAdmin ? \App\I18n\Translator::fehlendeSprachen($settings ?? []) : []; ?>
+    <?php if ($fehlendeSprachen !== []): ?>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);">
+            <strong>Sprache fehlt:</strong>
+            Für <?= htmlspecialchars(implode(', ', $fehlendeSprachen)) ?>
+            <?= count($fehlendeSprachen) === 1 ? 'ist' : 'sind' ?> kein Sprach-Addon installiert.
+            Die Oberfläche erscheint dort auf Deutsch.
+            <a href="/admin/system" style="color: inherit;">Zu den Spracheinstellungen</a> &middot;
+            <a href="/admin/addon-store" style="color: inherit;">Addon-Store</a>
+        </div>
+    <?php endif; ?>
+
     <!-- Section 1: Verwaltung -->
     <div class="card">
         <h3 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">

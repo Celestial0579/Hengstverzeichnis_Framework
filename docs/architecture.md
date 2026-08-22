@@ -282,11 +282,16 @@ admin-konfigurierbare, gruppenspezifische Sichtbarkeit (#57).
   fehlendem Eintrag - macht Lücken in der UI sofort sichtbar statt sie
   stillschweigend zu verschlucken.
 - Kern-Sprachdateien liegen unter `lang/<locale>.php` im Projekt-Root
-  (Domain `core`, reserviert): `de` (Quellsprache) und elf weitere
-  (`en`, `da`, `nl`, `fr`, `lb`, `it`, `cs`, `pl`, `nb`, `sv`, `fi`, #198).
-  Jede Datei muss den vollständigen Schlüsselsatz aus `de.php` abdecken -
-  `tests/Unit/I18n/LocaleCompletenessTest.php` erzwingt das für jede
-  registrierte Locale.
+  (Domain `core`, reserviert): seit v0.9.0 nur noch `de` (Quellsprache) und
+  `en`. Jede Datei muss den vollständigen Schlüsselsatz aus `de.php`
+  abdecken - `tests/Unit/I18n/LocaleCompletenessTest.php` erzwingt das.
+- **Die übrigen zehn Sprachen sind Addons** (#344, `sprache-<code>` im
+  Addons-Repo, Verzeichnis `lang/core/<code>.php`). Der Grund ist
+  Pflegbarkeit: Zwölf vollständige Sprachdateien mit je über dreihundert
+  Schlüsseln machten jeden neuen Text im Kern zu einer Übersetzungsaufgabe in
+  elf Fremdsprachen, bevor die Testsuite grün wurde. Der Kern kennt weiterhin
+  die NAMEN aller Sprachen (`Translator::knownLocales()`); verfügbar ist, wozu
+  es eine Datei gibt.
 - **Anschluss ans Plugin-System (#56):** Ein Plugin mit eigenem
   `lang/<locale>.php`-Verzeichnis wird beim Laden automatisch unter seinem
   Slug als eigene, kollisionsfreie Übersetzungs-Domain registriert

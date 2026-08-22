@@ -68,6 +68,14 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
             $db = Database::getInstance();
             $db->prepare("DELETE FROM plugins WHERE slug = ?")->execute([self::SLUG]);
             $db->query("UPDATE addon_repos SET cached_catalog_json = NULL, cached_at = NULL WHERE is_official = 1");
+            // Und die Backup-Konfiguration aus backupKonfigurieren(): Die
+            // Testdatenbank ist ueber den ganzen PHPUnit-Prozess geteilt, und
+            // UpdateAdminTest prueft ausdruecklich den Fall OHNE eingerichtetes
+            // Backup - bleibt sie stehen, faellt dort der falsche Zweig.
+            $db->query(
+                "DELETE FROM settings WHERE setting_key IN ('backup_enabled', 'backup_s3_endpoint',
+                 'backup_s3_bucket', 'backup_s3_access_key', 'backup_s3_secret_key')"
+            );
         } catch (\Throwable $e) {
             // DB weg = nichts zu bereinigen
         }
@@ -136,6 +144,30 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
     }
 
     /**
+     * Traegt eine formal vollstaendige Backup-Konfiguration ein.
+     *
+     * Es wird nichts gesichert - die Addon-Sperre greift vor
+     * performUpdate(). Gebraucht wird nur, dass
+     * UpdateService::backupHindernis() zufrieden ist.
+     */
+    private function backupKonfigurieren(): void {
+        $db = \App\Database::getInstance();
+        $stmt = $db->prepare(
+            'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)'
+        );
+        foreach ([
+            'backup_enabled' => '1',
+            'backup_s3_endpoint' => 'http://127.0.0.1:1/nicht-benutzt',
+            'backup_s3_bucket' => 'test',
+            'backup_s3_access_key' => 'AKIDEXAMPLE',
+            'backup_s3_secret_key' => \App\Security\Crypto::encrypt('test-secret'),
+        ] as $schluessel => $wert) {
+            $stmt->execute([$schluessel, $wert]);
+        }
+    }
+
+    /**
      * Dieselbe Sperre, aber am ENDPUNKT statt in der Ansicht (#375).
      *
      * Der Kommentar an UpdateController::run() begründet ausdrücklich, warum
@@ -153,6 +185,12 @@ class UpdateAddonOverviewTest extends FunctionalTestCase {
      * testTypedTargetVersionPassesTheAddonGate() unten ab.
      */
     public function testDirectPostIsRefusedWhenAnActiveAddonCannotFollow(): void {
+        // Das Pflicht-Backup vorkonfigurieren: Seit es VOR der Release-Abfrage
+        // geprueft wird, bricht /admin/updates/run sonst schon dort ab, und
+        // dieser Test kaeme nie bis zur Addon-Sperre - er wuerde gruen
+        // aussehen, wenn die Sperre gar nicht mehr existierte.
+        $this->backupKonfigurieren();
+
         $this->createPluginDir([
             'core_compatibility' => '>=0.1.0-beta.1',
             'core_supported_max' => '0.3',

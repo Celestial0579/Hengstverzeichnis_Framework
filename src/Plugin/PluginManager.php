@@ -687,6 +687,17 @@ final class PluginManager {
             \App\I18n\Translator::registerDomain($slug, $langDir);
         }
 
+        // Die andere Richtung (#344): ein Verzeichnis `lang/core/` bedeutet
+        // "ich bringe zusaetzliche Sprachen fuer die KERN-Domaene mit". Auch
+        // das Konvention statt Manifest-Pflicht - der Dateiname ist der
+        // Sprachcode, mehr braucht es nicht.
+        $coreLangDir = $langDir . '/core';
+        if (is_dir($coreLangDir)) {
+            foreach (glob($coreLangDir . '/*.php') ?: [] as $datei) {
+                \App\I18n\Translator::registerCoreLocale(basename($datei, '.php'), $coreLangDir);
+            }
+        }
+
         if (method_exists($instance, 'register')) {
             $instance->register($this->hooks);
         }

@@ -17,17 +17,106 @@ use PHPUnit\Framework\TestCase;
  * BaseController UND PluginPage - ?lang= zählt nur für aktive Sprachen, eine
  * inaktiv gewordene Session-Wahl fällt auf die Standardsprache zurück und
  * wird dabei aus der Session ENTFERNT.
+ *
+ * DIE DRITTE SPRACHE KOMMT SEIT #344 AUS EINEM ADDON. Der Kern bringt nur noch
+ * Deutsch und Englisch mit; `fr` wird hier über denselben Erweiterungspunkt
+ * angemeldet, den ein Sprach-Addon benutzt. Damit prüfen diese Tests
+ * zusätzlich, dass eine Addon-Sprache in `activeLocales()` und
+ * `resolveRequestLocale()` wirklich ankommt - vorher wäre das ein blinder
+ * Fleck gewesen: Die Auslagerung könnte den Umschalter stillgelegt haben, und
+ * die Suite bliebe grün.
  */
 class ActiveLocalesTest extends TestCase {
+
+    private string $sprachVerzeichnis = '';
 
     protected function setUp(): void {
         // resolveRequestLocale() liest $_GET/$_SESSION - sauber starten,
         // damit kein anderer Test Reste hinterlässt oder vorfindet.
         unset($_GET['lang'], $_SESSION['locale']);
+
+        $this->sprachVerzeichnis = sys_get_temp_dir() . '/hv_locale_' . bin2hex(random_bytes(5));
+        mkdir($this->sprachVerzeichnis, 0777, true);
+        file_put_contents(
+            $this->sprachVerzeichnis . '/fr.php',
+            "<?php\nreturn ['nav.home' => 'Accueil'];\n"
+        );
+        Translator::registerCoreLocale('fr', $this->sprachVerzeichnis);
     }
 
     protected function tearDown(): void {
         unset($_GET['lang'], $_SESSION['locale']);
+        Translator::resetForTests();
+
+        if ($this->sprachVerzeichnis !== '' && is_dir($this->sprachVerzeichnis)) {
+            foreach (glob($this->sprachVerzeichnis . '/*') ?: [] as $datei) {
+                @unlink($datei);
+            }
+            @rmdir($this->sprachVerzeichnis);
+        }
+    }
+
+    /**
+     * Der Erweiterungspunkt selbst: Ohne Addon gibt es `fr` nicht, mit Addon
+     * schon - und die Texte kommen dann auch wirklich aus dessen Datei.
+     */
+    public function testEineAddonSpracheWirdVerfuegbarUndLiefertTexte(): void {
+        Translator::resetForTests();
+        $this->assertArrayNotHasKey('fr', Translator::getAvailableLocales(), 'Ohne Addon keine dritte Sprache.');
+
+        Translator::registerCoreLocale('fr', $this->sprachVerzeichnis);
+        $this->assertArrayHasKey('fr', Translator::getAvailableLocales());
+        $this->assertSame('Français', Translator::getAvailableLocales()['fr'], 'Den Namen liefert der Kern.');
+
+        Translator::init('fr');
+        $this->assertSame('Accueil', Translator::t('nav.home'));
+    }
+
+    /**
+     * Ein Addon darf eine KERN-Sprache nicht überschreiben.
+     *
+     * Sonst brächte ein Sprach-Addon `de.php` mit und ersetzte damit die
+     * Quellsprache - und der Rückfall, auf dem die ganze Kette ruht, käme aus
+     * einem Addon. Was im Kern liegt, gilt.
+     */
+    public function testEinAddonUeberschreibtKeineKernsprache(): void {
+        $eigen = sys_get_temp_dir() . '/hv_locale_kern_' . bin2hex(random_bytes(5));
+        mkdir($eigen, 0777, true);
+        file_put_contents($eigen . '/de.php', "<?php\nreturn ['nav.home' => 'ENTFUEHRT'];\n");
+
+        try {
+            Translator::registerCoreLocale('de', $eigen);
+            Translator::init('de');
+
+            $this->assertNotSame('ENTFUEHRT', Translator::t('nav.home'));
+            $this->assertSame(
+                (require Translator::coreLangDir() . '/de.php')['nav.home'],
+                Translator::t('nav.home')
+            );
+        } finally {
+            @unlink($eigen . '/de.php');
+            @rmdir($eigen);
+        }
+    }
+
+    /** Deutsch und Englisch bleiben im Kern - ohne jedes Addon. */
+    public function testKernSprachenBleibenOhneAddonVerfuegbar(): void {
+        Translator::resetForTests();
+
+        $this->assertSame(['de', 'en'], array_keys(Translator::getAvailableLocales()));
+    }
+
+    /**
+     * Ein fehlender Schlüssel in einer Addon-Sprache fällt auf Deutsch
+     * zurück - sichtbar bleibt Text, nie ein leerer Platz.
+     */
+    public function testFehlenderSchluesselFaelltAufDeutschZurueck(): void {
+        Translator::init('fr');
+
+        $this->assertSame(
+            Translator::t('nav.catalog', [], 'core'),
+            (require Translator::coreLangDir() . '/de.php')['nav.catalog']
+        );
     }
 
     public function testAllAvailableActiveWithoutConfiguration(): void {
@@ -45,14 +134,48 @@ class ActiveLocalesTest extends TestCase {
     }
 
     public function testFallbackAndDefaultLanguageAreAlwaysActive(): void {
-        // Weder de noch die Standardsprache (sv) stehen in der Liste - beide
+        // Weder de noch die Standardsprache (fr) stehen in der Liste - beide
         // müssen trotzdem aktiv bleiben, sonst wäre die Oberfläche sprachlos.
-        $active = Translator::activeLocales(['active_locales' => 'en', 'language' => 'sv']);
+        $active = Translator::activeLocales(['active_locales' => 'en', 'language' => 'fr']);
 
         $this->assertArrayHasKey('de', $active);
-        $this->assertArrayHasKey('sv', $active);
+        $this->assertArrayHasKey('fr', $active);
         $this->assertArrayHasKey('en', $active);
-        $this->assertArrayNotHasKey('fr', $active);
+    }
+
+    /**
+     * Eine eingestellte Sprache OHNE Datei wird nicht aktiv - sie böte sonst
+     * eine Auswahl an, die überall auf Deutsch zurückfällt.
+     *
+     * Der Fall entsteht mit #344 real: Wer auf Schwedisch lief und den Kern
+     * hebt, ohne `sprache-sv` zu installieren, steht genau hier.
+     */
+    public function testEineSpracheOhneDateiWirdNichtAktiv(): void {
+        $active = Translator::activeLocales(['active_locales' => 'en,sv', 'language' => 'sv']);
+
+        $this->assertArrayNotHasKey('sv', $active);
+        $this->assertArrayHasKey('de', $active, 'Deutsch bleibt - die Oberflaeche darf nie sprachlos sein.');
+    }
+
+    /**
+     * Und sie wird GEMELDET, nicht verschwiegen: #344 haelt ausdruecklich
+     * fest, dass bestehende Installationen nicht stumm auf Deutsch fallen
+     * duerfen.
+     */
+    public function testEineFehlendeSpracheWirdBenanntUndNichtVerschwiegen(): void {
+        $fehlend = Translator::fehlendeSprachen(['active_locales' => 'en,sv,nl', 'language' => 'sv']);
+
+        $this->assertSame(['sv' => 'Svenska', 'nl' => 'Nederlands'], $fehlend);
+    }
+
+    /** Ein Tippfehler ist kein fehlendes Sprach-Addon. */
+    public function testUnbekannteCodesStehenNichtInDerWarnung(): void {
+        $this->assertSame([], Translator::fehlendeSprachen(['active_locales' => 'klingonisch,xx']));
+    }
+
+    /** Was da ist, fehlt nicht. */
+    public function testVorhandeneSprachenStehenNichtInDerWarnung(): void {
+        $this->assertSame([], Translator::fehlendeSprachen(['active_locales' => 'de,en,fr', 'language' => 'fr']));
     }
 
     public function testUnknownCodesAreDropped(): void {

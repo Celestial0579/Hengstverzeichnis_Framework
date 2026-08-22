@@ -10,6 +10,34 @@ Breaking Changes sind jederzeit möglich).
 
 ### Neu
 
+- **Zehn der zwölf Sprachen sind jetzt Addons** (#344). Im Kern bleiben
+  **Deutsch** (Quellsprache) und **Englisch**; `cs`, `da`, `fi`, `fr`, `it`,
+  `lb`, `nb`, `nl`, `pl` und `sv` wandern in je ein Addon `sprache-<code>`.
+
+  Der Grund ist Pflegbarkeit, nicht Platz: Zwölf vollständige Sprachdateien
+  mit je über dreihundert Schlüsseln machten **jeden neuen Text im Kern zu
+  einer Übersetzungsaufgabe in elf Fremdsprachen**, bevor die Testsuite grün
+  wurde.
+
+  Neu im Kern ist der Erweiterungspunkt dafür: Ein Addon mit
+  `lang/core/<code>.php` meldet eine Sprache für die Kern-Domäne an —
+  Konvention statt Manifest-Pflicht, wie beim `lang/`-Verzeichnis für die
+  eigenen Texte eines Addons. Den **Anzeigenamen liefert der Kern**, sonst
+  stünde im Umschalter einmal „Nederlands" und einmal „Niederländisch". Was
+  im Kern liegt, lässt sich von einem Addon nicht überschreiben.
+
+### ⚠️ Wer nicht auf Deutsch oder Englisch läuft, braucht ein Addon
+
+Nach dem Update ist die eingestellte Sprache nur noch wählbar, wenn das
+passende Sprach-Addon installiert ist. **Stumm passiert das nicht:** Der
+Umschalter bietet keine Sprache mehr an, die auf Deutsch zurückfiele, und der
+Adminbereich sagt es — auf dem **Dashboard** und in den Systemeinstellungen,
+mit Namen und dem Slug des fehlenden Addons. Dort steht auch je Sprache die
+Abdeckung („nl: 287 von 302 Schlüsseln"), damit eine Übersetzung nicht
+unbemerkt verrottet.
+
+### Neu
+
 - **Die Foto-/Video-Galerie ist Kernmodul** (#339). Bis v0.8 hatte `horses`
   genau ein `image_url`, und das Addon `galerie` brachte eine zweite Ablage
   für dasselbe mit: Ein Redakteur pflegte Fotos zu demselben Pferd an zwei
@@ -47,6 +75,12 @@ gelesen**. Jetzt gibt es sie wirklich, mit zwei Tests.
   `public/` + `image_url` — also im Webroot, wo seit #366 keine Pferdefotos mehr
   liegen. Die Spalte wurde geleert, die Datei blieb stehen. Der Zweig ist mit
   dem Feld entfallen.
+- **Ein Update ohne eingerichtetes Backup bricht jetzt ab, bevor es ins Netz
+  geht.** Bisher holte `/admin/updates/run` erst die Release-Liste von GitHub,
+  um dann am Pflicht-Backup zu scheitern — und war GitHub gerade nicht
+  erreichbar, bekam der Betreiber „Release-Prüfung fehlgeschlagen" statt des
+  wahren Grundes und suchte am falschen Ende. Die Meldung selbst gibt es
+  weiterhin nur einmal (`UpdateService::backupHindernis()`).
 - **Video-Links: nur YouTube und Vimeo, nur `https`.** Der erste Wurf des
   Kernmoduls prüfte nur das Schema — das Addon hatte längst eine Host-Allowlist
   und baute die URL aus den geprüften Teilen **neu**, statt die Eingabe

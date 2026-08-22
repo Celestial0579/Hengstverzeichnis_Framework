@@ -100,6 +100,47 @@
                 Abgewählte Sprachen erscheinen nicht im Sprachumschalter; die Sprachdateien bleiben installiert.
                 Deutsch und die Standardsprache sind immer aktiv.
             </small>
+
+            <?php // Sprach-Addons (#344): Der Kern bringt seit v0.9 nur noch
+                  // Deutsch und Englisch mit. Was fehlt, gehoert benannt - eine
+                  // Sprache, die stillschweigend auf Deutsch zurueckfaellt, ist
+                  // das Erste, was ein Benutzer bemerkt, und das Letzte, was
+                  // jemand im Protokoll sucht. ?>
+            <?php $fehlendeSprachen = \App\I18n\Translator::fehlendeSprachen($settings); ?>
+            <?php if ($fehlendeSprachen !== []): ?>
+                <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.8rem; border-radius: 4px; margin-top: 0.8rem;">
+                    <strong>Für diese eingestellten Sprachen fehlt das Sprach-Addon:</strong>
+                    <?= htmlspecialchars(implode(', ', $fehlendeSprachen)) ?>.
+                    <br>Sie erscheinen nicht im Umschalter, und wer sie eingestellt hatte, sieht Deutsch.
+                    Zu installieren unter <a href="/admin/addon-store">Addon-Store</a> als
+                    <?php $slugs = array_map(static fn(string $c): string => 'sprache-' . $c, array_keys($fehlendeSprachen)); ?>
+                    <code><?= htmlspecialchars(implode('</code>, <code>', $slugs), ENT_QUOTES) ?></code>.
+                </div>
+            <?php endif; ?>
+
+            <?php $herkunft = \App\I18n\Translator::localeHerkunft(); ?>
+            <details style="margin-top: 0.8rem;">
+                <summary style="cursor: pointer; color: var(--text-muted);">Woher kommt welche Sprache?</summary>
+                <ul style="margin: 0.5rem 0 0 1.2rem; color: var(--text-muted); font-size: 0.9rem;">
+                    <?php foreach (\App\I18n\Translator::knownLocales() as $code => $label): ?>
+                        <li>
+                            <?= htmlspecialchars($label) ?> (<code><?= htmlspecialchars($code) ?></code>) &ndash;
+                            <?php if ($herkunft[$code] === 'kern'): ?>
+                                im Kern enthalten
+                            <?php elseif ($herkunft[$code] === 'addon'): ?>
+                                <?php $abdeckung = \App\I18n\Translator::abdeckung($code); ?>
+                                Addon <code>sprache-<?= htmlspecialchars($code) ?></code>,
+                                <?= (int)$abdeckung['vorhanden'] ?> von <?= (int)$abdeckung['gesamt'] ?> Schlüsseln
+                                <?php if ($abdeckung['vorhanden'] < $abdeckung['gesamt']): ?>
+                                    <span style="color: var(--warning-fg);">&ndash; der Rest erscheint auf Deutsch</span>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                kein Sprach-Addon installiert
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </details>
         </div>
 
         <div class="form-group" style="margin-top: 1.5rem;">

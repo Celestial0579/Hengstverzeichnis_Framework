@@ -506,10 +506,31 @@ class UpdateService {
      * @return array{from:string, to:string, files:int}
      * @throws \RuntimeException mit sprechender Meldung bei jedem Abbruchgrund
      */
+    /**
+     * Der Grund, aus dem ein Update gar nicht erst beginnen darf - oder null.
+     *
+     * AN EINER STELLE, WEIL ZWEI AUFRUFER IHN BRAUCHEN. performUpdate()
+     * prueft ihn als Letztes vor dem Zugriff; der Controller prueft ihn als
+     * ERSTES, noch vor der Release-Abfrage. Sonst holt eine Installation ohne
+     * eingerichtetes Backup erst die Release-Liste aus dem Netz, um dem
+     * Betreiber dann mitzuteilen, dass sein Backup fehlt - und ist das Netz
+     * gerade nicht da, bekommt er stattdessen "Release-Pruefung
+     * fehlgeschlagen" und sucht am falschen Ende.
+     */
+    public static function backupHindernis(): ?string {
+        if (BackupService::isConfigured(self::loadSettings())) {
+            return null;
+        }
+
+        return 'Update abgebrochen: Automatische Backups sind nicht (vollständig) konfiguriert. '
+             . 'Ein Update ohne vorheriges Backup ist nicht zulässig - bitte zunächst unter '
+             . '/admin/backups einrichten.';
+    }
+
     public static function performUpdate(): array {
-        $settings = self::loadSettings();
-        if (!BackupService::isConfigured($settings)) {
-            throw new \RuntimeException('Update abgebrochen: Automatische Backups sind nicht (vollständig) konfiguriert. Ein Update ohne vorheriges Backup ist nicht zulässig - bitte zunächst unter /admin/backups einrichten.');
+        $hindernis = self::backupHindernis();
+        if ($hindernis !== null) {
+            throw new \RuntimeException($hindernis);
         }
 
         $check = self::checkForUpdate();

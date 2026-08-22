@@ -133,10 +133,14 @@ Wie alle Schema-Änderungen doppelt gepflegt: im Ersteinrichtungs-Schema
 Züchter/Besitzer/Halter. Strukturierte Felder seit #188: `street`,
 `house_number`, `postal_code`, `city`, `state` (Bundesland/Kanton, seit #256,
 Freitext), `country` (Freitext, auch Kürzel wie
-`NO`), `email` und `membership_status` (Mitgliedsstatus beim Verband,
-Freitext); `contact_info` bleibt als Freitext-Restfeld (z. B. Telefon).
-**Öffentlich (und im Plugin-Hook-Payload) erscheinen nur `city`, `state`,
-`country` und `membership_status`** – Straße, Hausnummer, PLZ und E-Mail sind
+`NO`) und `email`; `contact_info` bleibt als Freitext-Restfeld (z. B. Telefon).
+`membership_status` (Mitgliedsstatus beim Verband, Freitext) ist seit v0.9.0
+ausgedient: Der Kern zeigt es nicht mehr an und nimmt es nicht mehr entgegen,
+die Spalte bleibt nur noch bis zum darauffolgenden Release stehen, damit die
+Bestandswerte gesichert werden können (#349). Geführt wird die Angabe jetzt
+vom Addon `mitgliedsstatus`.
+**Öffentlich (und im Plugin-Hook-Payload) erscheinen nur `city`, `state`
+und `country`** – Straße, Hausnummer, PLZ und E-Mail sind
 Admin-only. Die Trennlinie ist nicht die Feldanzahl, sondern: zustellbare
 Angaben bleiben intern, grobe geografische Verortung ist öffentlich. `is_published`
 (Default `0` = unveröffentlicht): nur veröffentlichte Personen erscheinen

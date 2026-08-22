@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS `email_2fa_codes` (
 --     aus #293. Was gar nicht erst ankommt, kann der nächste nicht
 --     versehentlich ausgeben.
 -- Öffentlich sind nur grobe geografische Verortung (city/state/country),
--- membership_status, is_breeder und website; zustellbare Angaben
+-- is_breeder und website; zustellbare Angaben
 -- (street/house_number/postal_code/email/phone/mobile/contact_info/address)
 -- nur bei contact_public = 1.
 CREATE TABLE IF NOT EXISTS `contacts` (
@@ -182,9 +182,17 @@ CREATE TABLE IF NOT EXISTS `contacts` (
     `phone` VARCHAR(50) NULL DEFAULT NULL,
     `mobile` VARCHAR(50) NULL DEFAULT NULL,
     `website` VARCHAR(255) NULL DEFAULT NULL,
+    -- AUSGEDIENT SEIT v0.9.0 (#349) - NICHT WIEDER ANSCHLIESSEN.
     -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
-    -- (z. B. 'Mitglied', 'Nichtmitglied NO'). Wandert in v0.9.0 in das
-    -- Addon aus Addons#132 - bis dahin bleibt die Spalte hier (#349).
+    -- (z. B. 'Mitglied', 'Nichtmitglied NO'). Der Kern zeigt das Feld nicht
+    -- mehr an, nimmt es nicht mehr entgegen und sucht nicht mehr darin; die
+    -- Angabe führt jetzt das Addon `mitgliedsstatus` (Addons#132) mit fester
+    -- Werteliste und Freigabe je Kontakt.
+    -- Die SPALTE steht noch hier, damit ein Betreiber die Bestandswerte
+    -- sichern kann - genau das ist die Eingangsgröße der Übernahme im Addon.
+    -- Sie fällt im Release NACH v0.9.0. Bis dahin wird sie weiter von der
+    -- DSGVO-Anonymisierung mitgenullt (GdprController): Was in der Tabelle
+    -- steht, ist personenbezogen, ob es ausgegeben wird oder nicht.
     `membership_status` VARCHAR(100) NULL DEFAULT NULL,
     -- Kennzeichen "dieser Kontakt züchtet" - redaktionell gepflegt und
     -- ausdrücklich NICHT aus horse_persons.role='breeder' abgeleitet.
@@ -609,7 +617,7 @@ CROSS JOIN (
     -- persons.view) - Grundlage der öffentlichen Kontaktseite (/kontakt), auf
     -- die die Pferde-Detailseite verweist. Neue Daten entstehen dadurch nicht:
     -- Gezeigt werden ausschließlich die Felder, die auf der Pferdeseite ohnehin
-    -- schon öffentlich sind (Ort, Bundesland, Land, Mitgliedsstatus) plus die
+    -- schon öffentlich sind (Ort, Bundesland, Land) plus die
     -- dafür vorgesehene Website; zustellbare Angaben (E-Mail, Telefon, Mobil,
     -- Straße, PLZ) nur bei contact_public = 1 je Datensatz. Wer die Seite nicht
     -- will, nimmt der Gruppe `public` das Recht wieder weg.

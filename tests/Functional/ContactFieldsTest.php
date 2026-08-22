@@ -40,6 +40,11 @@ class ContactFieldsTest extends FunctionalTestCase {
             'state' => 'Schleswig-Holstein',
             'country' => 'NO',
             'email' => "person-{$unique}@example.com",
+            // #349: Das Feld gibt es im Formular nicht mehr. Es wird hier
+            // trotzdem MITGESENDET - ein entferntes Feld darf nicht ueber
+            // einen von Hand gebauten POST zurueckkommen. Die Spalte bleibt
+            // bis zum Release nach v0.9.0 bestehen, waere also beschreibbar,
+            // wenn CONTACT_FIELDS sie noch fuehrte.
             'membership_status' => 'Nichtmitglied NO',
             'phone' => '01234 5678x',
             'mobile' => '0170 12345x',
@@ -60,7 +65,10 @@ class ContactFieldsTest extends FunctionalTestCase {
         $this->assertSame('Schleswig-Holstein', $contact['state']);
         $this->assertSame('NO', $contact['country']);
         $this->assertSame("person-{$unique}@example.com", $contact['email']);
-        $this->assertSame('Nichtmitglied NO', $contact['membership_status']);
+        $this->assertNull(
+            $contact['membership_status'],
+            'Das mit #349 entfernte Feld darf ueber einen gebauten POST nicht zurueckkommen'
+        );
         $this->assertSame('01234 5678x', $contact['phone']);
         $this->assertSame('0170 12345x', $contact['mobile']);
         $this->assertSame('https://beispiel-hof.example/x', $contact['website']);
@@ -79,7 +87,7 @@ class ContactFieldsTest extends FunctionalTestCase {
             'state' => '',
             'country' => 'NO',
             'email' => '',
-            'membership_status' => 'Mitglied',
+            'membership_status' => 'Mitglied',   // #349, siehe oben - auch update() darf es nicht annehmen
             // Telefon/Mobil/Website (#293) gehen denselben Weg: mitgesendet
             // bleiben sie erhalten, 'mobile' bleibt hier bewusst weg und muss
             // damit - wie email und state - auf NULL fallen.
@@ -95,7 +103,7 @@ class ContactFieldsTest extends FunctionalTestCase {
         $this->assertSame('Fjordallee', $updated['street']);
         $this->assertNull($updated['email'], 'Leeres Formularfeld muss NULL speichern');
         $this->assertNull($updated['state'], 'Auch Bundesland/Kanton muss beim Leeren NULL werden (#256)');
-        $this->assertSame('Mitglied', $updated['membership_status']);
+        $this->assertNull($updated['membership_status'], 'Auch update() nimmt das entfernte Feld nicht an (#349)');
         $this->assertSame('01234 5678x', $updated['phone']);
         $this->assertSame('https://beispiel-hof.example/x', $updated['website']);
         $this->assertNull($updated['mobile'], 'Ein nicht mitgesendetes Feld muss auch bei den neuen Spalten NULL werden');
@@ -125,8 +133,11 @@ class ContactFieldsTest extends FunctionalTestCase {
         $horseId = (int)$stmt->fetchColumn();
         $this->assertGreaterThan(0, $horseId);
 
-        // 4. Öffentliche Detailseite: Ort/Bundesland/Land/Mitgliedsstatus
-        // erscheinen, Straße/Hausnummer/PLZ/E-Mail dürfen NICHT im HTML stehen.
+        // 4. Öffentliche Detailseite: Ort/Bundesland/Land erscheinen,
+        // Straße/Hausnummer/PLZ/E-Mail dürfen NICHT im HTML stehen.
+        // Der Mitgliedsstatus stand bis v0.8 mit in dieser Zeile und ist mit
+        // #349 entfallen - geprüft in
+        // testPublicContactPageIsReachableFromHorseAndHidesInternalFields().
         //
         // Bundesland/Kanton (#256) steht bewusst auf der öffentlichen Seite: Die
         // Trennlinie verläuft nicht bei der Feldanzahl, sondern zwischen
@@ -136,7 +147,6 @@ class ContactFieldsTest extends FunctionalTestCase {
         $detail = $guest->get('/horse?id=' . $horseId);
         $this->assertSame(200, $detail->statusCode);
         $this->assertStringContainsString('Glücksburg, Schleswig-Holstein, NO', $detail->body);
-        $this->assertStringContainsString('Mitglied', $detail->body);
         $this->assertStringNotContainsString('Fjordallee', $detail->body, 'Straße ist Admin-only und darf öffentlich nie erscheinen');
         $this->assertStringNotContainsString('7x', $detail->body, 'Hausnummer ist Admin-only');
         $this->assertStringNotContainsString('2496x', $detail->body, 'PLZ ist Admin-only');
@@ -227,7 +237,6 @@ class ContactFieldsTest extends FunctionalTestCase {
             'name' => $contactName,
             'city' => 'Flensburg',
             'country' => 'DE',
-            'membership_status' => 'Mitglied',
             'website' => 'https://zuchthof.example/x',
             'email' => "geheim-{$unique}@example.com",
             'phone' => '0999 111x',
@@ -241,6 +250,15 @@ class ContactFieldsTest extends FunctionalTestCase {
         $stmt->execute([$contactName]);
         $contactId = (int)$stmt->fetchColumn();
         $this->assertGreaterThan(0, $contactId);
+
+        // #349: Die SPALTE gibt es noch - sie faellt erst im Release nach
+        // v0.9.0, damit ein Betreiber die Werte sichern kann. Ein
+        // BESTANDSWERT darf deshalb genau ab jetzt nirgends mehr nach aussen
+        // dringen: nicht auf der Kontaktseite und nicht in der Personenzeile
+        // der Pferdeseite. Der Wert wird direkt in die Tabelle geschrieben,
+        // weil das Formular ihn nicht mehr annimmt (siehe oben).
+        $altwert = "Mitgliedsmarker-{$unique}";
+        $db->prepare("UPDATE contacts SET membership_status = ? WHERE id = ?")->execute([$altwert, $contactId]);
 
         $form = $admin->get('/admin/horses/create');
         $admin->post('/admin/horses/store', [
@@ -261,14 +279,23 @@ class ContactFieldsTest extends FunctionalTestCase {
         $detail = $guest->get('/horse?id=' . $horseId);
         $this->assertSame(200, $detail->statusCode);
         $this->assertStringContainsString('/kontakt?id=' . $contactId, $detail->body, 'Der Kontaktname muss verlinkt sein');
+        $this->assertStringNotContainsString(
+            $altwert,
+            $detail->body,
+            'Die Personenzeile der Pferdeseite fuehrt den Mitgliedsstatus seit #349 nicht mehr'
+        );
 
         // 2. Die Kontaktseite zeigt die oeffentlichen Angaben ...
         $page = $guest->get('/kontakt?id=' . $contactId);
         $this->assertSame(200, $page->statusCode);
         $this->assertStringContainsString($contactName, $page->body);
         $this->assertStringContainsString('Flensburg', $page->body);
-        $this->assertStringContainsString('Mitglied', $page->body);
         $this->assertStringContainsString('https://zuchthof.example/x', $page->body);
+        $this->assertStringNotContainsString(
+            $altwert,
+            $page->body,
+            'Ein Bestandswert in membership_status darf die Kontaktseite nicht mehr erreichen (#349)'
+        );
         // ... das Zuechter-Kennzeichen ...
         $this->assertStringContainsString('Züchter', $page->body, 'Das Kennzeichen gehoert auf die Seite');
         // ... und das zugeordnete Pferd.

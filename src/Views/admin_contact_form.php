@@ -145,15 +145,15 @@ $haken = static function (string $name) use ($old, $contact): bool {
             <?php endif; ?>
         </div>
 
-        <div style="display: flex; gap: 1rem;">
-            <div class="form-group" style="flex: 1;">
-                <label for="email">E-Mail</label>
-                <input type="email" id="email" name="email" class="form-control" value="<?= $feldWert('email') ?>" placeholder="kontakt@example.de">
-            </div>
-            <div class="form-group" style="flex: 1;">
-                <label for="membership_status">Mitgliedsstatus beim Verband</label>
-                <input type="text" id="membership_status" name="membership_status" class="form-control" value="<?= $feldWert('membership_status') ?>" placeholder="z. B. Mitglied / Nichtmitglied NO">
-            </div>
+        <?php // Das Freitextfeld "Mitgliedsstatus beim Verband" stand hier bis
+              // v0.8 neben der E-Mail und ist mit #349 entfallen. Es fuehrte
+              // dieselbe Aussage von Hand nach, die die Mitgliederverwaltung
+              // ohnehin haelt - und war damit ab dem ersten Tag falsch. Das
+              // Addon `mitgliedsstatus` haengt sein Feld ueber
+              // `contact.edit_sections` unten an dieses Formular. ?>
+        <div class="form-group">
+            <label for="email">E-Mail</label>
+            <input type="email" id="email" name="email" class="form-control" value="<?= $feldWert('email') ?>" placeholder="kontakt@example.de">
         </div>
 
         <div style="display: flex; gap: 1rem;">

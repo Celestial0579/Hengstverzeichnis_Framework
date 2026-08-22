@@ -308,8 +308,17 @@ class GdprController extends BaseController {
             $db = Database::getInstance();
 
             // Anonymize contact data while preserving horse relationships in horse_persons.
-            // Alle PII-Felder nullen - auch city/state/country/membership_status sind
+            // Alle PII-Felder nullen - auch city/state/country sind
             // personenbezogen, sobald sie am Namen hängen (#188, state seit #256).
+            //
+            // `membership_status` steht hier weiter mit drin, obwohl der Kern
+            // das Feld seit #349 weder anzeigt noch zur Eingabe anbietet: Die
+            // SPALTE gibt es noch (sie fällt im Release nach v0.9.0, damit ein
+            // Betreiber die Werte vorher sichern kann), und was in der Tabelle
+            // steht, ist personenbezogen - unabhängig davon, ob es irgendwo
+            // ausgegeben wird. Sie hier auszulassen, hiesse ein Feld
+            // zurückzulassen, das eine Löschanfrage ausdrücklich meint. Erst
+            // mit der Spalte fällt diese Zuweisung.
             //
             // Diese Liste ist hartkodiert und muss bei JEDER neuen Spalte in
             // contacts mitgezogen werden. Ein vergessenes Feld fällt nicht auf:

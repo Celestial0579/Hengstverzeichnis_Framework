@@ -112,7 +112,6 @@ $contactWebsite = App\Helper\ExternalUrl::hrefOrNull($contact['website'] ?? null
 // Ob überhaupt eine Angabe unter dem Namen steht - sonst erscheint der
 // Hinweis, dass keine öffentlichen Angaben hinterlegt sind.
 $hatAngaben = !empty($placeParts)
-    || !empty($contact['membership_status'])
     || !empty($contact['is_breeder'])
     || !empty($contact['contact_person'])
     || $addressText !== ''
@@ -165,12 +164,6 @@ $hatAngaben = !empty($placeParts)
                 <tr style="border-bottom: 1px solid var(--border-color);">
                     <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;">🏠 <?= htmlspecialchars(App\I18n\Translator::t('field.address')) ?></th>
                     <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($addressText)) ?></td>
-                </tr>
-            <?php endif; ?>
-            <?php if (!empty($contact['membership_status'])): ?>
-                <tr style="border-bottom: 1px solid var(--border-color);">
-                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🎗 <?= htmlspecialchars(App\I18n\Translator::t('field.membership_status')) ?></th>
-                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$contact['membership_status']) ?></td>
                 </tr>
             <?php endif; ?>
             <?php if (!empty($contact['email'])): ?>

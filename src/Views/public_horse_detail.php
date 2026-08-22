@@ -489,16 +489,29 @@ $galerie = array_values(array_filter(
                     <?php endif; ?>
 
                     <?php
-                        // Ort/Bundesland/Land/Mitgliedsstatus (#188, state seit
-                        // #256) sind die einzigen strukturierten Kontaktfelder
-                        // in dieser Liste - Anschrift/E-Mail/Telefon erscheinen
-                        // hier auch bei freigegebenem Kontakt nicht, sie stehen
-                        // auf /kontakt?id= (siehe PublicController::horseDetail).
+                        // Ort/Bundesland/Land (#188, state seit #256) sind die
+                        // einzigen strukturierten Kontaktfelder in dieser Liste -
+                        // Anschrift/E-Mail/Telefon erscheinen hier auch bei
+                        // freigegebenem Kontakt nicht, sie stehen auf /kontakt?id=
+                        // (siehe PublicController::horseDetail).
+                        //
+                        // Der Mitgliedsstatus stand bis v0.8 mit in dieser Zeile
+                        // und ist mit #349 ersatzlos entfallen. Das Feld war
+                        // Freitext ohne Vokabular und bedingungslos oeffentlich;
+                        // "X ist kein Mitglied" ist eine Aussage ueber einen
+                        // Menschen. Das Addon `mitgliedsstatus` fuehrt sie jetzt
+                        // mit fester Werteliste und Freigabe je Kontakt - und
+                        // kommt an diese Zeile bewusst nicht heran: `horse.
+                        // detail_sections` haengt Abschnitte hinten an, innerhalb
+                        // der Personenzeile gibt es keinen Erweiterungspunkt.
+                        // Einen einzurichten hiesse, die Freigabe des Addons an
+                        // einer zweiten Stelle nachbauen zu muessen. Wer den
+                        // Status sucht, findet ihn auf der Kontaktseite.
                         $placeParts = array_filter([$hp['city'] ?? '', $hp['state'] ?? '', $hp['country'] ?? '']);
                     ?>
-                    <?php if (!empty($placeParts) || !empty($hp['membership_status'])): ?>
+                    <?php if (!empty($placeParts)): ?>
                         <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
-                            <?= htmlspecialchars(implode(', ', $placeParts)) ?><?php if (!empty($placeParts) && !empty($hp['membership_status'])): ?> · <?php endif; ?><?= htmlspecialchars((string)($hp['membership_status'] ?? '')) ?>
+                            <?= htmlspecialchars(implode(', ', $placeParts)) ?>
                         </div>
                     <?php endif; ?>
                     <?php

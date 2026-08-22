@@ -462,9 +462,9 @@ immer erhalten.
 
 **`$horsePersons`** enthält die Zeilen aus `horse_persons` (`role`, `from_year`,
 `until_year`, `breeding_station_id`, `breeding_station_text`, `origin_country`) plus `person_name`,
-`city`, `state`, `country`, `membership_status`, `website`, `station_name`,
+`city`, `state`, `country`, `website`, `station_name`,
 `station_id`. Von den Personenfeldern (#188, `state` seit #256, Kontaktfelder
-seit #293) sind das **bewusst die einzigen fünf** im Payload: `email`, `phone`,
+seit #293) sind das **bewusst die einzigen vier** im Payload: `email`, `phone`,
 `mobile`, `street`, `house_number`, `postal_code` und das Freitextfeld
 `contact_info` werden nie mitgeliefert — sie sind Admin-only, und ein Plugin
 darf sie auch nicht per eigener Abfrage öffentlich machen.
@@ -490,8 +490,12 @@ Geschäftsadresse ist und keine Privatperson.
 
 Dabei gilt:
 
-- `person_name`/`city`/`state`/`country`/`membership_status`/`website` sind `null`,
+- `person_name`/`city`/`state`/`country`/`website` sind `null`,
   wenn die Person unveröffentlicht oder gelöscht ist (#121);
+- `membership_status` stand bis v0.8 mit im Payload und ist mit #349
+  **ersatzlos entfallen**. Ein Addon, das die Angabe braucht, holt sie beim
+  Addon `mitgliedsstatus` — dessen Freigabe je Kontakt wäre über den Payload
+  nicht nachzubilden;
 - `station_name`/`station_id` sind `null`, wenn die Station unveröffentlicht oder
   gelöscht ist (#122);
 - Zeilen, bei denen danach weder `person_name` noch `station_name` noch der

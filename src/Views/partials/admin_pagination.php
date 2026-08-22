@@ -29,7 +29,7 @@ $seitenLink = static function (int $ziel) use ($publishBase, $filters, $publishe
     return htmlspecialchars($publishBase . '?' . http_build_query($params));
 };
 ?>
-<nav aria-label="Seiten" style="display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.5rem;">
+<nav aria-label="Seiten" class="aktionen" style="justify-content: center; margin-top: 1.5rem;">
     <?php if ($page > 1): ?>
         <a href="<?= $seitenLink(1) ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">&laquo; Erste</a>
         <a href="<?= $seitenLink($page - 1) ?>" class="btn btn-secondary" style="padding: 0.3rem 0.8rem;">&lsaquo; Zurück</a>

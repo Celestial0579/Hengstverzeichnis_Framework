@@ -40,32 +40,34 @@ $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vo
         </div>
     <?php else: ?>
         <h3>Was gelöscht würde</h3>
-        <table class="table" style="margin-bottom: 1rem;">
-            <thead><tr><th>Art</th><th>Bezeichnung</th><th style="text-align:right;">Umfang</th></tr></thead>
-            <tbody>
-            <?php foreach ($vorschau['tables'] as $tabelle => $anzahl): ?>
-                <tr>
-                    <td>Tabelle</td>
-                    <td><code><?= htmlspecialchars((string)$tabelle) ?></code></td>
-                    <td style="text-align:right;"><strong><?= number_format((int)$anzahl, 0, ',', '.') ?></strong> Datensätze</td>
-                </tr>
-            <?php endforeach; ?>
-            <?php foreach ($vorschau['directories'] as $verzeichnis => $anzahl): ?>
-                <tr>
-                    <td>Verzeichnis</td>
-                    <td><code><?= htmlspecialchars(basename((string)$verzeichnis)) ?></code></td>
-                    <td style="text-align:right;"><strong><?= number_format((int)$anzahl, 0, ',', '.') ?></strong> Dateien</td>
-                </tr>
-            <?php endforeach; ?>
-            <?php foreach ($vorschau['settings'] as $schluessel): ?>
-                <tr>
-                    <td>Einstellung</td>
-                    <td><code><?= htmlspecialchars((string)$schluessel) ?></code></td>
-                    <td style="text-align:right;">—</td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
+        <div class="tabelle-scroll">
+            <table class="table" style="margin-bottom: 1rem;">
+                <thead><tr><th>Art</th><th>Bezeichnung</th><th style="text-align:right;">Umfang</th></tr></thead>
+                <tbody>
+                <?php foreach ($vorschau['tables'] as $tabelle => $anzahl): ?>
+                    <tr>
+                        <td>Tabelle</td>
+                        <td><code><?= htmlspecialchars((string)$tabelle) ?></code></td>
+                        <td style="text-align:right;"><strong><?= number_format((int)$anzahl, 0, ',', '.') ?></strong> Datensätze</td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php foreach ($vorschau['directories'] as $verzeichnis => $anzahl): ?>
+                    <tr>
+                        <td>Verzeichnis</td>
+                        <td><code><?= htmlspecialchars(basename((string)$verzeichnis)) ?></code></td>
+                        <td style="text-align:right;"><strong><?= number_format((int)$anzahl, 0, ',', '.') ?></strong> Dateien</td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php foreach ($vorschau['settings'] as $schluessel): ?>
+                    <tr>
+                        <td>Einstellung</td>
+                        <td><code><?= htmlspecialchars((string)$schluessel) ?></code></td>
+                        <td style="text-align:right;">—</td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
     <?php endif; ?>
 
     <?php if ($vorschau['abgelehnt'] !== []): ?>

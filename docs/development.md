@@ -174,6 +174,55 @@ verursacht hat.
   `scorecard.yml` und `dependabot-auto-merge.yml`. Quelle für die
   öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
 
+## Responsives Verhalten (#345)
+
+**Geprüft wird bei 360 · 414 · 768 · 1024 · 1440 px, dazu Querformat auf dem
+Telefon.** 360 px ist nicht die Ausnahme, sondern die schmalste verbreitete
+Gerätebreite — was dort bricht, bricht für einen erheblichen Teil der
+Besucher der öffentlichen Seiten.
+
+### Die Umbruchpunkte stehen an einer Stelle
+
+`public/css/style.css`, benannt und dort begründet:
+
+| | | |
+|---|---|---|
+| schmal | `max-width: 480px` | Telefon, Hochformat |
+| mittel | `max-width: 768px` | Telefon quer, kleines Tablet |
+| breit | `max-width: 1024px` | Tablet quer |
+
+CSS-Variablen taugen in einer Media-Query-Bedingung nicht — die Zahlen sind
+deshalb Konvention, keine Variablen.
+
+### Layout gehört in eine Klasse, nicht ins `style`-Attribut
+
+**Ein Inline-Style kann keine Media Query tragen.** Was dort steht, gilt auf
+jeder Bildschirmbreite gleich. Das war der eigentliche Befund der Prüfung: Es
+fehlten nicht nur Umbruchpunkte, sondern die Stelle, an der sie hätten wirken
+können — allein `admin_horse_form.php` hatte 113 `style`-Attribute.
+
+Was auf jeder Breite gleich bleibt (eine Farbe, ein Abstand von `0.3rem`),
+darf im Attribut stehen. Was sich mit der Breite ändern könnte, gehört in eine
+Klasse:
+
+| Klasse | wofür |
+|---|---|
+| `.tabelle-scroll` | Behälter um jede `<table>` — waagerechter Bildlauf statt gesprengter Seite |
+| `.raster` | Raster, das sich selbst umbricht (`auto-fit`, min. 240 px) |
+| `.raster-eng` | dasselbe für schmale Zellen (min. 150 px) |
+| `.aktionen` | Reihe von Knöpfen, die umbricht statt überzulaufen |
+
+### Zwei Regeln sind als Test festgehalten
+
+`tests/Unit/Views/ResponsiveLintTest.php` prüft, dass jede View mit einer
+Tabelle einen Bildlauf-Behälter hat und dass kein Raster feste Spalten zählt
+(`1fr 1fr` heisst auf 360 px zwei Felder von je ~150 px).
+
+Warum als Test und nicht als Notiz: Der vorgefundene Zustand ist nicht durch
+eine falsche Entscheidung entstanden, sondern dadurch, dass niemand beim
+Hinzufügen der siebzehnten Tabelle an die erste dachte. Eine Prüfliste im PR
+hilft erst, wenn sie jemand liest; ein roter Lauf hilft immer.
+
 ## Coding-Konventionen
 
 - **PHP 8.5**, `strict_types` wird aktuell nicht projektweit erzwungen –

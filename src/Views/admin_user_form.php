@@ -129,28 +129,30 @@ $apiKeys = $apiKeys ?? [];
                 Ein Schlüssel gewährt Zugriff auf die JSON-API mit höchstens den Rechten des Kontos.
                 Eine Passwortänderung widerruft automatisch alle Schlüssel; hier geht es auch ohne, z. B. bei einem geleakten Schlüssel.
             </p>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
-                <thead>
-                    <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
-                        <th style="padding: 0.5rem;">Bezeichnung</th>
-                        <th style="padding: 0.5rem;">Schlüssel</th>
-                        <th style="padding: 0.5rem;">Erstellt</th>
-                        <th style="padding: 0.5rem;">Zuletzt benutzt</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($apiKeys as $key): ?>
-                        <tr style="border-bottom: 1px solid var(--border-color);">
-                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$key['label']) ?></td>
-                            <td style="padding: 0.5rem;"><code><?= htmlspecialchars((string)$key['token_prefix']) ?>…</code></td>
-                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$key['created_at']) ?></td>
-                            <td style="padding: 0.5rem;">
-                                <?= $key['last_used_at'] !== null ? htmlspecialchars((string)$key['last_used_at']) : '<span style="color: var(--text-subtle);">nie</span>' ?>
-                            </td>
+            <div class="tabelle-scroll">
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                            <th style="padding: 0.5rem;">Bezeichnung</th>
+                            <th style="padding: 0.5rem;">Schlüssel</th>
+                            <th style="padding: 0.5rem;">Erstellt</th>
+                            <th style="padding: 0.5rem;">Zuletzt benutzt</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($apiKeys as $key): ?>
+                            <tr style="border-bottom: 1px solid var(--border-color);">
+                                <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$key['label']) ?></td>
+                                <td style="padding: 0.5rem;"><code><?= htmlspecialchars((string)$key['token_prefix']) ?>…</code></td>
+                                <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$key['created_at']) ?></td>
+                                <td style="padding: 0.5rem;">
+                                    <?= $key['last_used_at'] !== null ? htmlspecialchars((string)$key['last_used_at']) : '<span style="color: var(--text-subtle);">nie</span>' ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
             <form action="/admin/users/revoke-api-keys" method="POST" data-confirm="Wirklich ALLE aktiven API-Schlüssel dieses Kontos widerrufen? Angebundene Systeme verlieren sofort den Zugriff; der Benutzer kann sich anschließend neue Schlüssel anlegen." >
                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                 <input type="hidden" name="id" value="<?= (int)$user['id'] ?>">

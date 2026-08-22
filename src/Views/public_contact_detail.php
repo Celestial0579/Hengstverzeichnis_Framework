@@ -141,62 +141,64 @@ $hatAngaben = !empty($placeParts)
         <?php endif; ?>
     </h1>
 
-    <table style="width: 100%; border-collapse: collapse; max-width: 500px;">
-        <?php if (!empty($contact['contact_person'])): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$contact['contact_person']) ?></td>
-            </tr>
-        <?php endif; ?>
-        <?php if (!empty($placeParts)): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📍 <?= htmlspecialchars(App\I18n\Translator::t('field.location')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;">
-                    <?= htmlspecialchars(implode(', ', $placeParts)) ?>
-                    <?php $flag = App\Helper\CountryFlag::emoji((string)($contact['country'] ?? '')); ?>
-                    <?php if ($flag !== null): ?>
-                        <span title="<?= htmlspecialchars((string)$contact['country']) ?>"><?= $flag ?></span>
-                    <?php endif; ?>
-                </td>
-            </tr>
-        <?php endif; ?>
-        <?php if ($addressText !== ''): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;">🏠 <?= htmlspecialchars(App\I18n\Translator::t('field.address')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($addressText)) ?></td>
-            </tr>
-        <?php endif; ?>
-        <?php if (!empty($contact['membership_status'])): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🎗 <?= htmlspecialchars(App\I18n\Translator::t('field.membership_status')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$contact['membership_status']) ?></td>
-            </tr>
-        <?php endif; ?>
-        <?php if (!empty($contact['email'])): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">✉️ <?= htmlspecialchars(App\I18n\Translator::t('field.email')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><a href="mailto:<?= htmlspecialchars((string)$contact['email']) ?>"><?= htmlspecialchars((string)$contact['email']) ?></a></td>
-            </tr>
-        <?php endif; ?>
-        <?php if (!empty($contact['phone'])): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">☎️ <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$contact['phone']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$contact['phone']) ?></a><?php else: ?><?= htmlspecialchars((string)$contact['phone']) ?><?php endif; ?></td>
-            </tr>
-        <?php endif; ?>
-        <?php if (!empty($contact['mobile'])): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📱 <?= htmlspecialchars(App\I18n\Translator::t('field.mobile')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$contact['mobile']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$contact['mobile']) ?></a><?php else: ?><?= htmlspecialchars((string)$contact['mobile']) ?><?php endif; ?></td>
-            </tr>
-        <?php endif; ?>
-        <?php if ($contactWebsite !== null): ?>
-            <tr style="border-bottom: 1px solid var(--border-color);">
-                <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🌐 <?= htmlspecialchars(App\I18n\Translator::t('field.website')) ?></th>
-                <td style="padding: 0.6rem 0; font-weight: 500;"><a href="<?= htmlspecialchars($contactWebsite) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></td>
-            </tr>
-        <?php endif; ?>
-    </table>
+    <div class="tabelle-scroll">
+        <table style="width: 100%; border-collapse: collapse; max-width: 500px;">
+            <?php if (!empty($contact['contact_person'])): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">👤 <?= htmlspecialchars(App\I18n\Translator::t('field.contact_person')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$contact['contact_person']) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if (!empty($placeParts)): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📍 <?= htmlspecialchars(App\I18n\Translator::t('field.location')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;">
+                        <?= htmlspecialchars(implode(', ', $placeParts)) ?>
+                        <?php $flag = App\Helper\CountryFlag::emoji((string)($contact['country'] ?? '')); ?>
+                        <?php if ($flag !== null): ?>
+                            <span title="<?= htmlspecialchars((string)$contact['country']) ?>"><?= $flag ?></span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endif; ?>
+            <?php if ($addressText !== ''): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted); vertical-align: top;">🏠 <?= htmlspecialchars(App\I18n\Translator::t('field.address')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= nl2br(htmlspecialchars($addressText)) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if (!empty($contact['membership_status'])): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🎗 <?= htmlspecialchars(App\I18n\Translator::t('field.membership_status')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?= htmlspecialchars((string)$contact['membership_status']) ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if (!empty($contact['email'])): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">✉️ <?= htmlspecialchars(App\I18n\Translator::t('field.email')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><a href="mailto:<?= htmlspecialchars((string)$contact['email']) ?>"><?= htmlspecialchars((string)$contact['email']) ?></a></td>
+                </tr>
+            <?php endif; ?>
+            <?php if (!empty($contact['phone'])): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">☎️ <?= htmlspecialchars(App\I18n\Translator::t('field.phone')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$contact['phone']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$contact['phone']) ?></a><?php else: ?><?= htmlspecialchars((string)$contact['phone']) ?><?php endif; ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if (!empty($contact['mobile'])): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">📱 <?= htmlspecialchars(App\I18n\Translator::t('field.mobile')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><?php $tel = App\Helper\TelUrl::hrefOrNull((string)$contact['mobile']); ?><?php if ($tel !== null): ?><a href="<?= htmlspecialchars($tel) ?>"><?= htmlspecialchars((string)$contact['mobile']) ?></a><?php else: ?><?= htmlspecialchars((string)$contact['mobile']) ?><?php endif; ?></td>
+                </tr>
+            <?php endif; ?>
+            <?php if ($contactWebsite !== null): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 0.6rem 0; color: var(--text-muted);">🌐 <?= htmlspecialchars(App\I18n\Translator::t('field.website')) ?></th>
+                    <td style="padding: 0.6rem 0; font-weight: 500;"><a href="<?= htmlspecialchars($contactWebsite) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars(App\I18n\Translator::t('field.visit_website')) ?></a></td>
+                </tr>
+            <?php endif; ?>
+        </table>
+    </div>
 
     <?php if (!$hatAngaben): ?>
         <p style="color: var(--text-subtle);"><?= htmlspecialchars(App\I18n\Translator::t('contact.no_details')) ?></p>

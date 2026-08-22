@@ -72,49 +72,51 @@
                 <h3 style="color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
                     🐴 Gelöschte Pferde (<?= count($deletedHorses) ?>)
                 </h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
-                            <th style="padding: 0.6rem;">Name</th>
-                            <th style="padding: 0.6rem;">UELN</th>
-                            <th style="padding: 0.6rem;">Gelöscht am</th>
-                            <th style="padding: 0.6rem;">Aktionen</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($deletedHorses as $h): ?>
-                            <?php $isOlder = (strtotime($h['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid var(--border-color);">
-                                <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($h['name']) ?></strong></td>
-                                <td style="padding: 0.6rem;"><?= htmlspecialchars($h['ueln'] ?: '-') ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
-                                    <?= date('d.m.Y H:i', strtotime($h['deleted_at'])) ?> Uhr
-                                    <?php if ($isOlder): ?>
-                                        <span style="background: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
-                                    <?php else: ?>
-                                        <span style="background: var(--surface-muted); color: var(--text-color); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; margin-left: 0.3rem;">⏳ In Aufbewahrung</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                    <form action="/admin/trash/restore" method="POST">
-                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                        <input type="hidden" name="type" value="horse">
-                                        <input type="hidden" name="id" value="<?= $h['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
-                                    </form>
-                                    <?php if ($isAdmin || $isOlder): ?>
-                                        <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie dieses Pferd endgültig löschen?" >
+                <div class="tabelle-scroll">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                                <th style="padding: 0.6rem;">Name</th>
+                                <th style="padding: 0.6rem;">UELN</th>
+                                <th style="padding: 0.6rem;">Gelöscht am</th>
+                                <th style="padding: 0.6rem;">Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($deletedHorses as $h): ?>
+                                <?php $isOlder = (strtotime($h['deleted_at']) <= strtotime('-30 days')); ?>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($h['name']) ?></strong></td>
+                                    <td style="padding: 0.6rem;"><?= htmlspecialchars($h['ueln'] ?: '-') ?></td>
+                                    <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
+                                        <?= date('d.m.Y H:i', strtotime($h['deleted_at'])) ?> Uhr
+                                        <?php if ($isOlder): ?>
+                                            <span style="background: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
+                                        <?php else: ?>
+                                            <span style="background: var(--surface-muted); color: var(--text-color); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; margin-left: 0.3rem;">⏳ In Aufbewahrung</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <form action="/admin/trash/restore" method="POST">
                                             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                             <input type="hidden" name="type" value="horse">
                                             <input type="hidden" name="id" value="<?= $h['id'] ?>">
-                                            <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">🔥 Endgültig löschen</button>
+                                            <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
                                         </form>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                                        <?php if ($isAdmin || $isOlder): ?>
+                                            <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie dieses Pferd endgültig löschen?" >
+                                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                                <input type="hidden" name="type" value="horse">
+                                                <input type="hidden" name="id" value="<?= $h['id'] ?>">
+                                                <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">🔥 Endgültig löschen</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         <?php endif; ?>
 
@@ -129,49 +131,51 @@
                 <h3 style="color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.4rem; margin-bottom: 1rem;">
                     👤 Gelöschte Kontakte (<?= count($deletedContacts) ?>)
                 </h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
-                            <th style="padding: 0.6rem;">Name</th>
-                            <th style="padding: 0.6rem;">Ansprechpartner / Kontakt-Info</th>
-                            <th style="padding: 0.6rem;">Gelöscht am</th>
-                            <th style="padding: 0.6rem;">Aktionen</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($deletedContacts as $c): ?>
-                            <?php $isOlder = (strtotime($c['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid var(--border-color);">
-                                <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($c['name']) ?></strong></td>
-                                <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars(($c['contact_person'] ?: $c['contact_info']) ?: '-') ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
-                                    <?= date('d.m.Y H:i', strtotime($c['deleted_at'])) ?> Uhr
-                                    <?php if ($isOlder): ?>
-                                        <span style="background: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
-                                    <?php else: ?>
-                                        <span style="background: var(--surface-muted); color: var(--text-color); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; margin-left: 0.3rem;">⏳ In Aufbewahrung</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                    <form action="/admin/trash/restore" method="POST">
-                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                        <input type="hidden" name="type" value="contact">
-                                        <input type="hidden" name="id" value="<?= $c['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
-                                    </form>
-                                    <?php if ($isAdmin || $isOlder): ?>
-                                        <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie diesen Kontakt endgültig löschen?" >
+                <div class="tabelle-scroll">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                                <th style="padding: 0.6rem;">Name</th>
+                                <th style="padding: 0.6rem;">Ansprechpartner / Kontakt-Info</th>
+                                <th style="padding: 0.6rem;">Gelöscht am</th>
+                                <th style="padding: 0.6rem;">Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($deletedContacts as $c): ?>
+                                <?php $isOlder = (strtotime($c['deleted_at']) <= strtotime('-30 days')); ?>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($c['name']) ?></strong></td>
+                                    <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars(($c['contact_person'] ?: $c['contact_info']) ?: '-') ?></td>
+                                    <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
+                                        <?= date('d.m.Y H:i', strtotime($c['deleted_at'])) ?> Uhr
+                                        <?php if ($isOlder): ?>
+                                            <span style="background: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; font-weight: bold; margin-left: 0.3rem;">> 30 Tage</span>
+                                        <?php else: ?>
+                                            <span style="background: var(--surface-muted); color: var(--text-color); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.75rem; margin-left: 0.3rem;">⏳ In Aufbewahrung</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <form action="/admin/trash/restore" method="POST">
                                             <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                             <input type="hidden" name="type" value="contact">
                                             <input type="hidden" name="id" value="<?= $c['id'] ?>">
-                                            <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">🔥 Endgültig löschen</button>
+                                            <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
                                         </form>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                                        <?php if ($isAdmin || $isOlder): ?>
+                                            <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie diesen Kontakt endgültig löschen?" >
+                                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                                <input type="hidden" name="type" value="contact">
+                                                <input type="hidden" name="id" value="<?= $c['id'] ?>">
+                                                <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">🔥 Endgültig löschen</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         <?php endif; ?>
 
@@ -181,42 +185,44 @@
                 <h3 style="color: var(--danger-fg); border-bottom: 2px solid #dc3545; padding-bottom: 0.4rem; margin-bottom: 1rem;">
                     👥 Gelöschte Benutzerkonten (Nur für Administratoren)
                 </h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
-                            <th style="padding: 0.6rem;">Benutzername</th>
-                            <th style="padding: 0.6rem;">E-Mail</th>
-                            <th style="padding: 0.6rem;">Gelöscht am</th>
-                            <th style="padding: 0.6rem;">Aktionen</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($deletedUsers as $u): ?>
-                            <?php $isOlder = (strtotime($u['deleted_at']) <= strtotime('-30 days')); ?>
-                            <tr style="border-bottom: 1px solid var(--border-color);">
-                                <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($u['username']) ?></strong></td>
-                                <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($u['email']) ?></td>
-                                <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
-                                    <?= date('d.m.Y H:i', strtotime($u['deleted_at'])) ?> Uhr
-                                </td>
-                                <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                    <form action="/admin/trash/restore" method="POST">
-                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                        <input type="hidden" name="type" value="user">
-                                        <input type="hidden" name="id" value="<?= $u['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
-                                    </form>
-                                    <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie diesen Benutzer endgültig löschen?" >
-                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                        <input type="hidden" name="type" value="user">
-                                        <input type="hidden" name="id" value="<?= $u['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">🔥 Endgültig löschen</button>
-                                    </form>
-                                </td>
+                <div class="tabelle-scroll">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                                <th style="padding: 0.6rem;">Benutzername</th>
+                                <th style="padding: 0.6rem;">E-Mail</th>
+                                <th style="padding: 0.6rem;">Gelöscht am</th>
+                                <th style="padding: 0.6rem;">Aktionen</th>
                             </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($deletedUsers as $u): ?>
+                                <?php $isOlder = (strtotime($u['deleted_at']) <= strtotime('-30 days')); ?>
+                                <tr style="border-bottom: 1px solid var(--border-color);">
+                                    <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($u['username']) ?></strong></td>
+                                    <td style="padding: 0.6rem; font-size: 0.9rem;"><?= htmlspecialchars($u['email']) ?></td>
+                                    <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
+                                        <?= date('d.m.Y H:i', strtotime($u['deleted_at'])) ?> Uhr
+                                    </td>
+                                    <td style="padding: 0.6rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <form action="/admin/trash/restore" method="POST">
+                                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                            <input type="hidden" name="type" value="user">
+                                            <input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                            <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
+                                        </form>
+                                        <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie diesen Benutzer endgültig löschen?" >
+                                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                            <input type="hidden" name="type" value="user">
+                                            <input type="hidden" name="id" value="<?= $u['id'] ?>">
+                                            <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">🔥 Endgültig löschen</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         <?php endif; ?>
 

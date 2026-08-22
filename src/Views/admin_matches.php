@@ -242,52 +242,54 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
     <?php if (empty($kontaktDubletten['paare'])): ?>
         <p style="color: var(--success-fg);">Keine offenen Vorschläge — alles entschieden oder nichts gefunden.</p>
     <?php else: ?>
-        <table class="table">
-            <thead>
-                <tr><th>Kontakt A</th><th>Kontakt B</th><th>Punkte</th><th>Warum</th><th>Entscheidung</th></tr>
-            </thead>
-            <tbody>
-            <?php foreach ($kontaktDubletten['paare'] as $paar): ?>
-                <tr>
-                    <td>
-                        <a href="/admin/contacts/edit?id=<?= (int)$paar['a']['id'] ?>"><?= htmlspecialchars((string)$paar['a']['name']) ?></a>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);">
-                            <?= htmlspecialchars(trim(($paar['a']['postal_code'] ?? '') . ' ' . ($paar['a']['city'] ?? '') . ' ' . ($paar['a']['country'] ?? ''))) ?>
-                        </div>
-                    </td>
-                    <td>
-                        <a href="/admin/contacts/edit?id=<?= (int)$paar['b']['id'] ?>"><?= htmlspecialchars((string)$paar['b']['name']) ?></a>
-                        <div style="font-size: 0.8rem; color: var(--text-muted);">
-                            <?= htmlspecialchars(trim(($paar['b']['postal_code'] ?? '') . ' ' . ($paar['b']['city'] ?? '') . ' ' . ($paar['b']['country'] ?? ''))) ?>
-                        </div>
-                    </td>
-                    <td><strong><?= (int)$paar['score'] ?></strong></td>
-                    <td style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars((string)$paar['begruendung']) ?></td>
-                    <td>
-                        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                            <?php // Zusammenführen bleibt eine Einbahnstraße - deshalb führt der
-                                  // Weg über das Merge-Formular mit seiner Vorschau, nicht über
-                                  // einen Knopf hier. ?>
-                            <a class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;"
-                               href="/admin/contacts/merge?id=<?= (int)$paar['a']['id'] ?>&amp;other=<?= (int)$paar['b']['id'] ?>">
-                                → Zusammenführen prüfen
-                            </a>
-                            <form action="/admin/matches/label" method="POST" style="margin: 0;">
-                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                <input type="hidden" name="art" value="contact">
-                                <input type="hidden" name="a" value="<?= (int)$paar['a']['id'] ?>">
-                                <input type="hidden" name="b" value="<?= (int)$paar['b']['id'] ?>">
-                                <input type="hidden" name="label" value="different">
-                                <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
-                                    ✕ Verschieden
-                                </button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
+        <div class="tabelle-scroll">
+            <table class="table">
+                <thead>
+                    <tr><th>Kontakt A</th><th>Kontakt B</th><th>Punkte</th><th>Warum</th><th>Entscheidung</th></tr>
+                </thead>
+                <tbody>
+                <?php foreach ($kontaktDubletten['paare'] as $paar): ?>
+                    <tr>
+                        <td>
+                            <a href="/admin/contacts/edit?id=<?= (int)$paar['a']['id'] ?>"><?= htmlspecialchars((string)$paar['a']['name']) ?></a>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">
+                                <?= htmlspecialchars(trim(($paar['a']['postal_code'] ?? '') . ' ' . ($paar['a']['city'] ?? '') . ' ' . ($paar['a']['country'] ?? ''))) ?>
+                            </div>
+                        </td>
+                        <td>
+                            <a href="/admin/contacts/edit?id=<?= (int)$paar['b']['id'] ?>"><?= htmlspecialchars((string)$paar['b']['name']) ?></a>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">
+                                <?= htmlspecialchars(trim(($paar['b']['postal_code'] ?? '') . ' ' . ($paar['b']['city'] ?? '') . ' ' . ($paar['b']['country'] ?? ''))) ?>
+                            </div>
+                        </td>
+                        <td><strong><?= (int)$paar['score'] ?></strong></td>
+                        <td style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars((string)$paar['begruendung']) ?></td>
+                        <td>
+                            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                                <?php // Zusammenführen bleibt eine Einbahnstraße - deshalb führt der
+                                      // Weg über das Merge-Formular mit seiner Vorschau, nicht über
+                                      // einen Knopf hier. ?>
+                                <a class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;"
+                                   href="/admin/contacts/merge?id=<?= (int)$paar['a']['id'] ?>&amp;other=<?= (int)$paar['b']['id'] ?>">
+                                    → Zusammenführen prüfen
+                                </a>
+                                <form action="/admin/matches/label" method="POST" style="margin: 0;">
+                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                    <input type="hidden" name="art" value="contact">
+                                    <input type="hidden" name="a" value="<?= (int)$paar['a']['id'] ?>">
+                                    <input type="hidden" name="b" value="<?= (int)$paar['b']['id'] ?>">
+                                    <input type="hidden" name="label" value="different">
+                                    <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
+                                        ✕ Verschieden
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
     <?php endif; ?>
 </div>
 <?php endif; ?>
@@ -306,38 +308,40 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
         holt den Vorschlag zurück — am Bestand ändert weder das eine noch das
         andere etwas.
     </p>
-    <table class="table">
-        <thead><tr><th>Art</th><th>Paar</th><th>Entscheidung</th><th>Beleg</th><th>Wer, wann</th><th></th></tr></thead>
-        <tbody>
-        <?php foreach ($alleLabels as $eintrag): ?>
-            <tr>
-                <td><?= $eintrag['art'] === 'horse' ? 'Pferd' : 'Kontakt' ?></td>
-                <td>#<?= (int)$eintrag['left_id'] ?> / #<?= (int)$eintrag['right_id'] ?></td>
-                <td><?= htmlspecialchars(match ($eintrag['label']) {
-                        'merged' => 'zusammengeführt',
-                        'different' => 'verschieden',
-                        default => 'unklar',
-                    }) ?></td>
-                <td style="font-size: 0.85rem;"><?= htmlspecialchars((string)($eintrag['note'] ?? '')) ?></td>
-                <td style="font-size: 0.85rem; color: var(--text-muted);">
-                    <?= htmlspecialchars((string)$eintrag['username']) ?>,
-                    <?= htmlspecialchars((string)$eintrag['created_at']) ?>
-                </td>
-                <td>
-                    <form action="/admin/matches/label" method="POST" style="margin: 0;">
-                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                        <input type="hidden" name="art" value="<?= htmlspecialchars((string)$eintrag['art']) ?>">
-                        <input type="hidden" name="a" value="<?= (int)$eintrag['left_id'] ?>">
-                        <input type="hidden" name="b" value="<?= (int)$eintrag['right_id'] ?>">
-                        <input type="hidden" name="label" value="">
-                        <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
-                            ↺ Widerrufen
-                        </button>
-                    </form>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
+    <div class="tabelle-scroll">
+        <table class="table">
+            <thead><tr><th>Art</th><th>Paar</th><th>Entscheidung</th><th>Beleg</th><th>Wer, wann</th><th></th></tr></thead>
+            <tbody>
+            <?php foreach ($alleLabels as $eintrag): ?>
+                <tr>
+                    <td><?= $eintrag['art'] === 'horse' ? 'Pferd' : 'Kontakt' ?></td>
+                    <td>#<?= (int)$eintrag['left_id'] ?> / #<?= (int)$eintrag['right_id'] ?></td>
+                    <td><?= htmlspecialchars(match ($eintrag['label']) {
+                            'merged' => 'zusammengeführt',
+                            'different' => 'verschieden',
+                            default => 'unklar',
+                        }) ?></td>
+                    <td style="font-size: 0.85rem;"><?= htmlspecialchars((string)($eintrag['note'] ?? '')) ?></td>
+                    <td style="font-size: 0.85rem; color: var(--text-muted);">
+                        <?= htmlspecialchars((string)$eintrag['username']) ?>,
+                        <?= htmlspecialchars((string)$eintrag['created_at']) ?>
+                    </td>
+                    <td>
+                        <form action="/admin/matches/label" method="POST" style="margin: 0;">
+                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                            <input type="hidden" name="art" value="<?= htmlspecialchars((string)$eintrag['art']) ?>">
+                            <input type="hidden" name="a" value="<?= (int)$eintrag['left_id'] ?>">
+                            <input type="hidden" name="b" value="<?= (int)$eintrag['right_id'] ?>">
+                            <input type="hidden" name="label" value="">
+                            <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
+                                ↺ Widerrufen
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 <?php endif; ?>

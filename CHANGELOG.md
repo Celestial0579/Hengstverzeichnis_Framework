@@ -6,7 +6,16 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [Unreleased]
+## [0.9.0-beta.3] – 2026-08-22
+
+Ein reines Zwischen-Beta: **kein sichtbares neues Verhalten**. Es macht nur
+den Weg frei für
+[Addons#131](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/131)
+(Mitglieder als Benutzer anlegen) — ein Addon kann eine Kern-Fassung nur
+voraussetzen, die es gibt.
+
+Der passende Addons-Release ist `v0.9.0-beta.2`; er gilt unverändert weiter
+(`core_supported_max: "0.9"`).
 
 ### Geändert
 

@@ -252,72 +252,74 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
 
-    <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
-        <thead>
-            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
-                <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
-                <th style="padding: 0.5rem;">ID</th>
-                <th style="padding: 0.5rem;">Foto</th>
-                <th style="padding: 0.5rem;">Name</th>
-                <th style="padding: 0.5rem;">UELN</th>
-                <th style="padding: 0.5rem;">Geburtsjahr</th>
-                <th style="padding: 0.5rem;">Status</th>
-                <th style="padding: 0.5rem;">Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (empty($horses)): ?>
-                <tr>
-                    <td colspan="<?= $canPublish ? 8 : 7 ?>" style="padding: 1rem; text-align: center;">Keine Pferde gefunden.</td>
+    <div class="tabelle-scroll">
+        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+            <thead>
+                <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                    <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
+                    <th style="padding: 0.5rem;">ID</th>
+                    <th style="padding: 0.5rem;">Foto</th>
+                    <th style="padding: 0.5rem;">Name</th>
+                    <th style="padding: 0.5rem;">UELN</th>
+                    <th style="padding: 0.5rem;">Geburtsjahr</th>
+                    <th style="padding: 0.5rem;">Status</th>
+                    <th style="padding: 0.5rem;">Aktionen</th>
                 </tr>
-            <?php else: ?>
-                <?php foreach ($horses as $horse): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$horse['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
-                        <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['id']) ?></td>
-                        <td style="padding: 0.5rem;">
-                            <?php if (!empty($horse['image_url'])): ?>
-                                <?php // Lazy-Loading (#263): Die Verwaltungsliste zeigt viele Zeilen
-                                      // untereinander, die Vorschaubilder liegen fast alle unter dem
-                                      // Falz. Feste Kantenlänge im style, also kein Layout-Sprung. ?>
-                                <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="Foto" loading="lazy" decoding="async" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
-                            <?php else: ?>
-                                <span style="font-size: 1.2rem; opacity: 0.3;">🐴</span>
-                            <?php endif; ?>
-                        </td>
-                        <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$horse['name']) ?></strong></td>
-                        <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['ueln']) ?></td>
-                        <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
-                        <td style="padding: 0.5rem;">
-                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-color);">
-                                <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : 'Inaktiv' ?>
-                            </span>
-                            <?php if (!empty($horse['is_deceased'])): ?>
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color);">
-                                    ✝ Verstorben
-                                </span>
-                            <?php endif; ?>
-                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($horse['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($horse['is_published']) ? '#155724' : '#721c24' ?>;">
-                                <?= !empty($horse['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
-                            </span>
-                        </td>
-                        <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">
-                            <?php if ($canEdit): ?>
-                                <a href="/admin/horses/edit?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
-                            <?php endif; ?>
-                            <?php if ($canDelete): ?>
-                                <form action="/admin/horses/delete" method="POST" data-confirm="Möchten Sie dieses Pferd wirklich löschen?" style="display:inline;">
-                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                    <input type="hidden" name="id" value="<?= $horse['id'] ?>">
-                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>
-                                </form>
-                            <?php endif; ?>
-                        </td>
+            </thead>
+            <tbody>
+                <?php if (empty($horses)): ?>
+                    <tr>
+                        <td colspan="<?= $canPublish ? 8 : 7 ?>" style="padding: 1rem; text-align: center;">Keine Pferde gefunden.</td>
                     </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </tbody>
-    </table>
+                <?php else: ?>
+                    <?php foreach ($horses as $horse): ?>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$horse['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
+                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['id']) ?></td>
+                            <td style="padding: 0.5rem;">
+                                <?php if (!empty($horse['image_url'])): ?>
+                                    <?php // Lazy-Loading (#263): Die Verwaltungsliste zeigt viele Zeilen
+                                          // untereinander, die Vorschaubilder liegen fast alle unter dem
+                                          // Falz. Feste Kantenlänge im style, also kein Layout-Sprung. ?>
+                                    <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="Foto" loading="lazy" decoding="async" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
+                                <?php else: ?>
+                                    <span style="font-size: 1.2rem; opacity: 0.3;">🐴</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 0.5rem;"><strong><?= htmlspecialchars((string)$horse['name']) ?></strong></td>
+                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['ueln']) ?></td>
+                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$horse['birth_year']) ?></td>
+                            <td style="padding: 0.5rem;">
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-color);">
+                                    <?= $horse['status'] === 'active' ? 'Aktiv (Gekört)' : 'Inaktiv' ?>
+                                </span>
+                                <?php if (!empty($horse['is_deceased'])): ?>
+                                    <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: var(--surface-muted); color: var(--text-muted); border: 1px solid var(--border-color);">
+                                        ✝ Verstorben
+                                    </span>
+                                <?php endif; ?>
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($horse['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($horse['is_published']) ? '#155724' : '#721c24' ?>;">
+                                    <?= !empty($horse['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
+                                </span>
+                            </td>
+                            <td style="padding: 0.5rem; display: flex; gap: 0.5rem;">
+                                <?php if ($canEdit): ?>
+                                    <a href="/admin/horses/edit?id=<?= $horse['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
+                                <?php endif; ?>
+                                <?php if ($canDelete): ?>
+                                    <form action="/admin/horses/delete" method="POST" data-confirm="Möchten Sie dieses Pferd wirklich löschen?" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                        <input type="hidden" name="id" value="<?= $horse['id'] ?>">
+                                        <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>
+                                    </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 
     <?php require __DIR__ . '/partials/admin_pagination.php'; ?>
 

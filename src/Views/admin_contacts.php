@@ -203,122 +203,124 @@ $spalten = $canPublish ? 9 : 8;
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
 
-    <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
-        <thead>
-            <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
-                <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
-                <th style="padding: 0.5rem;">ID</th>
-                <th style="padding: 0.5rem;">Name</th>
-                <th style="padding: 0.5rem;">Ansprechpartner</th>
-                <th style="padding: 0.5rem;">Kontakt &amp; Ort</th>
-                <th style="padding: 0.5rem;">Zuordnungen</th>
-                <th style="padding: 0.5rem;">Als Deckstation</th>
-                <th style="padding: 0.5rem;">Sichtbarkeit</th>
-                <th style="padding: 0.5rem;">Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php if (empty($contacts)): ?>
-                <tr>
-                    <td colspan="<?= $spalten ?>" style="padding: 1rem; text-align: center;">Keine Kontakte gefunden.</td>
+    <div class="tabelle-scroll">
+        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+            <thead>
+                <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+                    <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
+                    <th style="padding: 0.5rem;">ID</th>
+                    <th style="padding: 0.5rem;">Name</th>
+                    <th style="padding: 0.5rem;">Ansprechpartner</th>
+                    <th style="padding: 0.5rem;">Kontakt &amp; Ort</th>
+                    <th style="padding: 0.5rem;">Zuordnungen</th>
+                    <th style="padding: 0.5rem;">Als Deckstation</th>
+                    <th style="padding: 0.5rem;">Sichtbarkeit</th>
+                    <th style="padding: 0.5rem;">Aktionen</th>
                 </tr>
-            <?php else: ?>
-                <?php foreach ($contacts as $k): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$k['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
-                        <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$k['id']) ?></td>
-                        <td style="padding: 0.5rem;">
-                            <strong><?= htmlspecialchars((string)$k['name']) ?></strong>
-                            <?php
-                            // Länderflagge (#240): Emoji aus contacts.country, Tooltip
-                            // trägt den gespeicherten Freitext; unbekannt => keine Flagge.
-                            $countryFlag = App\Helper\CountryFlag::emoji($k['country'] ?? null);
-                            ?>
-                            <?php if ($countryFlag !== null): ?>
-                                <span title="<?= htmlspecialchars((string)$k['country']) ?>"><?= $countryFlag ?></span>
-                            <?php endif; ?>
-                            <?php if (!empty($k['is_breeder'])): ?>
-                                <span title="Als Züchter gekennzeichnet">🐴</span>
-                            <?php endif; ?>
-                            <?php // Kam aus der Stationsliste - dort war der Verweis der schnellste Weg zur Prüfung. ?>
-                            <?php $website = App\Helper\ExternalUrl::hrefOrNull($k['website'] ?? null); ?>
-                            <?php if ($website !== null): ?>
-                                <br><a href="<?= htmlspecialchars($website) ?>" target="_blank" rel="noopener noreferrer" style="font-size: 0.8rem; color: var(--primary-fg);">🌐 Website</a>
-                            <?php endif; ?>
-                        </td>
-                        <td style="padding: 0.5rem; font-size: 0.9rem;"><?= htmlspecialchars((string)($k['contact_person'] ?: '-')) ?></td>
-                        <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
-                            <?php
-                                // Strukturierte Felder (#188) zuerst, Freitext-Rest darunter.
-                                $addressLine = trim(implode(' ', array_filter([$k['street'] ?? '', $k['house_number'] ?? ''])));
-                                $placeLine = trim(implode(' ', array_filter([$k['postal_code'] ?? '', $k['city'] ?? ''])));
-                                // Bundesland/Kanton und Land (#256/#188) kommaseparat hinter den Ort.
-                                foreach ([$k['state'] ?? '', $k['country'] ?? ''] as $region) {
-                                    if (!empty($region)) { $placeLine = trim($placeLine . ($placeLine !== '' ? ', ' : '') . $region); }
-                                }
-                                // address ist die alte Freitext-Anschrift der Stationen
-                                // (mehrzeilig im Altbestand) - sie steht hinter den
-                                // strukturierten Feldern, damit sichtbar bleibt, was
-                                // noch nicht übertragen ist.
-                                $lines = array_filter([
-                                    $addressLine,
-                                    $placeLine,
-                                    $k['address'] ?? '',
-                                    $k['email'] ?? '',
-                                    $k['phone'] ?? '',
-                                    $k['membership_status'] ?? '',
-                                    $k['contact_info'] ?? '',
-                                ]);
-                            ?>
-                            <?= !empty($lines) ? nl2br(htmlspecialchars(implode("\n", $lines))) : '<em>Keine Angaben</em>' ?>
-                        </td>
-                        <td style="padding: 0.5rem;">
-                            <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
-                                <?= (int)$k['horse_count'] ?> Zuordnungen
-                            </span>
-                        </td>
-                        <td style="padding: 0.5rem;">
-                            <?php // Die Kennzahl der alten Stationsliste: Pferde, die an diesem Kontakt stehen. ?>
-                            <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
-                                <?= (int)($k['station_horse_count'] ?? 0) ?> Pferde
-                            </span>
-                        </td>
-                        <td style="padding: 0.5rem;">
-                            <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($k['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($k['is_published']) ? '#155724' : '#721c24' ?>;">
-                                <?= !empty($k['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
-                            </span>
-                            <?php
-                                // Zweite Zeile, weil es zwei verschiedene Aussagen sind:
-                                // "der Datensatz ist öffentlich erreichbar" und "seine
-                                // Telefonnummer steht dabei". Seit v0.8 hängt die zweite
-                                // an einem einzigen Feld - sie gehört sichtbar in die
-                                // Liste, nicht nur ins Formular (#293).
-                            ?>
-                            <?php if (!empty($k['contact_public'])): ?>
-                                <br><span style="font-size: 0.75rem; color: var(--text-muted);" title="E-Mail, Telefon, Mobil und Anschrift sind freigegeben">📇 Kontaktdaten öffentlich</span>
-                            <?php endif; ?>
-                        </td>
-                        <td style="padding: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                            <?php if ($canEdit): ?>
-                                <a href="/admin/contacts/edit?id=<?= (int)$k['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
-                                <?php if ($canDelete): ?>
-                                    <?php // Zusammenfuehren legt einen Datensatz still - deshalb am Loeschrecht (#297). ?>
-                                    <a href="/admin/contacts/merge?id=<?= (int)$k['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;" title="Diesen Kontakt mit einem anderen zusammenführen">Zusammenführen</a>
-                                <?php endif; ?>
-                            <?php endif; ?>
-                            <?php if ($canDelete): ?>
-                                <form action="/admin/contacts/delete" method="POST" data-confirm="Diesen Kontakt wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben." style="display:inline;">
-                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                    <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
-                                    <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>
-                                </form>
-                            <?php endif; ?>
-                        </td>
+            </thead>
+            <tbody>
+                <?php if (empty($contacts)): ?>
+                    <tr>
+                        <td colspan="<?= $spalten ?>" style="padding: 1rem; text-align: center;">Keine Kontakte gefunden.</td>
                     </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-        </tbody>
-    </table>
+                <?php else: ?>
+                    <?php foreach ($contacts as $k): ?>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <?php if ($canPublish): ?><td style="padding: 0.5rem;"><input type="checkbox" name="ids[]" value="<?= (int)$k['id'] ?>" form="<?= $publishFormId ?>"></td><?php endif; ?>
+                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$k['id']) ?></td>
+                            <td style="padding: 0.5rem;">
+                                <strong><?= htmlspecialchars((string)$k['name']) ?></strong>
+                                <?php
+                                // Länderflagge (#240): Emoji aus contacts.country, Tooltip
+                                // trägt den gespeicherten Freitext; unbekannt => keine Flagge.
+                                $countryFlag = App\Helper\CountryFlag::emoji($k['country'] ?? null);
+                                ?>
+                                <?php if ($countryFlag !== null): ?>
+                                    <span title="<?= htmlspecialchars((string)$k['country']) ?>"><?= $countryFlag ?></span>
+                                <?php endif; ?>
+                                <?php if (!empty($k['is_breeder'])): ?>
+                                    <span title="Als Züchter gekennzeichnet">🐴</span>
+                                <?php endif; ?>
+                                <?php // Kam aus der Stationsliste - dort war der Verweis der schnellste Weg zur Prüfung. ?>
+                                <?php $website = App\Helper\ExternalUrl::hrefOrNull($k['website'] ?? null); ?>
+                                <?php if ($website !== null): ?>
+                                    <br><a href="<?= htmlspecialchars($website) ?>" target="_blank" rel="noopener noreferrer" style="font-size: 0.8rem; color: var(--primary-fg);">🌐 Website</a>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 0.5rem; font-size: 0.9rem;"><?= htmlspecialchars((string)($k['contact_person'] ?: '-')) ?></td>
+                            <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
+                                <?php
+                                    // Strukturierte Felder (#188) zuerst, Freitext-Rest darunter.
+                                    $addressLine = trim(implode(' ', array_filter([$k['street'] ?? '', $k['house_number'] ?? ''])));
+                                    $placeLine = trim(implode(' ', array_filter([$k['postal_code'] ?? '', $k['city'] ?? ''])));
+                                    // Bundesland/Kanton und Land (#256/#188) kommaseparat hinter den Ort.
+                                    foreach ([$k['state'] ?? '', $k['country'] ?? ''] as $region) {
+                                        if (!empty($region)) { $placeLine = trim($placeLine . ($placeLine !== '' ? ', ' : '') . $region); }
+                                    }
+                                    // address ist die alte Freitext-Anschrift der Stationen
+                                    // (mehrzeilig im Altbestand) - sie steht hinter den
+                                    // strukturierten Feldern, damit sichtbar bleibt, was
+                                    // noch nicht übertragen ist.
+                                    $lines = array_filter([
+                                        $addressLine,
+                                        $placeLine,
+                                        $k['address'] ?? '',
+                                        $k['email'] ?? '',
+                                        $k['phone'] ?? '',
+                                        $k['membership_status'] ?? '',
+                                        $k['contact_info'] ?? '',
+                                    ]);
+                                ?>
+                                <?= !empty($lines) ? nl2br(htmlspecialchars(implode("\n", $lines))) : '<em>Keine Angaben</em>' ?>
+                            </td>
+                            <td style="padding: 0.5rem;">
+                                <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
+                                    <?= (int)$k['horse_count'] ?> Zuordnungen
+                                </span>
+                            </td>
+                            <td style="padding: 0.5rem;">
+                                <?php // Die Kennzahl der alten Stationsliste: Pferde, die an diesem Kontakt stehen. ?>
+                                <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
+                                    <?= (int)($k['station_horse_count'] ?? 0) ?> Pferde
+                                </span>
+                            </td>
+                            <td style="padding: 0.5rem;">
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($k['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($k['is_published']) ? '#155724' : '#721c24' ?>;">
+                                    <?= !empty($k['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
+                                </span>
+                                <?php
+                                    // Zweite Zeile, weil es zwei verschiedene Aussagen sind:
+                                    // "der Datensatz ist öffentlich erreichbar" und "seine
+                                    // Telefonnummer steht dabei". Seit v0.8 hängt die zweite
+                                    // an einem einzigen Feld - sie gehört sichtbar in die
+                                    // Liste, nicht nur ins Formular (#293).
+                                ?>
+                                <?php if (!empty($k['contact_public'])): ?>
+                                    <br><span style="font-size: 0.75rem; color: var(--text-muted);" title="E-Mail, Telefon, Mobil und Anschrift sind freigegeben">📇 Kontaktdaten öffentlich</span>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <?php if ($canEdit): ?>
+                                    <a href="/admin/contacts/edit?id=<?= (int)$k['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;">Bearbeiten</a>
+                                    <?php if ($canDelete): ?>
+                                        <?php // Zusammenfuehren legt einen Datensatz still - deshalb am Loeschrecht (#297). ?>
+                                        <a href="/admin/contacts/merge?id=<?= (int)$k['id'] ?>" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.9rem;" title="Diesen Kontakt mit einem anderen zusammenführen">Zusammenführen</a>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                                <?php if ($canDelete): ?>
+                                    <form action="/admin/contacts/delete" method="POST" data-confirm="Diesen Kontakt wirklich löschen? Die Zuordnung zu allen Pferden wird dabei aufgehoben." style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                        <input type="hidden" name="id" value="<?= (int)$k['id'] ?>">
+                                        <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9rem; background-color: #c62a38;">Löschen</button>
+                                    </form>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
 
     <?php require __DIR__ . '/partials/admin_pagination.php'; ?>
 

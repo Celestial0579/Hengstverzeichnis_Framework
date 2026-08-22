@@ -135,53 +135,55 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
         <!-- Ab ca. 5-10 Zeilen scrollbar (max-height), damit die Seite bei vielen eigenen
              Gruppen nicht beliebig lang wird - unabhängig von der gewählten Seitengröße. -->
         <div style="max-height: 420px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 1rem;">
-            <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                    <tr style="border-bottom: 2px solid var(--border-color); text-align: left; position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
-                        <th style="padding: 0.4rem;">Gruppe</th>
-                        <th style="padding: 0.4rem;">Typ</th>
-                        <th style="padding: 0.4rem;">Berechtigungen</th>
-                        <th style="padding: 0.4rem;">Aktion</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($pagedGroups)): ?>
-                        <tr>
-                            <td colspan="4" style="padding: 1rem; text-align: center; color: var(--text-subtle);">
-                                <?= $search !== '' ? 'Keine Gruppen für diese Suche gefunden.' : 'Keine Gruppen auf dieser Seite.' ?>
-                            </td>
+            <div class="tabelle-scroll">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left; position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
+                            <th style="padding: 0.4rem;">Gruppe</th>
+                            <th style="padding: 0.4rem;">Typ</th>
+                            <th style="padding: 0.4rem;">Berechtigungen</th>
+                            <th style="padding: 0.4rem;">Aktion</th>
                         </tr>
-                    <?php endif; ?>
-                    <?php foreach ($pagedGroups as $group): ?>
-                        <tr style="border-bottom: 1px solid var(--border-color);">
-                            <td style="padding: 0.4rem;">
-                                <strong><?= htmlspecialchars($group['name']) ?></strong>
-                                <?php if (!empty($group['description'])): ?>
-                                    <span title="<?= htmlspecialchars($group['description']) ?>" style="cursor: help; color: var(--text-subtle); margin-left: 0.3rem;">ℹ️</span>
-                                <?php endif; ?>
-                            </td>
-                            <td style="padding: 0.4rem; font-size: 0.85rem; color: var(--text-muted);">
-                                <?= $group['is_builtin'] ? 'Eingebaut' : 'Eigene Gruppe' ?>
-                            </td>
-                            <td style="padding: 0.4rem; font-size: 0.85rem;">
-                                <?= htmlspecialchars(summarizeGroupPermissions($group, $permissions[(int)$group['id']] ?? [], $totalPermissionCount)) ?>
-                            </td>
-                            <td style="padding: 0.4rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                <a href="/admin/groups?group=<?= (int)$group['id'] ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page ?>&search=<?= urlencode($search) ?>" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.85rem;">
-                                    <?= (int)$group['id'] === $selectedGroupId ? 'Ausgewählt' : 'Bearbeiten' ?>
-                                </a>
-                                <?php if (!$group['is_builtin']): ?>
-                                    <form action="/admin/groups/delete" method="POST" data-confirm="Gruppe '<?= htmlspecialchars(($group['name'])) ?>' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen." >
-                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                        <input type="hidden" name="id" value="<?= (int)$group['id'] ?>">
-                                        <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>
-                                    </form>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($pagedGroups)): ?>
+                            <tr>
+                                <td colspan="4" style="padding: 1rem; text-align: center; color: var(--text-subtle);">
+                                    <?= $search !== '' ? 'Keine Gruppen für diese Suche gefunden.' : 'Keine Gruppen auf dieser Seite.' ?>
+                                </td>
+                            </tr>
+                        <?php endif; ?>
+                        <?php foreach ($pagedGroups as $group): ?>
+                            <tr style="border-bottom: 1px solid var(--border-color);">
+                                <td style="padding: 0.4rem;">
+                                    <strong><?= htmlspecialchars($group['name']) ?></strong>
+                                    <?php if (!empty($group['description'])): ?>
+                                        <span title="<?= htmlspecialchars($group['description']) ?>" style="cursor: help; color: var(--text-subtle); margin-left: 0.3rem;">ℹ️</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="padding: 0.4rem; font-size: 0.85rem; color: var(--text-muted);">
+                                    <?= $group['is_builtin'] ? 'Eingebaut' : 'Eigene Gruppe' ?>
+                                </td>
+                                <td style="padding: 0.4rem; font-size: 0.85rem;">
+                                    <?= htmlspecialchars(summarizeGroupPermissions($group, $permissions[(int)$group['id']] ?? [], $totalPermissionCount)) ?>
+                                </td>
+                                <td style="padding: 0.4rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <a href="/admin/groups?group=<?= (int)$group['id'] ?>&per_page=<?= htmlspecialchars((string)$perPage) ?>&page=<?= $page ?>&search=<?= urlencode($search) ?>" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.85rem;">
+                                        <?= (int)$group['id'] === $selectedGroupId ? 'Ausgewählt' : 'Bearbeiten' ?>
+                                    </a>
+                                    <?php if (!$group['is_builtin']): ?>
+                                        <form action="/admin/groups/delete" method="POST" data-confirm="Gruppe '<?= htmlspecialchars(($group['name'])) ?>' wirklich löschen? Benutzer verlieren dadurch alle über diese Gruppe erhaltenen Berechtigungen." >
+                                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                            <input type="hidden" name="id" value="<?= (int)$group['id'] ?>">
+                                            <button type="submit" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.85rem; background-color: #c62a38;">Löschen</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <?php if ($totalPages > 1): ?>

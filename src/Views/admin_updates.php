@@ -386,57 +386,59 @@ $addonOhneErsatz = \App\Service\UpdateService::addonsBlockingAutoInstall($addonR
     <?php if ($addonRows === []): ?>
         <p style="color: var(--text-muted); font-size: 0.9rem;">Keine Addons installiert.</p>
     <?php else: ?>
-        <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
-            <thead>
-                <tr style="text-align: left; border-bottom: 1px solid var(--border-color);">
-                    <th style="padding: 0.4rem 0.5rem;">Addon</th>
-                    <th style="padding: 0.4rem 0.5rem;">installiert</th>
-                    <th style="padding: 0.4rem 0.5rem;">verfügbar (offizielles Repo)</th>
-                    <th style="padding: 0.4rem 0.5rem;">kompatibel<?= $targetVersion !== null ? ' mit Ziel ' . htmlspecialchars($targetVersion) : '' ?>?</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($addonRows as $row): ?>
-                    <tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 0.4rem 0.5rem;">
-                            <code><?= htmlspecialchars($row['slug']) ?></code>
-                            <?= $row['enabled'] ? '' : '<span style="color: var(--text-subtle); font-size: 0.8rem;">(inaktiv)</span>' ?>
-                        </td>
-                        <td style="padding: 0.4rem 0.5rem;"><?= htmlspecialchars($row['installedVersion']) ?></td>
-                        <td style="padding: 0.4rem 0.5rem;">
-                            <?php if ($row['availableVersion'] === null): ?>
-                                <span style="color: var(--text-subtle);">—</span>
-                            <?php elseif ($row['hasUpdate']): ?>
-                                <strong><?= htmlspecialchars($row['availableVersion']) ?></strong>
-                                <span style="padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; background: var(--info-soft-bg);">Update</span>
-                                <!-- Manuelles Addon-Update innerhalb der laufenden Kern-Linie
-                                     (#197, Stufe 2) - nur offizielles Repo, Fremd-Quellen lehnt
-                                     der Server ab. -->
-                                <form action="/admin/updates/addon" method="POST" style="display: inline; margin-left: 0.3rem;"
-                                      data-confirm="Addon <?= htmlspecialchars(($row['slug'])) ?> jetzt auf <?= htmlspecialchars(($row['availableVersion'])) ?> aktualisieren?" >
-                                    <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
-                                    <input type="hidden" name="slug" value="<?= htmlspecialchars($row['slug']) ?>">
-                                    <button type="submit" class="btn btn-secondary" style="padding: 0.15rem 0.6rem; font-size: 0.8rem;">⬆️ Aktualisieren</button>
-                                </form>
-                            <?php else: ?>
-                                <?= htmlspecialchars($row['availableVersion']) ?>
-                            <?php endif; ?>
-                        </td>
-                        <td style="padding: 0.4rem 0.5rem;">
-                            <?php if ($row['manifestError'] !== null): ?>
-                                <span style="color: var(--danger-fg);">⚠ Manifest ungültig</span>
-                            <?php elseif ($targetVersion !== null && $row['reasonTarget'] !== null): ?>
-                                <span style="color: var(--danger-fg);">⚠ <?= htmlspecialchars($row['reasonTarget']) ?></span>
-                            <?php elseif ($row['reasonCurrent'] !== null): ?>
-                                <span style="color: var(--danger-fg);">⚠ <?= htmlspecialchars($row['reasonCurrent']) ?></span>
-                            <?php else: ?>
-                                <span style="color: var(--success-fg);">✓</span>
-                            <?php endif; ?>
-                        </td>
+        <div class="tabelle-scroll">
+            <table style="width: 100%; font-size: 0.9rem; border-collapse: collapse;">
+                <thead>
+                    <tr style="text-align: left; border-bottom: 1px solid var(--border-color);">
+                        <th style="padding: 0.4rem 0.5rem;">Addon</th>
+                        <th style="padding: 0.4rem 0.5rem;">installiert</th>
+                        <th style="padding: 0.4rem 0.5rem;">verfügbar (offizielles Repo)</th>
+                        <th style="padding: 0.4rem 0.5rem;">kompatibel<?= $targetVersion !== null ? ' mit Ziel ' . htmlspecialchars($targetVersion) : '' ?>?</th>
                     </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    <?php foreach ($addonRows as $row): ?>
+                        <tr style="border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 0.4rem 0.5rem;">
+                                <code><?= htmlspecialchars($row['slug']) ?></code>
+                                <?= $row['enabled'] ? '' : '<span style="color: var(--text-subtle); font-size: 0.8rem;">(inaktiv)</span>' ?>
+                            </td>
+                            <td style="padding: 0.4rem 0.5rem;"><?= htmlspecialchars($row['installedVersion']) ?></td>
+                            <td style="padding: 0.4rem 0.5rem;">
+                                <?php if ($row['availableVersion'] === null): ?>
+                                    <span style="color: var(--text-subtle);">—</span>
+                                <?php elseif ($row['hasUpdate']): ?>
+                                    <strong><?= htmlspecialchars($row['availableVersion']) ?></strong>
+                                    <span style="padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; background: var(--info-soft-bg);">Update</span>
+                                    <!-- Manuelles Addon-Update innerhalb der laufenden Kern-Linie
+                                         (#197, Stufe 2) - nur offizielles Repo, Fremd-Quellen lehnt
+                                         der Server ab. -->
+                                    <form action="/admin/updates/addon" method="POST" style="display: inline; margin-left: 0.3rem;"
+                                          data-confirm="Addon <?= htmlspecialchars(($row['slug'])) ?> jetzt auf <?= htmlspecialchars(($row['availableVersion'])) ?> aktualisieren?" >
+                                        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                        <input type="hidden" name="slug" value="<?= htmlspecialchars($row['slug']) ?>">
+                                        <button type="submit" class="btn btn-secondary" style="padding: 0.15rem 0.6rem; font-size: 0.8rem;">⬆️ Aktualisieren</button>
+                                    </form>
+                                <?php else: ?>
+                                    <?= htmlspecialchars($row['availableVersion']) ?>
+                                <?php endif; ?>
+                            </td>
+                            <td style="padding: 0.4rem 0.5rem;">
+                                <?php if ($row['manifestError'] !== null): ?>
+                                    <span style="color: var(--danger-fg);">⚠ Manifest ungültig</span>
+                                <?php elseif ($targetVersion !== null && $row['reasonTarget'] !== null): ?>
+                                    <span style="color: var(--danger-fg);">⚠ <?= htmlspecialchars($row['reasonTarget']) ?></span>
+                                <?php elseif ($row['reasonCurrent'] !== null): ?>
+                                    <span style="color: var(--danger-fg);">⚠ <?= htmlspecialchars($row['reasonCurrent']) ?></span>
+                                <?php else: ?>
+                                    <span style="color: var(--success-fg);">✓</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
     <?php endif; ?>
 
     <small style="color: var(--text-muted); display: block; margin-top: 0.5rem;">

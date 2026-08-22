@@ -60,39 +60,41 @@ $canPublish = $canPublish ?? false;
         <?php endif; ?>
 
         <div style="max-height: 500px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 1rem;">
-            <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                    <tr style="border-bottom: 2px solid var(--border-color); text-align: left; position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
-                        <th style="padding: 0.5rem;">Zeile</th>
-                        <th style="padding: 0.5rem;">Status</th>
-                        <th style="padding: 0.5rem;">Name</th>
-                        <th style="padding: 0.5rem;">UELN</th>
-                        <th style="padding: 0.5rem;">Geburtsjahr</th>
-                        <th style="padding: 0.5rem;">Fehler</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($preview as $entry): ?>
-                        <?php $isValid = empty($entry['errors']); ?>
-                        <tr style="border-bottom: 1px solid var(--border-color); <?= $isValid ? '' : 'background-color: rgba(220, 53, 69, 0.08);' ?>">
-                            <td style="padding: 0.5rem;"><?= (int)$entry['row'] ?></td>
-                            <td style="padding: 0.5rem;">
-                                <?php if ($isValid): ?>
-                                    <span style="color: var(--success-fg);">✅ Gültig</span>
-                                <?php else: ?>
-                                    <span style="color: var(--danger-fg);">❌ Fehler</span>
-                                <?php endif; ?>
-                            </td>
-                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$entry['data']['name']) ?></td>
-                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)($entry['data']['ueln'] ?? '-')) ?></td>
-                            <td style="padding: 0.5rem;"><?= htmlspecialchars((string)($entry['data']['birth_year'] ?? '-')) ?></td>
-                            <td style="padding: 0.5rem; color: var(--danger-fg); font-size: 0.85rem;">
-                                <?= htmlspecialchars(implode(' ', $entry['errors'])) ?>
-                            </td>
+            <div class="tabelle-scroll">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid var(--border-color); text-align: left; position: sticky; top: 0; background: var(--card-bg); z-index: 1;">
+                            <th style="padding: 0.5rem;">Zeile</th>
+                            <th style="padding: 0.5rem;">Status</th>
+                            <th style="padding: 0.5rem;">Name</th>
+                            <th style="padding: 0.5rem;">UELN</th>
+                            <th style="padding: 0.5rem;">Geburtsjahr</th>
+                            <th style="padding: 0.5rem;">Fehler</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($preview as $entry): ?>
+                            <?php $isValid = empty($entry['errors']); ?>
+                            <tr style="border-bottom: 1px solid var(--border-color); <?= $isValid ? '' : 'background-color: rgba(220, 53, 69, 0.08);' ?>">
+                                <td style="padding: 0.5rem;"><?= (int)$entry['row'] ?></td>
+                                <td style="padding: 0.5rem;">
+                                    <?php if ($isValid): ?>
+                                        <span style="color: var(--success-fg);">✅ Gültig</span>
+                                    <?php else: ?>
+                                        <span style="color: var(--danger-fg);">❌ Fehler</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="padding: 0.5rem;"><?= htmlspecialchars((string)$entry['data']['name']) ?></td>
+                                <td style="padding: 0.5rem;"><?= htmlspecialchars((string)($entry['data']['ueln'] ?? '-')) ?></td>
+                                <td style="padding: 0.5rem;"><?= htmlspecialchars((string)($entry['data']['birth_year'] ?? '-')) ?></td>
+                                <td style="padding: 0.5rem; color: var(--danger-fg); font-size: 0.85rem;">
+                                    <?= htmlspecialchars(implode(' ', $entry['errors'])) ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <form action="/admin/import/horses/commit" method="POST">

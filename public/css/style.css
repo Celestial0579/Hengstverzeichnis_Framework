@@ -734,3 +734,97 @@ a:not(.btn):not(.nav-link) { color: var(--link-color); }
     max-height: 92vh;
     border-radius: 6px;
 }
+
+
+/* ===================================================================
+   UMBRUCHPUNKTE UND LAYOUT-HILFSKLASSEN (#345)
+   ===================================================================
+
+   BEFUND, DER DAZU FUEHRTE. Der Kern hatte zwei echte Umbruchpunkte
+   (700px fuer zwei Pferde-Raster, 768px fuer den Kopf) - alles andere
+   hatte schlicht keine Regel fuer kleine Bildschirme. Sechzehn Views
+   enthielten Tabellen, vier Dateien im ganzen Projekt kannten
+   overflow-x. Und das Layout stand ueberwiegend im style-Attribut:
+   113 Vorkommen allein im Pferdeformular.
+
+   DAS IST DER EIGENTLICHE PUNKT: Ein Inline-Style kann keine Media
+   Query tragen. Was dort steht, gilt auf jeder Breite gleich - es
+   fehlten also nicht nur Umbruchpunkte, sondern die Stelle, an der sie
+   ueberhaupt wirken koennten.
+
+   DIE UMBRUCHPUNKTE, benannt und an einer Stelle. CSS-Variablen taugen
+   in einer Media-Query-Bedingung nicht (sie werden dort nicht
+   ausgewertet), deshalb stehen die Zahlen als Konvention hier und
+   nirgends sonst:
+
+       schmal   max-width:  480px   Telefon, Hochformat
+       mittel   max-width:  768px   Telefon quer, kleines Tablet
+       breit    max-width: 1024px   Tablet quer
+
+   Geprueft wird bei 360 / 414 / 768 / 1024 / 1440 px (siehe
+   docs/development.md).
+
+   WAS IN EINE KLASSE GEHOERT: alles, was sich mit der Breite aendern
+   koennte - Raster, Tabellenbreiten, Reihen von Bedienelementen. Was
+   auf jeder Breite gleich bleibt (eine Farbe, ein Abstand von 0.3rem),
+   darf im Attribut stehen. tests/Unit/ResponsiveLintTest.php haelt die
+   beiden Faelle fest, die erfahrungsgemaess brechen. */
+
+/* Eine Tabelle laeuft nicht ueber - sie bekommt ihren eigenen
+   waagerechten Bildlauf. Ohne das sprengt eine Verwaltungsliste mit
+   Aktionsspalte auf dem Telefon die Seite, und der Rest der Oberflaeche
+   verschiebt sich mit. */
+.tabelle-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tabelle-scroll > table {
+    min-width: max-content;
+}
+
+/* Ein Raster, das sich selbst umbricht, statt eine feste Spaltenzahl zu
+   erzwingen. `1fr 1fr` bedeutet auf 360px zwei Felder von je ~150px -
+   in einem Formular unbedienbar. */
+.raster {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+.raster-eng {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.5rem;
+}
+
+/* Eine Reihe von Knoepfen, die umbricht statt zu ueberlaufen. */
+.aktionen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+@media (max-width: 480px) {
+    /* Trefferflaeche: Auf dem Telefon ist ein Knopf von 24px Hoehe mit
+       dem Finger nicht sicher zu treffen. 44px ist der gaengige Richtwert
+       (WCAG 2.5.5 nennt 44x44 CSS-Pixel). */
+    .btn,
+    .aktionen .btn,
+    button[type="submit"] {
+        min-height: 44px;
+    }
+
+    /* Formularfelder ueber die volle Breite - nebeneinander bleibt auf
+       360px nichts Bedienbares uebrig. */
+    .form-control {
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .raster,
+    .raster-eng {
+        grid-template-columns: 1fr;
+    }
+}

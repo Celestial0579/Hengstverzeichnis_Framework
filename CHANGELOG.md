@@ -6,6 +6,35 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Geändert
+
+- **Responsives Verhalten: benannte Umbruchpunkte, Tabellen mit Bildlauf,
+  Trefferflächen** (#345).
+
+  Die Prüfung fand im Kern **zwei** echte Umbruchpunkte (700 px und 768 px),
+  **17 Views mit Tabellen, davon 4 mit `overflow-x`**, und Layout überwiegend
+  im `style`-Attribut — allein `admin_horse_form.php` mit 113 Vorkommen.
+
+  Der eigentliche Befund ist der letzte Punkt: **Ein Inline-Style kann keine
+  Media Query tragen.** Was dort steht, gilt auf jeder Bildschirmbreite gleich
+  — es fehlten also nicht nur Umbruchpunkte, sondern die Stelle, an der sie
+  hätten wirken können.
+
+  Neu: ein benannter Satz Umbruchpunkte (480 / 768 / 1024 px) an einer Stelle,
+  dazu die Hilfsklassen `.tabelle-scroll`, `.raster`, `.raster-eng` und
+  `.aktionen`. **Jede** Tabelle im Kern hat jetzt einen waagerechten Bildlauf,
+  kein Raster zählt mehr feste Spalten, und Bedienelemente sind unterhalb von
+  480 px mindestens 44 px hoch.
+
+  **Damit es eine Regel bleibt und keine Momentaufnahme:**
+  `tests/Unit/Views/ResponsiveLintTest.php` hält die beiden Fälle fest, die
+  erfahrungsgemäss brechen, und die PR-Prüfliste hat eine Zeile dazu. Der
+  vorgefundene Zustand ist nicht durch eine falsche Entscheidung entstanden,
+  sondern dadurch, dass niemand beim Hinzufügen der siebzehnten Tabelle an die
+  erste dachte.
+
 ## [0.9.0-beta.4] – 2026-08-22
 
 Drittes Beta der 0.9er-Linie: **Galerie im Kern** (#339) und **Sprachen als

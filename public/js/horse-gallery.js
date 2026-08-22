@@ -7,8 +7,12 @@
 // nur mit einer Ausnahme in der Content-Security-Policy betreiben, und die
 // gaebe es dann fuer die ganze Seite.
 //
-// Keine Bildadresse im Markup ausser der, die ohnehin im <img> steht - die
-// Lightbox zeigt genau dieselbe Datei noch einmal gross.
+// Die Lightbox zeigt das ORIGINAL, nicht die Kachel (#397). Seit die
+// Kachel ein Vorschaubild sein kann, traegt sie ihre Grossfassung in
+// `data-gross`; ohne das zeigte die Lightbox ein hochskaliertes
+// Vorschaubild, und der Schalter fuer die Vorschaubilder haette die
+// Grossansicht mit verschlechtert. Faellt das Attribut weg, gilt wie
+// bisher die Adresse aus dem <img>.
 (function () {
     'use strict';
 
@@ -29,7 +33,7 @@
     function oeffnen(bild) {
         var o = overlayHolen();
         var gross = o.querySelector('img');
-        gross.src = bild.currentSrc || bild.src;
+        gross.src = bild.getAttribute('data-gross') || bild.currentSrc || bild.src;
         gross.alt = bild.alt || '';
         o.setAttribute('data-offen', '1');
     }

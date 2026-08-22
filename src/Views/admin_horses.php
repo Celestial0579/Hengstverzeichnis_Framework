@@ -281,7 +281,7 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                                     <?php // Lazy-Loading (#263): Die Verwaltungsliste zeigt viele Zeilen
                                           // untereinander, die Vorschaubilder liegen fast alle unter dem
                                           // Falz. Feste Kantenlänge im style, also kein Layout-Sprung. ?>
-                                    <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="Foto" loading="lazy" decoding="async" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
+                                    <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse, 'thumb') ?? '') ?>" alt="Foto" loading="lazy" decoding="async" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
                                 <?php else: ?>
                                     <span style="font-size: 1.2rem; opacity: 0.3;">🐴</span>
                                 <?php endif; ?>

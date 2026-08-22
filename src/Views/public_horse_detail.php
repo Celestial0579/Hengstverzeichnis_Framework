@@ -97,7 +97,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                       // wahrgenommene Ladezeit damit verschlechtern statt verbessern -
                       // die Optimierung geht hier in die Gegenrichtung: fetchpriority
                       // zieht das Bild in der Warteschlange nach vorn. ?>
-                <img class="horse-hero-photo" src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" fetchpriority="high" decoding="async">
+                <img class="horse-hero-photo" src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse, 'card') ?? '') ?>" alt="<?= htmlspecialchars((string)$horse['name']) ?>" fetchpriority="high" decoding="async">
             <?php else: ?>
                 <?php // Platzhalter mit festem Seitenverhältnis: ohne ihn kollabierte
                       // die Bildspalte und das ganze Raster verschob sich. ?>
@@ -357,7 +357,12 @@ $galerie = array_values(array_filter(
                 <?php $bildunterschrift = htmlspecialchars((string)($medium['caption'] ?? '')); ?>
                 <?php if ($medium['type'] === 'image'): ?>
                     <figure style="margin: 0;">
-                        <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id']) ?? '') ?>"
+                        <?php // Kachel klein, Lightbox gross (#397). data-gross traegt die
+                              // Adresse ohne Groessenangabe: Ohne sie zeigte die Lightbox
+                              // seit den Vorschaubildern ein hochskaliertes Vorschaubild -
+                              // der Schalter haette die Grossansicht mit verschlechtert. ?>
+                        <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id'], 'thumb') ?? '') ?>"
+                             data-gross="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id']) ?? '') ?>"
                              alt="<?= $bildunterschrift ?>" loading="lazy" decoding="async"
                              class="horse-gallery-image"
                              data-lightbox="1">

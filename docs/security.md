@@ -563,7 +563,12 @@ DSGVO geltend machen, wäre die Übertragung ihrer IP-Adresse und eines
 Browser-Fingerprints an einen weiteren Empfänger (i. d. R. Drittland) kaum zu
 rechtfertigen und müsste zusätzlich in der Datenschutzerklärung stehen. Ein
 Bild-CAPTCHA scheidet ebenfalls aus, da die App ohne GD-Extension auskommt
-(siehe `Dockerfile`). Die eingebaute Aufgabe braucht weder Schlüssel noch
+(siehe `Dockerfile`). Das gilt weiterhin: Die Vorschaubilder aus #397 sind der
+einzige Ort, der GD überhaupt nutzen *könnte*. Sie sind doppelt gegatet — die
+Erweiterung muss vorhanden **und** vom Betreiber eingeschaltet sein (Vorgabe:
+aus) — und tun ohne sie schlicht nichts. Das offizielle Image bringt GD
+unverändert nicht mit; wer die Vorschaubilder will, entscheidet sich bewusst
+für den zusätzlichen Bilddecoder in seinem eigenen Image. Die eingebaute Aufgabe braucht weder Schlüssel noch
 Netzzugang noch eine Lockerung der CSP und ist deshalb ohne jede Einrichtung
 wirksam.
 

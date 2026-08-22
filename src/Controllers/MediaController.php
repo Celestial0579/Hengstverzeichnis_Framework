@@ -151,6 +151,8 @@ class MediaController extends BaseController {
             $this->sendStatus(403);
         }
 
+        $path = $this->vielleichtVerkleinert($path, (string)$horse['image_url']);
+
         $this->stream($path, !empty($horse['is_published']));
     }
 
@@ -211,7 +213,41 @@ class MediaController extends BaseController {
             $this->sendStatus(403);
         }
 
+        $path = $this->vielleichtVerkleinert($path, (string)$medium['file_name']);
+
         $this->stream($path, !empty($medium['is_published']));
+    }
+
+    /**
+     * Die verkleinerte Fassung, wenn der Betreiber sie eingeschaltet hat und
+     * sie sich erzeugen laesst - sonst das Original (#397).
+     *
+     * STEHT NACH ALLEN PRUEFUNGEN, und das ist wesentlich: Die Vorschau liegt
+     * in derselben Ablage und geht durch dieselbe Route wie das Original.
+     * Sie muss deshalb dieselbe Sichtbarkeits-, Rechte- und Referer-Pruefung
+     * hinter sich haben - ein zweiter Auslieferungsweg mit eigener Pruefung
+     * waere genau die Doppelung, an der so etwas schiefgeht.
+     *
+     * Jeder Fehlschlag endet beim Original. Ein fehlendes Vorschaubild ist
+     * ein langsamer Seitenaufbau; eine Fehlermeldung waere ein kaputtes Bild.
+     */
+    private function vielleichtVerkleinert(string $originalPfad, string $gespeicherterWert): string {
+        $groesse = (string)($_GET['groesse'] ?? '');
+        if ($groesse === '' || !isset(\App\Service\Thumbnails::GROESSEN[$groesse])) {
+            return $originalPfad;
+        }
+
+        if (!\App\Service\Thumbnails::aktiv($this->settings ?? null)) {
+            return $originalPfad;
+        }
+
+        $vorhanden = \App\Service\Thumbnails::pfad($gespeicherterWert, $groesse);
+        if ($vorhanden !== null && filemtime($vorhanden) >= (filemtime($originalPfad) ?: 0)) {
+            return $vorhanden;
+        }
+
+        return \App\Service\Thumbnails::erzeugen($originalPfad, $groesse, $gespeicherterWert)
+            ?? $originalPfad;
     }
 
     /**

@@ -22,6 +22,14 @@ class PluginPageTest extends TestCase {
 
     protected function setUp(): void {
         Translator::resetForTests();
+
+        // Eine Plugin-Seite ist erst NACH PluginManager::boot() erreichbar -
+        // ihre Route entsteht dort (getPluginRoutes()). Der vollstaendige
+        // Sprachbestand steht an dieser Stelle also immer fest, und nur dann
+        // darf die Auswahlregel eine Session-Wahl verwerfen (#378). Der
+        // Aufruf bildet diese Vorbedingung nach; ohne ihn pruefte der Test
+        // eine Lage, die es im Betrieb nicht gibt.
+        Translator::bestandIstVollstaendig();
     }
 
     protected function tearDown(): void {

@@ -8,6 +8,28 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Behoben
+
+- **Eine Bildanfrage löschte die Sprachwahl des Besuchers** (#378,
+  Nebenbefund).
+
+  Die Bild-Kurzschlüsse in `public/index.php` überspringen den
+  Plugin-Bootstrap absichtlich — sie holen einen Byte-Strom aus und laden
+  dafür keine Addons. Seit #344 liegen aber zehn der zwölf Sprachen **in**
+  Addons; auf diesem Weg kannte der Kern nur Deutsch und Englisch.
+
+  Die Auswahlregel hielt jede Addon-Sprache deshalb für **deaktiviert** und
+  entfernte die Wahl aus der Sitzung. Praktisch heißt das: Ein Besucher auf
+  Niederländisch, dessen Browser ein einziges Pferdefoto nachlädt, sah die
+  nächste Seite auf Deutsch. Betroffen war jeder außer `de`/`en`, es traf
+  beide Kurzschlüsse, und der Grund war nirgends sichtbar.
+
+  Die Bereinigung greift jetzt nur, wenn der vollständige Sprachbestand
+  feststeht — `PluginManager::boot()` sagt das. **„Unbekannt" ist nicht
+  „deaktiviert":** Auf einem bootstrap-freien Weg gilt der Rückfall nur für
+  diesen einen Request. Eine wirklich abgeschaltete Sprache wird weiterhin
+  aus der Sitzung geräumt (#198), nur eben dort, wo man das entscheiden kann.
+
 ### Neu
 
 - **Das Geburtsdatum sagt jetzt, wie genau es gemeint ist** (#379).

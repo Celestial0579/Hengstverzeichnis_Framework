@@ -69,6 +69,27 @@ final class Translator {
      */
     private static array $addonCoreLocales = [];
 
+    /**
+     * Steht der VOLLSTAENDIGE Sprachbestand fest (#378)?
+     *
+     * Seit #344 liegen zehn der zwoelf Sprachen in Addons; welche es gibt,
+     * weiss der Kern erst nach `PluginManager::boot()`. Es gibt aber Wege, die
+     * den Plugin-Bootstrap bewusst ueberspringen - die Bild-Kurzschluesse in
+     * public/index.php holen einen Byte-Strom aus und laden dafuer keine
+     * Addons.
+     *
+     * Auf diesen Wegen kennt `activeLocales()` nur Deutsch und Englisch. Ohne
+     * dieses Flag haette `resolveRequestLocale()` dort JEDE Addon-Sprache fuer
+     * deaktiviert gehalten und die Wahl des Besuchers aus der Session
+     * geloescht: Ein Niederlaender, dessen Browser ein einziges Pferdefoto
+     * nachlaedt, saehe die naechste Seite auf Deutsch. Betroffen war jeder
+     * ausser de/en, und der Grund war nirgends sichtbar.
+     *
+     * Vorgabe false: Wer nichts sagt, hat den Bestand nicht vollstaendig -
+     * fail-safe in die Richtung, die nichts wegwirft.
+     */
+    private static bool $bestandVollstaendig = false;
+
     /** @var array<string, string> Von Addons gemeldete Anzeigenamen für unbekannte Codes */
     private static array $addonLocaleLabels = [];
 
@@ -153,6 +174,14 @@ final class Translator {
      * einem Verzeichnis `lang/core/` - Konvention, keine Manifest-Pflicht,
      * genau wie bei der eigenen Domäne eines Plugins.
      */
+    /**
+     * Meldet, dass alle Sprachquellen registriert sind - aufgerufen vom
+     * PluginManager am Ende von boot() (#378). Siehe $bestandVollstaendig.
+     */
+    public static function bestandIstVollstaendig(): void {
+        self::$bestandVollstaendig = true;
+    }
+
     public static function registerCoreLocale(string $locale, string $dir, ?string $label = null): void {
         $locale = trim($locale);
         if ($locale === '' || !is_dir($dir)) {
@@ -320,6 +349,15 @@ final class Translator {
      * erneut geprüft und verworfen werden muss und der Besucher nach einer
      * Re-Aktivierung der Sprache nicht überraschend wieder dort landet.
      *
+     * ENTFERNT wird sie allerdings nur, wenn der vollständige Sprachbestand
+     * feststeht (#378, siehe $bestandVollstaendig). Auf einem Weg, der den
+     * Plugin-Bootstrap überspringt, ist „unbekannt" nicht dasselbe wie
+     * „deaktiviert" — dort gilt der Rückfall nur für DIESEN Request, und die
+     * Wahl bleibt stehen. Aus demselben Grund wird `?lang=` dort auch nicht
+     * abgelehnt, sondern gar nicht erst ausgewertet: Eine Sprachwahl auf einer
+     * Bildanfrage ist ohnehin sinnlos, und sie stillschweigend zu verwerfen
+     * wäre schlimmer als sie zu ignorieren.
+     *
      * Setzt nur den Session-Eintrag, nicht die aktive Locale - der Aufrufer
      * gibt den Rückgabewert an init() weiter (dort greift zusätzlich das
      * Sicherheitsnetz gegen gänzlich unbekannte Codes).
@@ -331,13 +369,15 @@ final class Translator {
         $active = self::activeLocales($settings);
 
         $requested = $_GET['lang'] ?? null;
-        if (is_string($requested) && isset($active[$requested])) {
+        if (self::$bestandVollstaendig && is_string($requested) && isset($active[$requested])) {
             $_SESSION['locale'] = $requested;
         }
 
         $locale = (string)($_SESSION['locale'] ?? ($settings['language'] ?? self::$fallbackLocale));
         if (!isset($active[$locale])) {
-            unset($_SESSION['locale']);
+            if (self::$bestandVollstaendig) {
+                unset($_SESSION['locale']);
+            }
             $locale = (string)($settings['language'] ?? self::$fallbackLocale);
         }
         return $locale;
@@ -443,5 +483,6 @@ final class Translator {
         self::$addonCoreLocales = [];
         self::$addonLocaleLabels = [];
         self::$cache = [];
+        self::$bestandVollstaendig = false;
     }
 }

@@ -8,6 +8,26 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.0] – 2026-08-22
+
+Abschluss der 0.9er-Linie. Zehn Themen, vier Betas, und **drei Bruchstellen**,
+die eine bestehende Installation betreffen:
+
+| Bruchstelle | was zu tun ist |
+|---|---|
+| **Galerie ist Kernmodul** (#339) | Das Addon `galerie` wird beim Update automatisch entfernt; seine Bilder wandern mit. |
+| **Sprachen sind Addons** (#344) | Wer eine der zehn ausgelagerten Sprachen benutzt, installiert das passende Sprach-Addon — sonst fällt die Oberfläche auf Deutsch zurück. Der Adminbereich benennt die fehlenden Sprachen. |
+| **Feld „Mitgliedsstatus" ist raus** (#349) | Wer die Werte behalten will, installiert das Addon `mitgliedsstatus`, **bevor** er auf die nächste Version hebt. Die Spalte steht in v0.9.0 noch. |
+
+Dazu die beiden Themen dieser Linie, die keinen Umstieg verlangen:
+**Anmeldung mit E-Mail-Adresse und zweitem Faktor per E-Mail** (#348/#354),
+und ein **durchgängig responsives Verhalten** in Kern (#345) und Addons
+(Addons#129) — mit benannten Umbruchpunkten an einer Stelle statt zweier
+verstreuter, und einem Lint, der beides festhält.
+
+> Der passende Addons-Release ist `v0.9.0`. Er verlangt einen Kern **ab
+> 0.9.0** dort, wo die Addons an den neuen Erweiterungspunkten hängen.
+
 ### Entfernt
 
 - **Das Feld „Mitgliedsstatus beim Verband" ist raus** (#349).

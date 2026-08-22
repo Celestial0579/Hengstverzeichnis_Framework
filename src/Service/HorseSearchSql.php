@@ -289,8 +289,24 @@ final class HorseSearchSql {
             HorseSearchCondition::DeathYearFrom => "(h.is_deceased = 1 AND h.death_year >= ?)",
             HorseSearchCondition::DeathYearTo => "(h.is_deceased = 1 AND h.death_year <= ?)",
 
-            HorseSearchCondition::BirthDateFrom => "h.birth_date >= ?",
-            HorseSearchCondition::BirthDateTo => "h.birth_date <= ?",
+            // Geburtsdatum als Bereich (#346). Zeilen, deren Datum nur
+            // jahresgenau ist, sind ausgenommen (#379) - und das ist keine
+            // Feinheit, sondern der Kern der Sache: Bei ihnen sind Monat und
+            // Tag Platzhalter (in dieser Branche der 1. Januar, im Altbestand
+            // bei knapp der Hälfte aller Pferde). Ein Bereich vom
+            // 01.01.2010 bis zum 01.01.2010 lieferte sonst exakt die
+            // Platzhalter und sähe aus wie eine Aussage über Neujahrsgeburten.
+            //
+            // Der Filter ist öffentlich erreichbar (PublicController::catalog()
+            // baut dieselben Kriterien wie der Admin, nur das Eingabefeld gibt
+            // es allein in admin_horses.php) - die Grenze muss also in der
+            // Abfrage stehen, nicht in der Oberfläche.
+            //
+            // Wer jahrgenau sucht, nimmt birth_year_from/to. Dieselbe Trennung
+            // wie bei DeathYear: Ein Filter antwortet nur mit Daten, die die
+            // Frage überhaupt beantworten können.
+            HorseSearchCondition::BirthDateFrom => "(h.birth_date_precision = 'day' AND h.birth_date >= ?)",
+            HorseSearchCondition::BirthDateTo => "(h.birth_date_precision = 'day' AND h.birth_date <= ?)",
 
             HorseSearchCondition::Description => "h.description LIKE ?",
 

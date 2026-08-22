@@ -164,13 +164,37 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                     </div>
                 <?php endif; ?>
                 <div>
-                    <?php // Volles Geburtsdatum (#188) wenn erfasst, sonst nur das Jahr. ?>
-                    <?php if (!empty($horse['birth_date'])): ?>
+                    <?php
+                        // Volles Geburtsdatum (#188) wenn erfasst, sonst nur das Jahr.
+                        //
+                        // Seit #379 entscheidet das nicht mehr allein die
+                        // Anwesenheit des Datums, sondern `birth_date_precision`.
+                        // Grund: In dieser Branche ist der 1. Januar der
+                        // Platzhalter fuer ein bloss bekanntes Jahr - im
+                        // Altbestand traf das 887 von 1885 Pferden. "01.01.1976"
+                        // behauptet einen Tag, den keine Quelle hergibt; "1976"
+                        // ist die ehrliche Aussage. Das Datum bleibt gespeichert,
+                        // nur die Anzeige richtet sich nach der Genauigkeit.
+                        //
+                        // Bewusst KEINE Heuristik auf den 1. Januar: Sie traefe
+                        // die Pferde mit, die wirklich an dem Tag geboren sind.
+                        //
+                        // Der Rueckfall auf 'day' ist notwendig, nicht kosmetisch:
+                        // Ueber `horse.detail_sections` und aus Testfixtures
+                        // kommen $horse-Arrays ohne den Schluessel, und
+                        // phpunit.xml stellt failOnWarning hart.
+                        $genauigkeit = (string)($horse['birth_date_precision'] ?? 'day');
+                        $tagesgenau = !empty($horse['birth_date']) && $genauigkeit !== 'year';
+                        // Ohne birth_year, aber mit Datum: das Jahr steht im Datum.
+                        $geburtsjahr = $horse['birth_year']
+                            ?: (!empty($horse['birth_date']) ? (int)substr((string)$horse['birth_date'], 0, 4) : null);
+                    ?>
+                    <?php if ($tagesgenau): ?>
                         <dt><?= htmlspecialchars(App\I18n\Translator::t('field.birth_date')) ?></dt>
                         <dd><?= htmlspecialchars(date(App\I18n\Translator::t('format.date'), strtotime($horse['birth_date']))) ?></dd>
                     <?php else: ?>
                         <dt><?= htmlspecialchars(App\I18n\Translator::t('field.birth_year')) ?></dt>
-                        <dd><?= htmlspecialchars((string)($horse['birth_year'] ?: App\I18n\Translator::t('field.unknown'))) ?></dd>
+                        <dd><?= htmlspecialchars((string)($geburtsjahr ?: App\I18n\Translator::t('field.unknown'))) ?></dd>
                     <?php endif; ?>
                 </div>
                 <?php if (!empty($horse['height_cm'])): ?>

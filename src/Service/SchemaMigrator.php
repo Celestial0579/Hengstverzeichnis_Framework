@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 17;
+    public const SCHEMA_VERSION = 18;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -782,6 +782,27 @@ final class SchemaMigrator {
         // schneidet der Strict Mode die deceased-Werte ab. Spiegelbildlich zu
         // database/schema.sql.
         $addColumn('horses', 'birth_date', 'DATE NULL DEFAULT NULL AFTER `birth_year`');
+
+        // 38. Genauigkeit des Geburtsdatums (#379, SCHEMA_VERSION 18).
+        //
+        // Steht hier und nicht bei den anderen hohen Nummern, weil die
+        // Schrittnummern Etiketten sind, die AUSFUEHRUNG aber der
+        // Dateireihenfolge folgt: `AFTER birth_date` braucht die Spalte
+        // darueber. Weiter unten eingehaengt scheiterte die Migration eines
+        // Altschemas mit "Unknown column 'birth_date'" - und riss die
+        // uebrigen Schritte mit.
+        //
+        // AUSDRUECKLICH OHNE BACKFILL. Der 1. Januar ist in dieser Branche der
+        // Platzhalter fuer ein bloss bekanntes Jahr - im Altbestand traf das
+        // 887 von 1885 Pferden bei 11 Februargeburten. Es gibt aber auch
+        // Pferde, die wirklich an dem Tag geboren sind, und welche Zeile
+        // welche ist, weiss nur die jeweilige Instanz. Eine Migration, die das
+        // raet, kennzeichnet echte Neujahrsgeburten falsch - unumkehrbar und
+        // ohne dass es jemandem auffiele.
+        //
+        // Vorgabe 'day' heisst deshalb: Ein Bestand sieht nach dem Update aus
+        // wie vorher. Die Pflege ist eine bewusste Entscheidung je Datensatz.
+        $addColumn('horses', 'birth_date_precision', "ENUM('day', 'year') NOT NULL DEFAULT 'day' AFTER `birth_date`");
         $addColumn('horses', 'height_cm', 'SMALLINT UNSIGNED NULL DEFAULT NULL AFTER `breed`');
         $addColumn('horses', 'is_deceased', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`');
         $addColumn('horses', 'death_year', 'SMALLINT UNSIGNED NULL DEFAULT NULL AFTER `is_deceased`');

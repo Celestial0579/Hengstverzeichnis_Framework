@@ -74,6 +74,23 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   `birth_year` wird dann serverseitig daraus abgeleitet. `birth_year` bleibt
   eigenständig befüllbar (Altbestand kennt oft nur das Jahr) und ist die
   Filter-/Plugin-Schnittstelle
+- `birth_date_precision` – `day` | `year`, Vorgabe `day` (#379). Sagt, wie
+  genau `birth_date` gemeint ist. `year` heißt: Nur das Jahr ist bekannt,
+  Monat und Tag sind Platzhalter — in dieser Branche ist das der 1. Januar.
+  Im Altbestand traf das **887 von 1885** Pferden bei 11 Februargeburten;
+  Fjordpferde fohlen im Frühjahr, das ist keine Häufung, sondern eine
+  Konvention.
+
+  Das Datum bleibt dabei **gespeichert**: Es ist der Wert, den die Quelle
+  liefert, und wer ihn leert, holt ihn sich beim nächsten Abgleich zurück —
+  und verliert die Pferde, die wirklich am 1. Januar geboren sind. Nur die
+  öffentliche Anzeige richtet sich nach der Genauigkeit.
+
+  **Es gibt kein Backfill.** Welche 1.-Januar-Zeile ein Platzhalter ist und
+  welche eine echte Neujahrsgeburt, kann nur die jeweilige Instanz
+  entscheiden. Vorgabe `day` heißt deshalb: Ein Bestand sieht nach dem Update
+  aus wie vorher. `birth_year` bleibt unabhängig davon die Filter- und
+  Plugin-Schnittstelle
 - `height_cm` – Stockmaß in cm (#188), plausibler Bereich 50–250
 - `status` – `active` | `inactive`; seit dem Status-Split (#188) **nur noch
   der Zuchtstatus**, rein informativ, steuert die öffentliche Sichtbarkeit

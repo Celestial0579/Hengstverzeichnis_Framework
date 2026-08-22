@@ -270,6 +270,25 @@ CREATE TABLE IF NOT EXISTS `horses` (
     -- befüllbar (Altbestand kennt oft nur das Jahr) und ist die Filter-/
     -- Plugin-Schnittstelle.
     `birth_date` DATE NULL DEFAULT NULL,
+    -- Wie genau `birth_date` gemeint ist (#379). 'year' heisst: Nur das Jahr
+    -- ist bekannt, Monat und Tag sind Platzhalter. In dieser Branche ist der
+    -- Platzhalter der 1. Januar - im Altbestand der Dev-Instanz trugen 887 von
+    -- 1885 Pferden genau ihn, bei 11 Februargeburten. Fjordpferde fohlen im
+    -- Fruehjahr; das ist keine Haeufung, das ist eine Konvention.
+    --
+    -- Das Datum bleibt trotzdem stehen. Es ist der Wert, den die Quelle
+    -- liefert (rimondo und haststam schreiben denselben 1. Januar), und wer
+    -- es leert, holt es sich beim naechsten Abgleich zurueck - und verliert
+    -- nebenbei die Pferde, die wirklich am 1. Januar geboren sind. Gespeichert
+    -- wird also die Angabe, ausgegeben wird die Genauigkeit.
+    --
+    -- Vorgabe 'day': Ein Bestand aendert sein Anzeigeverhalten durch die neue
+    -- Spalte NICHT. Welche 1.-Januar-Zeile ein Platzhalter ist und welche eine
+    -- echte Neujahrsgeburt, kann nur die jeweilige Instanz entscheiden -
+    -- deshalb gibt es hier kein Backfill.
+    --
+    -- Werte englisch wie bei `sex` und `status`.
+    `birth_date_precision` ENUM('day', 'year') NOT NULL DEFAULT 'day',
     `color` VARCHAR(50),
     -- Geschlecht (#165): NULL = unbekannt (Altbestand). Werte englisch wie beim
     -- Zuchtstatus `status`; Wallache sind als Vater ausgeschlossen (#166).

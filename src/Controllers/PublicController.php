@@ -166,7 +166,7 @@ class PublicController extends BaseController {
             // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
             $cardsSql = "
                 SELECT
-                    h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
+                    h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.birth_date_precision, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
                     (SELECT GROUP_CONCAT(hr.registration_number ORDER BY hr.sort_order ASC, hr.id ASC SEPARATOR ' / ')
                      FROM horse_registrations hr WHERE hr.horse_id = h.id) AS registration_numbers,
                     CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL

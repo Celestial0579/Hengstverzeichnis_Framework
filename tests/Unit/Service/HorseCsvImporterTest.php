@@ -61,6 +61,36 @@ class HorseCsvImporterTest extends TestCase {
         $this->assertSame(['name' => 0, 'color' => 2], $result['columnMap']);
     }
 
+    /**
+     * Die Spaltenliste der Import-Seite muss zu KNOWN_COLUMNS passen (#379).
+     *
+     * Unbekannte Spalten verwirft der Importer STILL (HorseCsvImporter::parse()).
+     * Wer eine Spalte ergaenzt und die Erklaerseite vergisst, baut damit ein
+     * Feld, das niemand findet; wer die Seite ergaenzt und KNOWN_COLUMNS
+     * vergisst, ein Feld, das schweigend ins Leere laeuft. Beide Richtungen
+     * fielen bisher nirgends auf.
+     */
+    public function testDieImportSeiteNenntGenauDieBekanntenSpalten(): void {
+        $seite = (string)file_get_contents(__DIR__ . '/../../../src/Views/admin_import_horses.php');
+
+        $this->assertSame(
+            1,
+            preg_match('/<strong>Unterstützte Spalten:<\/strong>\s*<code>([^<]+)<\/code>/u', $seite, $treffer),
+            'Die Spaltenliste der Import-Seite ist nicht mehr auffindbar - Muster anpassen, nicht den Test loeschen.'
+        );
+
+        $genannt = array_map(
+            static fn(string $spalte): string => rtrim(trim($spalte), '*'),
+            explode(',', $treffer[1])
+        );
+
+        $this->assertSame(
+            HorseCsvImporter::KNOWN_COLUMNS,
+            $genannt,
+            'Die Import-Seite und KNOWN_COLUMNS sind auseinandergelaufen.'
+        );
+    }
+
     public function testEmptyFileProducesError(): void {
         $result = HorseCsvImporter::parse('');
 

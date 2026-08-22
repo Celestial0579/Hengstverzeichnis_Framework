@@ -12,6 +12,14 @@ class HorseController extends BaseController {
     /** Gültige Werte der horses.sex-ENUM (#165); NULL = unbekannt. */
     private const SEXES = ['stallion', 'mare', 'gelding'];
 
+    /**
+     * Genauigkeit des Geburtsdatums (#379) - Werte englisch wie im Schema.
+     * Alles, was nicht in dieser Liste steht, gilt als 'day'; ein
+     * unbekannter Wert darf keine Zeile anders erscheinen lassen, als sie
+     * gemeint ist.
+     */
+    private const BIRTH_DATE_PRECISIONS = ['day', 'year'];
+
     /** Gültige Werte der horses.status-ENUM (Zuchtstatus seit #188). */
     private const STATUSES = ['active', 'inactive'];
 
@@ -401,6 +409,17 @@ class HorseController extends BaseController {
         if ($birth_date !== null) {
             $birth_year = (int)substr($birth_date, 0, 4);
         }
+        // Genauigkeit des Geburtsdatums (#379). Kanonisch gehalten: Ohne
+        // Datum ist eine Genauigkeit bedeutungslos, und bliebe sie nach dem
+        // Leeren des Datums auf 'year' stehen, traege der Datensatz eine
+        // Aussage, die niemand mehr sieht und die beim naechsten Erfassen
+        // eines echten Datums still weiterwirkte.
+        $birth_date_precision = in_array($_POST['birth_date_precision'] ?? '', self::BIRTH_DATE_PRECISIONS, true)
+            ? (string)$_POST['birth_date_precision']
+            : 'day';
+        if ($birth_date === null) {
+            $birth_date_precision = 'day';
+        }
         $color = trim($_POST['color'] ?? '');
         $sex = in_array($_POST['sex'] ?? '', self::SEXES, true) ? $_POST['sex'] : null;
         // Kastrationsdatum (#239): fachlich nur bei Wallachen sinnvoll (das
@@ -475,8 +494,8 @@ class HorseController extends BaseController {
         $this->hooks()->doAction('horse.before_save', null, $_POST);
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, birth_date, color, sex, castration_date, breed, height_cm, breeding_station_id, breeding_station, description, status, is_deceased, death_year, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
+        $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, birth_date, birth_date_precision, color, sex, castration_date, breed, height_cm, breeding_station_id, breeding_station, description, status, is_deceased, death_year, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
         $newHorseId = (int)$db->lastInsertId();
 
         // Das beim Anlegen hochgeladene Foto ist ab #339 auch eine Zeile in
@@ -641,6 +660,17 @@ class HorseController extends BaseController {
         if ($birth_date !== null) {
             $birth_year = (int)substr($birth_date, 0, 4);
         }
+        // Genauigkeit des Geburtsdatums (#379). Kanonisch gehalten: Ohne
+        // Datum ist eine Genauigkeit bedeutungslos, und bliebe sie nach dem
+        // Leeren des Datums auf 'year' stehen, traege der Datensatz eine
+        // Aussage, die niemand mehr sieht und die beim naechsten Erfassen
+        // eines echten Datums still weiterwirkte.
+        $birth_date_precision = in_array($_POST['birth_date_precision'] ?? '', self::BIRTH_DATE_PRECISIONS, true)
+            ? (string)$_POST['birth_date_precision']
+            : 'day';
+        if ($birth_date === null) {
+            $birth_date_precision = 'day';
+        }
         $color = trim($_POST['color'] ?? '');
         $sex = in_array($_POST['sex'] ?? '', self::SEXES, true) ? $_POST['sex'] : null;
         // Kastrationsdatum (#239): tolerant für jedes Geschlecht, siehe store().
@@ -766,8 +796,8 @@ class HorseController extends BaseController {
         // foreign_ueln analog (#246), aber per CASE statt COALESCE: ein
         // übermittelter Leerstring soll NULL speichern (wie früher `?: null`),
         // nicht den Leerstring selbst.
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ? AND deleted_at IS NULL");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, birth_date_precision = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ? AND deleted_at IS NULL");
+        $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 

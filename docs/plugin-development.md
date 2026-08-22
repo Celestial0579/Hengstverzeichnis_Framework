@@ -873,6 +873,40 @@ Das Referenz-Plugin (`docs/examples/demo-plugin/`) demonstriert dies
 vollständig: `lang/de.php`/`lang/en.php` sowie deren Nutzung in
 `addDetailSection()`.
 
+## Masse und kleine Bildschirme (#345, Addons#129)
+
+Für **Farben** steht weiter oben, dass sie über Theme-Variablen laufen. Für
+**Masse** gilt seit v0.9.0 dasselbe Prinzip, und der Grund ist derselbe: Ein
+Addon liefert sein Fragment **in** eine Kernseite. Was dort überläuft, sprengt
+nicht nur das Fragment, sondern die ganze Seite — und der Betreiber sucht den
+Fehler im Kern.
+
+**Ein Inline-Style kann keine Media Query tragen.** Was im `style`-Attribut
+steht, gilt auf jeder Bildschirmbreite gleich.
+
+Der Kern bringt dafür Klassen mit, damit nicht jedes Addon seine eigenen
+erfindet:
+
+| Klasse | wofür |
+|---|---|
+| `.tabelle-scroll` | Behälter um jede `<table>` |
+| `.raster` | Raster, das sich selbst umbricht (min. 240 px je Spalte) |
+| `.raster-eng` | dasselbe für schmale Zellen (min. 150 px) |
+| `.aktionen` | Reihe von Knöpfen, die umbricht statt überzulaufen |
+
+Zwei Regeln sind im Addons-Repo als Test festgehalten
+(`tests/Manifest/PluginThemingLintTest.php`):
+
+- **Jede Tabelle braucht einen Bildlauf-Behälter.**
+- **Kein Raster zählt feste Spalten.** `grid-template-columns: 1fr 1fr` heisst
+  auf 360 px zwei Felder von je rund 150 Pixeln — benutze
+  `repeat(auto-fit, minmax(…, 1fr))`.
+
+**Keine eigenen Umbruchpunkte.** Ein Addon, das seine eigene `@media`-Regel
+mitbringt, baut einen zweiten Satz neben dem des Kerns, und zwei Sätze laufen
+auseinander, sobald einer geändert wird. Ein Raster mit `auto-fit` braucht
+ohnehin keinen.
+
 ## Sicherheitsmodell — was durchgesetzt wird und was nicht
 
 **Technisch durchgesetzt vom Kern, nicht vom Plugin umgehbar:**

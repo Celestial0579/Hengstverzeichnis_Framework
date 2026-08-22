@@ -36,8 +36,8 @@ class ContactController extends BaseController {
      * Blätter-Links und den Redirect nach einer Bulk-Aktion.
      *
      * Die Liste ist die VEREINIGUNG der beiden alten Suchmasken: `q_contact`
-     * (Ansprechpartner) konnten bisher nur die Stationen, `q_email`,
-     * `q_membership` und `q_breeder_only` nur die Personen. Nach dem
+     * (Ansprechpartner) konnten bisher nur die Stationen, `q_email` und
+     * `q_breeder_only` nur die Personen. Nach dem
      * Zusammenlegen stehen beide Bestände in einer Liste - wer eine der
      * Möglichkeiten wegließe, nähme genau der Hälfte der Datensätze ihre
      * Suche weg.
@@ -51,7 +51,7 @@ class ContactController extends BaseController {
      */
     public const FILTER_KEYS = [
         'search', 'q_name', 'q_contact', 'q_city', 'q_postal_code', 'q_state',
-        'q_country', 'q_email', 'q_membership', 'q_breeder_only',
+        'q_country', 'q_email', 'q_breeder_only',
         'q_contact_public', 'q_origin',
     ];
 
@@ -96,12 +96,11 @@ class ContactController extends BaseController {
                 c.email LIKE ? OR
                 c.phone LIKE ? OR
                 c.mobile LIKE ? OR
-                c.membership_status LIKE ? OR
                 c.contact_info LIKE ?
             )";
             array_push(
                 $params,
-                $like, $like, $like, $like, $like, $like, $like,
+                $like, $like, $like, $like, $like, $like,
                 $like, $like, $like, $like, $like, $like
             );
         }
@@ -114,7 +113,6 @@ class ContactController extends BaseController {
             'q_state' => 'c.state',
             'q_country' => 'c.country',
             'q_email' => 'c.email',
-            'q_membership' => 'c.membership_status',
         ] as $key => $column) {
             $value = $filters[$key] ?? '';
             if ($value !== '') {
@@ -217,7 +215,6 @@ class ContactController extends BaseController {
         $contacts = $stmt->fetchAll();
 
         $countries = $db->query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL AND country != '' AND deleted_at IS NULL ORDER BY country ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $memberships = $db->query("SELECT DISTINCT membership_status FROM contacts WHERE membership_status IS NOT NULL AND membership_status != '' AND deleted_at IS NULL ORDER BY membership_status ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_contacts', [
             'title' => 'Kontakte verwalten',
@@ -226,7 +223,6 @@ class ContactController extends BaseController {
             'filters' => $filters,
             'hasActiveFilters' => $filters !== [],
             'countries' => $countries,
-            'memberships' => $memberships,
             'page' => $page,
             'totalPages' => $totalPages,
             'totalCount' => $totalContacts,
@@ -319,7 +315,7 @@ class ContactController extends BaseController {
     private const CONTACT_FIELDS = [
         'contact_person', 'contact_info', 'street', 'house_number', 'postal_code',
         'city', 'state', 'country', 'address', 'email', 'phone', 'mobile',
-        'website', 'membership_status',
+        'website',
     ];
 
     /**

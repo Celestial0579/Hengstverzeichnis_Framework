@@ -160,7 +160,6 @@ return [
     'station.horses_heading' => '🐴 Pferde dieser Deckstation',
     'station.no_horses' => 'Aktuell sind keine Pferde dieser Deckstation im Verzeichnis hinterlegt.',
     'field.location' => 'Ort',
-    'field.membership_status' => 'Mitgliedsstatus',
     'person.is_breeder' => 'Züchter',
     'person.not_found' => 'Die angeforderte Person existiert nicht oder wurde aus dem Verzeichnis entfernt.',
     'person.horses_heading' => '🐴 Pferde dieser Person',

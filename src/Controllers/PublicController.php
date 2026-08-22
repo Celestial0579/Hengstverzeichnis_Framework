@@ -437,7 +437,7 @@ class PublicController extends BaseController {
         // Namen und Kontaktdaten dürfen auf der öffentlichen Seite nicht erscheinen.
         // Von den strukturierten Kontaktfeldern (#188, state seit #256,
         // Kontaktfelder seit #293) werden bewusst NUR
-        // city/state/country/membership_status/website selektiert -
+        // city/state/country/website selektiert -
         // email/phone/mobile/street/house_number/postal_code/address/
         // contact_person und das Freitextfeld contact_info bleiben Admin-only
         // und erreichen weder die View noch den horse.detail_sections-Hook
@@ -467,7 +467,7 @@ class PublicController extends BaseController {
         // hp.person_id -> hp.contact_id, hp.breeding_station_id ->
         // hp.station_contact_id.
         $stmt = $db->prepare("
-            SELECT hp.*, p.name as person_name, p.city, p.state, p.country, p.membership_status, p.website, bs.name as station_name, bs.id as station_id
+            SELECT hp.*, p.name as person_name, p.city, p.state, p.country, p.website, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
             LEFT JOIN contacts p ON hp.contact_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
             LEFT JOIN contacts bs ON hp.station_contact_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
@@ -600,8 +600,8 @@ class PublicController extends BaseController {
      * Datensatz (contact_public). Deshalb gilt die strengere der beiden
      * bisherigen Regeln für alle:
      *
-     *   immer öffentlich  id, name, city, state, country, membership_status,
-     *                     website, is_breeder, contact_public
+     *   immer öffentlich  id, name, city, state, country, website,
+     *                     is_breeder, contact_public
      *   nur bei Freigabe  email, phone, mobile, street, house_number,
      *                     postal_code, address, contact_person
      *   nie öffentlich    contact_info
@@ -636,7 +636,14 @@ class PublicController extends BaseController {
         $stmt->execute([$id]);
         $kontaktFrei = $stmt->fetchColumn();
 
-        $spalten = 'id, name, city, state, country, membership_status, website, is_breeder, contact_public';
+        // `membership_status` stand bis v0.8 in dieser Zeile und ist mit
+        // #349 herausgefallen: bedingungslos öffentlich, Freitext ohne
+        // Vokabular, und eine Aussage über einen Menschen. Die Spalte gibt es
+        // noch (sie fällt im Release nach v0.9.0, damit ein Betreiber die
+        // Werte sichern kann) - sie wird nur nirgends mehr ausgegeben. Das
+        // Addon `mitgliedsstatus` führt die Angabe mit fester Werteliste und
+        // Freigabe je Kontakt und hängt sie über `contact.detail_sections` an.
+        $spalten = 'id, name, city, state, country, website, is_breeder, contact_public';
         if ($kontaktFrei) {
             // Die Anschrift kommt aus `breeding_stations` mit dazu (#336): Für
             // einen Betrieb war sie dort immer sichtbar, und die Migration

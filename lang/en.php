@@ -151,7 +151,6 @@ return [
     'station.horses_heading' => '🐴 Horses of this Breeding Station',
     'station.no_horses' => 'No horses of this breeding station are currently listed in the registry.',
     'field.location' => 'Location',
-    'field.membership_status' => 'Membership status',
     'person.is_breeder' => 'Breeder',
     'person.not_found' => 'The requested person does not exist or has been removed from the directory.',
     'person.horses_heading' => '🐴 Horses of this person',

@@ -8,6 +8,52 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Entfernt
+
+- **Das Feld „Mitgliedsstatus beim Verband" ist raus** (#349).
+
+  Der Kern **zeigt es nicht mehr an**, **nimmt es nicht mehr entgegen** und
+  **sucht nicht mehr darin**. Betroffen sind die öffentliche Kontaktseite, die
+  Personenzeile der Pferdeseite, das Kontaktformular, die Freitextsuche, der
+  Filter `q_membership` und die Spaltenliste des Hook-Payloads
+  `horse.detail_sections`.
+
+  Der Grund ist doppelt. Fachlich: Die Mitgliedschaft wird nicht mehr im
+  Verzeichnis geführt — ein Feld, das dieselbe Aussage von Hand nachpflegt,
+  wäre ab dem ersten Tag falsch. Und inhaltlich: Es war **Freitext ohne
+  Vokabular** („z. B. Mitglied / Nichtmitglied NO"), nicht auswertbar, nicht
+  zuverlässig gepflegt — und trotzdem **bedingungslos öffentlich**. „X ist
+  kein Mitglied" ist eine Aussage über einen Menschen.
+
+  **Die Fähigkeit verschwindet nicht, sie wandert.** Das Addon
+  `mitgliedsstatus` (Addons#132) führt die Angabe mit fester Werteliste statt
+  Freitext und mit einer Freigabe **je Kontakt** (Vorgabe: nicht öffentlich).
+  Es übernimmt die Bestandswerte bei der Installation und legt Wortlaute, die
+  es nicht eindeutig abbilden kann, einem Menschen zur Entscheidung vor,
+  statt zu raten — `Nichtmitglied NO` ist in diesem Bestand ein Länderkürzel.
+
+  **Was ein Betreiber jetzt tun muss:** Wer die Werte behalten will,
+  installiert `mitgliedsstatus`, **bevor** er auf die Version nach v0.9.0
+  hebt. Die Spalte `contacts.membership_status` steht in diesem Release
+  **noch** in der Datenbank — genau dafür: damit die Übernahme ihre
+  Eingangsgröße vorfindet und niemand vor vollendete Tatsachen gestellt wird.
+  Sie fällt im darauffolgenden Release. Bis dahin wird sie weiterhin von der
+  DSGVO-Anonymisierung mitgenullt; was in der Tabelle steht, ist
+  personenbezogen, ob es ausgegeben wird oder nicht.
+
+  **Für Addon-Autoren:** `membership_status` ist aus dem Payload von
+  `horse.detail_sections` verschwunden. Wer die Angabe braucht, holt sie beim
+  Addon — dessen Freigabe je Kontakt wäre über den Payload nicht nachzubilden.
+  Im Addons-Repo verliert `zucht-suche` denselben Filter und dieselbe Spalte.
+
+  **Eine Stelle war zu entscheiden und ist entschieden:** Die Angabe stand
+  auch inline im Personenblock der Pferdeseite. Dort kommt ein Addon nicht
+  heran — `horse.detail_sections` hängt Abschnitte hinten an, innerhalb der
+  Personenzeile gibt es keinen Erweiterungspunkt. Einen einzurichten hiesse,
+  die Freigabe des Addons an einer zweiten Stelle nachbauen zu müssen. Die
+  Angabe erscheint dort deshalb **nicht mehr**; wer sie sucht, findet sie auf
+  der Kontaktseite.
+
 ### Geändert
 
 - **Responsives Verhalten: benannte Umbruchpunkte, Tabellen mit Bildlauf,

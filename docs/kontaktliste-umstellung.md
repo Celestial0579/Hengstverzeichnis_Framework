@@ -30,8 +30,9 @@ Fällt die Trennung, ist der Schutz nur noch ein Feld.
 
 Deshalb gilt ab v0.8 für **alle** Kontakte die strengere Regel:
 
-* Öffentlich immer: `id`, `name`, `city`, `state`, `country`,
-  `membership_status`, `website`, `is_breeder`, `contact_public`
+* Öffentlich immer: `id`, `name`, `city`, `state`, `country`, `website`,
+  `is_breeder`, `contact_public` (`membership_status` stand bis v0.8 mit in
+  dieser Zeile und ist mit #349 herausgefallen)
 * Nur bei `contact_public = 1`: `email`, `phone`, `mobile`, `street`,
   `house_number`, `postal_code`, `address`, `contact_person`
 * Nie öffentlich: `contact_info`

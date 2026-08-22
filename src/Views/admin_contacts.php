@@ -15,7 +15,6 @@
  * @var array<string, string> $filters Geprüfte Suchparameter (ContactController::index)
  * @var bool $hasActiveFilters
  * @var array<int, string> $countries
- * @var array<int, string> $memberships
  * @var int $page
  * @var int $totalPages
  * @var int $totalCount
@@ -151,13 +150,6 @@ $spalten = $canPublish ? 9 : 8;
                     <input type="text" id="admin-contact-q-email" name="q_email" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_email'] ?? '') ?>">
                 </div>
                 <div class="form-group">
-                    <label for="admin-contact-q-membership" style="font-size: 0.85rem; font-weight: bold;">Mitgliedsstatus</label>
-                    <input type="text" id="admin-contact-q-membership" name="q_membership" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_membership'] ?? '') ?>" list="admin_contact_membership_list">
-                    <datalist id="admin_contact_membership_list">
-                        <?php foreach (($memberships ?? []) as $membershipOption): ?><option value="<?= htmlspecialchars((string)$membershipOption) ?>"><?php endforeach; ?>
-                    </datalist>
-                </div>
-                <div class="form-group">
                     <?php
                         // Herkunft aus contact_id_map: die beiden alten Listen als
                         // Filter. Ein Kontakt ohne Eintrag (nach dem Umbau angelegt)
@@ -267,7 +259,6 @@ $spalten = $canPublish ? 9 : 8;
                                         $k['address'] ?? '',
                                         $k['email'] ?? '',
                                         $k['phone'] ?? '',
-                                        $k['membership_status'] ?? '',
                                         $k['contact_info'] ?? '',
                                     ]);
                                 ?>

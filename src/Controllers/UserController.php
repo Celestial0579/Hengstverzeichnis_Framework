@@ -5,7 +5,6 @@ namespace App\Controllers;
 
 use App\Database;
 use App\Helper\Paginator;
-use App\Permission\EmailRequirement;
 use App\Security\LoginIdentifier;
 
 class UserController extends BaseController {
@@ -74,10 +73,6 @@ class UserController extends BaseController {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 
-        $errors = LoginIdentifier::usernameErrors($username);
-        if ($this->isReservedUsername($username)) $errors[] = "Der Benutzername '{$username}' ist aus Sicherheitsgründen reserviert und darf nicht verwendet werden.";
-        if (strlen($password) < 8) $errors[] = "Passwort muss mindestens 8 Zeichen lang sein.";
-
         // Auch Fehler-Renders brauchen die Gruppenliste + die getroffene Auswahl -
         // sonst verschwindet die Gruppen-Selectbox aus dem Formular und der
         // nächste Submit löscht alle Gruppenzugehörigkeiten (#123).
@@ -85,16 +80,24 @@ class UserController extends BaseController {
         $assignableGroups = $this->assignableGroups($db);
         $selectedGroupIds = array_map('intval', (array)($_POST['groups'] ?? []));
 
-        // E-Mail ist seit #348 keine Pflichtangabe mehr - aber nur fuer Konten
-        // OHNE Bearbeitungs- oder Veroeffentlichungsrechte. Was das genau
-        // heisst, steht in EmailRequirement.
-        $errors = array_merge($errors, $this->emailFehler($db, $email, $selectedGroupIds));
+        // Der fachliche Teil steckt in UserProvisioning (#384) - was ein
+        // gueltiges Konto ausmacht, steht dort und nur dort. Hier bleibt, was
+        // wirklich zum Formular gehoert: Eingaben, Fehleranzeige,
+        // Weiterleitung und die Willkommensmail.
+        $ergebnis = \App\Service\UserProvisioning::create(
+            $db,
+            $username,
+            $email,
+            $password,
+            $selectedGroupIds,
+            'Benutzerverwaltung'
+        );
 
-        if (!empty($errors)) {
+        if (!$ergebnis->erfolgreich()) {
             $this->render('admin_user_form', [
                 'title' => 'Neuen Benutzer anlegen',
                 'user' => null,
-                'errors' => $errors,
+                'errors' => $ergebnis->errors,
                 'old' => $_POST,
                 'assignableGroups' => $assignableGroups,
                 'userGroupIds' => $selectedGroupIds
@@ -102,40 +105,16 @@ class UserController extends BaseController {
             return;
         }
 
-        try {
-            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            $stmt = $db->prepare("INSERT INTO users (username, email, password_hash, must_change_password) VALUES (?, ?, ?, 1)");
-            // Leere Eingabe heisst "keine Adresse", nicht "leere Adresse":
-            // Der UNIQUE-Index laesst beliebig viele NULL zu, aber nur EINEN
-            // Leerstring - das zweite Konto ohne Adresse liefe sonst in einen
-            // Duplikatsfehler (#348).
-            $stmt->execute([$username, $email === '' ? null : $email, $passwordHash]);
-            $newUserId = (int)$db->lastInsertId();
-
-            $this->syncUserGroups($db, $newUserId, $_POST['groups'] ?? []);
-
-            \App\Service\AuditLogger::log("Benutzer angelegt", "users", "Benutzer: {$username} ({$email})");
-
-            // Send Welcome E-Mail with initial credentials if requested.
-            // Ohne Adresse gibt es nichts zu versenden - das Erstpasswort
-            // geht dann auf Papier heraus (#348).
-            if (!empty($_POST['send_welcome_email']) && $email !== '') {
-                $mailer = new \App\Service\Mailer();
-                $mailer->sendWelcomeEmail($email, $username, $password);
-            }
-
-            header("Location: /admin/users?success=created");
-            exit;
-        } catch (\Exception $e) {
-            $this->render('admin_user_form', [
-                'title' => 'Neuen Benutzer anlegen',
-                'user' => null,
-                'errors' => ['E-Mail oder Benutzername bereits vergeben.'],
-                'old' => $_POST,
-                'assignableGroups' => $assignableGroups,
-                'userGroupIds' => $selectedGroupIds
-            ]);
+        // Send Welcome E-Mail with initial credentials if requested.
+        // Ohne Adresse gibt es nichts zu versenden - das Erstpasswort
+        // geht dann auf Papier heraus (#348).
+        if (!empty($_POST['send_welcome_email']) && $email !== '') {
+            $mailer = new \App\Service\Mailer();
+            $mailer->sendWelcomeEmail($email, $username, $password);
         }
+
+        header("Location: /admin/users?success=created");
+        exit;
     }
 
     public function edit(): void {
@@ -476,20 +455,9 @@ class UserController extends BaseController {
      * @return array<int, string>
      */
     private function emailFehler(\PDO $db, string $email, array $groupIds): array {
-        if ($email !== '') {
-            return filter_var($email, FILTER_VALIDATE_EMAIL)
-                ? []
-                : ['Die E-Mail-Adresse ist nicht gültig.'];
-        }
-
-        if (!EmailRequirement::groupsRequireEmail($db, $groupIds)) {
-            return [];
-        }
-
-        return ['Ohne E-Mail-Adresse geht das nur für Konten, die ausschließlich lesen dürfen. '
-              . 'Mindestens eine der gewählten Gruppen gibt Bearbeitungs- oder Veröffentlichungsrechte - '
-              . 'dafür ist eine Adresse Pflicht: Ohne sie gibt es kein "Passwort vergessen", keine '
-              . 'Benachrichtigungen und keinen zweiten Faktor per E-Mail.'];
+        // Die Regel steht seit #384 in UserProvisioning - Anlegen und Aendern
+        // muessen sich darueber einig sein, was eine gueltige Adresslage ist.
+        return \App\Service\UserProvisioning::adressFehler($db, $email, $groupIds);
     }
 
     /**

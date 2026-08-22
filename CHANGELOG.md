@@ -6,6 +6,23 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Geändert
+
+- **Ein Benutzerkonto entsteht jetzt an genau einer Stelle** (#384):
+  `App\Service\UserProvisioning`. Bis dahin steckte der Vorgang in
+  `UserController::store()` — verwoben mit dem Formular, also nicht
+  wiederverwendbar. Wer von woanders ein Konto anlegen wollte, musste ihn
+  nachbauen und dabei jede einzelne Vorgabe treffen: `must_change_password`,
+  die Adresspflicht nach Rechten, das `@`-Verbot im Benutzernamen, die
+  reservierten Namen, die Filterung nicht zuweisbarer Gruppen, den
+  Audit-Eintrag. Jede davon ist einzeln begründet und einzeln zu übersehen.
+
+  Kein neues Verhalten: `store()` ist der erste Aufrufer und behält, was
+  wirklich zum Formular gehört. Der Anlass ist
+  [Addons#131](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/131).
+
 ## [0.9.0-beta.2] – 2026-08-21
 
 Zweites Beta der 0.9er-Linie: der **Anmelde-Block** des Meilensteins. Es

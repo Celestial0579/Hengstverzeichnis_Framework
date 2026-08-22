@@ -448,15 +448,10 @@ abstract class BaseController {
      * @return bool True, wenn der Name reserviert ist, sonst false
      */
     protected function isReservedUsername(string $username): bool {
-        $reserved = [
-            'system', 'sys', 'sysadmin', 'systemadmin', 'system_admin',
-            'admin', 'administrator', 'administrateur', 'superadmin', 'super_admin',
-            'root', 'superuser', 'su',
-            'support', 'help', 'helpdesk', 'service', 'info', 'webmaster', 'hostmaster', 'postmaster', 'security', 'abuse', 'contact',
-            'api', 'bot', 'daemon', 'guest', 'test', 'testing', 'demo', 'null', 'undefined'
-        ];
-
-        return in_array(strtolower(trim($username)), $reserved, true);
+        // Die Liste steht seit #384 in App\Service\UserProvisioning: Sie gilt
+        // fuer JEDES Anlegen, nicht nur fuer das ueber ein Formular. Zwei
+        // Kopien waeren zwei Wahrheiten darueber, welcher Name verboten ist.
+        return \App\Service\UserProvisioning::istReservierterName($username);
     }
 
     /**

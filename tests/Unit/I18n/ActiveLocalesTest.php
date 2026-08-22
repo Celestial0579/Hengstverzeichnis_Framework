@@ -42,6 +42,13 @@ class ActiveLocalesTest extends TestCase {
             "<?php\nreturn ['nav.home' => 'Accueil'];\n"
         );
         Translator::registerCoreLocale('fr', $this->sprachVerzeichnis);
+
+        // Die Auswahlregel darf eine Session-Wahl nur dann verwerfen, wenn
+        // der vollstaendige Sprachbestand feststeht (#378). Im laufenden
+        // Betrieb sagt das der PluginManager am Ende von boot(); hier sagen
+        // es die Tests, die genau diese Regel pruefen. Der eigene Test
+        // weiter unten nimmt es ausdruecklich wieder zurueck.
+        Translator::bestandIstVollstaendig();
     }
 
     protected function tearDown(): void {
@@ -214,6 +221,66 @@ class ActiveLocalesTest extends TestCase {
 
         $this->assertSame('de', $locale);
         $this->assertArrayNotHasKey('locale', $_SESSION, 'Die inaktiv gewordene Session-Wahl muss entfernt werden.');
+    }
+
+    /**
+     * Ein Weg, der den Plugin-Bootstrap ueberspringt, darf die Sprachwahl
+     * nicht loeschen (#378).
+     *
+     * Seit #344 liegen zehn Sprachen in Addons. Die Bild-Kurzschluesse in
+     * public/index.php laden keine Addons - dort kennt der Kern nur de und
+     * en. Ohne diese Unterscheidung haette JEDE Bildanfrage eines
+     * Besuchers, der nicht auf Deutsch oder Englisch liest, seine Wahl aus
+     * der Sitzung geloescht: Ein einziges nachgeladenes Pferdefoto, und die
+     * naechste Seite kommt auf Deutsch. Der Grund waere nirgends sichtbar
+     * gewesen.
+     *
+     * "Unbekannt" ist eben nicht "deaktiviert". Der Rueckfall gilt nur fuer
+     * diesen einen Request.
+     */
+    public function testOhneVollstaendigenBestandBleibtDieSessionWahlStehen(): void {
+        Translator::resetForTests();   // bestandVollstaendig faellt damit auf false
+        $_SESSION['locale'] = 'nl';    // eine Sprache, die nur ein Addon mitbringt
+
+        $locale = Translator::resolveRequestLocale(['active_locales' => 'de,en,nl', 'language' => 'de']);
+
+        $this->assertSame('de', $locale, 'Fuer DIESEN Request faellt es zurueck - der Kern kennt nl hier nicht.');
+        $this->assertSame(
+            'nl',
+            $_SESSION['locale'] ?? null,
+            'Die Wahl des Besuchers darf eine bootstrap-freie Anfrage nicht ueberleben muessen.'
+        );
+    }
+
+    /**
+     * Die VORGABE muss false sein, nicht bloss der Wert nach resetForTests()
+     * (#378).
+     *
+     * Die Richtung ist die ganze Sicherheit: Wer nichts sagt, hat den
+     * Sprachbestand nicht vollstaendig. Stuende hier true, waere der Fehler
+     * zurueck - und kein Test der Auswahlregel merkte es, weil die alle den
+     * Wert vorher setzen. Deshalb wird die Deklaration selbst geprueft.
+     */
+    public function testDieVorgabeIstNichtVollstaendig(): void {
+        $vorgaben = (new \ReflectionClass(Translator::class))->getDefaultProperties();
+
+        $this->assertArrayHasKey('bestandVollstaendig', $vorgaben);
+        $this->assertFalse(
+            $vorgaben['bestandVollstaendig'],
+            'Die Vorgabe muss false sein - sonst haelt ein bootstrap-freier Weg jede Addon-Sprache fuer deaktiviert.'
+        );
+    }
+
+    /**
+     * Und die Gegenrichtung, damit die Unterscheidung nicht zum Freibrief
+     * wird: Steht der Bestand fest, wird weiter aufgeraeumt (#198).
+     */
+    public function testMitVollstaendigemBestandWirdWeiterAufgeraeumt(): void {
+        $_SESSION['locale'] = 'nl';
+
+        Translator::resolveRequestLocale(['active_locales' => 'de,en', 'language' => 'de']);
+
+        $this->assertArrayNotHasKey('locale', $_SESSION);
     }
 
     public function testResolveKeepsActiveSessionLocale(): void {

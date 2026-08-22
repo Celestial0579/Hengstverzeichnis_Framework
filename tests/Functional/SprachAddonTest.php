@@ -113,6 +113,50 @@ class SprachAddonTest extends FunctionalTestCase {
     }
 
     /**
+     * Eine Bildanfrage darf die Sprachwahl nicht loeschen (#378).
+     *
+     * Die Bild-Kurzschluesse in public/index.php ueberspringen den
+     * Plugin-Bootstrap absichtlich - sie holen einen Byte-Strom aus. Dort
+     * kennt der Kern nur Deutsch und Englisch. Bis #378 hielt die
+     * Auswahlregel jede Addon-Sprache deshalb fuer deaktiviert und LOESCHTE
+     * die Wahl aus der Sitzung: Ein Besucher auf Niederlaendisch, dessen
+     * Browser ein einziges Pferdefoto nachlaedt, sah die naechste Seite auf
+     * Deutsch. Betroffen war seit #344 jeder ausser de/en, und der Grund war
+     * nirgends sichtbar.
+     *
+     * Der Test geht ueber HTTP und damit ueber den echten Kurzschluss - ein
+     * Unit-Test auf die Auswahlregel wuerde die Verdrahtung nicht beweisen.
+     * Genau daran ist #344 schon einmal vorbeigelaufen.
+     */
+    public function testEineBildanfrageLoeschtDieSprachwahlNicht(): void {
+        $admin = $this->authenticatedClient();
+        $admin->post('/admin/plugins/toggle', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::SLUG,
+            'enable' => '1',
+        ]);
+
+        $gast = $this->newClient();
+        $this->assertStringContainsString('lang="nl"', $gast->get('/?lang=nl')->body, 'Voraussetzung: die Wahl greift.');
+
+        // Der Kurzschluss. Die Kennung muss es nicht geben - schon der
+        // ABLEHNENDE Weg lief durch resolveRequestLocale(), und genau dort
+        // sass der Fehler. Ein vorhandenes Bild waere derselbe Pfad mit mehr
+        // Aufbau.
+        $bild = $gast->get('/media/horse-image?id=999999');
+        $this->assertNotSame(200, $bild->statusCode, 'Voraussetzung: die Kennung gibt es nicht.');
+
+        // Und danach ist die Wahl noch da.
+        $this->assertStringContainsString(
+            'lang="nl"',
+            $gast->get('/')->body,
+            'Eine Bildanfrage hat die Sprachwahl geloescht - der Kurzschluss kennt die Sprach-Addons nicht (#378).'
+        );
+
+        $gast->get('/?lang=de');
+    }
+
+    /**
      * Wird das Addon wieder abgeschaltet, verschwindet die Sprache - und die
      * Oberfläche fällt sauber auf Deutsch zurück, statt halb übersetzt zu
      * bleiben.

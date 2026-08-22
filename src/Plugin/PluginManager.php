@@ -155,6 +155,13 @@ final class PluginManager {
         $this->discoverPlugins();
         $this->loadEnabledStates();
         $this->loadEnabledPlugins();
+
+        // Ab hier steht der vollstaendige Sprachbestand fest (#378). Erst
+        // jetzt darf Translator eine Session-Sprachwahl als "deaktiviert"
+        // verwerfen - vorher weiss er von den Sprach-Addons (#344) nichts,
+        // und ein Weg, der diesen Bootstrap ueberspringt, haette jede
+        // Addon-Sprache aus der Sitzung geloescht.
+        \App\I18n\Translator::bestandIstVollstaendig();
     }
 
     private function pluginsDir(): string {

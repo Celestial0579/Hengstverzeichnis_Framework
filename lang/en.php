@@ -120,6 +120,8 @@ return [
     'horse.about_heading' => 'About {name}',
     'horse.no_image' => 'No photo available.',
     'horse.performance_heading' => '🏆 Performance & Awards',
+    'horse.gallery_heading' => '🖼️ Photos and videos',
+    'horse.gallery_watch_video' => 'Watch video',
     'horse.pedigree_heading' => '🧬 Pedigree Certificate (Family Tree)',
     'horse.pedigree_subheading' => 'Interactive bloodline view',
     'horse.generations_label' => 'Generations:',

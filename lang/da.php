@@ -123,6 +123,8 @@ return [
     'horse.about_heading' => 'Om {name}',
     'horse.no_image' => 'Intet foto tilgængeligt.',
     'horse.performance_heading' => '🏆 Præstationer & udmærkelser',
+    'horse.gallery_heading' => '🖼️ Fotos og videoer',
+    'horse.gallery_watch_video' => 'Se video',
     'horse.pedigree_heading' => '🧬 Afstamningsbevis (stamtavle)',
     'horse.pedigree_subheading' => 'Interaktiv blodlinjevisning',
     'horse.generations_label' => 'Generationer:',

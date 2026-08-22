@@ -155,6 +155,66 @@ class MediaController extends BaseController {
     }
 
     /**
+     * Weitere Medien eines Pferds (#339) - dieselbe Tuer wie das Hauptbild.
+     *
+     * Wortgleich dieselben Sichtbarkeitsregeln, und das ist der Punkt: Das
+     * Addon `galerie` brachte eine ZWEITE Ausliefer-Route mit, und jede
+     * Regel - gueltige Sitzung, horses.view, is_published, Referer,
+     * Cache-Kopfzeilen - musste dort ein zweites Mal richtig sein. Der Kern
+     * hat davon jetzt genau eine; sie unterscheidet sich nur darin, WO die
+     * Datei steht.
+     */
+    public function horseMedia(): void {
+        $mediaId = (int)($_GET['id'] ?? 0);
+        if ($mediaId <= 0) {
+            $this->sendStatus(404);
+        }
+
+        // Wie oben: Datenbankfehler enden als 404, nicht als 500.
+        try {
+            $medium = \App\Service\HorseMedia::byId($mediaId);
+        } catch (\Throwable $e) {
+            error_log('MediaController: Medienabfrage fehlgeschlagen: ' . $e->getMessage());
+            $this->sendStatus(404);
+        }
+
+        if ($medium === null || $medium['deleted_at'] !== null || ($medium['type'] ?? '') !== 'image') {
+            $this->sendStatus(404);
+        }
+        if (empty($medium['file_name'])) {
+            $this->sendStatus(404);
+        }
+
+        $angemeldet = false;
+        if (!empty($_SESSION['user_id'])) {
+            $this->checkAuth();
+            $angemeldet = true;
+        }
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        if (!$this->hasPermission('horses', 'view')) {
+            $this->sendStatus(404);
+        }
+        if (empty($medium['is_published']) && !$angemeldet) {
+            $this->sendStatus(404);
+        }
+
+        $path = $this->resolveUploadPath((string)$medium['file_name']);
+        if ($path === null) {
+            $this->sendStatus(404);
+        }
+
+        if (!$this->refererIsAllowed()) {
+            $this->sendStatus(403);
+        }
+
+        $this->stream($path, !empty($medium['is_published']));
+    }
+
+    /**
      * Bildet den gespeicherten `image_url`-Wert auf eine Datei im
      * Upload-Verzeichnis ab. Gibt null zurück, sobald irgendetwas nicht passt -
      * insbesondere, wenn der aufgelöste Pfad das Verzeichnis verlässt.

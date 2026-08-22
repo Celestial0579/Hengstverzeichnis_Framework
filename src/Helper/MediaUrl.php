@@ -31,4 +31,16 @@ final class MediaUrl {
 
         return '/media/horse-image?id=' . (int)$horse['id'];
     }
+
+    /**
+     * Adresse eines weiteren Mediums (#339).
+     *
+     * Die Medien-ID genuegt - der Dateiname erscheint in keiner Antwort. Wer
+     * Pferdemedien rendert, nimmt diesen Helfer: Der rohe Spaltenwert
+     * zeigte auf ein Verzeichnis ausserhalb des Webroots und liefe damit ins
+     * Leere, und der Einbettungsschutz der Route entfiele.
+     */
+    public static function horseMediaImage(int $mediaId): ?string {
+        return $mediaId > 0 ? '/media/horse-media?id=' . $mediaId : null;
+    }
 }

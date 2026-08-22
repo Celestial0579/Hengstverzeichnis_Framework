@@ -123,6 +123,8 @@ return [
     'horse.about_heading' => 'Over {name}',
     'horse.no_image' => 'Geen foto beschikbaar.',
     'horse.performance_heading' => '🏆 Prestaties & onderscheidingen',
+    'horse.gallery_heading' => '🖼️ Foto\'s en video\'s',
+    'horse.gallery_watch_video' => 'Video bekijken',
     'horse.pedigree_heading' => '🧬 Afstammingsbewijs (stamboom)',
     'horse.pedigree_subheading' => 'Interactieve bloedlijnweergave',
     'horse.generations_label' => 'Generaties:',

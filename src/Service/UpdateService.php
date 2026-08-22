@@ -89,16 +89,23 @@ class UpdateService {
     private const ABGELOESTE_ADDONS = [
         // Slug => Kern-Version, ab der das Addon abgelöst ist.
         //
-        // DERZEIT LEER, und das ist eine bewusste Entscheidung. Der erste
-        // Eintrag sollte 'galerie' => '0.8.0' sein (#339), und er wurde wieder
-        // herausgenommen, weil die Kern-Galerie in v0.8.0 NICHT fertig wurde.
+        // Der Eintrag stand bis v0.9.0-beta.3 aus, weil die Kern-Galerie noch
+        // nicht fertig war - ein Eintrag ohne den zugehörigen Ersatz wäre kein
+        // halbes Feature, sondern ein Schaden: Das Update entfernte das Addon,
+        // und die Betreiber stünden ganz ohne Galerie da.
         //
-        // Ein Eintrag hier ohne den zugehörigen Kern-Ersatz wäre kein halbes
-        // Feature, sondern ein Schaden: Das Update entfernte das Addon, und
-        // die Betreiber stünden ganz ohne Galerie da. Die Mechanik bleibt
-        // trotzdem stehen - sie ist gebaut, dokumentiert und geprüft, und der
-        // Eintrag ist eine Zeile, sobald #339 steht.
+        // Jetzt ist der Ersatz da (App\Service\HorseMedia, #339), und die
+        // Reihenfolge stimmt: Der SchemaMigrator übernimmt die Daten
+        // (Schritt 339_galerie_uebernahme), bevor hier irgendetwas entfernt
+        // wird - Tabellen und Dateien des Addons rührt das Update ohnehin
+        // nicht an, entfernt wird ausschließlich der Code.
+        'galerie' => '0.9.0',
     ];
+
+    /** Nur für Tests: Die Liste ist privat, ihr Inhalt aber prüfbar. */
+    public static function abgeloesteAddons(): array {
+        return self::ABGELOESTE_ADDONS;
+    }
 
     /**
      * Reichweite der UNBEAUFSICHTIGTEN Installation (Setting
@@ -1052,7 +1059,15 @@ class UpdateService {
             $journal = ['restore' => [], 'created' => []];
 
             try {
-                return self::copyTree($sourceDir, $target, '', $backupDir, $journal);
+                $kopiert = self::copyTree($sourceDir, $target, '', $backupDir, $journal);
+
+                // ERST NACH dem Kopieren: Bis hierher könnte das Update noch
+                // zurückgerollt werden, und ein Addon, das schon weg ist, käme
+                // dabei nicht wieder. Jetzt steht der neue Kern - und mit ihm
+                // der Ersatz für das, was gleich entfernt wird.
+                self::entferneAbgeloesteAddons($target, self::neueVersionAus($sourceDir));
+
+                return $kopiert;
             } catch (\Throwable $e) {
                 self::rollback($journal);
                 throw new \RuntimeException(
@@ -1066,6 +1081,100 @@ class UpdateService {
             self::removeTree($extractDir);
             self::removeTree($backupDir);
         }
+    }
+
+    /**
+     * Liest CORE_VERSION aus dem entpackten Archiv.
+     *
+     * Nicht aus der laufenden Konstante: Die gehoert noch zum ALTEN Stand -
+     * der neue Code liegt erst auf der Platte, geladen ist er nicht. Wer hier
+     * CORE_VERSION nimmt, entfernt ein Addon eine Version zu frueh oder gar
+     * nicht.
+     */
+    private static function neueVersionAus(string $sourceDir): string {
+        $datei = $sourceDir . '/config/config.php';
+        if (!is_file($datei)) {
+            return '';
+        }
+
+        // Lesen statt einbinden: config.php baut eine Datenbankverbindung auf
+        // und definiert Konstanten, die in diesem Prozess laengst stehen.
+        $inhalt = (string)file_get_contents($datei);
+        if (preg_match("/define\\(\\s*'CORE_VERSION'\\s*,\\s*'([^']+)'/", $inhalt, $treffer) !== 1) {
+            return '';
+        }
+
+        return $treffer[1];
+    }
+
+    /**
+     * Entfernt Addons, deren Funktion in den Kern gewandert ist (#339).
+     *
+     * `plugins` steht unter PROTECTED_PATHS, ein Update fasst Addon-
+     * Verzeichnisse also nie an. Genau eine Lage braucht die Ausnahme: wenn
+     * der Kern uebernimmt, was das Addon tat. Bliebe es aktiv, gaebe es zwei
+     * Pflegeoberflaechen fuer dieselben Daten und zwei Vorstellungen davon,
+     * welches Bild das Hauptbild ist.
+     *
+     * ENTFERNT WIRD AUSSCHLIESSLICH DER CODE. Tabellen, Dateien und
+     * Einstellungen des Addons bleiben - der Kern hat sie zu diesem Zeitpunkt
+     * uebernommen, und wer sie loswerden will, tut das anschliessend bewusst
+     * ueber /admin/plugins (#338).
+     *
+     * @return array<int, string> Entfernte Slugs
+     */
+    private static function entferneAbgeloesteAddons(string $targetDir, string $neueVersion): array {
+        if ($neueVersion === '' || self::ABGELOESTE_ADDONS === []) {
+            return [];
+        }
+
+        $entfernt = [];
+
+        foreach (self::ABGELOESTE_ADDONS as $slug => $abVersion) {
+            // Nur, wenn der neue Kern tatsaechlich weit genug ist. Ein
+            // Downgrade oder ein Sprung auf eine aeltere Fassung darf das
+            // Addon nicht mitnehmen.
+            if (self::isNewer($abVersion, $neueVersion)) {
+                continue;
+            }
+
+            $verzeichnis = rtrim($targetDir, '/') . '/plugins/' . $slug;
+            if (!is_dir($verzeichnis)) {
+                continue;
+            }
+
+            // Zuerst deaktivieren, dann loeschen: Bleibt der Lauf dazwischen
+            // stehen, ist das Addon aus und sein Code noch da - der harmlose
+            // der beiden Zwischenstaende. Umgekehrt zeigte die Verwaltung ein
+            // aktives Addon ohne Code.
+            try {
+                $stmt = Database::getInstance()->prepare(
+                    'UPDATE plugins SET enabled = 0 WHERE slug = ?'
+                );
+                $stmt->execute([$slug]);
+            } catch (\Throwable $e) {
+                // Ohne Datenbank kein Deaktivieren - dann bleibt auch das
+                // Verzeichnis stehen. Ein Addon-Code ohne den zugehoerigen
+                // Eintrag waere der unklarere Zustand.
+                continue;
+            }
+
+            self::removeTree($verzeichnis);
+            $entfernt[] = (string)$slug;
+
+            AuditLogger::log(
+                'Abgeloestes Addon entfernt',
+                'system',
+                sprintf(
+                    'Addon "%s" ist ab Kern %s abgeloest und wurde deaktiviert; sein Verzeichnis ist entfernt. '
+                    . 'Tabellen, Dateien und Einstellungen bleiben - der Kern hat die Daten uebernommen.',
+                    $slug,
+                    $abVersion
+                )
+            );
+        }
+
+        return $entfernt;
     }
 
     /**

@@ -666,3 +666,71 @@ footer a:hover {
 
 /* Ungestylte Inhalts-Links: Theme-Linkfarbe statt Browser-Default-Blau (#160). */
 a:not(.btn):not(.nav-link) { color: var(--link-color); }
+
+
+/* Galerie je Pferd (#339).
+   Im Stylesheet und nicht im style-Attribut: Ein Raster braucht einen
+   Umbruchpunkt, und ein Umbruchpunkt geht im Attribut nicht (#345). */
+.horse-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.6rem;
+}
+
+.horse-gallery-image {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: zoom-in;
+}
+
+.horse-gallery-video {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 120px;
+    background: var(--surface-muted);
+    color: var(--text-color);
+    border-radius: 6px;
+    text-decoration: none;
+    text-align: center;
+    padding: 0.4rem;
+}
+
+/* Auf schmalen Geräten zwei statt vier Spalten - 140px Mindestbreite ergäbe
+   sonst auf 360px Breite zwei sehr gedrängte Spalten mit Rand. */
+@media (max-width: 480px) {
+    .horse-gallery-grid {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    }
+    .horse-gallery-image,
+    .horse-gallery-video {
+        height: 96px;
+    }
+}
+
+/* Lightbox (#339): Overlay über der ganzen Seite. */
+.horse-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    /* theming-ausnahme: Der Scrim bleibt in beiden Themes bewusst dunkel - er
+       soll das Bild abgedunkelt freistellen, nicht der Flächenfarbe folgen. */
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+}
+
+.horse-lightbox[data-offen="1"] {
+    display: flex;
+}
+
+.horse-lightbox img {
+    max-width: 92vw;
+    max-height: 92vh;
+    border-radius: 6px;
+}

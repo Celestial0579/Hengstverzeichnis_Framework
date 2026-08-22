@@ -395,6 +395,46 @@ CREATE TABLE IF NOT EXISTS `horse_registrations` (
     INDEX `idx_horse_registrations_number` (`registration_number`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Medien je Pferd: Fotos und Video-Links (#339)
+--
+-- WARUM IM KERN. Bis v0.8 hatte `horses` genau ein `image_url`, und das Addon
+-- `galerie` brachte eine zweite Ablage fuer dasselbe mit. Ein Redakteur
+-- pflegte Fotos zu demselben Pferd an zwei Stellen im selben Formular: oben
+-- das Kernfeld, darunter die Galerie. Zwei Uploads, zwei Ablagen, zwei
+-- Ausliefer-Wege, zwei Pflegestellen fuer eine Sache.
+--
+-- WARUM `horses.image_url` TROTZDEM BLEIBT. Katalogkarte, Admin-Liste,
+-- Startseite, JSON-API und mehrere Addons (`merkliste`, `qr-code`,
+-- `verkaufsboerse`) zeigen genau EIN Bild und lesen dafuer `image_url`.
+-- Die Spalte bleibt deshalb der Traeger des Hauptbilds und wird aus dieser
+-- Tabelle gefuellt (App\Service\HorseMedia::syncMainImage()). Damit bleiben
+-- alle heutigen Verbraucher unveraendert gueltig, und ein Bestand ohne
+-- Galeriebilder verliert nichts.
+--
+-- WARUM `is_main` UND NICHT `sort_order = 0`. Die Reihenfolge ist eine
+-- Anzeigereihenfolge; wer sie umsortiert, will nicht zwangslaeufig das
+-- Hauptbild wechseln. Zwei Bedeutungen in einer Spalte sind genau die Art
+-- Kopplung, die spaeter niemand mehr aufloest.
+--
+-- `file_name` traegt denselben Wert wie `horses.image_url`
+-- (`/uploads/horses/<datei>`) - ein Speicherort, keine Adresse. Ausgeliefert
+-- wird ausschliesslich ueber `/media/horse-media` mit Sichtbarkeitspruefung;
+-- im Webroot liegt nichts (siehe App\Helper\HorseImagePath).
+CREATE TABLE IF NOT EXISTS `horse_media` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `horse_id` INT NOT NULL,
+    `type` ENUM('image','video') NOT NULL,
+    `file_name` VARCHAR(255) NULL DEFAULT NULL,
+    `video_url` VARCHAR(255) NULL DEFAULT NULL,
+    `caption` VARCHAR(255) NULL DEFAULT NULL,
+    `is_main` TINYINT(1) NOT NULL DEFAULT 0,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_horse_media_horse` (`horse_id`, `sort_order`, `id`),
+    FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
 -- Dauerhafte Entscheidungen über Dubletten-Vorschläge (#355).
 --
 -- Bis v0.7 konnte man einen Vorschlag nur ANNEHMEN (verknüpfen). Die Aussage

@@ -123,6 +123,8 @@ return [
     'horse.about_heading' => 'Informazioni su {name}',
     'horse.no_image' => 'Nessuna foto disponibile.',
     'horse.performance_heading' => '🏆 Prestazioni e riconoscimenti',
+    'horse.gallery_heading' => '🖼️ Foto e video',
+    'horse.gallery_watch_video' => 'Guarda il video',
     'horse.pedigree_heading' => '🧬 Certificato d\'origine (albero genealogico)',
     'horse.pedigree_subheading' => 'Vista interattiva delle linee di sangue',
     'horse.generations_label' => 'Generazioni:',

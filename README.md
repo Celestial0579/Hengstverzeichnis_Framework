@@ -53,6 +53,8 @@ und Variante B unten).
   mit konfigurierbarer Pflicht pro Gruppe, optional Microsoft
   Entra ID SSO, Session-Hardening, Rate-Limiting, revisionssicheres Audit-Log
 - JSON-API mit benutzergebundenen, rechtebegrenzten API-Schlüsseln
+- Foto- und Videopflege je Pferd (Hauptbild, Reihenfolge, Bildunterschrift),
+  Auslieferung ausschliesslich über eine zugriffsgeschützte Route
 - Plugin-System mit Hooks, eigenem Addon-Store und Referenz-Plugin
 - Zeitgesteuerte Aufgaben (Cron/Scheduler), automatische externe Backups
   (S3/WebDAV/FTPS, optional inkl. hochgeladener Dateien), E-Mail-Digest,

@@ -34,6 +34,8 @@ final class HorseImagePath {
 
     private static ?string $dirOverride = null;
     private static ?string $legacyDirOverride = null;
+    /** @var array<int, string>|null */
+    private static ?array $galerieDirsOverride = null;
 
     /** Ablageort außerhalb des Webroots. Hierhin wird geschrieben. */
     public static function dir(): string {
@@ -49,6 +51,31 @@ final class HorseImagePath {
      */
     public static function legacyDir(): string {
         return self::$legacyDirOverride ?? dirname(__DIR__, 2) . '/public/uploads/horses';
+    }
+
+    /**
+     * Die Ablagen des abgelösten Addons `galerie` (#339).
+     *
+     * Werden nur noch GELESEN - von der Übernahme im SchemaMigrator, die die
+     * Dateien nach dir() holt. Zwei Orte, weil das Addon selbst einmal
+     * umgezogen ist: ältere Stände liegen noch im Webroot.
+     *
+     * @return array<int, string>
+     */
+    public static function galerieLegacyDirs(): array {
+        if (self::$galerieDirsOverride !== null) {
+            return self::$galerieDirsOverride;
+        }
+
+        return [
+            dirname(__DIR__, 2) . '/storage/plugin_galerie',
+            dirname(__DIR__, 2) . '/public/uploads/plugin_galerie',
+        ];
+    }
+
+    /** @param array<int, string>|null $dirs */
+    public static function overrideGalerieLegacyDirsForTests(?array $dirs): void {
+        self::$galerieDirsOverride = $dirs;
     }
 
     /**

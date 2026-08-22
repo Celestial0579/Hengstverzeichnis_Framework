@@ -128,6 +128,8 @@ return [
     'horse.about_heading' => 'Iwwer {name}',
     'horse.no_image' => 'Kee Foto disponibel.',
     'horse.performance_heading' => '🏆 Leeschtungen & Auszeechnungen',
+    'horse.gallery_heading' => '🖼️ Fotoen a Videoen',
+    'horse.gallery_watch_video' => 'Video kucken',
     'horse.pedigree_heading' => '🧬 Ofstamungsnoweis (Stammbam)',
     'horse.pedigree_subheading' => 'Interaktiv Bluttlinnen-Vue',
     'horse.generations_label' => 'Generatiounen:',

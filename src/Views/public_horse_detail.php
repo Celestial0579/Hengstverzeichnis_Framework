@@ -357,12 +357,19 @@ $galerie = array_values(array_filter(
                 <?php $bildunterschrift = htmlspecialchars((string)($medium['caption'] ?? '')); ?>
                 <?php if ($medium['type'] === 'image'): ?>
                     <figure style="margin: 0;">
-                        <?php // Kachel klein, Lightbox gross (#397). data-gross traegt die
-                              // Adresse ohne Groessenangabe: Ohne sie zeigte die Lightbox
-                              // seit den Vorschaubildern ein hochskaliertes Vorschaubild -
-                              // der Schalter haette die Grossansicht mit verschlechtert. ?>
+                        <?php // Kachel klein, Lightbox gross (#397).
+                              //
+                              // Weitergegeben wird nur die KENNUNG, nicht die Adresse.
+                              // Eine Adresse aus dem DOM ist fuer CodeQL zu Recht
+                              // "DOM text reinterpreted as HTML" - das Skript baut sie
+                              // jetzt aus einem festen Muster und einer Ziffernfolge,
+                              // damit gar nichts Freies mehr in ein src-Attribut wandert.
+                              //
+                              // Ohne die Grossfassung zeigte die Lightbox seit den
+                              // Vorschaubildern ein hochskaliertes Vorschaubild - der
+                              // Schalter haette die Grossansicht mit verschlechtert. ?>
                         <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id'], 'thumb') ?? '') ?>"
-                             data-gross="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id']) ?? '') ?>"
+                             data-medium="<?= (int)$medium['id'] ?>"
                              alt="<?= $bildunterschrift ?>" loading="lazy" decoding="async"
                              class="horse-gallery-image"
                              data-lightbox="1">

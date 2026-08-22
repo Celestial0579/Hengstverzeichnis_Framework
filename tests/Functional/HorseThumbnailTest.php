@@ -224,8 +224,8 @@ class HorseThumbnailTest extends FunctionalTestCase {
     /**
      * Die Galerie-Kachel zeigt die kleine Fassung, die Lightbox das Original.
      *
-     * Ohne `data-gross` nähme die Lightbox die Adresse aus dem `<img>` — und
-     * das wäre seit dieser Änderung ein hochskaliertes Vorschaubild. Der
+     * Ohne eigene Adresse nähme die Lightbox die aus dem `<img>` — und das
+     * wäre seit dieser Änderung ein hochskaliertes Vorschaubild. Der
      * Schalter hätte dann die Grossansicht mit verschlechtert.
      */
     public function testDieLightboxBekommtDasOriginalMitgegeben(): void {
@@ -236,5 +236,17 @@ class HorseThumbnailTest extends FunctionalTestCase {
         $this->assertSame(200, $seite->statusCode);
 
         $this->assertStringContainsString('groesse=card', $seite->body, 'Das Hero-Bild nimmt die mittlere Groesse.');
+
+        // Und aus dem Markup kommt fuer die Lightbox NUR die Kennung, nie
+        // eine fertige Adresse (CodeQL js/xss-through-dom). Das Skript baut
+        // sie aus einem festen Muster; eine Adresse aus dem DOM in ein
+        // src-Attribut zu schreiben waere genau der gemeldete Fall.
+        $skript = (string)file_get_contents(dirname(__DIR__, 2) . '/public/js/horse-gallery.js');
+        $this->assertStringNotContainsString(
+            "getAttribute('data-gross')",
+            $skript,
+            'Keine Adresse aus dem DOM - nur die Kennung.'
+        );
+        $this->assertStringContainsString("data-medium", $skript);
     }
 }

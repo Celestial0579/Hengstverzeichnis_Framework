@@ -232,8 +232,26 @@ class MediaController extends BaseController {
      * ein langsamer Seitenaufbau; eine Fehlermeldung waere ein kaputtes Bild.
      */
     private function vielleichtVerkleinert(string $originalPfad, string $gespeicherterWert): string {
-        $groesse = (string)($_GET['groesse'] ?? '');
-        if ($groesse === '' || !isset(\App\Service\Thumbnails::GROESSEN[$groesse])) {
+        // Der Anfragewert wird nicht weitergereicht, sondern durch die
+        // EIGENE Konstante ersetzt, die er benennt. Ab hier ist $groesse
+        // garantiert ein Literal aus Thumbnails::GROESSEN und nicht mehr die
+        // Zeichenkette aus $_GET - der Unterschied ist der zwischen
+        // "geprueft" und "stammt gar nicht mehr von aussen".
+        //
+        // Eine Pruefung allein haette hier nicht gereicht: Die Semgrep-Regel
+        // `tainted-filename` kennt keine pattern-sanitizers, sie ist
+        // ausschliesslich dadurch erfuellbar, den Wert nicht mehr aus der
+        // Eingabe zu bauen. Das ist hier ohnehin das Richtige - der Wert
+        // landet als Teil eines DATEINAMENS in der Ablage.
+        $angefragt = (string)($_GET['groesse'] ?? '');
+        $groesse = null;
+        foreach (array_keys(\App\Service\Thumbnails::GROESSEN) as $erlaubt) {
+            if ($angefragt === $erlaubt) {
+                $groesse = $erlaubt;
+                break;
+            }
+        }
+        if ($groesse === null) {
             return $originalPfad;
         }
 

@@ -214,6 +214,29 @@ foreach (($allContacts ?? []) as $c) {
             </div>
         </div>
 
+        <?php // Genauigkeit des Geburtsdatums (#379).
+              //
+              // WOFUER DAS FELD DA IST, denn die Frage liegt nahe: Wer von
+              // vornherein nur das Jahr kennt, laesst das Datum leer und
+              // fuellt das Geburtsjahr - dieser Weg existiert und ist der
+              // richtige. Dieses Feld ist fuer den anderen Fall: fuer die
+              // Datensaetze, die den Platzhalter SCHON TRAGEN. Im Altbestand
+              // sind das 887 von 1885 Pferden mit dem 1. Januar, und ihr
+              // Datum darf man nicht einfach loeschen - es ist der Wert, den
+              // die Quelle liefert (rimondo und haststam schreiben denselben
+              // 1. Januar), und er kaeme beim naechsten Abgleich zurueck.
+              //
+              // Hier wird also nicht eingegeben, sondern eingeordnet. ?>
+        <?php $genauigkeit = (string)($horse['birth_date_precision'] ?? 'day'); ?>
+        <div class="form-group">
+            <label for="birth_date_precision">Genauigkeit des Geburtsdatums</label>
+            <select id="birth_date_precision" name="birth_date_precision" class="form-control">
+                <option value="day"<?= $genauigkeit !== 'year' ? ' selected' : '' ?>>tagesgenau</option>
+                <option value="year"<?= $genauigkeit === 'year' ? ' selected' : '' ?>>nur das Jahr bekannt</option>
+            </select>
+            <small style="color: var(--text-muted);">Für Datensätze, die schon ein Platzhalter-Datum tragen (meist den 1. Januar): Bei „nur das Jahr bekannt" zeigt die öffentliche Seite nur das Jahr, und der Datumsbereichsfilter überspringt den Datensatz. Das eingetragene Datum bleibt als Quellwert erhalten. Wer von vornherein nur das Jahr kennt, lässt das Datum leer und füllt nur das Geburtsjahr.</small>
+        </div>
+
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
                 <label for="color">Farbe</label>

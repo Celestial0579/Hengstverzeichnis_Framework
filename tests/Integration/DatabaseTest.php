@@ -170,6 +170,17 @@ class DatabaseTest extends TestCase {
         $this->assertColumnExists($pdo, 'horses', 'breed');
         $this->assertColumnExists($pdo, 'horses', 'birth_date');
         $this->assertColumnExists($pdo, 'horses', 'height_cm');
+
+        // Genauigkeit des Geburtsdatums (#379, SCHEMA_VERSION 18). Typ und
+        // Vorgabe werden mitgeprüft: Eine Migration, die die Spalte mit
+        // Vorgabe 'year' anlegt, änderte auf jedem Bestand still die Anzeige
+        // von knapp der Hälfte aller Pferde - und das fiele sonst nirgends auf.
+        $this->assertColumnExists($pdo, 'horses', 'birth_date_precision');
+        $spalte = $pdo->query("SHOW COLUMNS FROM `horses` LIKE 'birth_date_precision'")->fetch(\PDO::FETCH_ASSOC);
+        $this->assertIsArray($spalte);
+        $this->assertStringContainsString("enum('day','year')", strtolower((string)$spalte['Type']));
+        $this->assertSame('day', (string)$spalte['Default'], 'Die Vorgabe muss day sein - sonst ändert das Update das Anzeigeverhalten eines Bestands.');
+        $this->assertSame('NO', (string)$spalte['Null'], 'Kein NULL: eine dritte, unbestimmte Genauigkeit wäre genau die Unschärfe, die #379 beseitigt.');
         $this->assertColumnExists($pdo, 'horses', 'is_deceased');
         $this->assertColumnExists($pdo, 'horses', 'death_year');
 

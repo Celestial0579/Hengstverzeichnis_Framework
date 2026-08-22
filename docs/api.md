@@ -132,6 +132,7 @@ curl -H "Authorization: Bearer hv_..." \
       "foreign_ueln": null,
       "birth_year": 2015,
       "birth_date": "2015-06-13",
+      "birth_date_precision": "day",
       "color": "Rappe",
       "sex": "stallion",
       "breed": "Trakehner",

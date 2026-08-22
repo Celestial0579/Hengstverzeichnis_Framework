@@ -336,7 +336,8 @@ class ApiKeyAuthTest extends FunctionalTestCase {
         // ein NEU hinzugefügtes Feld hier auffällt statt still auszuliefern.
         $this->assertSame(
             [
-                'id', 'name', 'ueln', 'foreign_ueln', 'birth_year', 'birth_date', 'color', 'sex',
+                'id', 'name', 'ueln', 'foreign_ueln', 'birth_year', 'birth_date',
+                'birth_date_precision', 'color', 'sex',
                 'breed', 'height_cm', 'status', 'is_deceased', 'death_year', 'image_url',
                 'breeding_station', 'sire', 'dam', 'breeder', 'owner', 'profile_url',
             ],

@@ -37,7 +37,7 @@ final class HorseCsvImporter {
      */
     public const KNOWN_COLUMNS = [
         'name', 'ueln', 'foreign_ueln', 'sire_name', 'sire_ueln',
-        'dam_name', 'dam_ueln', 'birth_year', 'birth_date', 'color', 'sex', 'breed',
+        'dam_name', 'dam_ueln', 'birth_year', 'birth_date', 'birth_date_precision', 'color', 'sex', 'breed',
         'height_cm', 'breeding_station', 'description', 'status', 'deceased', 'death_year',
     ];
 
@@ -59,6 +59,21 @@ final class HorseCsvImporter {
         'ja' => 1, 'nein' => 0,
         'yes' => 1, 'no' => 0,
         'true' => 1, 'false' => 0,
+    ];
+
+    /**
+     * Genauigkeit des Geburtsdatums (#379, case-insensitiv), deutsch und
+     * englisch analog SEX_ALIASES. Gespeichert wird englisch wie im Schema.
+     *
+     * Hier wird ausdrücklich NICHT geraten: Ein Datum auf dem 1. Januar gilt
+     * nur dann als Jahresangabe, wenn die Datei das sagt. Die Heuristik träfe
+     * jedes Pferd mit, das wirklich am 1. Januar geboren ist - und der
+     * CSV-Import bedient Admins mit Excel-Exporten, die das Jahr sonst
+     * schlicht in `birth_year` schreiben und `birth_date` leer lassen.
+     */
+    private const PRECISION_ALIASES = [
+        'day' => 'day', 'tag' => 'day', 'tagesgenau' => 'day',
+        'year' => 'year', 'jahr' => 'year', 'jahresgenau' => 'year',
     ];
 
     /** Plausibler Stockmaß-Bereich in cm (#188), identisch zum Formular. */
@@ -193,6 +208,7 @@ final class HorseCsvImporter {
                 'dam_ueln' => $get('dam_ueln') ?: null,
                 'birth_year' => $get('birth_year'),
                 'birth_date' => $get('birth_date'),
+                'birth_date_precision' => $get('birth_date_precision'),
                 'color' => $get('color'),
                 'sex' => $get('sex'),
                 'breed' => $get('breed') ?: null,
@@ -248,6 +264,31 @@ final class HorseCsvImporter {
                 }
             } else {
                 $data['birth_date'] = null;
+            }
+
+            // Genauigkeit (#379). Leer heisst 'day' - so verhaelt sich eine
+            // Datei aus der Zeit vor dieser Spalte genau wie vorher.
+            $rohGenauigkeit = (string)$data['birth_date_precision'];
+            if ($rohGenauigkeit === '') {
+                $data['birth_date_precision'] = 'day';
+            } elseif (isset(self::PRECISION_ALIASES[mb_strtolower($rohGenauigkeit)])) {
+                $data['birth_date_precision'] = self::PRECISION_ALIASES[mb_strtolower($rohGenauigkeit)];
+            } else {
+                $errors[] = "Genauigkeit '{$rohGenauigkeit}' ist ungültig (erwartet: tag oder jahr).";
+                $data['birth_date_precision'] = 'day';
+            }
+            // 'year' ohne Datum ist ein Widerspruch, kein Versehen: Die
+            // Spalte beschreibt, wie genau `birth_date` gemeint ist, und ohne
+            // Datum beschreibt sie nichts. Zeilenfehler statt stiller
+            // Korrektur - dieselbe Hausregel wie beim Widerspruch zwischen
+            // birth_date und birth_year weiter oben. Wer nur das Jahr kennt,
+            // fuellt `birth_year` und laesst `birth_date` leer; das IST
+            // bereits die richtige Form und braucht keine Genauigkeit.
+            if ($data['birth_date'] === null && $data['birth_date_precision'] === 'year') {
+                $errors[] = "Genauigkeit 'jahr' ohne Geburtsdatum - nur das Jahr gehört in die Spalte birth_year.";
+            }
+            if ($data['birth_date'] === null) {
+                $data['birth_date_precision'] = 'day';
             }
 
             if ($data['height_cm'] !== '') {

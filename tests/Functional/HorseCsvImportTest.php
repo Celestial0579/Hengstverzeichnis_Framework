@@ -61,17 +61,23 @@ class HorseCsvImportTest extends FunctionalTestCase {
         // deceased-Alias 'ja'.
         $legacyName = "CSV Legacy Verstorben {$unique}";
         $aliasName = "CSV Verstorben Alias {$unique}";
-        $csv = "name;ueln;birth_year;birth_date;color;sex;breed;height_cm;status;deceased;death_year\n"
-            . "{$validName};{$validUeln};2017;02.04.2017;Fuchs;Stute;Fjordpferd;146;active;;\n"
-            . "{$legacyName};;;13.06.1994;Braun;;;;deceased;;2018\n"
-            . "{$aliasName};;1990;;Rappe;;;;inactive;ja;\n"
-            . ";;2017;;Rappe;;;;active;;\n" // Name fehlt -> ungültig
-            . "Ungueltiges Jahr {$unique};;zwanzigsiebzehn;;Schimmel;;;;active;;\n" // ungültiges Geburtsjahr -> ungültig
-            . "Ungueltiges Geschlecht {$unique};;2017;;Fuchs;Zwitter;;;active;;\n" // ungültiges Geschlecht -> ungültig
-            . "Datum Konflikt {$unique};;2001;2017-04-02;;;;;active;;\n" // birth_date vs birth_year -> ungültig
-            . "Stockmass Zwerg {$unique};;2017;;;;;30;active;;\n" // Stockmaß außerhalb 50-250 -> ungültig
-            . "Tod vor Geburt {$unique};;2017;;;;;;active;;1990\n" // death_year < birth_year -> ungültig
-            . "Verstorben Kaputt {$unique};;2017;;;;;;active;vielleicht;\n"; // ungültiger deceased-Wert -> ungültig
+        // Genauigkeit des Geburtsdatums (#379): "Jahr" grossgeschrieben, um
+        // nebenbei die Case-Insensitivitaet der Aliasse festzuhalten.
+        $jahrName = "CSV Nur Jahr {$unique}";
+        $csv = "name;ueln;birth_year;birth_date;birth_date_precision;color;sex;breed;height_cm;status;deceased;death_year\n"
+            . "{$validName};{$validUeln};2017;02.04.2017;;Fuchs;Stute;Fjordpferd;146;active;;\n"
+            . "{$legacyName};;;13.06.1994;;Braun;;;;deceased;;2018\n"
+            . "{$aliasName};;1990;;;Rappe;;;;inactive;ja;\n"
+            . "{$jahrName};;;01.01.1976;Jahr;Falb;;;;active;;\n"
+            . ";;2017;;;Rappe;;;;active;;\n" // Name fehlt -> ungültig
+            . "Ungueltiges Jahr {$unique};;zwanzigsiebzehn;;;Schimmel;;;;active;;\n" // ungültiges Geburtsjahr -> ungültig
+            . "Ungueltiges Geschlecht {$unique};;2017;;;Fuchs;Zwitter;;;active;;\n" // ungültiges Geschlecht -> ungültig
+            . "Datum Konflikt {$unique};;2001;2017-04-02;;;;;;active;;\n" // birth_date vs birth_year -> ungültig
+            . "Stockmass Zwerg {$unique};;2017;;;;;;30;active;;\n" // Stockmaß außerhalb 50-250 -> ungültig
+            . "Tod vor Geburt {$unique};;2017;;;;;;;active;;1990\n" // death_year < birth_year -> ungültig
+            . "Verstorben Kaputt {$unique};;2017;;;;;;;active;vielleicht;\n" // ungültiger deceased-Wert -> ungültig
+            . "Genauigkeit Kaputt {$unique};;;01.01.1980;ungefaehr;;;;;active;;\n" // ungültige Genauigkeit -> ungültig
+            . "Genauigkeit Ohne Datum {$unique};;1980;;jahr;;;;;active;;\n"; // Genauigkeit ohne Datum -> ungültig
 
         $previewResponse = $admin->postFile(
             '/admin/import/horses/preview',
@@ -82,7 +88,7 @@ class HorseCsvImportTest extends FunctionalTestCase {
         );
 
         $this->assertSame(200, $previewResponse->statusCode);
-        $this->assertStringContainsString('3 von 10 Zeilen', $this->stripHtml($previewResponse->body), "Vorschau sollte 3 gültige von 10 Zeilen zeigen, Body: {$previewResponse->body}");
+        $this->assertStringContainsString('4 von 13 Zeilen', $this->stripHtml($previewResponse->body), "Vorschau sollte 4 gültige von 13 Zeilen zeigen, Body: {$previewResponse->body}");
         $this->assertStringContainsString($validName, $previewResponse->body);
         $this->assertStringContainsString('Name fehlt', $previewResponse->body);
         $this->assertStringContainsString('ungültig', $previewResponse->body);
@@ -91,6 +97,8 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertStringContainsString('Stockmaß &#039;30&#039; ist ungültig', $previewResponse->body);
         $this->assertStringContainsString('liegt vor dem Geburtsjahr', $previewResponse->body);
         $this->assertStringContainsString('Verstorben-Angabe &#039;vielleicht&#039; ist ungültig', $previewResponse->body);
+        $this->assertStringContainsString('Genauigkeit &#039;ungefaehr&#039; ist ungültig', $previewResponse->body);
+        $this->assertStringContainsString('ohne Geburtsdatum', $previewResponse->body);
 
         // Ohne gesetzte Veröffentlichen-Checkbox: importierte Pferde bleiben - wie jedes
         // neu angelegte Pferd - standardmäßig unveröffentlicht (is_published = 0). Die
@@ -102,8 +110,8 @@ class HorseCsvImportTest extends FunctionalTestCase {
 
         $this->assertSame(200, $commitResponse->statusCode);
         $commitText = $this->stripHtml($commitResponse->body);
-        $this->assertStringContainsString('3 Pferd(e) erfolgreich importiert', $commitText, "Body: {$commitResponse->body}");
-        $this->assertStringContainsString('7 Zeile(n) wegen Fehlern übersprungen', $commitText);
+        $this->assertStringContainsString('4 Pferd(e) erfolgreich importiert', $commitText, "Body: {$commitResponse->body}");
+        $this->assertStringContainsString('9 Zeile(n) wegen Fehlern übersprungen', $commitText);
 
         // Tatsächlich in der DB gelandet: genau die eine gültige Zeile. Verifiziert
         // über die Backend-Liste statt über die öffentliche API, da importierte Pferde
@@ -132,6 +140,19 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertSame('2017-04-02', $row['birth_date'], 'Deutsches Datumsformat 02.04.2017 muss als ISO gespeichert werden');
         $this->assertSame(2017, (int)$row['birth_year']);
         $this->assertSame(146, (int)$row['height_cm']);
+
+        // Genauigkeit (#379): ohne Spaltenwert bleibt es tagesgenau, mit
+        // "Jahr" wird daraus 'year' - und das Datum bleibt trotzdem stehen.
+        // Das beweist, dass ImportController den Wert wirklich SCHREIBT und
+        // der Importer ihn nicht nur validiert.
+        $stmt = $db->prepare("SELECT birth_date, birth_date_precision FROM horses WHERE name = ?");
+        $stmt->execute([$validName]);
+        $this->assertSame('day', (string)$stmt->fetch()['birth_date_precision'], 'Ohne Spaltenwert bleibt es tagesgenau.');
+
+        $stmt->execute([$jahrName]);
+        $row = $stmt->fetch();
+        $this->assertSame('year', (string)$row['birth_date_precision'], 'Der Alias "Jahr" muss case-insensitiv auf year abgebildet werden.');
+        $this->assertSame('1976-01-01', (string)$row['birth_date'], 'Das Quelldatum bleibt erhalten - ausgegeben wird nur anders.');
 
         // Legacy status=deceased -> inactive + is_deceased=1, Todesjahr gesetzt.
         $stmt = $db->prepare("SELECT status, is_deceased, death_year, birth_year FROM horses WHERE name = ?");

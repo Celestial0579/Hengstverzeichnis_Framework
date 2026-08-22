@@ -301,8 +301,8 @@ einzigen Abfrage laden statt im Callback selbst zu queryen.
 
 **Achtung, `$horse` ist hier schmaler als bei `horse.detail_sections`:**
 Die Katalog-Query liefert eine feste Spaltenteilmenge (`id`, `name`, `ueln`,
-`foreign_ueln`, `birth_year`, `birth_date`, `color`, `status`, `is_deceased`,
-`death_year`, `image_url`,
+`foreign_ueln`, `birth_year`, `birth_date`, `birth_date_precision`, `color`,
+`status`, `is_deceased`, `death_year`, `image_url`,
 `breeding_station`, `station_name`, verknüpfte/unverknüpfte Elternnamen,
 `breeder_name`, `owner_name`). Insbesondere fehlen `description`,
 `sire_id`/`dam_id` und sämtliche Stations-Kontaktfelder
@@ -430,6 +430,12 @@ darauf verlassen, dass ein Feld gesetzt ist, nur weil der Datensatz im
 Admin-Bereich gepflegt ist. Ein fehlendes Feld ist kein Fehler, sondern die
 Zusicherung, dass diese Angabe öffentlich nicht gezeigt werden darf — ein Plugin
 darf sie dann auch nicht per eigener Abfrage nachladen und ausgeben.
+
+> **Wer `birth_date` ausgibt, prüft `birth_date_precision`** (#379). Steht
+> dort `year`, ist nur das Jahr bekannt und Monat/Tag sind Platzhalter — in
+> dieser Branche der 1. Januar, im Altbestand bei knapp der Hälfte aller
+> Pferde. Ein Addon, das das Rohdatum rendert, behauptet einen Tag, den keine
+> Quelle hergibt. `birth_year` ist die Angabe, die immer stimmt.
 
 **`$horse`** enthält alle Spalten von `horses` (siehe `database/schema.sql`) plus
 die Deckstationsfelder `station_name`, `station_contact`, `station_address`,

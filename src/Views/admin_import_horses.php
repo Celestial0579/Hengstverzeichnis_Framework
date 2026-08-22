@@ -126,13 +126,16 @@ $canPublish = $canPublish ?? false;
 
         <div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem;">
             <strong>Unterstützte Spalten:</strong>
-            <code>name*, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, birth_date, color, sex, breed, height_cm, breeding_station, description, status, deceased, death_year</code>
+            <code>name*, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, birth_date, birth_date_precision, color, sex, breed, height_cm, breeding_station, description, status, deceased, death_year</code>
             <br>
             <span style="color: var(--text-muted);">
                 <code>status</code>: active/inactive = Zuchtstatus (Standard: active; der Alt-Wert deceased wird
                 als inactive + verstorben übernommen).
                 <code>deceased</code>: ja/nein bzw. 1/0; ein gesetztes <code>death_year</code> setzt verstorben automatisch.
                 <code>birth_date</code>: JJJJ-MM-TT oder TT.MM.JJJJ - das Geburtsjahr wird daraus abgeleitet.
+                <code>birth_date_precision</code>: tag/jahr (Standard: tag). „jahr“ heißt, dass nur das Jahr bekannt
+                ist und Monat und Tag Platzhalter sind - die öffentliche Seite zeigt dann nur das Jahr. Wer das
+                Jahr ohnehin nur als Jahr kennt, lässt <code>birth_date</code> einfach leer.
                 <code>height_cm</code>: Stockmaß in cm (50-250).
                 <code>sex</code>: stallion/hengst, mare/stute, gelding/wallach (leer = unbekannt). <code>sire_name</code>/<code>dam_name</code>
                 werden wie bei der manuellen Einzelanlage als unverknüpfter Freitext gespeichert - siehe

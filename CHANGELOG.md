@@ -8,6 +8,49 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Neu
+
+- **Das Geburtsdatum sagt jetzt, wie genau es gemeint ist** (#379).
+  Neue Spalte `horses.birth_date_precision` (`day` | `year`, Vorgabe `day`),
+  **SCHEMA_VERSION 18**.
+
+  Der Anlass: `birth_date` trug im Altbestand bei **887 von 1885** Pferden den
+  **1. Januar** — nicht als Geburtstag, sondern als Platzhalter für ein bloß
+  bekanntes Jahr. Die Monatsverteilung schließt einen Zufall aus (888 im
+  Januar gegen 11 im Februar; Fjordpferde fohlen im Frühjahr). Die
+  Detailseite zeigte trotzdem „01.01.1976", wo „1976" die ehrliche Aussage
+  wäre.
+
+  **Es ist kein Datenfehler.** Der Platzhalter steckt schon in der
+  Migrationsquelle, und die Crawler-Belege von rimondo und haststam tragen ihn
+  selbst. Das Datum bleibt deshalb gespeichert — wer es leert, holt es sich
+  beim nächsten Abgleich zurück und verliert nebenbei die Pferde, die
+  wirklich am 1. Januar geboren sind. Geändert hat sich, was daraus gemacht
+  wird.
+
+  Wirksam an vier Stellen: öffentliche Detailseite (zeigt dann Geburts**jahr**
+  statt Datum, samt Beschriftung), Admin-Formular (neues Auswahlfeld),
+  CSV-Import (Spalte `birth_date_precision`, Werte `tag`/`jahr` oder
+  `day`/`year`) und **JSON-API** (neues Feld `birth_date_precision` — ohne das
+  reproduzierte jeder Konsument denselben Fehler).
+
+  **Auch der Datumsbereichsfilter überspringt jetzt jahresgenaue Zeilen.** Das
+  ist keine Feinheit: `birth_date_from`/`birth_date_to` sind über den
+  öffentlichen Katalog erreichbar, das Eingabefeld gibt es nur im
+  Adminbereich. Eine Abfrage vom 01.01.1976 bis zum 01.01.1976 lieferte sonst
+  exakt die Platzhalter und sähe aus wie eine Aussage über Neujahrsgeburten.
+  Wer jahrgenau sucht, nimmt `birth_year_from`/`birth_year_to`.
+
+  **Es gibt kein Backfill, und das ist Absicht.** Welche 1.-Januar-Zeile ein
+  Platzhalter ist und welche eine echte Neujahrsgeburt, kann nur die jeweilige
+  Instanz entscheiden — eine Migration, die das rät, kennzeichnet echte
+  Neujahrsgeburten falsch, unumkehrbar und ohne dass es jemandem auffiele.
+  Vorgabe `day` heißt: **Ein Bestand sieht nach dem Update aus wie vorher.**
+  Die Pflege ist eine bewusste Entscheidung je Datensatz.
+
+  **Für Addon-Autoren:** Wer `birth_date` ausgibt, prüft `birth_date_precision`
+  — sonst behauptet das Addon einen Tag, den keine Quelle hergibt.
+
 ## [0.9.0] – 2026-08-22
 
 Abschluss der 0.9er-Linie. Zehn Themen, vier Betas, und **drei Bruchstellen**,

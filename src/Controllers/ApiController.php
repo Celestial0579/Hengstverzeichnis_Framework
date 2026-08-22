@@ -148,7 +148,7 @@ class ApiController extends JsonApiController {
         // nichts verloren (Lehre aus #293).
         $stmt = $db->prepare("
             SELECT
-                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.color, h.sex, h.breed, h.height_cm, h.status, h.is_deceased, h.death_year, h.image_url,
+                h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.birth_date_precision, h.color, h.sex, h.breed, h.height_cm, h.status, h.is_deceased, h.death_year, h.image_url,
                 CASE WHEN h.breeding_station_id IS NOT NULL AND bs.id IS NULL
                      THEN NULL ELSE h.breeding_station END AS breeding_station,
                 bs.name AS station_name,
@@ -298,6 +298,11 @@ class ApiController extends JsonApiController {
             'foreign_ueln' => $row['foreign_ueln'],
             'birth_year' => $row['birth_year'] !== null ? (int)$row['birth_year'] : null,
             'birth_date' => $row['birth_date'],
+            // Wie genau `birth_date` gemeint ist (#379). Ohne diese Angabe
+            // reproduziert jeder Konsument denselben Fehler wie die Seite es
+            // tat: 'year' heisst, dass Monat und Tag Platzhalter sind - in
+            // dieser Branche der 1. Januar.
+            'birth_date_precision' => $row['birth_date_precision'],
             'color' => $row['color'],
             'sex' => $row['sex'],
             'breed' => $row['breed'],

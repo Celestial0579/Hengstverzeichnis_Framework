@@ -607,6 +607,7 @@ $medienMarker = (string)($_GET['media'] ?? '');
             <div class="form-group">
                 <label for="media_video">Video-Link</label>
                 <input type="url" id="media_video" name="video_url" class="form-control" placeholder="https://www.youtube.com/watch?v=…">
+                <small style="color: var(--text-muted);">Nur YouTube und Vimeo, nur <code>https</code>.</small>
             </div>
             <div class="form-group">
                 <label for="media_caption">Bildunterschrift</label>

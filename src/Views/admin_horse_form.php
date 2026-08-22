@@ -575,7 +575,7 @@ $medienMarker = (string)($_GET['media'] ?? '');
                 <tr style="border-bottom: 1px solid var(--border-color);">
                     <td style="padding: 0.4rem 0.6rem 0.4rem 0;">
                         <?php if ($medium['type'] === 'image'): ?>
-                            <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id']) ?? '') ?>"
+                            <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id'], 'thumb') ?? '') ?>"
                                  alt="" loading="lazy" decoding="async"
                                  style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);">
                         <?php else: ?>

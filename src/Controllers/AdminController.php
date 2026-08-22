@@ -286,6 +286,18 @@ class AdminController extends BaseController {
         // Standard-Gruppe für neue Konten. admin/public sind als Standard-
         // Gruppe serverseitig ausgeschlossen (fail-safe: ungültige Werte
         // werden als "keine Gruppe" gespeichert).
+        // Vorschaubilder (#397). Ohne GD wird der Schalter im Formular
+        // `disabled` gerendert und kommt gar nicht erst mit - der Wert bliebe
+        // dann still auf 0 stehen, was richtig ist. Gespeichert wird er
+        // trotzdem nur, wenn GD da ist: Sonst traegt die Datenbank eine
+        // Zusage, die diese Installation nicht halten kann, und ein spaeteres
+        // Nachruesten von GD schaltete das Verhalten unangekuendigt um.
+        if (\App\Service\Thumbnails::gdVorhanden()) {
+            $thumbnails = !empty($_POST['horse_thumbnails']) ? '1' : '0';
+            $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('horse_thumbnails', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+            $stmt->execute([$thumbnails, $thumbnails]);
+        }
+
         $registrationEnabled = !empty($_POST['registration_enabled']) ? '1' : '0';
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('registration_enabled', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
         $stmt->execute([$registrationEnabled, $registrationEnabled]);

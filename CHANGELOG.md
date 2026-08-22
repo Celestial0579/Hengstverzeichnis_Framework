@@ -8,6 +8,43 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Neu
+
+- **Vorschaubilder für Pferdefotos — abschaltbar, Vorgabe aus** (#397).
+
+  Bisher lieferte das Verzeichnis **überall das Originalfoto** aus und
+  verkleinerte es nur per CSS: in der Medientabelle auf 64×64, in der
+  Verwaltungsliste auf 45×45, auf der Galeriekachel auf 120 px. Ein Foto aus
+  einer Handykamera hat 3–5 MB; eine Liste mit fünfzig Zeilen überträgt
+  fünfzig davon, um Briefmarken daraus zu machen.
+
+  Neu gibt es verkleinerte Fassungen in zwei Größen, erzeugt beim ersten
+  Abruf und danach wiederverwendet. Betroffen sind Galeriekachel,
+  Medientabelle, Verwaltungsliste, Katalogkarte und das Hero-Bild. **Die
+  Lightbox zeigt weiterhin das Original** — sonst hätte die Verbesserung die
+  Großansicht verschlechtert.
+
+  **Der Betreiber entscheidet**, unter Systemeinstellungen →
+  „Vorschaubilder für Pferdefotos". Vorgabe ist **aus**: Ein Update darf das
+  Verhalten eines Bestands nicht ändern. Ohne den Schalter liefert dieselbe
+  Adresse Byte für Byte dasselbe wie vorher.
+
+  **Und es braucht die PHP-Erweiterung `gd`.** Die ist im offiziellen
+  Docker-Image bewusst nicht enthalten — ein Bilddecoder liest fremde
+  Binärdaten und ist damit zusätzliche Angriffsfläche. Fehlt sie, ist der
+  Schalter sichtbar, aber gesperrt, und nennt den Grund. Wer die
+  Vorschaubilder will, ergänzt `gd` im eigenen Image.
+
+  Die Auslieferung geht durch **dieselbe Route mit denselben Prüfungen** wie
+  das Original: Die Verkleinerung passiert erst *nach* Sichtbarkeits-,
+  Rechte- und Referer-Prüfung. Eine Vorschau eines unveröffentlichten Pferds
+  ist genauso wenig abrufbar wie dessen Original. Gelöschte Medien nehmen
+  ihre Vorschaubilder mit.
+
+  Jeder Fehlschlag endet beim Original — kein Bild, das nicht dekodierbar
+  ist, kein Foto, das kleiner wäre als seine Vorschau, und keine Datei, deren
+  Aufbau das Speicherlimit sprengen würde (Schranke bei 50 Megapixeln).
+
 ### Behoben
 
 - **Eine Bildanfrage löschte die Sprachwahl des Besuchers** (#378,

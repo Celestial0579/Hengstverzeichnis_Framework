@@ -356,5 +356,10 @@ final class HorseMedia {
                 @unlink($pfad);
             }
         }
+
+        // Die abgeleiteten Vorschaubilder gehen mit (#397). Ohne diese Zeile
+        // bliebe je geloeschtem Medium eine Waise in der Ablage liegen - und
+        // die faellt erst auf, wenn jemand die Dateien zaehlt.
+        Thumbnails::entfernen($spaltenwert);
     }
 }

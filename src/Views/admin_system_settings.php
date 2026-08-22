@@ -143,6 +143,41 @@
             </details>
         </div>
 
+        <?php // Vorschaubilder (#397). Zwei Bedingungen muessen zutreffen:
+              // die Erweiterung GD ist da UND der Betreiber hat es
+              // eingeschaltet. Fehlt GD, bleibt der Schalter sichtbar, aber
+              // gesperrt - ein Kaestchen, das man ankreuzen kann und das
+              // nichts tut, waere schlimmer als eines, das seinen Grund
+              // nennt. ?>
+        <?php $gd = App\Service\Thumbnails::gdVorhanden(); ?>
+        <div class="form-group" style="margin-top: 1.5rem;">
+            <label>🖼 Vorschaubilder für Pferdefotos</label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: normal; <?= $gd ? 'cursor: pointer;' : 'cursor: not-allowed; opacity: 0.6;' ?>">
+                <input type="checkbox" name="horse_thumbnails" value="1"
+                       <?= ($settings['horse_thumbnails'] ?? '0') === '1' ? 'checked' : '' ?>
+                       <?= $gd ? '' : 'disabled' ?>
+                       style="width: 16px; height: 16px;">
+                Verkleinerte Fassungen erzeugen und in Listen und Galerien ausliefern
+            </label>
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                Standard: aus. Ohne diese Einstellung liefert das Verzeichnis überall das
+                Originalfoto aus und verkleinert es nur per CSS — ein Foto aus einer
+                Handykamera geht dann mit mehreren Megabyte über die Leitung, um als
+                Vorschaubild dargestellt zu werden. Das Original bleibt in jedem Fall
+                erhalten; die Detailansicht und der Download zeigen es unverändert.
+            </small>
+            <?php if (!$gd): ?>
+                <div style="background: var(--warning-soft-bg, var(--surface-muted)); border-left: 3px solid var(--warning-fg, var(--text-muted)); padding: 0.6rem 0.8rem; margin-top: 0.5rem; font-size: 0.85rem;">
+                    <strong>Auf dieser Installation nicht verfügbar.</strong>
+                    Zum Verkleinern braucht PHP die Erweiterung <code>gd</code>; sie ist hier nicht
+                    geladen. Das offizielle Docker-Image bringt sie bewusst nicht mit — ein
+                    Bilddecoder liest fremde Binärdaten und ist damit eine zusätzliche
+                    Angriffsfläche. Wer die Vorschaubilder will, ergänzt <code>gd</code> im
+                    eigenen Image; danach lässt sich der Schalter hier setzen.
+                </div>
+            <?php endif; ?>
+        </div>
+
         <div class="form-group" style="margin-top: 1.5rem;">
             <label>📝 Selfservice-Registrierung</label>
             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal;">

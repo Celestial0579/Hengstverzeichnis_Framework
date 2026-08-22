@@ -229,13 +229,24 @@ class UpdateController extends BaseController {
         // können - er ist ja gerade der Ausweg, den die Automatik verweigert.
         // Das Pflicht-Backup ZUERST, noch vor der Release-Abfrage.
         //
-        // performUpdate() prueft es ohnehin - aber erst nach einem Gang ins
-        // Netz. Eine Installation ohne eingerichtetes Backup holte damit die
-        // Release-Liste, nur um danach abzubrechen; und ist das Netz gerade
-        // nicht erreichbar, bekam der Betreiber "Release-Pruefung
-        // fehlgeschlagen" statt des wahren Grundes und suchte am falschen
-        // Ende. Die Meldung selbst steht in UpdateService, damit es sie nur
-        // einmal gibt.
+        // performUpdate() prueft es ohnehin und hat es immer schon als Erstes
+        // getan - hier ging aber die Release-Abfrage davor, und die geht ins
+        // Netz. Eine Installation ohne eingerichtetes Backup holte damit
+        // zuerst die Release-Liste von GitHub, um danach an einer Bedingung
+        // zu scheitern, die ohne jeden Netzzugriff feststeht. Der Test
+        // testRunIsRejectedWithoutConfiguredBackup lief deshalb regelmaessig
+        // in ein Zehn-Sekunden-Timeout, sobald GitHub langsam war.
+        //
+        // Beide Meldungen waeren fuer sich richtig: Ein nicht erreichbarer
+        // Release-Server IST eine fehlgeschlagene Release-Pruefung. Gemeldet
+        // wird aber nur die zuerst gescheiterte Bedingung, und dafuer ist
+        // diese hier die nuetzlichere - sie haengt allein an der eigenen
+        // Konfiguration.
+        //
+        // Die Reihenfolge INNERHALB von performUpdate() haelt
+        // UpdateRunTest::testTheBackupGuardRunsBeforeTheReleaseLookup() fest.
+        // Diese Zeile hier ist davon unabhaengig und spart nur den Umweg; die
+        // Meldung selbst steht in UpdateService, damit es sie nur einmal gibt.
         $hindernis = UpdateService::backupHindernis();
         if ($hindernis !== null) {
             header("Location: /admin/updates?error=" . urlencode($hindernis));

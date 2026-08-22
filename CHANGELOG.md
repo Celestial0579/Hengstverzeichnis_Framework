@@ -82,12 +82,25 @@ gelesen**. Jetzt gibt es sie wirklich, mit zwei Tests.
   `public/` + `image_url` — also im Webroot, wo seit #366 keine Pferdefotos mehr
   liegen. Die Spalte wurde geleert, die Datei blieb stehen. Der Zweig ist mit
   dem Feld entfallen.
-- **Ein Update ohne eingerichtetes Backup bricht jetzt ab, bevor es ins Netz
-  geht.** Bisher holte `/admin/updates/run` erst die Release-Liste von GitHub,
-  um dann am Pflicht-Backup zu scheitern — und war GitHub gerade nicht
-  erreichbar, bekam der Betreiber „Release-Prüfung fehlgeschlagen" statt des
-  wahren Grundes und suchte am falschen Ende. Die Meldung selbst gibt es
-  weiterhin nur einmal (`UpdateService::backupHindernis()`).
+- **`/admin/updates/run` prüft das Pflicht-Backup, bevor es die Release-Liste
+  holt.** `performUpdate()` prüfte es immer schon als Erstes — im Controller
+  lief die Release-Abfrage aber davor, und die geht ins Netz. Eine Installation
+  ohne eingerichtetes Backup holte damit erst die Liste von GitHub, um danach
+  an einer Bedingung zu scheitern, die ohne jeden Netzzugriff feststeht.
+
+  Das ist **keine** Korrektur einer falschen Meldung: Antwortet GitHub nicht,
+  *ist* die Release-Prüfung fehlgeschlagen, und „Release-Prüfung
+  fehlgeschlagen" war zutreffend — es betrifft nur etwas anderes als das
+  Backupziel. Gemeldet wird aber nur die zuerst gescheiterte Bedingung, und
+  dafür ist das Backup die nützlichere: Sie hängt allein an der eigenen
+  Konfiguration.
+
+  Mitgenommen: Die Reihenfolge innerhalb von `performUpdate()` war bis dahin
+  **nicht geprüft**. Der vorhandene Test veröffentlichte ein Release, also kam
+  auch ohne den frühen Wächter am Ende `BackupService::run()` mit einer
+  Meldung, in der ebenfalls „Backup" steht — er wäre grün geblieben, wenn der
+  Wächter ersatzlos verschwände. Jetzt zeigt die Release-Quelle im Test ins
+  Leere, und der Unterschied wird sichtbar.
 - **Video-Links: nur YouTube und Vimeo, nur `https`.** Der erste Wurf des
   Kernmoduls prüfte nur das Schema — das Addon hatte längst eine Host-Allowlist
   und baute die URL aus den geprüften Teilen **neu**, statt die Eingabe

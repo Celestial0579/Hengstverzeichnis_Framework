@@ -6,7 +6,14 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
-## [Unreleased]
+## [0.9.0-beta.4] – 2026-08-22
+
+Drittes Beta der 0.9er-Linie: **Galerie im Kern** (#339) und **Sprachen als
+Addons** (#344). Beides sind Bruchstellen mit Wirkung auf bestehende
+Installationen — die Kästen unten lesen, bevor eingespielt wird.
+
+> Der passende Addons-Release ist `v0.9.0-beta.4`: Er enthält die zehn
+> Sprach-Addons und **nicht mehr** das Addon `galerie`.
 
 ### Neu
 

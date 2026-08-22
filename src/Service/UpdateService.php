@@ -510,12 +510,22 @@ class UpdateService {
      * Der Grund, aus dem ein Update gar nicht erst beginnen darf - oder null.
      *
      * AN EINER STELLE, WEIL ZWEI AUFRUFER IHN BRAUCHEN. performUpdate()
-     * prueft ihn als Letztes vor dem Zugriff; der Controller prueft ihn als
-     * ERSTES, noch vor der Release-Abfrage. Sonst holt eine Installation ohne
-     * eingerichtetes Backup erst die Release-Liste aus dem Netz, um dem
-     * Betreiber dann mitzuteilen, dass sein Backup fehlt - und ist das Netz
-     * gerade nicht da, bekommt er stattdessen "Release-Pruefung
-     * fehlgeschlagen" und sucht am falschen Ende.
+     * prueft ihn als Erstes; der Controller ebenfalls, noch vor der
+     * Release-Abfrage.
+     *
+     * WARUM VOR DER RELEASE-ABFRAGE. Das fehlende Backup und ein nicht
+     * erreichbarer Release-Server sind ZWEI VERSCHIEDENE Dinge, und beide
+     * Meldungen sind fuer sich genommen richtig - "Release-Pruefung
+     * fehlgeschlagen" ist keine Falschaussage, wenn GitHub gerade nicht
+     * antwortet. Gemeldet wird aber nur die Bedingung, die zuerst scheitert,
+     * und dafuer ist diese hier die bessere: Sie haengt allein an der eigenen
+     * Konfiguration, ist ohne Netz feststellbar und muss ohnehin erfuellt
+     * sein, bevor irgendetwas passiert. Wer sie zuerst hoert, kann sofort
+     * etwas tun; wer zuerst "Release-Pruefung fehlgeschlagen" hoert, wartet
+     * auf das Netz und stoesst danach trotzdem auf das Backup.
+     *
+     * Der Nebeneffekt ist ein Netzzugriff weniger, aber das ist nicht der
+     * Grund.
      */
     public static function backupHindernis(): ?string {
         if (BackupService::isConfigured(self::loadSettings())) {

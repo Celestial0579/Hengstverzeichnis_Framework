@@ -222,6 +222,46 @@ class UpdateRunTest extends TestCase {
     }
 
     /**
+     * Das Pflicht-Backup wird geprüft, BEVOR die Release-Liste geholt wird.
+     *
+     * WARUM DAS EINEN EIGENEN TEST BRAUCHT. Der Test darüber belegt die
+     * Reihenfolge nicht: Er veröffentlicht ein Release, also käme auch ohne
+     * den frühen Wächter am Ende `BackupService::run()` und würfe eine
+     * Meldung, in der ebenfalls "Backup" steht. Eine Gegenprobe zeigte genau
+     * das — der Wächter liess sich ersatzlos löschen, ohne dass ein Test rot
+     * wurde.
+     *
+     * Hier zeigt die Release-Quelle deshalb ins Leere. Greift der Wächter,
+     * kommt die Backup-Meldung; greift er nicht, scheitert vorher die
+     * Release-Abfrage mit einer ganz anderen Meldung. Das ist der Unterschied,
+     * um den es geht.
+     *
+     * Beide Meldungen wären für sich richtig - ein nicht erreichbarer
+     * Release-Server IST eine fehlgeschlagene Release-Prüfung. Gemeldet werden
+     * soll aber die Bedingung, die der Betreiber selbst in der Hand hat und
+     * die ohnehin erfüllt sein muss.
+     */
+    public function testTheBackupGuardRunsBeforeTheReleaseLookup(): void {
+        UpdateService::overrideBaseDirForTests($this->makeTempDir());
+        // Kein publishRelease() - stattdessen eine Adresse, die niemand bedient.
+        putenv('UPDATE_RELEASES_URL=http://127.0.0.1:1/gibt-es-nicht.json');
+
+        try {
+            UpdateService::performUpdate();
+            $this->fail('performUpdate() muss ohne eingerichtetes Backup abbrechen.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString(
+                'Backups',
+                $e->getMessage(),
+                'Erwartet wird die Backup-Meldung - kommt stattdessen ein Netzfehler, '
+                . 'lief die Release-Abfrage vor dem Waechter.'
+            );
+        } finally {
+            $this->assertFalse(Maintenance::isActive());
+        }
+    }
+
+    /**
      * Ein Release ohne SHA256SUMS.txt darf nicht eingespielt werden: Ohne
      * Prüfsumme ist nicht feststellbar, ob das Archiv unversehrt ist - und
      * sein Inhalt läuft danach als PHP.

@@ -35,8 +35,19 @@ class AddonStoreAdminTest extends FunctionalTestCase {
     protected function setUp(): void {
         parent::setUp();
 
+        self::katalogCacheBelegen();
+    }
+
+    /**
+     * Belegt den Katalog-Cache ALLER Repos - auch der erst im Test
+     * angelegten. Ein Repo ohne Cache loest beim naechsten Aufruf der
+     * Store-Seite einen Live-Abruf aus, und der laeuft ohne Netz zehn
+     * Sekunden ins Timeout.
+     */
+    private static function katalogCacheBelegen(): void {
         \App\Database::getInstance()->exec(
-            "UPDATE addon_repos SET cached_catalog_json = '[]', cached_at = NOW() WHERE is_official = 1"
+            "UPDATE addon_repos SET cached_catalog_json = '[]', cached_at = NOW()
+             WHERE cached_catalog_json IS NULL OR cached_at IS NULL"
         );
     }
 
@@ -88,6 +99,10 @@ class AddonStoreAdminTest extends FunctionalTestCase {
             'repo_url' => "https://github.com/someuser/{$repoName}",
         ]);
         $this->assertSame('/admin/plugins/store?success=repo_added', $addResponse->location());
+
+        // Das eben angelegte Repo hat noch keinen Cache - ohne diese Zeile
+        // holt die naechste Seite seinen Katalog live von api.github.com.
+        self::katalogCacheBelegen();
 
         $storePage = $admin->get('/admin/plugins/store');
         $this->assertStringContainsString($repoName, $storePage->body);

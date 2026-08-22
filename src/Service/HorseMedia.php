@@ -259,11 +259,34 @@ final class HorseMedia {
     }
 
     /**
-     * Prueft einen Video-Link.
+     * Erlaubte Video-Hosts. Nur bekannte Plattformen, ausschliesslich https.
      *
-     * Nur http/https. Der Wert landet in einem `href` auf einer oeffentlichen
-     * Seite - `javascript:` und `data:` haetten dort nichts zu suchen, und
-     * ein Redakteur mit `horses.edit` ist kein Grund, darauf zu verzichten.
+     * Uebernommen aus dem abgeloesten Addon `galerie` (#339) - dort war es
+     * schon so, und eine Kern-Fassung, die nur "irgendein http(s)-Link"
+     * pruefte, waere hinter dem Stand zurueck, den sie ersetzt.
+     *
+     * @var array<int, string>
+     */
+    public const VIDEO_HOSTS = [
+        'www.youtube.com', 'youtube.com', 'youtu.be',
+        'vimeo.com', 'www.vimeo.com',
+    ];
+
+    /**
+     * Prueft einen Video-Link und gibt ihn NEU GEBAUT zurueck.
+     *
+     * WARUM NEU GEBAUT UND NICHT DURCHGEREICHT. Die Pruefung macht PHPs
+     * parse_url(), angezeigt wird die Zeichenkette spaeter im Browser - also
+     * in einem anderen Parser. Solange die Eingabe unveraendert
+     * durchgereicht wird, haengt die Sicherheit daran, dass beide Parser
+     * jede Eingabe gleich lesen; Abweichungen zwischen Parsern sind der
+     * Stoff, aus dem Allowlist-Umgehungen gemacht sind (Benutzerinfo vor dem
+     * @, Rueckwaertsschraegstriche, Steuerzeichen, doppelte Fragmente).
+     *
+     * Wird die URL aus den geprueften Teilen zusammengesetzt, ist die Frage
+     * gegenstandslos: Was der Browser sieht, ist per Konstruktion das, was
+     * hier geprueft wurde. Benutzerinfo und Fragment fallen dabei ganz weg -
+     * beide haben in einer Video-Adresse nichts zu suchen.
      */
     public static function gepruefterVideoLink(?string $url): ?string {
         $url = trim((string)($url ?? ''));
@@ -272,11 +295,32 @@ final class HorseMedia {
         }
 
         $teile = parse_url($url);
-        if (!is_array($teile) || !in_array($teile['scheme'] ?? '', ['http', 'https'], true) || ($teile['host'] ?? '') === '') {
+        if (!is_array($teile) || ($teile['scheme'] ?? '') !== 'https' || ($teile['host'] ?? '') === '') {
             return null;
         }
 
-        return mb_substr($url, 0, 255);
+        $host = mb_strtolower((string)$teile['host'], 'UTF-8');
+        if (!in_array($host, self::VIDEO_HOSTS, true)) {
+            return null;
+        }
+
+        $neu = 'https://' . $host;
+        if (isset($teile['port'])) {
+            $neu .= ':' . (int)$teile['port'];
+        }
+        $neu .= $teile['path'] ?? '/';
+        if (($teile['query'] ?? '') !== '') {
+            $neu .= '?' . $teile['query'];
+        }
+
+        // Steuerzeichen koennen in Pfad und Query stehen, ohne dass
+        // parse_url stolpert - in einem Attribut beenden sie unter Umstaenden
+        // den Wert.
+        if (preg_match('/[\x00-\x1F\x7F"\'<>\\\\]/', $neu) === 1) {
+            return null;
+        }
+
+        return mb_strlen($neu, 'UTF-8') > 255 ? null : $neu;
     }
 
     /**

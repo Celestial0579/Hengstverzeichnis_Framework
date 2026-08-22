@@ -47,6 +47,12 @@ gelesen**. Jetzt gibt es sie wirklich, mit zwei Tests.
   `public/` + `image_url` — also im Webroot, wo seit #366 keine Pferdefotos mehr
   liegen. Die Spalte wurde geleert, die Datei blieb stehen. Der Zweig ist mit
   dem Feld entfallen.
+- **Video-Links: nur YouTube und Vimeo, nur `https`.** Der erste Wurf des
+  Kernmoduls prüfte nur das Schema — das Addon hatte längst eine Host-Allowlist
+  und baute die URL aus den geprüften Teilen **neu**, statt die Eingabe
+  durchzureichen. Eine Kern-Fassung, die schwächer prüft als das Addon, das sie
+  ersetzt, ist der unangenehmste Fall beim Übernehmen: Die Oberfläche sieht
+  gleich aus, und es fällt niemandem auf. Prüfung und Tests sind übernommen.
 - `SCHEMA_VERSION` 16 → 17: Tabelle `horse_media`.
 
 ## [0.9.0-beta.3] – 2026-08-22

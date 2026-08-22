@@ -107,7 +107,7 @@ class HorseMediaTest extends TestCase {
      */
     public function testEinVideoKannNichtHauptbildWerden(): void {
         $this->bild('eins.jpg');
-        $video = HorseMedia::hinzufuegen($this->horseId, null, 'https://example.org/video', null);
+        $video = HorseMedia::hinzufuegen($this->horseId, null, 'https://vimeo.com/12345', null);
 
         $this->assertGreaterThan(0, $video);
         $this->assertFalse(HorseMedia::setzeHauptbild($this->horseId, $video));
@@ -153,13 +153,22 @@ class HorseMediaTest extends TestCase {
      * `javascript:` und `data:` haben dort nichts zu suchen - und ein
      * Redakteur mit horses.edit ist kein Grund, darauf zu verzichten.
      */
-    public function testNurHttpUndHttpsAlsVideoLink(): void {
-        foreach (['javascript:alert(1)', 'data:text/html,<script>', 'ftp://example.org/x', 'kein-link'] as $kaputt) {
-            $this->assertNull(HorseMedia::gepruefterVideoLink($kaputt), "'{$kaputt}' haette abgelehnt werden muessen.");
-            $this->assertSame(0, HorseMedia::hinzufuegen($this->horseId, null, $kaputt, null));
+    /**
+     * Nur bekannte Video-Plattformen, nur https - uebernommen aus dem
+     * abgeloesten Addon. Die Feinheiten der Allowlist pruefen
+     * tests/Unit/Service/HorseMediaVideoUrlTest.php; hier geht es darum, dass
+     * die Ablehnung bis in die Tabelle durchschlaegt.
+     */
+    public function testNurErlaubteVideoHostsLandenInDerTabelle(): void {
+        foreach (['javascript:alert(1)', 'http://youtube.com/x', 'https://evil.tld/v', 'kein-link'] as $kaputt) {
+            $this->assertSame(0, HorseMedia::hinzufuegen($this->horseId, null, $kaputt, null), $kaputt);
         }
+        $this->assertSame(0, (int)self::$db->query('SELECT COUNT(*) FROM horse_media')->fetchColumn());
 
-        $this->assertSame('https://example.org/v', HorseMedia::gepruefterVideoLink('https://example.org/v'));
+        $this->assertGreaterThan(
+            0,
+            HorseMedia::hinzufuegen($this->horseId, null, 'https://vimeo.com/12345', null)
+        );
     }
 
     public function testOhneBildUndOhneVideoEntstehtNichts(): void {

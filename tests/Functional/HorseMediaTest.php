@@ -173,7 +173,7 @@ class HorseMediaTest extends FunctionalTestCase {
         $antwort = $admin->post('/admin/horses/media/add', [
             'csrf_token' => 'ungueltig',
             'horse_id' => (string)$pferd,
-            'video_url' => 'https://example.org/v',
+            'video_url' => 'https://vimeo.com/12345',
         ]);
         $this->assertSame(403, $antwort->statusCode);
     }

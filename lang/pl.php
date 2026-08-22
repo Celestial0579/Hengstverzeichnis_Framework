@@ -123,6 +123,8 @@ return [
     'horse.about_heading' => 'O koniu {name}',
     'horse.no_image' => 'Brak zdjęcia.',
     'horse.performance_heading' => '🏆 Osiągnięcia i wyróżnienia',
+    'horse.gallery_heading' => '🖼️ Zdjęcia i filmy',
+    'horse.gallery_watch_video' => 'Obejrzyj film',
     'horse.pedigree_heading' => '🧬 Świadectwo pochodzenia (rodowód)',
     'horse.pedigree_subheading' => 'Interaktywny widok linii krwi',
     'horse.generations_label' => 'Pokolenia:',

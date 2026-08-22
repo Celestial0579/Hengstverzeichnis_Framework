@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 16;
+    public const SCHEMA_VERSION = 17;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -471,6 +471,23 @@ final class SchemaMigrator {
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX (`identifier`, `type`),
             INDEX (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // 11c. Medien je Pferd (#339, SCHEMA_VERSION 17). Siehe
+        // database/schema.sql fuer die Begruendung von `is_main` und dafuer,
+        // warum `horses.image_url` trotzdem bleibt.
+        $createTable('horse_media', "CREATE TABLE IF NOT EXISTS `horse_media` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `horse_id` INT NOT NULL,
+            `type` ENUM('image','video') NOT NULL,
+            `file_name` VARCHAR(255) NULL DEFAULT NULL,
+            `video_url` VARCHAR(255) NULL DEFAULT NULL,
+            `caption` VARCHAR(255) NULL DEFAULT NULL,
+            `is_main` TINYINT(1) NOT NULL DEFAULT 0,
+            `sort_order` INT NOT NULL DEFAULT 0,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_horse_media_horse` (`horse_id`, `sort_order`, `id`),
+            FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // 11b. Einmalcodes fuer den zweiten Faktor per E-Mail (#354,
@@ -1735,6 +1752,171 @@ final class SchemaMigrator {
                 . 'E-Mail gesetzt; die 180-Tage-Frist laeuft ab deren Anlagedatum',
                 $betroffen
             )];
+        });
+
+        // 37b. Galerie in den Kern uebernehmen (#339).
+        //
+        // WAS UEBERNOMMEN WIRD: die Zeilen aus `plugin_galerie_media` und die
+        // zugehoerigen Dateien. Das Addon legte sie unter
+        // storage/plugin_galerie ab (aeltere Staende unter
+        // public/uploads/plugin_galerie); der Kern fuehrt alle Pferdefotos in
+        // storage/horses.
+        //
+        // WARUM ERST DIE DATEI, DANN DIE ZEILE. Bricht der Lauf dazwischen ab,
+        // findet ihn der naechste im selben Zustand wieder: Eine Datei, die
+        // schon am Ziel liegt, wird nicht ueberschrieben, und eine Zeile ohne
+        // Datei entsteht gar nicht erst. Umgekehrt haette ein Abbruch
+        // Medieneintraege hinterlassen, die auf nichts zeigen.
+        //
+        // DAS HAUPTBILD: Ein vorhandenes `horses.image_url` bleibt das
+        // Hauptbild und bekommt eine eigene Medienzeile - sonst kennte die
+        // Medienliste ausgerechnet das wichtigste Bild nicht. Hat ein Pferd
+        // kein Hauptbild, aber Galeriebilder, wird das erste dazu.
+        $dataStep('339_galerie_uebernahme', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('horse_media') || !$tabelleExistiert('horses')) {
+                return null;
+            }
+            // Ohne das Addon gibt es nichts zu uebernehmen - und das ist der
+            // Normalfall, nicht ein Fehler.
+            if (!$tabelleExistiert('plugin_galerie_media')) {
+                return [];
+            }
+
+            // Ueber den Helfer und nicht ueber dirname(): Er ist die eine
+            // Stelle, die die Verzeichnisse kennt - und nur so laesst sich
+            // dieser Schritt pruefen, ohne in die echte Ablage zu schreiben.
+            $ziel = \App\Helper\HorseImagePath::dir();
+            $quellen = \App\Helper\HorseImagePath::galerieLegacyDirs();
+
+            try {
+                $zeilen = $pdo->query(
+                    "SELECT g.id, g.horse_id, g.type, g.file_path, g.video_url, g.caption, g.sort_order
+                     FROM `plugin_galerie_media` g
+                     JOIN `horses` h ON h.id = g.horse_id
+                     ORDER BY g.horse_id ASC, g.sort_order ASC, g.id ASC"
+                )->fetchAll(\PDO::FETCH_ASSOC);
+            } catch (\Throwable $e) {
+                return null;
+            }
+
+            if (!is_dir($ziel) && !mkdir($ziel, 0755, true) && !is_dir($ziel)) {
+                return null;
+            }
+
+            $einfuegen = $pdo->prepare(
+                'INSERT INTO `horse_media` (horse_id, type, file_name, video_url, caption, sort_order)
+                 VALUES (?, ?, ?, ?, ?, ?)'
+            );
+            $schonDa = $pdo->prepare(
+                'SELECT COUNT(*) FROM `horse_media`
+                 WHERE horse_id = ? AND type = ? AND COALESCE(file_name, video_url) = ?'
+            );
+
+            $uebernommen = 0;
+            $ohneDatei = 0;
+
+            foreach ($zeilen as $z) {
+                $typ = (string)$z['type'] === 'video' ? 'video' : 'image';
+                $wert = null;
+
+                if ($typ === 'image') {
+                    $name = basename((string)($z['file_path'] ?? ''));
+                    if ($name === '' || $name === '.' || $name === '..') {
+                        continue;
+                    }
+                    if (!is_file($ziel . '/' . $name)) {
+                        $verschoben = false;
+                        foreach ($quellen as $quelle) {
+                            if (is_file($quelle . '/' . $name) && @rename($quelle . '/' . $name, $ziel . '/' . $name)) {
+                                $verschoben = true;
+                                break;
+                            }
+                        }
+                        if (!$verschoben) {
+                            // Zeile ohne Datei: nicht uebernehmen, sonst
+                            // zeigte ein Medieneintrag ins Leere.
+                            $ohneDatei++;
+                            continue;
+                        }
+                    }
+                    $wert = '/uploads/horses/' . $name;
+                } else {
+                    $wert = trim((string)($z['video_url'] ?? ''));
+                    if ($wert === '') {
+                        continue;
+                    }
+                }
+
+                // Idempotent: Ein zweiter Lauf findet die Zeile wieder.
+                $schonDa->execute([(int)$z['horse_id'], $typ, $wert]);
+                if ((int)$schonDa->fetchColumn() > 0) {
+                    continue;
+                }
+
+                $einfuegen->execute([
+                    (int)$z['horse_id'],
+                    $typ,
+                    $typ === 'image' ? $wert : null,
+                    $typ === 'video' ? $wert : null,
+                    ($z['caption'] ?? '') === '' ? null : mb_substr((string)$z['caption'], 0, 255),
+                    (int)($z['sort_order'] ?? 0),
+                ]);
+                $uebernommen++;
+            }
+
+            // Bestehende Hauptbilder bekommen ihre Medienzeile - vorne in der
+            // Reihenfolge, damit sie beim Anzeigen zuerst kommen.
+            $hauptbilder = (int)$pdo->exec(
+                "INSERT INTO `horse_media` (horse_id, type, file_name, is_main, sort_order)
+                 SELECT h.id, 'image', h.image_url, 1, 0
+                 FROM `horses` h
+                 WHERE h.image_url IS NOT NULL AND h.image_url <> ''
+                   AND NOT EXISTS (SELECT 1 FROM `horse_media` m WHERE m.horse_id = h.id AND m.file_name = h.image_url)"
+            );
+
+            // Pferde ohne Hauptbild, aber mit Bildern: das erste wird es.
+            $pdo->exec(
+                "UPDATE `horse_media` m
+                 JOIN (
+                     SELECT horse_id, MIN(sort_order * 1000000 + id) AS ordnung
+                     FROM `horse_media`
+                     WHERE type = 'image' AND file_name IS NOT NULL
+                     GROUP BY horse_id
+                 ) erste ON erste.horse_id = m.horse_id
+                     AND (m.sort_order * 1000000 + m.id) = erste.ordnung
+                 SET m.is_main = 1
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM (SELECT * FROM `horse_media`) x
+                     WHERE x.horse_id = m.horse_id AND x.is_main = 1
+                 )"
+            );
+
+            // Und `horses.image_url` dem Hauptbild nachziehen.
+            $pdo->exec(
+                "UPDATE `horses` h
+                 JOIN `horse_media` m ON m.horse_id = h.id AND m.is_main = 1 AND m.file_name IS NOT NULL
+                 SET h.image_url = m.file_name
+                 WHERE h.image_url IS NULL OR h.image_url <> m.file_name"
+            );
+
+            if ($uebernommen === 0 && $hauptbilder === 0 && $ohneDatei === 0) {
+                return [];
+            }
+
+            $meldung = sprintf(
+                'Galerie (#339): %d Medium/Medien aus dem Addon uebernommen, %d Hauptbild(er) eingereiht',
+                $uebernommen,
+                $hauptbilder
+            );
+            if ($ohneDatei > 0) {
+                $meldung .= sprintf(
+                    '; %d Eintrag/Eintraege uebersprungen, weil die Datei fehlte - das Addon bleibt fuer '
+                    . 'die Nachschau vorerst installiert',
+                    $ohneDatei
+                );
+            }
+
+            return [$meldung];
         });
 
         // 35b. Mehrdeutige Anmeldekennungen melden (#348).

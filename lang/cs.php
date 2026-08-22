@@ -123,6 +123,8 @@ return [
     'horse.about_heading' => 'O koni {name}',
     'horse.no_image' => 'Fotografie není k dispozici.',
     'horse.performance_heading' => '🏆 Výkony a ocenění',
+    'horse.gallery_heading' => '🖼️ Fotografie a videa',
+    'horse.gallery_watch_video' => 'Přehrát video',
     'horse.pedigree_heading' => '🧬 Doklad o původu (rodokmen)',
     'horse.pedigree_subheading' => 'Interaktivní zobrazení krevních linií',
     'horse.generations_label' => 'Generace:',

@@ -326,5 +326,10 @@ $t = fn(string $key, array $params = []) => \App\I18n\Translator::t($key, $param
     <?php // Sicherheitsabfragen vor dem Absenden (data-confirm), ausgelagert
           // statt als onsubmit-Attribut - siehe public/js/confirm-submit.js. ?>
     <script defer src="/js/confirm-submit.js"></script>
+    <?php // Lightbox der Pferde-Galerie (#339). Nur dort, wo es sie gibt -
+          // die Detailseite setzt $braucheGalerieSkript. ?>
+    <?php if (!empty($braucheGalerieSkript)): ?>
+        <script defer src="/js/horse-gallery.js"></script>
+    <?php endif; ?>
 </body>
 </html>

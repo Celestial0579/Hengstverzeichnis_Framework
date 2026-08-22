@@ -999,21 +999,31 @@ Dann bliebe es liegen und niemand wüsste davon.
 
 `UpdateService::PROTECTED_PATHS` enthält `plugins` — ein Kern-Update fasst per
 Konstruktion **kein** Addon-Verzeichnis an. Genau eine Lage braucht die
-Ausnahme trotzdem: wenn der Kern übernimmt, was das Addon tat. Ab v0.8 pflegt
-er Fotos und Videos je Pferd selbst (#339); bliebe das Galerie-Addon daneben
-aktiv, gäbe es zwei Pflegeoberflächen für dieselben Daten und zwei
-Vorstellungen davon, welches Bild das Hauptbild ist.
+Ausnahme trotzdem: wenn der Kern übernimmt, was das Addon tat. Ab v0.9 pflegt
+er Fotos und Videos je Pferd selbst (#339, `App\Service\HorseMedia`); bliebe
+das Galerie-Addon daneben aktiv, gäbe es zwei Pflegeoberflächen für dieselben
+Daten und zwei Vorstellungen davon, welches Bild das Hauptbild ist.
 
 Solche Addons stehen namentlich in `UpdateService::ABGELOESTE_ADDONS` und
 werden beim Update deaktiviert, ihr Verzeichnis wird entfernt. **Die Daten
 bleiben** — der Kern liest sie beim ersten Start ein. Wer sie loswerden will,
 tut das anschliessend bewusst über `/admin/plugins`.
 
-**Die Liste ist in v0.8.0 leer.** Die Mechanik steht, der erste Anwendungsfall
-noch nicht: Die Kern-Galerie (#339) wurde in v0.8.0 nicht fertig, und ein
-Eintrag ohne den zugehörigen Ersatz wäre kein halbes Feature, sondern ein
-Schaden — das Update entfernte das Addon, und die Betreiber stünden ganz ohne
-Galerie da. Der Eintrag ist eine Zeile, sobald der Ersatz steht.
+**Seit v0.9.0 steht der erste Eintrag darin: `galerie`.** Bis dahin war die
+Liste leer, weil die Kern-Galerie noch nicht fertig war — ein Eintrag ohne den
+zugehörigen Ersatz wäre kein halbes Feature, sondern ein Schaden.
+
+Und noch etwas war bis dahin nicht so, wie dieser Abschnitt behauptete: Die
+Konstante wurde **nirgends gelesen**. Sie stand im Code, war ausführlich
+kommentiert (»sie ist gebaut, dokumentiert und geprüft«) und hatte keinen
+einzigen Aufrufer. Mit #339 gibt es die Mechanik wirklich —
+`UpdateService::entferneAbgeloesteAddons()`, aufgerufen nach dem Kopieren der
+neuen Dateien, und mit zwei Tests belegt.
+
+**Nach dem Kopieren, nicht davor.** Bis dahin liesse sich das Update noch
+zurückrollen, und ein Addon, das schon weg ist, käme dabei nicht wieder.
+Massgeblich ist die `CORE_VERSION` aus dem **entpackten Archiv**, nicht die
+laufende Konstante: Die gehört noch zum alten Stand.
 
 Die Liste ist eng und namentlich. Ein Muster (`galerie*`) stünde dort nicht:
 Es träfe eines Tages ein Addon, an das niemand gedacht hat.

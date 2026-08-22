@@ -73,6 +73,14 @@ if ($parsedPath === '/media/horse-image') {
     exit;
 }
 
+// Dieselbe Abkuerzung fuer die weiteren Medien eines Pferds (#339): Eine
+// Detailseite fordert ein Dutzend davon an, und jedes durch das
+// Plugin-Bootstrap zu schicken kostet dieselbe Zeit noch einmal.
+if ($parsedPath === '/media/horse-media') {
+    (new App\Controllers\MediaController())->horseMedia();
+    exit;
+}
+
 $pluginManager = PluginManager::getInstance();
 $pluginManager->boot();
 
@@ -128,6 +136,7 @@ $router->get('/person', [App\Controllers\PublicController::class, 'personRedirec
 // dieselben Sichtbarkeitsregeln an wie die Detailseite. Als statische Datei war
 // ein Foto unabhaengig von is_published abrufbar.
 $router->get('/media/horse-image', [App\Controllers\MediaController::class, 'horseImage']); // Requires ?id=
+$router->get('/media/horse-media', [App\Controllers\MediaController::class, 'horseMedia']); // Requires ?id= (#339)
 
 // Read-only-JSON-API für Katalogdaten (#47, siehe docs/api.md). Zugriff nur
 // mit gültigem API-Schlüssel im Authorization-Header (App\Security\ApiKey).
@@ -298,6 +307,11 @@ $router->get('/admin/horses/create', [App\Controllers\HorseController::class, 'c
 $router->post('/admin/horses/store', [App\Controllers\HorseController::class, 'store']);
 $router->get('/admin/horses/edit', [App\Controllers\HorseController::class, 'edit']); // Requires ?id=
 $router->post('/admin/horses/update', [App\Controllers\HorseController::class, 'update']);
+// Medien je Pferd (#339). Eigene Routen, weil die Abschnitte ausserhalb des
+// Stammdaten-Formulars liegen - verschachtelte <form> sind ungueltiges HTML.
+$router->post('/admin/horses/media/add', [App\Controllers\HorseMediaController::class, 'add']);
+$router->post('/admin/horses/media/delete', [App\Controllers\HorseMediaController::class, 'delete']);
+$router->post('/admin/horses/media/main', [App\Controllers\HorseMediaController::class, 'main']);
 $router->post('/admin/horses/delete', [App\Controllers\HorseController::class, 'delete']);
 $router->post('/admin/horses/publish', [App\Controllers\HorseController::class, 'bulkPublish']);
 // Suchendpunkt fuer Pferde (#341). Sieben Addons brachten je eine eigene

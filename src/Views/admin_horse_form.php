@@ -42,24 +42,28 @@ foreach (($allContacts ?? []) as $c) {
             <input type="hidden" name="id" value="<?= $horse['id'] ?>">
         <?php endif; ?>
 
-        <!-- Foto-Upload -->
-        <div class="form-group" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+        <?php // Foto-Upload NUR beim Anlegen (#339).
+              //
+              // Beim Bearbeiten uebernimmt der Medien-Abschnitt unter dem
+              // Formular. Zwei Uploadfelder fuer dieselbe Sache auf einer
+              // Seite waren genau der Zustand, den #339 beendet: oben das
+              // Kernfeld, darunter die Galerie - zwei Ablagen, zwei
+              // Vorstellungen davon, welches Bild das Hauptbild ist.
+              //
+              // Beim ANLEGEN gibt es das Pferd noch nicht, es hat also auch
+              // noch keine Medien-Zeilen. Das eine Feld hier bleibt deshalb
+              // und wird nach dem Einfuegen zum Hauptbild
+              // (HorseController::store()). ?>
+        <?php if (!$isEdit): ?>
+        <div class="form-group" style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1.5rem;">
             <label for="horse_image" style="font-weight: bold; color: var(--primary-fg);">📷 Foto des Pferdes hochladen</label>
-
-            <?php if (!empty($horse['image_url'])): ?>
-                <div style="display: flex; align-items: center; gap: 1rem; margin: 0.8rem 0;">
-                    <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseImage($horse) ?? '') ?>" alt="Pferdefoto" style="width: 100px; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color);">
-                    <div>
-                        <label style="color: var(--danger-fg); font-size: 0.9rem; cursor: pointer;">
-                            <input type="checkbox" name="remove_image" value="1"> 🗑️ Vorhandenes Foto entfernen
-                        </label>
-                    </div>
-                </div>
-            <?php endif; ?>
-
             <input type="file" id="horse_image" name="horse_image" accept="image/jpeg,image/png,image/webp" class="form-control">
-            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">Erlaubte Formate: JPG, PNG, WEBP (Max. 5 MB).</small>
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                Erlaubte Formate: JPG, PNG, WEBP (max. 5 MB). Es wird das Hauptbild;
+                weitere Fotos und Videos kommen nach dem Speichern dazu.
+            </small>
         </div>
+        <?php endif; ?>
 
         <div class="form-group">
             <label for="name">Name des Pferdes *</label>
@@ -503,6 +507,120 @@ foreach (($allContacts ?? []) as $c) {
         </div>
     </form>
 </div>
+
+<?php
+// Medien je Pferd (#339): Fotos und Video-Links, Hauptbild, Reihenfolge.
+//
+// AUSSERHALB des Formulars oben - verschachtelte <form> sind ungültiges HTML,
+// und jeder Knopf hier schickt für sich ab. Wer ein Medium hinzufügt,
+// verliert damit keine ungespeicherten Stammdaten; deshalb steht der Hinweis
+// darüber. Nur beim Bearbeiten: Ein Pferd, das es noch nicht gibt, hat keine
+// Medien.
+$medienMeldungen = [
+    'media_added' => ['ok', 'Medium hinzugefügt.'],
+    'media_deleted' => ['ok', 'Medium gelöscht.'],
+    'media_main' => ['ok', 'Hauptbild gewählt.'],
+    'media_invalid' => ['fehler', 'Nicht gespeichert: entweder eine Bilddatei (JPG/PNG/WEBP/GIF, max. 5 MB) oder ein http(s)-Video-Link.'],
+];
+$medienMarker = (string)($_GET['media'] ?? '');
+?>
+<?php if ($isEdit): ?>
+<div class="card" style="margin-top: 1.5rem;">
+    <h3 style="margin-top: 0;">🖼️ Fotos und Videos</h3>
+
+    <?php if (isset($medienMeldungen[$medienMarker])): ?>
+        <?php [$medienArt, $medienText] = $medienMeldungen[$medienMarker]; ?>
+        <div style="background-color: var(--<?= $medienArt === 'ok' ? 'success' : 'danger' ?>-soft-bg); color: var(--<?= $medienArt === 'ok' ? 'success' : 'danger' ?>-fg); padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem;">
+            <?= htmlspecialchars($medienText) ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (empty($horseMedia)): ?>
+        <p style="color: var(--text-muted);">Für dieses Pferd sind noch keine Medien erfasst.</p>
+    <?php else: ?>
+        <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead><tr style="text-align: left; border-bottom: 2px solid var(--border-color);">
+                <th style="padding: 0.4rem 0.6rem 0.4rem 0;">Vorschau</th>
+                <th style="padding: 0.4rem 0.6rem 0.4rem 0;">Art</th>
+                <th style="padding: 0.4rem 0.6rem 0.4rem 0;">Bildunterschrift</th>
+                <th style="padding: 0.4rem 0.6rem 0.4rem 0;">Reihenfolge</th>
+                <th style="padding: 0.4rem 0;">Aktion</th>
+            </tr></thead>
+            <tbody>
+            <?php foreach ($horseMedia as $medium): ?>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 0.4rem 0.6rem 0.4rem 0;">
+                        <?php if ($medium['type'] === 'image'): ?>
+                            <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id']) ?? '') ?>"
+                                 alt="" loading="lazy" decoding="async"
+                                 style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-color);">
+                        <?php else: ?>
+                            <span style="font-size: 1.5rem;" aria-hidden="true">🎬</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="padding: 0.4rem 0.6rem 0.4rem 0;">
+                        <?= $medium['type'] === 'image' ? 'Bild' : 'Video' ?>
+                        <?php if (!empty($medium['is_main'])): ?>
+                            <br><span style="font-size: 0.8rem; color: var(--success-fg); font-weight: 600;">★ Hauptbild</span>
+                        <?php endif; ?>
+                    </td>
+                    <td style="padding: 0.4rem 0.6rem 0.4rem 0;"><?= htmlspecialchars((string)($medium['caption'] ?? '')) ?></td>
+                    <td style="padding: 0.4rem 0.6rem 0.4rem 0;"><?= (int)$medium['sort_order'] ?></td>
+                    <td style="padding: 0.4rem 0; display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                        <?php if ($medium['type'] === 'image' && empty($medium['is_main'])): ?>
+                            <form method="POST" action="/admin/horses/media/main" style="margin: 0;">
+                                <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                                <input type="hidden" name="horse_id" value="<?= (int)$horse['id'] ?>">
+                                <input type="hidden" name="media_id" value="<?= (int)$medium['id'] ?>">
+                                <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">Als Hauptbild</button>
+                            </form>
+                        <?php endif; ?>
+                        <form method="POST" action="/admin/horses/media/delete" style="margin: 0;"
+                              data-confirm="Medium wirklich löschen? Eine hochgeladene Datei wird dabei mit entfernt.">
+                            <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+                            <input type="hidden" name="horse_id" value="<?= (int)$horse['id'] ?>">
+                            <input type="hidden" name="media_id" value="<?= (int)$medium['id'] ?>">
+                            <button type="submit" class="btn btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; color: var(--danger-fg);">Löschen</button>
+                        </form>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        </div>
+    <?php endif; ?>
+
+    <form method="POST" action="/admin/horses/media/add" enctype="multipart/form-data" style="margin-top: 1.5rem;">
+        <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
+        <input type="hidden" name="horse_id" value="<?= (int)$horse['id'] ?>">
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0;">
+            Entweder eine Bilddatei hochladen <strong>oder</strong> einen Video-Link angeben.
+            Wird beides ausgefüllt, gewinnt der Upload und der Link wird verworfen.
+            Änderungen an den Stammdaten oben bitte zuerst speichern.
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+            <div class="form-group">
+                <label for="media_image">Bilddatei (max. 5 MB)</label>
+                <input type="file" id="media_image" name="media_image" class="form-control" accept="image/jpeg,image/png,image/webp,image/gif">
+            </div>
+            <div class="form-group">
+                <label for="media_video">Video-Link</label>
+                <input type="url" id="media_video" name="video_url" class="form-control" placeholder="https://www.youtube.com/watch?v=…">
+            </div>
+            <div class="form-group">
+                <label for="media_caption">Bildunterschrift</label>
+                <input type="text" id="media_caption" name="caption" class="form-control" maxlength="255">
+            </div>
+            <div class="form-group">
+                <label for="media_sort">Reihenfolge</label>
+                <input type="number" id="media_sort" name="sort_order" class="form-control" value="<?= (count($horseMedia ?? []) + 1) * 10 ?>">
+            </div>
+        </div>
+        <button type="submit" class="btn">Medium hinzufügen</button>
+    </form>
+</div>
+<?php endif; ?>
 
 <?php
 // Plugin-Abschnitte (#255, Hook horse.edit_sections, gefüllt in

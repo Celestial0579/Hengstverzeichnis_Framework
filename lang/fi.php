@@ -123,6 +123,8 @@ return [
     'horse.about_heading' => 'Tietoa hevosesta {name}',
     'horse.no_image' => 'Ei valokuvaa saatavilla.',
     'horse.performance_heading' => '🏆 Suoritukset & palkinnot',
+    'horse.gallery_heading' => '🖼️ Kuvat ja videot',
+    'horse.gallery_watch_video' => 'Katso video',
     'horse.pedigree_heading' => '🧬 Polveutumistodistus (sukupuu)',
     'horse.pedigree_subheading' => 'Interaktiivinen sukulinjanäkymä',
     'horse.generations_label' => 'Sukupolvet:',

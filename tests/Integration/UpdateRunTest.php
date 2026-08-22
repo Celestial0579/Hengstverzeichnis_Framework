@@ -581,6 +581,101 @@ class UpdateRunTest extends TestCase {
         return (int)$stmt->fetchColumn();
     }
 
+    /**
+     * Ein Addon, dessen Funktion in den Kern gewandert ist, wird beim Update
+     * DEAKTIVIERT und sein Verzeichnis entfernt (#339).
+     *
+     * WARUM DAS EINE AUSNAHME BRAUCHT UND EINEN TEST. `plugins` steht unter
+     * PROTECTED_PATHS - ein Update fasst Addon-Verzeichnisse nie an. Genau
+     * eine Lage braucht die Ausnahme: wenn der Kern uebernimmt, was das Addon
+     * tat. Bliebe `galerie` daneben aktiv, gaebe es zwei Pflegeoberflaechen
+     * fuer dieselben Daten und zwei Vorstellungen davon, welches Bild das
+     * Hauptbild ist.
+     *
+     * Die Liste stand seit v0.8 im Code, war dokumentiert - und wurde
+     * nirgends gelesen. Dieser Test ist der Nachweis, dass die Mechanik
+     * tatsaechlich laeuft.
+     */
+    public function testSupersededAddonIsDeactivatedAndRemovedOnUpdate(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+
+        // Zwei Addons im Zielverzeichnis: eines abgeloest, eines nicht.
+        mkdir($target . '/plugins/galerie', 0777, true);
+        mkdir($target . '/plugins/merkliste', 0777, true);
+        file_put_contents($target . '/plugins/galerie/Plugin.php', '<?php // alt');
+        file_put_contents($target . '/plugins/merkliste/Plugin.php', '<?php // bleibt');
+
+        $stmt = self::$db->prepare('INSERT INTO plugins (slug, enabled, installed_version) VALUES (?, 1, ?)');
+        $stmt->execute(['galerie', '1.4.0']);
+        $stmt->execute(['merkliste', '1.0.0']);
+
+        // Das Archiv traegt die neue CORE_VERSION - aus IHR entscheidet sich,
+        // ob die Ablösung schon gilt. Die laufende Konstante gehoert noch zum
+        // alten Stand.
+        $this->publishRelease('99.0.0', [
+            'README-update.txt' => 'x',
+            'config/config.php' => "<?php\ndefine('CORE_VERSION', '99.0.0');\n",
+        ]);
+
+        UpdateService::performUpdate();
+
+        $this->assertDirectoryDoesNotExist(
+            $target . '/plugins/galerie',
+            'Das abgeloeste Addon muss samt Verzeichnis verschwinden.'
+        );
+        $this->assertDirectoryExists(
+            $target . '/plugins/merkliste',
+            'Jedes andere Addon bleibt unangetastet - `plugins` ist geschuetzt.'
+        );
+
+        $stmt = self::$db->prepare('SELECT enabled FROM plugins WHERE slug = ?');
+        $stmt->execute(['galerie']);
+        $this->assertSame(0, (int)$stmt->fetchColumn(), 'Und es ist deaktiviert, nicht bloss weg.');
+        $stmt->execute(['merkliste']);
+        $this->assertSame(1, (int)$stmt->fetchColumn());
+
+        $this->assertSame(
+            1,
+            (int)self::$db->query(
+                "SELECT COUNT(*) FROM audit_logs WHERE action = 'Abgeloestes Addon entfernt'"
+            )->fetchColumn(),
+            'Ein Eingriff in fremden Code gehoert ins Protokoll.'
+        );
+    }
+
+    /**
+     * Die Gegenrichtung: Ein Update auf eine Fassung VOR der Abloesung darf
+     * das Addon nicht mitnehmen.
+     */
+    public function testSupersededAddonSurvivesAnUpdateBelowItsCutoff(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+
+        mkdir($target . '/plugins/galerie', 0777, true);
+        file_put_contents($target . '/plugins/galerie/Plugin.php', '<?php // alt');
+        self::$db->prepare('INSERT INTO plugins (slug, enabled, installed_version) VALUES (?, 1, ?)')
+            ->execute(['galerie', '1.4.0']);
+
+        // Neuer als die laufende Fassung, aber aelter als die Abloesung.
+        $abVersion = UpdateService::abgeloesteAddons()['galerie'];
+        $this->assertSame('0.9.0', $abVersion, 'Der Test haengt an dieser Grenze.');
+
+        $this->publishRelease('99.0.0', [
+            'README-update.txt' => 'x',
+            'config/config.php' => "<?php\ndefine('CORE_VERSION', '0.8.9');\n",
+        ]);
+
+        UpdateService::performUpdate();
+
+        $this->assertDirectoryExists($target . '/plugins/galerie');
+        $stmt = self::$db->prepare('SELECT enabled FROM plugins WHERE slug = ?');
+        $stmt->execute(['galerie']);
+        $this->assertSame(1, (int)$stmt->fetchColumn());
+    }
+
     private function configureBackup(): void {
         $settings = [
             'backup_enabled' => '1',

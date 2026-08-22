@@ -310,6 +310,49 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
     </div>
 </div>
 
+<?php // Galerie (#339): weitere Fotos und Video-Links.
+      //
+      // Das Hauptbild steht oben und erscheint hier NICHT noch einmal - es
+      // waere dasselbe Bild zweimal auf einer Seite. Videos oeffnen in einem
+      // neuen Tab statt eingebettet: Die Content-Security-Policy des Kerns
+      // (default-src 'self', ohne frame-src) blockiert fremde iframes, ein
+      // Embed bliebe beim Besucher lautlos leer. ?>
+<?php
+$galerie = array_values(array_filter(
+    $horseMedia ?? [],
+    static fn(array $m): bool => empty($m['is_main'])
+));
+?>
+<?php if ($galerie !== []): ?>
+    <div class="card" style="margin-bottom: 2rem;">
+        <h2 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--border-color); padding-bottom: 0.8rem; margin-bottom: 1.5rem;">
+            <?= htmlspecialchars(App\I18n\Translator::t('horse.gallery_heading')) ?>
+        </h2>
+        <div class="horse-gallery-grid">
+            <?php foreach ($galerie as $medium): ?>
+                <?php $bildunterschrift = htmlspecialchars((string)($medium['caption'] ?? '')); ?>
+                <?php if ($medium['type'] === 'image'): ?>
+                    <figure style="margin: 0;">
+                        <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id']) ?? '') ?>"
+                             alt="<?= $bildunterschrift ?>" loading="lazy" decoding="async"
+                             class="horse-gallery-image"
+                             data-lightbox="1">
+                        <?php if ($bildunterschrift !== ''): ?>
+                            <figcaption style="font-size: 0.8em; color: var(--text-muted);"><?= $bildunterschrift ?></figcaption>
+                        <?php endif; ?>
+                    </figure>
+                <?php else: ?>
+                    <a href="<?= htmlspecialchars((string)$medium['video_url']) ?>" target="_blank" rel="noopener noreferrer"
+                       class="horse-gallery-video">
+                        <span style="font-size: 1.8rem;" aria-hidden="true">▶</span>
+                        <span style="font-size: 0.8em;"><?= $bildunterschrift !== '' ? $bildunterschrift : htmlspecialchars(App\I18n\Translator::t('horse.gallery_watch_video')) ?></span>
+                    </a>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
+<?php endif; ?>
+
 <?php if (!empty($pluginDetailSections)): ?>
     <!-- 3. Leistung & Auszeichnungen: Plugin-Erweiterungspunkt 'horse.detail_sections' (#56).
          Hook-Signatur und -Position im Controller sind unverändert - hier wird nur die

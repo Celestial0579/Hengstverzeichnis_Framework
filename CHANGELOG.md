@@ -6,6 +6,49 @@ dokumentiert. Das Format orientiert sich an
 an [Semantic Versioning](https://semver.org/lang/de/) (solange `0.y.z`:
 Breaking Changes sind jederzeit möglich).
 
+## [Unreleased]
+
+### Neu
+
+- **Die Foto-/Video-Galerie ist Kernmodul** (#339). Bis v0.8 hatte `horses`
+  genau ein `image_url`, und das Addon `galerie` brachte eine zweite Ablage
+  für dasselbe mit: Ein Redakteur pflegte Fotos zu demselben Pferd an zwei
+  Stellen im selben Formular — oben das Kernfeld, darunter die Galerie. Zwei
+  Uploads, zwei Ablagen, zwei Ausliefer-Wege, zwei Vorstellungen davon, welches
+  Bild das Hauptbild ist.
+
+  Jetzt: mehrere Medien je Pferd mit Reihenfolge und Bildunterschrift, **ein
+  ausgezeichnetes Hauptbild**, gepflegt direkt am Pferd. Ausgeliefert wird
+  ausschliesslich über `/media/horse-media` — dieselben Sichtbarkeitsregeln wie
+  für das Hauptbild, also auch `is_published`.
+
+  `horses.image_url` **bleibt** und trägt weiterhin das Hauptbild, gefüllt aus
+  der Galerie. Damit bleiben Katalogkarte, Admin-Liste, Startseite, JSON-API und
+  die Addons `merkliste`, `qr-code` und `verkaufsboerse` unverändert gültig.
+
+### ⚠️ Das Addon `galerie` wird beim Update entfernt
+
+Beim Sprung auf diese Fassung wird es **deaktiviert und sein Verzeichnis
+gelöscht**. Die Daten bleiben: Der Migrationsschritt `339_galerie_uebernahme`
+holt Zeilen und Dateien vorher in den Kern, idempotent, und überspringt
+Einträge, deren Datei fehlt — mit Meldung, nicht schweigend.
+
+Dabei kam heraus, dass die dafür vorgesehene Mechanik gar nicht existierte:
+`UpdateService::ABGELOESTE_ADDONS` stand seit v0.8 im Code, war ausführlich
+kommentiert (»sie ist gebaut, dokumentiert und geprüft«) und wurde **nirgends
+gelesen**. Jetzt gibt es sie wirklich, mit zwei Tests.
+
+### Geändert
+
+- Das Bearbeitungsformular eines Pferdes hat **kein eigenes Foto-Feld mehr** —
+  der Medien-Abschnitt darunter übernimmt. Beim *Anlegen* bleibt es (das Pferd
+  gibt es noch nicht) und wird zum Hauptbild.
+- Nebenbefund: „Vorhandenes Foto entfernen" löschte die Datei unter
+  `public/` + `image_url` — also im Webroot, wo seit #366 keine Pferdefotos mehr
+  liegen. Die Spalte wurde geleert, die Datei blieb stehen. Der Zweig ist mit
+  dem Feld entfallen.
+- `SCHEMA_VERSION` 16 → 17: Tabelle `horse_media`.
+
 ## [0.9.0-beta.3] – 2026-08-22
 
 Ein reines Zwischen-Beta: **kein sichtbares neues Verhalten**. Es macht nur

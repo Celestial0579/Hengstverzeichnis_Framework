@@ -32,6 +32,7 @@ settings          (Key/Value: Branding, SMTP, System-Einstellungen,
                    feature_visibility__<key>, Cron-/Backup-/Digest-Status)
 password_resets   (Einmal-Tokens für "Passwort vergessen")
 email_2fa_codes   (Einmalcodes des zweiten Faktors per E-Mail, #354)
+horse_media       (Fotos und Video-Links je Pferd, #339)
 login_attempts    (Rate-Limiting: Login, Login je IP, 2FA, Backup-Code,
                    Passwort-Reset, Registrierung, DSGVO-Formular)
 gdpr_requests     (öffentliches DSGVO-Kontaktformular)
@@ -194,6 +195,24 @@ die 180-Tage-Regel (#358).
 ### `password_resets`
 Einmal-Token (`token`, `expires_at`) für den "Passwort vergessen"-Flow,
 15 Minuten gültig (siehe `AuthController`/`Mailer::sendPasswordResetEmail`).
+
+### `horse_media`
+Fotos und Video-Links je Pferd (#339) — seit v0.9 im Kern, vorher das Addon
+`galerie`. `type` ∈ {`image`, `video`}; ein Bild trägt `file_name` (denselben
+Wert wie `horses.image_url`, also `/uploads/horses/<datei>` — ein Speicherort,
+keine Adresse), ein Video eine http(s)-URL.
+
+`is_main` markiert das **Hauptbild**, höchstens eines je Pferd.
+`horses.image_url` bleibt sein Träger und wird daraus nachgeführt
+(`App\Service\HorseMedia::syncMainImage()`) — Katalogkarte, Admin-Liste,
+Startseite, JSON-API und drei Addons lesen weiterhin die Spalte. Eine eigene
+Kennzeichnung statt `sort_order = 0`, weil Reihenfolge und Hauptbild
+verschiedene Fragen sind: Wer umsortiert, will nicht zwangsläufig das
+Hauptbild wechseln.
+
+Ausgeliefert wird ausschliesslich über `/media/horse-media` mit denselben
+Sichtbarkeitsregeln wie das Hauptbild. Fremdschlüssel auf `horses` mit
+`ON DELETE CASCADE`.
 
 ### `email_2fa_codes`
 Einmalcodes des zweiten Faktors per E-Mail (#354). Primärschlüssel

@@ -127,6 +127,8 @@ return [
     'horse.about_heading' => 'Über {name}',
     'horse.no_image' => 'Kein Foto vorhanden.',
     'horse.performance_heading' => '🏆 Leistung & Auszeichnungen',
+    'horse.gallery_heading' => '🖼️ Fotos und Videos',
+    'horse.gallery_watch_video' => 'Video ansehen',
     'horse.pedigree_heading' => '🧬 Abstammungsnachweis (Stammbaum)',
     'horse.pedigree_subheading' => 'Interaktive Blutlinien-Ansicht',
     'horse.generations_label' => 'Generationen:',

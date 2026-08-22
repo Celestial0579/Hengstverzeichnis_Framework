@@ -479,6 +479,14 @@ class HorseController extends BaseController {
         $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
         $newHorseId = (int)$db->lastInsertId();
 
+        // Das beim Anlegen hochgeladene Foto ist ab #339 auch eine Zeile in
+        // `horse_media` - sonst waere es das einzige Bild, das die Medienliste
+        // beim naechsten Bearbeiten nicht kennt, und ein "Als Hauptbild" auf
+        // ein spaeteres Foto liesse es unerreichbar zurueck.
+        if ($imageUrl !== null) {
+            \App\Service\HorseMedia::hinzufuegen($newHorseId, $imageUrl, null, null, 10);
+        }
+
         \App\Service\AuditLogger::log("Pferd angelegt", "horses", "Name: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 
         // Save Person Roles & Ownership History (horse_persons)
@@ -596,6 +604,7 @@ class HorseController extends BaseController {
             'horseRegistrations' => $horseRegistrations,
             'canPublish' => $this->hasPermission('horses', 'publish'),
             'isDeleted' => $isDeleted,
+            'horseMedia' => \App\Service\HorseMedia::forHorse((int)$horse['id']),
             'pluginEditSections' => $pluginEditSections
         ]);
     }
@@ -737,23 +746,17 @@ class HorseController extends BaseController {
             $isPublished = (int)($existing['is_published'] ?? 0);
         }
 
-        // Check for remove image request
-        if (!empty($_POST['remove_image']) && $currentImageUrl) {
-            $filePath = __DIR__ . '/../../public' . $currentImageUrl;
-            if (file_exists($filePath)) @unlink($filePath);
-            $currentImageUrl = null;
-        }
-
-        // Check for new upload
-        $newUploadedUrl = $this->handleImageUpload($_FILES['horse_image'] ?? null);
-        if ($newUploadedUrl) {
-            // Delete old file if present
-            if ($currentImageUrl) {
-                $filePath = __DIR__ . '/../../public' . $currentImageUrl;
-                if (file_exists($filePath)) @unlink($filePath);
-            }
-            $currentImageUrl = $newUploadedUrl;
-        }
+        // KEIN Foto-Upload und kein "Foto entfernen" mehr in diesem Formular
+        // (#339). Beides laeuft ueber den Medien-Abschnitt und
+        // HorseMediaController; `image_url` traegt weiterhin das Hauptbild und
+        // wird von HorseMedia::syncMainImage() nachgefuehrt. Hier wird der
+        // Bestandswert unveraendert mitgeschrieben.
+        //
+        // Die beiden bisherigen Zweige sind damit nicht nur ueberfluessig,
+        // sondern waren seit #366 auch falsch: Sie loeschten die Datei unter
+        // `public/` . image_url - also im Webroot, wo seither keine
+        // Pferdefotos mehr liegen. Ein "Foto entfernen" leerte die Spalte und
+        // liess die Datei stehen.
 
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.before_save', (int)$id, $_POST);

@@ -562,6 +562,7 @@ class PublicController extends BaseController {
         // nicht dieselbe DB-Abfrage erneut ausführen müssen, wenn ihnen die
         // Standardtiefe genügt - für abweichende Tiefe steht ihnen unabhängig davon
         // \App\Service\PedigreeBuilder::build() direkt zur Verfügung.
+        $horseMedia = \App\Service\HorseMedia::forHorse((int)$horse['id']);
         $pluginDetailSections = $this->hooks()->applyFilters('horse.detail_sections', [], $horse, $horsePersons, $pedigreeTree);
 
         $this->render('public_horse_detail', [
@@ -570,6 +571,9 @@ class PublicController extends BaseController {
             'horsePersons' => $horsePersons,
             'horseRegistrations' => $horseRegistrations,
             'pedigree' => $pedigreeTree,
+            'horseMedia' => $horseMedia,
+            // Nur laden, wo es etwas anzuklicken gibt (#339).
+            'braucheGalerieSkript' => $horseMedia !== [],
             'pluginDetailSections' => $pluginDetailSections
         ]);
     }

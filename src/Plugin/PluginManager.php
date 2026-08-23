@@ -295,6 +295,39 @@ final class PluginManager {
      * gerade freizugebende) - deaktivierte Plugins kosten damit im Bootstrap
      * gar keine Dateisystem-Zugriffe über den Manifest-Read hinaus.
      */
+    /**
+     * Kosten je geprüfter Datei, aus der Messung zu #400 (Mikrosekunden).
+     *
+     * Die Messung ergab 4,1-5,3 us je VERZEICHNISEINTRAG (Verzeichnisse plus
+     * Dateien) - sauber linear ueber fuenf Punkte von 81 bis 10.980
+     * Eintraegen. Gezaehlt werden hier aber nur DATEIEN: Der Iterator liefert
+     * im Standardmodus keine Verzeichnisse, und ihn dafuer umzustellen hiesse,
+     * einen Sicherheitspfad fuer eine Anzeige anzufassen.
+     *
+     * Umgerechnet auf Dateien ergibt dieselbe Messung 4,1-7,8 us, je nachdem
+     * wie tief ein Addon verschachtelt ist. Genommen wird der HOECHSTE Wert:
+     * Die Schaetzung soll eher zu hoch als zu niedrig liegen, denn sie
+     * steuert eine Warnung - und eine, die zu spaet kommt, ist wertlos.
+     */
+    private const STEMPEL_MIKROSEKUNDEN_JE_DATEI = 7.8;
+
+    /**
+     * Ab so vielen geprüften Dateien wird im Adminbereich gewarnt.
+     *
+     * 600 Dateien sind nach dem Modell rund 4,7 ms - etwa die Haelfte einer
+     * warmen Seitenanfrage von 9,5 ms. Die Zahl ist gerundet und bewusst
+     * nicht feiner: Sie ist eine Aufmerksamkeitsschwelle, keine Messgrenze.
+     *
+     * Zum Vergleich: Eine Instanz mit 20 Addons liegt heute bei 60 Dateien,
+     * das gesamte Addons-Repo mit 36 Addons bei 126. Die Warnung erscheint
+     * also erst beim Fuenffachen des heutigen Gesamtbestands - sonst wuerde
+     * sie zum Rauschen, und niemand liest sie, wenn sie einmal zaehlt.
+     */
+    private const STEMPEL_WARNSCHWELLE = 600;
+
+    /** In diesem Request vom Stempel-Lauf geprüfte Dateien (#400). */
+    private static int $stempelDateien = 0;
+
     private function dirStampOf(string $slug): ?string {
         $info = $this->discovered[$slug] ?? null;
         if ($info === null || $info['error'] !== null) {
@@ -345,7 +378,72 @@ final class PluginManager {
             // und erzwingt den vollen Hash-Vergleich (fail-closed).
         }
 
+        self::$stempelDateien += $count;
+
         return $maxMtime . ':' . $count . ':' . $bytes;
+    }
+
+    /**
+     * Wie viele Dateien der Stempel-Lauf in diesem Request geprüft hat (#400).
+     *
+     * Wird in computeDirStamp() mitgezaehlt, kostet also nichts extra - und
+     * zaehlt nur, was WIRKLICH gelaufen ist. Ein deaktiviertes Addon oder
+     * eines, dessen Stempel schon memoisiert war, taucht hier nicht auf; eine
+     * eigene Zaehlschleife wuerde genau das falsch machen und die Anzeige
+     * pessimistischer aussehen lassen als die Wirklichkeit.
+     */
+    public static function stempelDateien(): int {
+        return self::$stempelDateien;
+    }
+
+    /**
+     * Geschaetzte Dauer des Stempel-Laufs in Millisekunden.
+     *
+     * Das Modell stammt aus einer Messung (#400, PHP 8.5.4, warmer
+     * Dentry-Cache, Median aus 200 Laeufen) - siehe
+     * STEMPEL_MIKROSEKUNDEN_JE_DATEI fuer Herkunft und Umrechnung.
+     *
+     * Der Wert ist eine UNTERGRENZE. Er gilt bei warmem Cache auf lokaler
+     * SSD; auf Shared Hosting mit Netzspeicher oder unter Cache-Druck ist ein
+     * stat() um Groessenordnungen teurer. Die Anzeige sagt das dazu.
+     */
+    public static function stempelDauerMs(): float {
+        return self::$stempelDateien * self::STEMPEL_MIKROSEKUNDEN_JE_DATEI / 1000;
+    }
+
+    /**
+     * Ist der Stempel-Lauf so teuer geworden, dass er auffaellt?
+     *
+     * WARUM ES DIESE GRENZE GIBT UND NICHT EINEN ZWISCHENSPEICHER (#400).
+     * Der Stempel laeuft bei JEDER Anfrage ueber jede Datei jedes aktivierten
+     * Addons - das ist die Manipulationserkennung aus #224, und die Frequenz
+     * ist der Grund, warum sie traegt: Ein Zwischenspeicher oder ein
+     * Pruefintervall schafft ein Fenster, in dem eine geaenderte Datei als
+     * freigegeben gilt.
+     *
+     * Gemessen kostet der Lauf heute 0,38 ms auf einer Instanz mit 20 Addons
+     * (60 Dateien) - rund 4 % einer warmen Seitenanfrage von 9,5 ms. Dafuer
+     * die Erkennung zu schwaechen waere ein schlechtes Geschaeft.
+     *
+     * Untersucht und VERWORFEN wurde auch der naheliegende Verdacht, der
+     * Aufwand stecke im SPL-Iterator: Eine Fassung mit scandir+lstat, die
+     * beweisbar byte-identische Stempel liefert, bringt 1,02x bis 1,17x - und
+     * der Gewinn schrumpft mit wachsender Dateizahl gegen null. Die Kosten
+     * sind die Syscalls, nicht der Iterator. Es gibt hier keinen kostenlosen
+     * Sieg.
+     *
+     * Bleibt also: nichts tun, aber nicht blind bleiben. Ab dieser Grenze
+     * kostet der Lauf mehr als etwa die Haelfte einer Seitenanfrage, und das
+     * gehoert im Adminbereich gesagt - bevor es jemandem als "die Seite ist
+     * langsam geworden" auffaellt und niemand weiss, woher es kommt.
+     */
+    public static function stempelIstTeuer(): bool {
+        return self::$stempelDateien >= self::STEMPEL_WARNSCHWELLE;
+    }
+
+    /** Nur fuer Tests: den Zaehler zuruecksetzen. */
+    public static function stempelZaehlerZuruecksetzen(): void {
+        self::$stempelDateien = 0;
     }
 
     /**

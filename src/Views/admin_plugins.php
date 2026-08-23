@@ -26,6 +26,37 @@ $manager = \App\Plugin\PluginManager::getInstance();
         Plugin-Datei allein hat noch keine Wirkung.
     </p>
 
+    <?php
+    // Wachstumsgrenze fuer die Manipulationserkennung (#400).
+    //
+    // Der Verzeichnis-Stempel laeuft bei JEDER Anfrage ueber jede Datei jedes
+    // aktivierten Addons. Das ist Absicht - die Frequenz ist der Grund, warum
+    // die Erkennung traegt. Heute kostet das rund 4 % einer Seitenanfrage.
+    // Wenn es teuer wird, soll es hier stehen und nicht als "die Seite ist
+    // langsam geworden" jemandem auffallen, der die Ursache nicht kennt.
+    if (App\Plugin\PluginManager::stempelIstTeuer()):
+        $eintraege = App\Plugin\PluginManager::stempelDateien();
+        $dauer = App\Plugin\PluginManager::stempelDauerMs();
+    ?>
+        <div style="background-color: var(--warning-soft-bg, #fff8e1); color: var(--warning-fg, #7a5900); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <strong>Die Prüfung der Addon-Dateien wird spürbar.</strong>
+            Bei jeder Seitenanfrage werden <?= number_format($eintraege, 0, ',', '.') ?>
+            Dateien Ihrer aktivierten Addons geprüft &ndash; geschätzt
+            <?= number_format($dauer, 1, ',', '.') ?>&nbsp;ms, und das ist eine
+            <em>Untergrenze</em>: Auf einem Webspace mit Netzspeicher kann es deutlich
+            mehr sein.
+            <br><br>
+            Das ist kein Fehler. Diese Prüfung stellt fest, ob sich der Code eines Addons
+            seit seiner Freigabe verändert hat, und sie läuft deshalb bei jeder Anfrage
+            statt gelegentlich &ndash; ein Prüfintervall würde ein Zeitfenster schaffen,
+            in dem eine geänderte Datei als freigegeben gilt.
+            <br><br>
+            Wenn es stört, hilft nur weniger: Addons deaktivieren, die Sie nicht brauchen.
+            Ein Addon mit vielen Bildern oder Sprachdateien wiegt dabei schwerer als eines
+            mit viel Code.
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['success'])): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Aktion erfolgreich ausgeführt.

@@ -470,3 +470,148 @@ $addonOhneErsatz = \App\Service\UpdateService::addonsBlockingAutoInstall($addonR
         </p>
     <?php endif; ?>
 </div>
+
+<?php
+// ---------------------------------------------------------------------------
+// Integritaet des Codebaums (#403)
+// ---------------------------------------------------------------------------
+$integritaet = $_SESSION['integritaet'] ?? null;
+$integritaetFehler = $_SESSION['integritaet_fehler'] ?? null;
+$repariert = $_SESSION['integritaet_repariert'] ?? null;
+unset($_SESSION['integritaet'], $_SESSION['integritaet_fehler'], $_SESSION['integritaet_repariert']);
+$csrf = \App\Router::generateCsrfToken();
+?>
+<div class="card" id="integritaet" style="margin-top: 1.5rem;">
+    <h2>Unversehrtheit des Codebaums</h2>
+
+    <p style="color: var(--text-muted); font-size: 0.9rem;">
+        Vergleicht die ausgelieferten Programmdateien mit dem Sollzustand dieser Version.
+        Eigene Daten &ndash; hochgeladene Bilder, Einstellungen, installierte Addons &ndash;
+        werden dabei nicht angefasst und nicht geprüft; sie gehören Ihnen, nicht dem Release.
+    </p>
+
+    <?php if ($integritaetFehler !== null): ?>
+        <div class="alert alert-danger"><?= htmlspecialchars((string)$integritaetFehler) ?></div>
+    <?php endif; ?>
+
+    <?php if (is_array($repariert)): ?>
+        <div class="alert alert-success">
+            <?= count($repariert['wiederhergestellt']) ?> Datei(en) wiederhergestellt.
+            <?php if ($repariert['uebersprungen'] !== []): ?>
+                <br><small>
+                    Übersprungen, weil nicht in der veröffentlichten Liste oder kein Kern-Pfad:
+                    <?= htmlspecialchars(implode(', ', $repariert['uebersprungen'])) ?>
+                </small>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
+    <form method="post" action="/admin/updates/integritaet" style="display: inline;">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="quelle" value="mitgeliefert">
+        <button type="submit" class="btn btn-secondary">Gegen mitgelieferte Liste prüfen</button>
+    </form>
+    <form method="post" action="/admin/updates/integritaet" style="display: inline;">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+        <input type="hidden" name="quelle" value="veroeffentlicht">
+        <button type="submit" class="btn btn-primary">Gegen veröffentlichte Liste prüfen</button>
+    </form>
+
+    <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.6rem;">
+        Der Unterschied ist wesentlich. Die <strong>mitgelieferte</strong> Liste liegt im selben
+        Verzeichnisbaum wie die geprüften Dateien &ndash; sie findet kaputte Uploads und halb
+        eingespielte Updates, aber niemanden, der Datei <em>und</em> Liste ändern kann.
+        Die <strong>veröffentlichte</strong> wird bei GitHub geholt und liegt damit außerhalb
+        der Reichweite von jemandem, der nur Zugriff auf diesen Webspace hat. Dafür braucht
+        sie eine Internetverbindung.
+    </p>
+
+    <?php if (is_array($integritaet)): ?>
+        <hr style="margin: 1.25rem 0; border: none; border-top: 1px solid var(--border-color);">
+
+        <?php if ($integritaet['quelle'] === \App\Service\Integritaet::QUELLE_FEHLT): ?>
+            <div class="alert alert-warning">
+                <strong>Nicht geprüft.</strong>
+                <?= htmlspecialchars((string)($integritaet['hinweis'] ?? '')) ?>
+            </div>
+        <?php else: ?>
+            <p>
+                <?= (int)$integritaet['geprueft'] ?> Datei(en) geprüft, Version
+                <?= htmlspecialchars((string)$integritaet['version']) ?>, gemessen an der
+                <strong><?= $integritaet['quelle'] === \App\Service\Integritaet::QUELLE_VEROEFFENTLICHT
+                    ? 'veröffentlichten' : 'mitgelieferten' ?></strong> Liste.
+            </p>
+
+            <?php if ($integritaet['heil']): ?>
+                <div class="alert alert-success">
+                    Keine Abweichung. Alle geprüften Dateien entsprechen dem Release.
+                </div>
+            <?php else: ?>
+                <div class="alert alert-danger">
+                    <strong>Abweichungen gefunden.</strong>
+                    <?= count($integritaet['geaendert']) ?> geändert,
+                    <?= count($integritaet['fehlt']) ?> fehlend.
+                </div>
+            <?php endif; ?>
+
+            <?php if ($integritaet['hinweis'] !== null): ?>
+                <p style="color: var(--text-muted); font-size: 0.82rem;">
+                    <?= htmlspecialchars((string)$integritaet['hinweis']) ?>
+                </p>
+            <?php endif; ?>
+
+            <?php $reparierbar = array_merge($integritaet['geaendert'], $integritaet['fehlt']); ?>
+            <?php if ($reparierbar !== []): ?>
+                <form method="post" action="/admin/updates/reparieren">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                    <table class="table" style="margin-top: 0.75rem;">
+                        <thead><tr><th style="width: 2rem;"></th><th>Datei</th><th style="width: 8rem;">Befund</th></tr></thead>
+                        <tbody>
+                        <?php foreach ($integritaet['geaendert'] as $pfad): ?>
+                            <tr>
+                                <td><input type="checkbox" name="pfade[]" value="<?= htmlspecialchars($pfad) ?>" checked></td>
+                                <td><code><?= htmlspecialchars($pfad) ?></code></td>
+                                <td>geändert</td>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php foreach ($integritaet['fehlt'] as $pfad): ?>
+                            <tr>
+                                <td><input type="checkbox" name="pfade[]" value="<?= htmlspecialchars($pfad) ?>" checked></td>
+                                <td><code><?= htmlspecialchars($pfad) ?></code></td>
+                                <td>fehlt</td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <button type="submit" class="btn btn-primary">Ausgewählte aus dem Release wiederherstellen</button>
+                    <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.5rem;">
+                        Wiederhergestellt wird ausschließlich aus dem offiziellen Release dieser Version,
+                        dessen Prüfsumme vorher geprüft wird. Schlägt etwas fehl, wird der Stand von
+                        vorher wiederhergestellt.
+                    </p>
+                </form>
+            <?php endif; ?>
+
+            <?php if ($integritaet['zusaetzlich'] !== []): ?>
+                <hr style="margin: 1.25rem 0; border: none; border-top: 1px solid var(--border-color);">
+                <p>
+                    <strong><?= count($integritaet['zusaetzlich']) ?> Datei(en)</strong> liegen in
+                    Programmverzeichnissen, gehören aber nicht zu diesem Release:
+                </p>
+                <ul style="font-size: 0.88rem;">
+                    <?php foreach (array_slice($integritaet['zusaetzlich'], 0, 50) as $pfad): ?>
+                        <li><code><?= htmlspecialchars($pfad) ?></code></li>
+                    <?php endforeach; ?>
+                    <?php if (count($integritaet['zusaetzlich']) > 50): ?>
+                        <li>&hellip; und <?= count($integritaet['zusaetzlich']) - 50 ?> weitere</li>
+                    <?php endif; ?>
+                </ul>
+                <p style="color: var(--text-muted); font-size: 0.82rem;">
+                    Das ist <em>nicht</em> zwangsläufig ein Schaden &ndash; es kann etwas sein, das Sie
+                    selbst dort abgelegt haben. Es wird deshalb nur genannt und nie entfernt.
+                    Was Sie nicht selbst dort abgelegt haben, gehört allerdings angesehen.
+                </p>
+            <?php endif; ?>
+        <?php endif; ?>
+    <?php endif; ?>
+</div>

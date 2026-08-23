@@ -8,6 +8,67 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Behoben
+
+- **Ein Update ließ abgelöste Kerndateien liegen — zehn Sprachen fielen dabei
+  auf den Stand von v0.8.0 zurück** (#403). Wer eine bestehende Installation
+  über den In-Place-Weg von 0.8.0 auf 0.9.0 hob, bekam in zehn Sprachen die
+  alten Übersetzungen, und alle in 0.9.0 neu hinzugekommenen Texte fielen auf
+  Deutsch zurück — darunter die Galerie-Überschriften aus #339. Der
+  Adminbereich meldete die Sprache dabei als korrekt installiert.
+
+  Ursache waren zwei je für sich richtige Entscheidungen: `copyTree()` löscht
+  nie, und `Translator::loadTable()` zieht eine Kerndatei dem Sprach-Addon
+  ausdrücklich vor. Mit #344 wanderten zehn Sprachen aus `lang/` in Addons —
+  die alten Kerndateien blieben liegen und gewannen.
+
+  Neuinstallationen und der Docker-Weg waren nicht betroffen.
+
+### Neu
+
+- **Eine ausdrückliche Ordnung, wem welcher Teil des Baums gehört**
+  (`src/Service/Baumordnung.php`, #403). Drei Arten — KERN (kommt aus dem
+  Release), BETREIBER (Bilder, Zugänge, Addons) und LAUFZEIT (Protokolle,
+  Ablagen). Sie löst `UpdateService::PROTECTED_PATHS` ab, das dieselbe
+  Eigentumsfrage nur zur Hälfte beantwortet hat. Ein Pfad im Release ohne
+  Eintrag macht die Testsuite rot.
+
+- **Ein Update räumt in Kern-Verzeichnissen auf — aber nur mit Beweis.**
+  Entfernt wird eine vorgefundene Datei nur, wenn ihre Prüfsumme in
+  `ABGELOESTE-DATEIEN.txt` des Archivs steht; dann ist gezeigt, dass sie von
+  uns stammt und niemand sie angefasst hat. Eine eigene Übersetzung in
+  `lang/` oder ein `config.php.bak` bleiben damit unangetastet. Was sich nicht
+  beweisen lässt, wird gemeldet statt still liegen gelassen.
+
+- **Unversehrtheitsprüfung und Selbstreparatur des Codebaums**
+  (`src/Service/Integritaet.php`, #403). Der Adminbereich vergleicht die
+  Programmdateien mit dem Sollzustand des Releases und kann abweichende
+  Dateien daraus wiederherstellen. Geprüft wird wahlweise gegen die
+  **mitgelieferte** Liste (findet kaputte Uploads und halb eingespielte
+  Updates) oder gegen die **veröffentlichte** (findet zusätzlich absichtliche
+  Manipulation, weil der Sollwert außerhalb der Reichweite von jemandem liegt,
+  der nur den Webspace hat). Das Ergebnis nennt immer, gegen welche.
+
+  Wirkt erst ab dieser Version: Für ältere Stände gibt es keine Liste.
+
+- **Zwei neue Release-Artefakte**: `KERN-SHA256SUMS.txt` und
+  `ABGELOESTE-DATEIEN.txt`, erzeugt von `scripts/kern-manifest.php` aus der
+  Git-Historie, im Zip und einzeln als Asset, beide mit SLSA-Provenance.
+
+### Geändert
+
+- **Ein fehlgeschlagenes Update räumt jetzt auch angelegte Verzeichnisse ab.**
+  `copyTree()` hielt bis hierher nicht fest, welche Verzeichnisse neu waren;
+  `rollback()` ließ deshalb ein leeres Gerüst stehen.
+
+- **Der Audit-Logger unterscheidet „konnte gar nicht" von „hat nicht
+  geklappt".** Ohne eingerichtete Datenbank — frische Installation, isolierter
+  Test, CLI-Werkzeug ohne Konfiguration — gibt es nichts zu protokollieren,
+  und das landet nicht mehr als Fehlschlag im Fehlerprotokoll. Eine
+  eingerichtete, aber nicht erreichbare Datenbank wird unverändert gemeldet:
+  Dann ist ein sicherheitsrelevantes Ereignis nicht revisionssicher
+  festgehalten.
+
 ## [0.9.0-beta.5] – 2026-08-23
 
 Fünftes Beta der 0.9er-Linie und der bisher vollständigste Stand: zehn

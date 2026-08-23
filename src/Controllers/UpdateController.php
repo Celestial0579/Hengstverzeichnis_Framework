@@ -3,6 +3,7 @@
 
 namespace App\Controllers;
 
+use App\Service\Integritaet;
 use App\Service\UpdateService;
 
 /**
@@ -315,6 +316,95 @@ class UpdateController extends BaseController {
      * innerhalb der laufenden Kern-Linie (#197, Stufe 2). Fremd-Repos und
      * manuell kopierte Addons lehnt der AddonUpdateService serverseitig ab.
      */
+    /**
+     * Prueft den Codebaum gegen den Sollzustand des Releases (#403).
+     *
+     * Zwei Knoepfe, zwei Aussagen - und der Unterschied gehoert in die
+     * Oberflaeche, nicht in eine Fussnote: Die mitgelieferte Liste liegt im
+     * selben Dateibaum wie die geprueften Dateien und findet deshalb keinen
+     * Angreifer, der beides anfasst. Die veroeffentlichte kommt von GitHub
+     * und liegt ausserhalb seiner Reichweite.
+     */
+    public function pruefeIntegritaet(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $gegenVeroeffentlichte = ($_POST['quelle'] ?? '') === 'veroeffentlicht';
+
+        try {
+            $ergebnis = Integritaet::pruefe($gegenVeroeffentlichte);
+        } catch (\Throwable $e) {
+            $_SESSION['integritaet_fehler'] = $e->getMessage();
+            header('Location: /admin/updates');
+            exit;
+        }
+
+        \App\Service\AuditLogger::log(
+            'Integritätsprüfung des Codebaums',
+            'security',
+            sprintf(
+                'Quelle: %s, %d Datei(en) geprüft - %d geändert, %d fehlend, %d zusätzlich.',
+                $ergebnis['quelle'],
+                $ergebnis['geprueft'],
+                count($ergebnis['geaendert']),
+                count($ergebnis['fehlt']),
+                count($ergebnis['zusaetzlich'])
+            )
+        );
+
+        $_SESSION['integritaet'] = $ergebnis;
+        header('Location: /admin/updates#integritaet');
+        exit;
+    }
+
+    /**
+     * Stellt abweichende Dateien aus dem Release wieder her (#403).
+     *
+     * Die Auswahl kommt aus dem Formular, wird aber NICHT als Pfadliste
+     * vertraut: Integritaet::repariere() laesst nur durch, was in der
+     * veroeffentlichten Solliste steht und in einem KERN-Pfad liegt. Ein
+     * Formularfeld darf nie bestimmen, welche Datei ueberschrieben wird.
+     */
+    public function repariere(): void {
+        if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
+        }
+
+        $pfade = array_values(array_filter(
+            array_map('strval', (array)($_POST['pfade'] ?? [])),
+            static fn(string $p): bool => $p !== ''
+        ));
+
+        if ($pfade === []) {
+            $_SESSION['integritaet_fehler'] = 'Es war keine Datei ausgewählt.';
+            header('Location: /admin/updates#integritaet');
+            exit;
+        }
+
+        try {
+            $ergebnis = Integritaet::repariere($pfade);
+        } catch (\Throwable $e) {
+            $_SESSION['integritaet_fehler'] = $e->getMessage();
+            header('Location: /admin/updates#integritaet');
+            exit;
+        }
+
+        $_SESSION['integritaet_repariert'] = $ergebnis;
+        // Direkt nachmessen: Eine Reparatur, die niemand nachprueft, ist eine
+        // Behauptung. Und zwar gegen die veroeffentlichte Liste - gegen die
+        // mitgelieferte zu pruefen hiesse, das Ergebnis an derselben Quelle
+        // zu messen, aus der die Reparatur kam.
+        try {
+            $_SESSION['integritaet'] = Integritaet::pruefe(true);
+        } catch (\Throwable) {
+            unset($_SESSION['integritaet']);
+        }
+
+        header('Location: /admin/updates#integritaet');
+        exit;
+    }
+
     public function updateAddon(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");

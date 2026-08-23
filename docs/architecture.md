@@ -18,6 +18,7 @@ config/             Konfigurationsdatei (config.php) + optional generierte db_co
 database/           schema.sql (Erststand), migrate.php, seed.php, reset.php
 lang/               Kern-Sprachdateien (de.php, en.php) für App\I18n\Translator, siehe unten
 plugins/             Lokal aktivierte Plugins (siehe unten, nicht versioniert außer .gitkeep)
+scripts/            Werkzeuge fuer den Release-Bau (nicht Teil der Auslieferung)
 public/             Docroot des Webservers (Apache DocumentRoot zeigt hierher)
   index.php          Front-Controller: Autoloader, Routing-Tabelle, Dispatch
   css/, js/          Statische Assets
@@ -45,6 +46,91 @@ storage/logs/        Audit-Log-Ablage (wird zur Laufzeit angelegt)
 Es gibt bewusst **kein `src/Models`**-Verzeichnis mit ORM-Klassen: Die
 Controller sprechen direkt per PDO/Prepared Statements mit der Datenbank.
 Das ist ein bewusster Trade-off für Einfachheit, nicht ein unfertiger Zustand.
+
+## Wem welcher Teil des Baums gehört (`src/Service/Baumordnung.php`)
+
+Eine Installation besteht aus drei Arten von Dateien, und die Unterscheidung
+ist keine Ordnungsfrage, sondern die Grundlage für zwei Dinge, die sonst nicht
+gehen: dass ein Update aufräumen darf, und dass sich der Codebaum überhaupt
+prüfen lässt.
+
+| Art | Bedeutung | Update | Prüfung |
+|---|---|---|---|
+| **KERN** | Kommt aus dem Release, soll ihm entsprechen | überschreibt und **räumt auf** | ja |
+| **BETREIBER** | Gehört dem Betreiber: Bilder, Zugänge, Addons | fasst es **nie** an | nein |
+| **LAUFZEIT** | Entsteht im Betrieb, entbehrlich: Protokolle, Ablagen | überschreibt nur Mitgeliefertes | nein |
+
+Es gewinnt der längste passende Eintrag; gemischte Verzeichnisse sind damit
+darstellbar (`public` ist KERN, `public/uploads` ist BETREIBER). Ein Pfad ohne
+Eintrag gilt als **nicht eingeordnet** und wird weder aufgeräumt noch geprüft —
+`tests/Unit/Service/BaumordnungTest.php` sorgt dafür, dass es ihn nicht gibt:
+Ein neues Verzeichnis im Release ohne Eintrag macht die Testsuite rot.
+
+Die beiden fail-closed-Richtungen zeigen bewusst gegeneinander. Beim **Kopieren**
+heißt „nicht eingeordnet": trotzdem kopieren — sonst würde ein vergessenes
+Kern-Verzeichnis still nicht mehr ausgeliefert. Beim **Löschen** heißt es:
+Finger weg. Vergessen kostet damit eine liegengebliebene Datei, nie eine
+verlorene.
+
+## Aufräumen beim Update — nur mit Beweis
+
+`UpdateService::copyTree()` ist additiv: Es überschreibt und ergänzt, aber
+löscht nie. Für Betreiberdaten ist das richtig. Für den Kern war es ein Fehler,
+und #403 zeigt, was daraus wurde — mit #344 wanderten zehn Sprachen aus `lang/`
+in Addons, die alten Kerndateien blieben liegen, und `Translator::loadTable()`
+zieht die Kerndatei dem Addon ausdrücklich vor. Zehn Sprachen fielen damit auf
+den Stand von v0.8.0 zurück, und der Adminbereich meldete sie als korrekt
+installiert.
+
+Seither gleicht ein Update die KERN-Pfade ab. Entfernt wird eine vorgefundene
+Datei aber **nur mit Beweis**: Ihre Prüfsumme muss in `ABGELOESTE-DATEIEN.txt`
+des Archivs stehen. Dann ist gezeigt, dass sie von uns stammt und niemand sie
+angefasst hat.
+
+Der Beweis ist nicht Zierrat. „Das Archiv bringt diese Datei nicht mit" trifft
+auf eine Leiche aus v0.8.0 genauso zu wie auf eine eigene Übersetzung, die ein
+Betreiber nach `lang/` gelegt hat — die Vorrangregel gibt das her —, oder auf
+ein `config.php.bak` vor einer Änderung. Ohne Beweis wäre das Aufräumen ein
+Raten mit Datenverlust als Einsatz.
+
+Was sich nicht beweisen lässt, bleibt liegen **und wird gemeldet**: im
+Audit-Log und im Adminbereich. Eine Leiche, von der niemand weiß, ist genau der
+Zustand, aus dem #403 entstanden ist.
+
+## Unversehrtheit des Codebaums (`src/Service/Integritaet.php`)
+
+Addons haben seit #224 eine Manipulationserkennung. Der Kern, der sie
+durchführt, hatte selbst keine — nicht aus Unwillen, sondern weil die Frage
+offen war, woran man ihn misst. Über die ganze Installation geht es nicht,
+dort liegen Bilder und Protokolle. Über die KERN-Pfade geht es.
+
+Ein Release liefert dafür `KERN-SHA256SUMS.txt` — im Zip **und** als eigenes
+Asset. Der Doppelweg ist der Kern der Sache:
+
+- **Mitgeliefert**: findet kaputte Uploads, halb eingespielte Updates,
+  versehentlich editierte Dateien. Findet **nicht** jemanden, der Datei und
+  Liste ändert — beide liegen im selben Baum.
+- **Veröffentlicht**: findet zusätzlich absichtliche Manipulation, weil der
+  Sollwert außerhalb der Reichweite von jemandem liegt, der nur den Webspace
+  hat. Braucht Netz.
+
+Die Datenbank taugt ausdrücklich **nicht** als dritter Anker: Wer Dateien
+schreiben kann, liest `config/db_config.php` und schreibt dort genauso.
+
+Das Ergebnis nennt immer, gegen welche Liste geprüft wurde. Eine Prüfung, die
+ihre eigene Aussagekraft verschweigt, ist schlimmer als keine — sie liest sich
+grün und ist es nur unter einer Annahme, die niemand ausspricht. Und „nicht
+erreichbar" führt nie zu einem stillen Rückfall auf die schwächere Liste:
+*konnte nicht prüfen* und *geprüft, ist heil* sind verschiedene Aussagen.
+
+Abweichende Dateien lassen sich aus dem Release wiederherstellen. Dabei wird
+nur eingespielt, was in der **veröffentlichten** Liste steht und in einem
+KERN-Pfad liegt; das Archiv wird vorher gegen seine Prüfsumme geprüft, und
+jede Datei nochmals gegen die Liste. Bricht etwas ab, steht der Stand von
+vorher wieder.
+
+Die Prüfung wirkt erst ab der Version, die sie einführt: Für ältere Stände
+gibt es keine Liste, weder mitgeliefert noch veröffentlicht.
 
 ## Autoloading
 

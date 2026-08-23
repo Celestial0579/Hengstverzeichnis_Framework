@@ -374,6 +374,9 @@ $router->post('/admin/updates/run', [App\Controllers\UpdateController::class, 'r
 $router->post('/admin/updates/channel', [App\Controllers\UpdateController::class, 'saveChannel']);
 $router->post('/admin/updates/automation', [App\Controllers\UpdateController::class, 'saveAutomation']);
 $router->post('/admin/updates/addon', [App\Controllers\UpdateController::class, 'updateAddon']);
+// Integritaetspruefung und Selbstreparatur des Codebaums (#403).
+$router->post('/admin/updates/integritaet', [App\Controllers\UpdateController::class, 'pruefeIntegritaet']);
+$router->post('/admin/updates/reparieren', [App\Controllers\UpdateController::class, 'repariere']);
 
 $router->get('/admin/backups', [App\Controllers\AdminController::class, 'backupSettings']);
 $router->post('/admin/backups', [App\Controllers\AdminController::class, 'updateBackupSettings']);

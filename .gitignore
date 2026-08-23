@@ -41,3 +41,10 @@ storage/logs/*
 # Pferdefotos (#366) - Nutzdaten, nie im Repo, aber das Verzeichnis soll es geben.
 storage/horses/*
 !storage/horses/.gitkeep
+
+# Beim Release erzeugte Listen ueber den eigenen Codebaum (#403).
+# Sie entstehen in .github/workflows/release.yml aus der Git-Historie und
+# gehoeren deshalb NICHT ins Repo - eine eingecheckte Fassung waere ab dem
+# naechsten Commit falsch, und zwar unbemerkt.
+/KERN-SHA256SUMS.txt
+/ABGELOESTE-DATEIEN.txt

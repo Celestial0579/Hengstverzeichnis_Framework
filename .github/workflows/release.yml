@@ -55,10 +55,39 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Volle Historie samt Tags: scripts/kern-manifest.php liest aus den
+          # alten Staenden, welche Kern-Dateien es einmal gab. Ein flacher
+          # Klon kennt sie nicht - die Beweisliste waere dann still
+          # unvollstaendig, und ein Update raeumte entsprechend weniger auf,
+          # ohne dass es jemandem auffiele.
+          fetch-depth: 0
 
       - name: Determine version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Nicht auf das PHP der Runner-Vorgabe verlassen: Welche Fassung dort
+      # liegt, kann sich mit dem Image aendern, und kern-manifest.php liefe
+      # dann eines Tages gegen eine andere Sprachversion als der Rest des
+      # Projekts. Dieselbe Pinnung wie in tests.yml und pre-commit.yml.
+      - name: PHP bereitstellen
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2 (2.37.2)
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - name: Kern-Listen erzeugen
+        run: |
+          mkdir -p dist/listen
+          php scripts/kern-manifest.php dist/listen
+          # In die Wurzel, BEVOR das Docker-Image gebaut wird: Dessen
+          # `COPY . .` nimmt sie damit mit, und eine Container-Installation
+          # kann sich genauso pruefen wie eine auf Shared Hosting. Stuenden
+          # sie erst danach da, waere die Pruefung ausgerechnet dort blind,
+          # wo der Codebaum root gehoert und eine Abweichung am meisten
+          # bedeutet.
+          cp dist/listen/KERN-SHA256SUMS.txt dist/listen/ABGELOESTE-DATEIEN.txt .
 
       - name: Docker image metadata
         id: meta
@@ -92,26 +121,49 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+      # Zwei Listen ueber den eigenen Codebaum (#403):
+      #   KERN-SHA256SUMS.txt     Sollzustand dieser Version - Grundlage fuer
+      #                           Integritaetspruefung und Selbstreparatur.
+      #   ABGELOESTE-DATEIEN.txt  Was fruehere Versionen ausgeliefert haben und
+      #                           diese nicht mehr - Grundlage dafuer, dass ein
+      #                           Update beim Aufraeumen BEWEISEN kann, dass
+      #                           eine vorgefundene Datei von uns stammt und
+      #                           niemand sie angefasst hat.
+      #
+      # Braucht die volle Tag-Historie, deshalb steht beim Checkout
+      # fetch-depth: 0 - ein flacher Klon kennt die alten Staende nicht und
+      # erzeugte eine stillschweigend unvollstaendige Beweisliste.
       - name: Build Shared-Hosting-Archiv
         run: |
           mkdir -p dist
-          git archive --format=zip \
-            --output="dist/hengstverzeichnis-framework-${{ steps.version.outputs.version }}.zip" \
-            --prefix="hengstverzeichnis-framework-${{ steps.version.outputs.version }}/" \
-            HEAD -- \
+          stage="dist/hengstverzeichnis-framework-${{ steps.version.outputs.version }}"
+          mkdir -p "$stage"
+          git archive --format=tar HEAD -- \
             ':!tests' ':!.github' ':!.claude' ':!docker-compose.yml' \
             ':!Dockerfile' ':!.dockerignore' ':!docker-start.sh' \
-            ':!composer.json' ':!composer.lock' ':!phpunit.xml'
+            ':!composer.json' ':!composer.lock' ':!phpunit.xml' ':!scripts' \
+            | tar -C "$stage" -xf -
+          # Die beiden Listen sind nicht versioniert - sie entstehen erst hier
+          # und werden deshalb neben das Archiv gelegt, nicht hineingecheckt.
+          cp KERN-SHA256SUMS.txt ABGELOESTE-DATEIEN.txt "$stage/"
+          (cd dist && zip -qrX \
+            "hengstverzeichnis-framework-${{ steps.version.outputs.version }}.zip" \
+            "hengstverzeichnis-framework-${{ steps.version.outputs.version }}")
+          rm -rf "$stage"
 
       - name: Checksumme fürs Archiv
         run: |
           cd dist
+          rm -rf listen
           sha256sum *.zip > SHA256SUMS.txt
 
       - name: Attestiere Archiv-Provenance (SLSA, keyless)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*.zip
+          subject-path: |
+            dist/*.zip
+            KERN-SHA256SUMS.txt
+            ABGELOESTE-DATEIEN.txt
 
       - name: Release erstellen/aktualisieren
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -125,8 +177,15 @@ jobs:
           # v0.8.0-beta.1 als reguläres Update angeboten - der Kanal wäre
           # wirkungslos, und zwar in der gefährlichen Richtung.
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # Die beiden Kern-Listen werden auch EINZELN veroeffentlicht, nicht
+          # nur im Zip. Das ist der ganze Punkt: Eine Integritaetspruefung,
+          # deren Sollwert im selben Dateibaum liegt wie die geprueften
+          # Dateien, findet keinen Angreifer, der beides anfasst (#403). Von
+          # hier geholt liegt der Sollwert ausserhalb seiner Reichweite.
           files: |
             dist/*.zip
             dist/SHA256SUMS.txt
+            KERN-SHA256SUMS.txt
+            ABGELOESTE-DATEIEN.txt
           # body/name absichtlich nicht gesetzt: bereits existierende,
           # manuell kuratierte Release-Beschreibung bleibt unangetastet.

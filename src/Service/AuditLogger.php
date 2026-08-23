@@ -96,7 +96,27 @@ class AuditLogger {
                 self::truncate($ipAddress, 45)
             ]);
         } catch (\Throwable $e) {
-            // Ausfallsicherheit: Audit-Logger Fehler stören den normalen Anwendungsfluss nicht
+            // Ausfallsicherheit: Audit-Logger Fehler stören den normalen
+            // Anwendungsfluss nicht.
+            //
+            // Unterschieden wird dabei zwischen "konnte gar nicht" und
+            // "hat nicht geklappt" - dieselbe Trennung wie beim nächtlichen
+            // Testlauf, und aus demselben Grund. Ist überhaupt keine
+            // Datenbank eingerichtet (Installationsassistent, isolierter
+            // Unit-Test, CLI-Werkzeug ohne Konfiguration), dann ist das kein
+            // Fehlschlag des Protokolls, sondern eine Lage, in der es nichts
+            // zu protokollieren GIBT. Eine Meldung darüber im Fehlerprotokoll
+            // ist Rauschen - und Rauschen im Fehlerprotokoll ist teuer, weil
+            // es die echten Meldungen zudeckt.
+            //
+            // Steht dagegen eine Datenbank und der Eintrag geht trotzdem
+            // schief, ist das ein echter Befund: Ein sicherheitsrelevantes
+            // Ereignis ist dann nicht revisionssicher festgehalten. Das
+            // gehört gemeldet.
+            if (!self::datenbankEingerichtet()) {
+                return;
+            }
+
             error_log("AuditLogger Failure: " . $e->getMessage());
             $logDir = __DIR__ . '/../../storage/logs';
             if (!is_dir($logDir)) {
@@ -107,6 +127,22 @@ class AuditLogger {
             // Automatische Dateibereinigung triggern
             self::cleanupLogs();
         }
+    }
+
+    /**
+     * Ist ueberhaupt eine Datenbank eingerichtet?
+     *
+     * `DB_HOST` entsteht in config/config.php - aus einer Umgebungsvariablen
+     * oder aus config/db_config.php. Fehlt die Konstante, wurde die
+     * Konfiguration nie geladen: frische Installation vor dem Assistenten,
+     * isolierter Unit-Test, CLI-Werkzeug ohne Konfiguration.
+     *
+     * Bewusst NICHT geprueft wird, ob die Verbindung steht. Eine eingerichtete,
+     * aber nicht erreichbare Datenbank ist ein echter Fehlschlag und gehoert
+     * gemeldet - genau die Unterscheidung, um die es hier geht.
+     */
+    private static function datenbankEingerichtet(): bool {
+        return defined('DB_HOST');
     }
 
     /**

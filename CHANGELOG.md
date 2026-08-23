@@ -8,6 +8,19 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.0-beta.6] – 2026-08-24
+
+Sechstes Beta der 0.9er-Linie. Zwei grosse Themen, und beide sind das
+Ergebnis einer **adversarischen Prüfung**: Sechs unabhängige Prüfer haben den
+fertigen Code angegriffen, jeder Fund musste anschliessend von einem zweiten
+Durchgang widerlegt werden. Sechzehn haben das überstanden — fünf davon
+schwer, darunter eine Anmeldung, die sich mit dem Passwort allein hätte
+führen lassen.
+
+> **Weiterhin Beta.** Die Freigabe der 0.9.0 entscheidet der Auftraggeber
+> (siehe [Pipeline-Stufen](docs/releasing.md)). `latest` steht unverändert
+> auf v0.8.0 — seit dieser Version gilt das auch für das Docker-Tag.
+
 ### Neu — Passkeys
 
 - **Passkeys (WebAuthn/FIDO2)** (#353). Anmelden mit Fingerabdruck, Gesicht,

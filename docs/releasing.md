@@ -48,6 +48,39 @@ Release-**Notes** bleiben bewusst manuell kuratiert (siehe
 [Releases](../../../releases)) – nur die **Artefakte** werden automatisch
 gebaut, über [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
+## Was ein Release mitliefert
+
+| Artefakt | Wofür |
+|---|---|
+| `hengstverzeichnis-framework-<version>.zip` | Shared-Hosting-Auslieferung |
+| `SHA256SUMS.txt` | Prüfsumme des Archivs; ohne sie verweigert `UpdateService` das Update |
+| `KERN-SHA256SUMS.txt` | Sollzustand jeder Kern-Datei — Grundlage für Unversehrtheitsprüfung und Reparatur |
+| `ABGELOESTE-DATEIEN.txt` | Was frühere Versionen ausgeliefert haben und diese nicht mehr — Grundlage dafür, dass ein Update beim Aufräumen **beweisen** kann, dass eine vorgefundene Datei von uns stammt |
+
+Die beiden Kern-Listen erzeugt
+[`scripts/kern-manifest.php`](../scripts/kern-manifest.php) aus der
+Git-Historie. Sie liegen **im Zip und einzeln als Release-Asset**, und das ist
+kein Versehen: Eine Unversehrtheitsprüfung, deren Sollwert im selben Dateibaum
+liegt wie die geprüften Dateien, findet niemanden, der beides ändert. Von
+GitHub geholt liegt der Sollwert außerhalb der Reichweite von jemandem, der nur
+Zugriff auf den Webspace hat. Beide tragen eine SLSA-Provenance.
+
+Zwei Dinge, die beim Ändern des Workflows leicht kaputtgehen und es nicht
+sollen:
+
+- **`fetch-depth: 0` beim Checkout.** `kern-manifest.php` liest aus den alten
+  Tags, welche Kern-Dateien es einmal gab. Ein flacher Klon kennt sie nicht —
+  die Beweisliste wäre still unvollständig, und ein Update räumte entsprechend
+  weniger auf, ohne dass es jemandem auffiele.
+- **Die Listen entstehen VOR dem Docker-Build.** Dessen `COPY . .` nimmt sie
+  damit mit, und eine Container-Installation kann sich genauso prüfen wie eine
+  auf Shared Hosting. Stünden sie erst danach da, wäre die Prüfung ausgerechnet
+  dort blind, wo der Codebaum root gehört und eine Abweichung am meisten
+  bedeutet.
+
+Die Listen sind **nicht versioniert** (`.gitignore`). Eine eingecheckte Fassung
+wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
+
 ## Ablauf für Releases
 
 1. [CHANGELOG.md](../CHANGELOG.md) um einen neuen Versionsabschnitt ergänzen

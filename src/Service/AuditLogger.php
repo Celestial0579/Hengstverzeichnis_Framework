@@ -96,7 +96,27 @@ class AuditLogger {
                 self::truncate($ipAddress, 45)
             ]);
         } catch (\Throwable $e) {
-            // Ausfallsicherheit: Audit-Logger Fehler stören den normalen Anwendungsfluss nicht
+            // Ausfallsicherheit: Audit-Logger Fehler stören den normalen
+            // Anwendungsfluss nicht.
+            //
+            // Unterschieden wird dabei zwischen "konnte gar nicht" und
+            // "hat nicht geklappt" - dieselbe Trennung wie beim nächtlichen
+            // Testlauf, und aus demselben Grund. Ist überhaupt keine
+            // Datenbank eingerichtet (Installationsassistent, isolierter
+            // Unit-Test, CLI-Werkzeug ohne Konfiguration), dann ist das kein
+            // Fehlschlag des Protokolls, sondern eine Lage, in der es nichts
+            // zu protokollieren GIBT. Eine Meldung darüber im Fehlerprotokoll
+            // ist Rauschen - und Rauschen im Fehlerprotokoll ist teuer, weil
+            // es die echten Meldungen zudeckt.
+            //
+            // Steht dagegen eine Datenbank und der Eintrag geht trotzdem
+            // schief, ist das ein echter Befund: Ein sicherheitsrelevantes
+            // Ereignis ist dann nicht revisionssicher festgehalten. Das
+            // gehört gemeldet.
+            if (!self::datenbankEingerichtet()) {
+                return;
+            }
+
             error_log("AuditLogger Failure: " . $e->getMessage());
             $logDir = __DIR__ . '/../../storage/logs';
             if (!is_dir($logDir)) {
@@ -107,6 +127,47 @@ class AuditLogger {
             // Automatische Dateibereinigung triggern
             self::cleanupLogs();
         }
+    }
+
+    /**
+     * Ist ueberhaupt eine Datenbank eingerichtet?
+     *
+     * `DB_HOST` entsteht in config/config.php - aus einer Umgebungsvariablen
+     * oder aus config/db_config.php. Fehlt die Konstante, wurde die
+     * Konfiguration nie geladen: frische Installation vor dem Assistenten,
+     * isolierter Unit-Test, CLI-Werkzeug ohne Konfiguration.
+     *
+     * Bewusst NICHT geprueft wird, ob die Verbindung steht. Eine eingerichtete,
+     * aber nicht erreichbare Datenbank ist ein echter Fehlschlag und gehoert
+     * gemeldet - genau die Unterscheidung, um die es hier geht.
+     */
+    private static function datenbankEingerichtet(): bool {
+        if (self::$datenbankEingerichtetOverride !== null) {
+            return self::$datenbankEingerichtetOverride;
+        }
+        return defined('DB_HOST');
+    }
+
+    /** @var bool|null Nur fuer Tests - siehe overrideDatenbankEingerichtetForTests(). */
+    private static ?bool $datenbankEingerichtetOverride = null;
+
+    /**
+     * Nur fuer Tests: die Antwort auf "ist eine Datenbank eingerichtet?"
+     * uebersteuern. `null` stellt den Normalzustand wieder her.
+     *
+     * WARUM DAS NOETIG IST. `DB_HOST` ist eine KONSTANTE - einmal definiert,
+     * laesst sie sich nicht zuruecknehmen. Ein Test, der den Fall "keine
+     * Datenbank" pruefen will, kann sie also nicht wegnehmen; er kann nur
+     * feststellen, dass sie da ist, und sich ueberspringen.
+     *
+     * Genau das ist passiert: Die erste Fassung dieser Tests uebersprang sich
+     * in jeder Umgebung mit Datenbankkonfiguration - also in der gesamten CI.
+     * Zwei gruene Haken, die nie etwas geprueft hatten. Ein uebersprungener
+     * Test ist kein bestandener, und wer das nicht bemerkt, haelt eine Luecke
+     * fuer eine Zusicherung (analog BackupService::overrideUploadsDirForTests()).
+     */
+    public static function overrideDatenbankEingerichtetForTests(?bool $wert): void {
+        self::$datenbankEingerichtetOverride = $wert;
     }
 
     /**

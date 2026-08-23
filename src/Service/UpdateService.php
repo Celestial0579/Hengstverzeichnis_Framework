@@ -51,18 +51,13 @@ class UpdateService {
     public const CHANNEL_STABLE = 'stable';
     public const CHANNEL_BETA = 'beta';
 
-    /** Pfade (relativ zur Installationswurzel), die ein Update nie anfasst. */
-    private const PROTECTED_PATHS = [
-        'config/db_config.php',
-        'public/uploads',
-        // Pferdefotos liegen seit #366 hier statt im Webroot. Ohne diesen
-        // Eintrag stünde der einzige Ort mit Nutzdaten, den ein Release
-        // theoretisch überschreiben könnte, ungeschützt da - 'storage' selbst
-        // ist NICHT geschützt, weil das Archiv storage/logs/.gitkeep mitbringt.
-        'storage/horses',
-        'plugins',
-        '.env',
-    ];
+    /**
+     * Pfade, die ein Update nie anfasst, stehen seit #403 nicht mehr hier,
+     * sondern in App\Service\Baumordnung - zusammen mit der Antwort auf die
+     * umgekehrte Frage, welche Pfade dem Kern gehören und deshalb abgeglichen
+     * werden dürfen. Beides war dieselbe Eigentumsfrage, hier stand nur die
+     * eine Hälfte davon.
+     */
 
     /**
      * Addons, die ein Kern-Update ausnahmsweise DOCH entfernen darf (#339).
@@ -434,6 +429,49 @@ class UpdateService {
     }
 
     /**
+     * Die Assets eines Releases zu einer bestimmten Version (#403).
+     *
+     * Die Update-Strecke fragt immer nach dem BESTEN neueren Release. Die
+     * Integritaetspruefung braucht das Gegenteil: das Release zu genau der
+     * Version, die gerade laeuft - denn daran wird der Codebaum gemessen.
+     *
+     * @return array<string, string> Asset-Name => Download-URL, leer wenn es
+     *         das Release nicht gibt oder GitHub nicht erreichbar ist.
+     */
+    public static function releaseAssets(string $version): array {
+        try {
+            $roh = self::httpGet(self::releasesUrl(), ['Accept: application/vnd.github+json']);
+            $releases = json_decode($roh, true);
+        } catch (\Throwable) {
+            return [];
+        }
+        if (!is_array($releases)) {
+            return [];
+        }
+
+        $gesucht = self::normalizeVersion($version);
+        foreach ($releases as $release) {
+            if (!is_array($release) || !empty($release['draft'])) {
+                continue;
+            }
+            if (self::normalizeVersion((string)($release['tag_name'] ?? '')) !== $gesucht) {
+                continue;
+            }
+            $assets = [];
+            foreach ((array)($release['assets'] ?? []) as $asset) {
+                $name = (string)($asset['name'] ?? '');
+                $url = (string)($asset['browser_download_url'] ?? '');
+                if ($name !== '' && $url !== '') {
+                    $assets[$name] = $url;
+                }
+            }
+            return $assets;
+        }
+
+        return [];
+    }
+
+    /**
      * Wählt aus einer Release-Liste den besten Update-Kandidaten: Drafts sind
      * nie zulässig, Prereleases nur mit Beta-Opt-in, und es zählen
      * ausschließlich Versionen, die STRIKT neuer sind als die installierte -
@@ -601,7 +639,7 @@ class UpdateService {
             // passenden Release-Stand mitgezogen (Reihenfolge Backup -> Kern ->
             // Addons). Fehler einzelner Addons brechen das bereits angewendete
             // Kern-Update nicht ab - sie landen in der Ergebnisliste und über
-            // AddonUpdateService im Audit-Log; PROTECTED_PATHS bleibt davon
+            // AddonUpdateService im Audit-Log; die Baumordnung bleibt davon
             // unberührt (der Kern-Kopiervorgang oben fasst plugins/ nie an,
             // die Addon-Phase schreibt bewusst über ihren eigenen Weg).
             $addonPhase = AddonUpdateService::updateOfficialAddonsAfterCoreUpdate($check['latest']);
@@ -1040,7 +1078,7 @@ class UpdateService {
         self::$baseDirOverride = $dir;
     }
 
-    private static function baseDir(): string {
+    public static function baseDir(): string {
         return self::$baseDirOverride ?? dirname(__DIR__, 2);
     }
 
@@ -1087,10 +1125,51 @@ class UpdateService {
             // angelegt. Bricht das Kopieren trotz Vorabprüfung ab - volle
             // Platte, entzogene Rechte, Fehler im Dateisystem -, wird der
             // Ausgangszustand daraus wiederhergestellt.
-            $journal = ['restore' => [], 'created' => []];
+            $journal = [
+                'restore' => [], 'created' => [], 'created_dirs' => [],
+                'deleted' => [], 'rmdir' => [],
+            ];
 
             try {
                 $kopiert = self::copyTree($sourceDir, $target, '', $backupDir, $journal);
+
+                // Abgleich der KERN-Pfade (#403): Was die Installation aus
+                // einer frueheren Version hat und das Archiv nicht mehr
+                // mitbringt, wird jetzt entfernt. NACH dem Kopieren, damit der
+                // Ersatz schon liegt; VOR entferneAbgeloesteAddons(), weil bis
+                // hierher noch zurueckgerollt werden kann.
+                $entfernt = self::abgleicheKernPfade($sourceDir, $target, $backupDir, $journal);
+                $unklar = self::unklareFunde();
+
+                if ($entfernt > 0) {
+                    AuditLogger::log(
+                        'Update: abgeloeste Kerndateien entfernt',
+                        'update',
+                        sprintf(
+                            '%d Datei(en) entfernt, die eine fruehere Version ausgeliefert hat und dieses '
+                            . 'Release nicht mehr - jede davon beweisbar unveraendert (Pruefsumme in %s).',
+                            $entfernt,
+                            self::ABGELOESTE_LISTE
+                        )
+                    );
+                }
+
+                // Was sich nicht beweisen laesst, wird gemeldet statt still
+                // liegen gelassen. Genau dieser stille Zustand war #403.
+                if ($unklar !== []) {
+                    AuditLogger::log(
+                        'Update: unklare Dateien in Kern-Verzeichnissen',
+                        'update',
+                        sprintf(
+                            '%d Datei(en) liegen in Kern-Verzeichnissen, gehoeren nicht zu diesem Release und '
+                            . 'lassen sich keiner frueheren Version zuordnen. Sie wurden NICHT entfernt - '
+                            . 'moeglicherweise stammen sie vom Betreiber. Bitte pruefen: %s',
+                            count($unklar),
+                            implode(', ', array_slice($unklar, 0, 40))
+                            . (count($unklar) > 40 ? sprintf(' ... (%d weitere)', count($unklar) - 40) : '')
+                        )
+                    );
+                }
 
                 // ERST NACH dem Kopieren: Bis hierher könnte das Update noch
                 // zurückgerollt werden, und ein Addon, das schon weg ist, käme
@@ -1141,7 +1220,7 @@ class UpdateService {
     /**
      * Entfernt Addons, deren Funktion in den Kern gewandert ist (#339).
      *
-     * `plugins` steht unter PROTECTED_PATHS, ein Update fasst Addon-
+     * `plugins` ist in der Baumordnung BETREIBER, ein Update fasst Addon-
      * Verzeichnisse also nie an. Genau eine Lage braucht die Ausnahme: wenn
      * der Kern uebernimmt, was das Addon tat. Bliebe es aktiv, gaebe es zwei
      * Pflegeoberflaechen fuer dieselben Daten und zwei Vorstellungen davon,
@@ -1218,7 +1297,7 @@ class UpdateService {
 
         foreach ($entries as $entry) {
             $relPath = $relative === '' ? $entry : $relative . '/' . $entry;
-            if (in_array($relPath, self::PROTECTED_PATHS, true)) {
+            if (Baumordnung::istBetreiber($relPath)) {
                 continue;
             }
 
@@ -1267,22 +1346,63 @@ class UpdateService {
     /**
      * Stellt den Zustand vor dem Kopieren wieder her.
      *
-     * @param array{restore: array<int, array{0: string, 1: string}>, created: array<int, string>} $journal
+     * Die Reihenfolge ist nicht beliebig. Verzeichnisse, die der Abgleich
+     * entfernt hat, müssen zuerst wieder da sein - sonst hat die
+     * Wiederherstellung der Dateien darin keinen Ort. Und die vom Kopieren
+     * angelegten Verzeichnisse kommen zuletzt weg, weil `rmdir` auf einem
+     * nicht leeren Verzeichnis fehlschlägt: Steht dort noch etwas, bleibt es
+     * stehen, statt mitgerissen zu werden.
+     *
+     * @param array{restore: array<int, array{0: string, 1: string}>, created: array<int, string>, created_dirs: array<int, string>, deleted: array<int, array{0: ?string, 1: string}>, rmdir: array<int, string>} $journal
      */
     private static function rollback(array $journal): void {
+        // 1. Vom Abgleich entfernte Verzeichnisse zurück - in umgekehrter
+        //    Entfernungsreihenfolge, also Eltern vor Kindern.
+        foreach (array_reverse($journal['rmdir'] ?? []) as $dir) {
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0755, true);
+            }
+        }
+
+        // 2. Vom Abgleich entfernte Dateien zurück. Eine Sicherung von null
+        //    steht für eine symbolische Verknüpfung - die wird nicht kopiert
+        //    und lässt sich hier nicht wiederherstellen; sie wird gemeldet.
+        $verknuepfungen = 0;
+        foreach (array_reverse($journal['deleted'] ?? []) as [$backup, $original]) {
+            if ($backup === null) {
+                $verknuepfungen++;
+                continue;
+            }
+            @copy($backup, $original);
+        }
+
+        // 3. Neu angelegte Dateien weg, dann überschriebene zurück.
         foreach (array_reverse($journal['created']) as $path) {
             @unlink($path);
         }
         foreach (array_reverse($journal['restore']) as [$backup, $original]) {
             @copy($backup, $original);
         }
+
+        // 4. Neu angelegte Verzeichnisse weg - Kinder vor Eltern, und nur,
+        //    wenn sie leer sind.
+        foreach (array_reverse($journal['created_dirs'] ?? []) as $dir) {
+            @rmdir($dir);
+        }
+
         AuditLogger::log(
             'Update zurückgerollt',
             'update',
             sprintf(
-                '%d überschriebene Datei(en) wiederhergestellt, %d neu angelegte entfernt',
+                '%d überschriebene Datei(en) wiederhergestellt, %d neu angelegte entfernt, '
+                . '%d Verzeichnis(se) entfernt, %d beim Abgleich gelöschte Datei(en) zurückgeholt%s',
                 count($journal['restore']),
-                count($journal['created'])
+                count($journal['created']),
+                count($journal['created_dirs'] ?? []),
+                count($journal['deleted'] ?? []) - $verknuepfungen,
+                $verknuepfungen > 0
+                    ? sprintf(' - ACHTUNG: %d symbolische Verknüpfung(en) konnten nicht wiederhergestellt werden', $verknuepfungen)
+                    : ''
             )
         );
     }
@@ -1348,7 +1468,7 @@ class UpdateService {
 
         foreach ($entries as $entry) {
             $relPath = $relative === '' ? $entry : $relative . '/' . $entry;
-            if (in_array($relPath, self::PROTECTED_PATHS, true)) {
+            if (Baumordnung::istBetreiber($relPath)) {
                 continue;
             }
 
@@ -1359,6 +1479,14 @@ class UpdateService {
                 $existed = is_dir($dst);
                 if (!$existed && !mkdir($dst, 0755, true) && !is_dir($dst)) {
                     throw new \RuntimeException("Verzeichnis konnte nicht angelegt werden: {$relPath}");
+                }
+                if (!$existed) {
+                    // Seit #403 wird das festgehalten. Vorher wurde $existed
+                    // berechnet und nur in der Bedingung darueber verwendet -
+                    // ein fehlgeschlagenes Update liess deshalb ein leeres
+                    // Verzeichnisgeruest stehen, weil rollback() gar nicht
+                    // wusste, welche Verzeichnisse neu waren.
+                    $journal['created_dirs'][] = $dst;
                 }
                 $copied += self::copyTree($sourceDir, $targetDir, $relPath, $backupDir, $journal);
                 continue;
@@ -1388,6 +1516,338 @@ class UpdateService {
         }
 
         return $copied;
+    }
+
+    /** Name der Beweisliste im Release-Archiv (siehe scripts/kern-manifest.php). */
+    public const ABGELOESTE_LISTE = 'ABGELOESTE-DATEIEN.txt';
+
+    /**
+     * Pfade, die beim letzten Abgleich weder ins Archiv noch in die
+     * Beweisliste passten - also nicht entfernt wurden. Fuer die Anzeige im
+     * Adminbereich und fuer Tests.
+     *
+     * @var array<int, string>
+     */
+    private static array $unklareFunde = [];
+
+    /** @return array<int, string> */
+    public static function unklareFunde(): array {
+        return self::$unklareFunde;
+    }
+
+    /**
+     * Gleicht die KERN-Pfade gegen das Archiv ab (#403).
+     *
+     * Entfernt wird eine vorgefundene Datei NUR, wenn zweierlei zutrifft: Das
+     * Archiv bringt sie nicht mehr mit, UND ihre Pruefsumme steht in der
+     * Beweisliste des Archivs. Dann ist bewiesen, dass sie von uns stammt und
+     * niemand sie seither angefasst hat.
+     *
+     * Warum der Beweis noetig ist: "Das Archiv hat die Datei nicht" trifft auf
+     * eine Leiche aus v0.8.0 genauso zu wie auf eine Datei, die der Betreiber
+     * selbst dort abgelegt hat - eine eigene Uebersetzung in lang/ etwa, die
+     * die Vorrangregel in Translator::loadTable() ausdruecklich hergibt, oder
+     * ein config.php.bak vor einer Aenderung. Ohne den Beweis waere das
+     * Aufraeumen ein Raten mit Datenverlust als Einsatz.
+     *
+     * Was sich nicht beweisen laesst, wird NICHT stillschweigend liegen
+     * gelassen, sondern gemeldet: ins Audit-Log und ueber unklareFunde() in
+     * den Adminbereich. Eine Leiche, von der niemand weiss, ist der Zustand,
+     * aus dem #403 entstanden ist.
+     *
+     * Fehlt die Beweisliste im Archiv - aeltere Releases haben sie nicht -,
+     * wird gar nichts entfernt und alles gemeldet. Fail-closed.
+     *
+     * Leitplanken darueber hinaus:
+     * - Nur wo die Baumordnung KERN sagt. Betreiberdaten in einem
+     *   KERN-Verzeichnis (public/uploads) fallen damit von selbst heraus.
+     * - Das Archiv muss das Verzeichnis ueberhaupt mitbringen; "fehlt" heisst
+     *   "unvollstaendiges Archiv", nicht "alles loeschen".
+     * - Vorher sichern und journalisieren, damit rollback() es zurueckholt.
+     *   Laesst sich nicht sichern, wird nicht geloescht.
+     * - Symbolische Verknuepfungen werden nicht verfolgt und nicht entfernt -
+     *   sie stehen nie in der Beweisliste, gelten also als unklar.
+     *
+     * @param array{restore: array<int, array{0: string, 1: string}>, created: array<int, string>, created_dirs: array<int, string>, deleted: array<int, array{0: string, 1: string}>, rmdir: array<int, string>} $journal
+     * @return int Anzahl entfernter Dateien
+     */
+    private static function abgleicheKernPfade(
+        string $sourceDir,
+        string $targetDir,
+        string $backupDir,
+        array &$journal
+    ): int {
+        self::$unklareFunde = [];
+        $beweise = self::leseBeweisliste($sourceDir);
+        $beweise += self::beweiseAusInstallation($targetDir);
+        $entfernt = 0;
+
+        foreach (Baumordnung::kernPfade() as $kernPfad) {
+            if (!is_dir($sourceDir . '/' . $kernPfad) || !is_dir($targetDir . '/' . $kernPfad)) {
+                continue;
+            }
+            $entfernt += self::abgleicheVerzeichnis(
+                $sourceDir, $targetDir, $kernPfad, $backupDir, $beweise, $journal
+            );
+        }
+
+        return $entfernt;
+    }
+
+    /**
+     * Die ZWEITE Beweisquelle: das Manifest der laufenden Installation.
+     *
+     * `ABGELOESTE-DATEIEN.txt` entsteht aus der Git-Historie und deckt damit
+     * nur ab, was auch in git steht. Fuer alles andere - allen voran ein
+     * kuenftiges `vendor/`, das erst beim Bauen entsteht - waere sonst nie ein
+     * Beweis zu fuehren, und der Abgleich koennte dort nie aufraeumen.
+     *
+     * Das eigene Manifest schliesst die Luecke, und zwar mit derselben
+     * Beweiskraft: Es beschreibt den Sollzustand DIESER Installation, wurde
+     * beim Einspielen aus einem gegen SHA256SUMS.txt geprueften Archiv
+     * uebernommen, und eine Datei, die ihm exakt entspricht, ist damit
+     * nachweislich unsere und seither unangetastet. Fehlt sie im neuen
+     * Archiv, ist sie abgeloest.
+     *
+     * Die Grenze ist ehrlich zu benennen: Wer Dateien schreiben kann, kann
+     * auch das Manifest schreiben und sich so eine Loeschung erschleichen.
+     * Das aendert nichts an der Lage - wer so weit ist, kann die Datei
+     * genauso gut selbst loeschen. Der Beweis schuetzt vor VERSEHEN, nicht
+     * vor einem Angreifer mit Schreibrecht; wogegen der schuetzt, steht in
+     * App\Service\Integritaet.
+     *
+     * @return array<string, true> "<sha256>  <pfad>" => true
+     */
+    private static function beweiseAusInstallation(string $targetDir): array {
+        $datei = rtrim($targetDir, '/') . '/' . Integritaet::MANIFEST;
+        if (!is_file($datei)) {
+            return [];
+        }
+
+        $beweise = [];
+        foreach (file($datei, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $zeile) {
+            if ($zeile === '' || $zeile[0] === '#') {
+                continue;
+            }
+            if (preg_match('/^([0-9a-f]{64})  (.+)$/', $zeile, $t) === 1) {
+                $beweise[$t[1] . '  ' . $t[2]] = true;
+            }
+        }
+
+        return $beweise;
+    }
+
+    /**
+     * Liest die Beweisliste aus dem entpackten Archiv.
+     *
+     * @return array<string, true> "<sha256>  <pfad>" => true
+     */
+    private static function leseBeweisliste(string $sourceDir): array {
+        $datei = $sourceDir . '/' . self::ABGELOESTE_LISTE;
+        if (!is_file($datei)) {
+            return [];
+        }
+
+        $beweise = [];
+        foreach (file($datei, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $zeile) {
+            if ($zeile === '' || $zeile[0] === '#') {
+                continue;
+            }
+            // Format wie sha256sum: 64 Hex, zwei Leerzeichen, Pfad.
+            if (preg_match('/^([0-9a-f]{64})  (.+)$/', $zeile, $t) !== 1) {
+                continue;
+            }
+            $beweise[$t[1] . '  ' . $t[2]] = true;
+        }
+
+        return $beweise;
+    }
+
+    /**
+     * Ein Kern-Verzeichnis abgleichen. Rekursiv, Kinder vor dem Elternteil -
+     * ein Verzeichnis laesst sich erst entfernen, wenn es leer ist.
+     *
+     * @param array<string, true> $beweise
+     * @param array{restore: array<int, array{0: string, 1: string}>, created: array<int, string>, created_dirs: array<int, string>, deleted: array<int, array{0: string, 1: string}>, rmdir: array<int, string>} $journal
+     */
+    private static function abgleicheVerzeichnis(
+        string $sourceDir,
+        string $targetDir,
+        string $relative,
+        string $backupDir,
+        array $beweise,
+        array &$journal
+    ): int {
+        $entfernt = 0;
+        $eintraege = array_diff(scandir($targetDir . '/' . $relative) ?: [], ['.', '..']);
+
+        foreach ($eintraege as $eintrag) {
+            $relPath = $relative . '/' . $eintrag;
+            $ziel = $targetDir . '/' . $relPath;
+            $quelle = $sourceDir . '/' . $relPath;
+
+            if (!Baumordnung::darfAbgeglichenWerden($relPath)) {
+                continue;
+            }
+
+            // Verknuepfungen: nicht verfolgen, nicht entfernen. Sie haben
+            // keinen Inhalt, den die Beweisliste kennen koennte.
+            if (is_link($ziel)) {
+                if (!file_exists($quelle)) {
+                    self::$unklareFunde[] = $relPath . ' (symbolische Verknuepfung)';
+                }
+                continue;
+            }
+
+            if (is_dir($ziel)) {
+                $entfernt += self::abgleicheVerzeichnis(
+                    $sourceDir, $targetDir, $relPath, $backupDir, $beweise, $journal
+                );
+                // Nur ein Verzeichnis entfernen, das im Archiv fehlt UND durch
+                // den Abgleich leer geworden ist. rmdir schlaegt sonst fehl -
+                // und das ist die richtige Bremse, kein Fehler.
+                if (!is_dir($quelle) && @rmdir($ziel)) {
+                    $journal['rmdir'][] = $ziel;
+                }
+                continue;
+            }
+
+            if (is_file($quelle)) {
+                continue;   // hat eine Entsprechung im Archiv, bleibt
+            }
+
+            // Kein Gegenstueck im Archiv. Ist es beweisbar unsere Datei?
+            $hash = @hash_file('sha256', $ziel);
+            if ($hash === false || !isset($beweise[$hash . '  ' . $relPath])) {
+                self::$unklareFunde[] = $relPath;
+                continue;
+            }
+
+            // Die Ablage ist flach - der relative Pfad wird zum Dateinamen,
+            // genau wie beim Sichern in copyTree(). Sehr lange Pfade sprengen
+            // damit NAME_MAX; das @ unterdrueckt nur die rohe PHP-Warnung, der
+            // Fehlerfall wird ausgewertet. Und er endet richtig herum: ohne
+            // Sicherung wird NICHT geloescht, sondern abgebrochen. Ein
+            // Abgleich ohne Rueckweg waere schlimmer als eine liegengebliebene
+            // Datei.
+            $sicherung = $backupDir . '/geloescht__' . str_replace('/', '__', $relPath);
+            if (!@copy($ziel, $sicherung)) {
+                throw new \RuntimeException(
+                    "Sicherungskopie vor dem Entfernen fehlgeschlagen: {$relPath} - es wurde nichts entfernt."
+                );
+            }
+            if (!@unlink($ziel)) {
+                throw new \RuntimeException("Abgeloeste Datei konnte nicht entfernt werden: {$relPath}");
+            }
+            $journal['deleted'][] = [$sicherung, $ziel];
+            $entfernt++;
+        }
+
+        return $entfernt;
+    }
+
+    /**
+     * Stellt einzelne Dateien aus einem Release-Archiv wieder her (#403).
+     *
+     * Die Reparaturseite der Integritaetspruefung. Bewusst schmal gehalten:
+     *
+     * - Nur Pfade aus $soll. Der Aufrufer kann also nichts Beliebiges
+     *   schreiben; die Liste kommt von GitHub, nicht aus einem Formular.
+     * - Nur KERN-Pfade. Betreiberdaten sind hier nie das Ziel.
+     * - Nach dem Auspacken wird jede Datei GEGEN $soll geprueft, bevor sie
+     *   kopiert wird. Ein Archiv, das an dieser Stelle etwas anderes
+     *   mitbringt als die veroeffentlichte Liste sagt, wird nicht eingespielt -
+     *   sonst repariert man kaputte Dateien mit anderen kaputten.
+     * - Journal und Rueckweg wie beim Update: bricht es in der Mitte ab,
+     *   steht der Ausgangszustand wieder.
+     *
+     * @param array<int, string> $pfade
+     * @param array<string, string> $soll pfad => sha256
+     * @return array<int, string> tatsaechlich wiederhergestellte Pfade
+     */
+    public static function stelleDateienHer(string $zipPath, string $targetDir, array $pfade, array $soll): array {
+        $extractDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_repair_' . bin2hex(random_bytes(6));
+        if (!mkdir($extractDir, 0755, true)) {
+            throw new \RuntimeException('Temporaeres Entpack-Verzeichnis konnte nicht angelegt werden.');
+        }
+        $backupDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_repair_bak_' . bin2hex(random_bytes(6));
+        if (!mkdir($backupDir, 0700, true)) {
+            self::removeTree($extractDir);
+            throw new \RuntimeException('Temporaeres Sicherungsverzeichnis konnte nicht angelegt werden.');
+        }
+
+        try {
+            self::extractArchive($zipPath, $extractDir);
+
+            $entries = array_values(array_diff(scandir($extractDir) ?: [], ['.', '..']));
+            $sourceDir = (count($entries) === 1 && is_dir($extractDir . '/' . $entries[0]))
+                ? $extractDir . '/' . $entries[0]
+                : $extractDir;
+
+            $target = rtrim($targetDir, '/');
+            $journal = [
+                'restore' => [], 'created' => [], 'created_dirs' => [],
+                'deleted' => [], 'rmdir' => [],
+            ];
+            $fertig = [];
+
+            try {
+                foreach ($pfade as $relPath) {
+                    if (!isset($soll[$relPath]) || !Baumordnung::istKern($relPath)) {
+                        continue;
+                    }
+
+                    $src = $sourceDir . '/' . $relPath;
+                    if (!is_file($src)) {
+                        throw new \RuntimeException(
+                            "Das Release-Archiv enthaelt {$relPath} nicht - es passt nicht zur Pruefliste."
+                        );
+                    }
+                    if (!hash_equals($soll[$relPath], (string)@hash_file('sha256', $src))) {
+                        throw new \RuntimeException(
+                            "Im Archiv weicht {$relPath} von der veroeffentlichten Pruefliste ab - "
+                            . 'es wird nichts eingespielt.'
+                        );
+                    }
+
+                    $dst = $target . '/' . $relPath;
+                    $ordner = dirname($dst);
+                    if (!is_dir($ordner)) {
+                        if (!mkdir($ordner, 0755, true) && !is_dir($ordner)) {
+                            throw new \RuntimeException("Verzeichnis konnte nicht angelegt werden: {$relPath}");
+                        }
+                        $journal['created_dirs'][] = $ordner;
+                    }
+
+                    if (file_exists($dst)) {
+                        $sicherung = $backupDir . '/' . str_replace('/', '__', $relPath);
+                        if (!@copy($dst, $sicherung)) {
+                            throw new \RuntimeException("Sicherungskopie fehlgeschlagen: {$relPath}");
+                        }
+                        $journal['restore'][] = [$sicherung, $dst];
+                    } else {
+                        $journal['created'][] = $dst;
+                    }
+
+                    if (!copy($src, $dst)) {
+                        throw new \RuntimeException("Datei konnte nicht kopiert werden: {$relPath}");
+                    }
+                    $fertig[] = $relPath;
+                }
+
+                return $fertig;
+            } catch (\Throwable $e) {
+                self::rollback($journal);
+                throw new \RuntimeException(
+                    'Reparatur abgebrochen und zurueckgerollt: ' . $e->getMessage(),
+                    0,
+                    $e
+                );
+            }
+        } finally {
+            self::removeTree($extractDir);
+            self::removeTree($backupDir);
+        }
     }
 
     private static function removeTree(string $dir): void {
@@ -1461,7 +1921,7 @@ class UpdateService {
      *
      * Fail-closed: Fehlt die Datei oder der Eintrag, wird nicht aktualisiert.
      */
-    private static function verifyArchiveChecksum(string $zipPath, string $zipName, string $checksumsUrl): void {
+    public static function verifyArchiveChecksum(string $zipPath, string $zipName, string $checksumsUrl): void {
         $checksums = self::httpGet($checksumsUrl, ['Accept: text/plain'], 60);
 
         $expected = null;
@@ -1501,7 +1961,7 @@ class UpdateService {
         }
     }
 
-    private static function downloadToTempFile(string $url): string {
+    public static function downloadToTempFile(string $url): string {
         $body = self::httpGet($url, ['Accept: application/octet-stream'], 300);
         $tmp = tempnam(sys_get_temp_dir(), 'hengst_update_zip_');
         if ($tmp === false || file_put_contents($tmp, $body) === false) {
@@ -1521,7 +1981,7 @@ class UpdateService {
     /**
      * @param string[] $headers
      */
-    private static function httpGet(string $url, array $headers = [], int $timeout = 30): string {
+    public static function httpGet(string $url, array $headers = [], int $timeout = 30): string {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,

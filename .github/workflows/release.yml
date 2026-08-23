@@ -63,9 +63,32 @@ jobs:
           # ohne dass es jemandem auffiele.
           fetch-depth: 0
 
+      # Die Version kommt aus dem TAG - und nur aus einem Tag.
+      #
+      # Der Workflow ist auch fuer workflow_dispatch freigegeben, und die
+      # GitHub-Oberflaeche waehlt dort standardmaessig den Default-Branch.
+      # Ein Lauf auf 'main' ergab damit version='main': Docker-Tags 'main'
+      # UND 'latest', ein Zip namens ...-main.zip, und ein GitHub-Release mit
+      # tag_name 'main', das einen Git-Tag gleichen Namens neben den Branch
+      # legt (mehrdeutige Ref) und wegen prerelease=contains('main','-')=false
+      # das "Latest release"-Abzeichen bekommt - vor der eigentlichen Version.
+      #
+      # Deshalb hier eine Schranke statt einer Annahme. workflow_dispatch
+      # bleibt nutzbar, aber nur mit einem ausgewaehlten Versions-Tag.
       - name: Determine version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::Dieser Workflow laeuft nur auf einem Versions-Tag." \
+                 "Aktuell: ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'." \
+                 "Bei 'Run workflow' oben das Tag auswaehlen, nicht den Branch."
+            exit 1
+          fi
+          case "${GITHUB_REF_NAME}" in
+            v[0-9]*) ;;
+            *) echo "::error::'${GITHUB_REF_NAME}' ist kein Versions-Tag (erwartet: vX.Y.Z)."; exit 1 ;;
+          esac
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       # Nicht auf das PHP der Runner-Vorgabe verlassen: Welche Fassung dort
       # liegt, kann sich mit dem Image aendern, und kern-manifest.php liefe
@@ -76,6 +99,25 @@ jobs:
         with:
           php-version: '8.5'
           coverage: none
+
+      # Seit #353 hat die Anwendung eine Laufzeit-Abhaengigkeit. vendor/ gehoert
+      # damit zur Auslieferung - und muss VOR der Listenerzeugung stehen,
+      # sonst haette die Solliste ausgerechnet ueber die Bibliothek im
+      # Anmeldepfad nichts zu sagen.
+      #
+      # --no-dev ist nicht optional: Mit den Entwicklungs-Abhaengigkeiten
+      # naennte die Liste Dateien, die eine Installation nie bekommt, und die
+      # Pruefung waere vom ersten Tag an rot. kern-manifest.php bricht in dem
+      # Fall ab (Exit 65), aber der Abbruch soll gar nicht erst noetig sein.
+      #
+      # --classmap-authoritative schaltet den PSR-4-Fallback ab. Das ist die
+      # Gegenmassnahme dagegen, dass Klassen aus einer abgeloesten
+      # Bibliotheksfassung nach einem Update noch ladbar waeren.
+      - name: Abhaengigkeiten installieren
+        run: composer install --no-dev --optimize-autoloader --classmap-authoritative --no-interaction --no-progress
+
+      - name: Auf offene Sicherheitsmeldungen pruefen
+        run: composer audit --no-dev --locked
 
       - name: Kern-Listen erzeugen
         run: |
@@ -96,7 +138,18 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest
+            # ':latest' NUR fuer stabile Versionen.
+            #
+            # Ohne die Bedingung verschiebt jede Vorabversion das Tag, auf das
+            # ein Betreiber laut README "fuer den produktiven Betrieb" setzt -
+            # und der in docker-compose.yml vorgeschlagene Watchtower spielt
+            # es beim naechsten Lauf ein. Eine Beta laege dann in einer
+            # Produktionsinstallation, ohne dass sie je angefordert wurde.
+            #
+            # Beim GitHub-Release ist die Kanaltrennung laengst da
+            # (prerelease unten, UpdateService::selectBestRelease liest sie).
+            # Der Docker-Weg kannte sie nicht - das war der Bruch.
+            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-') }}
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -141,8 +194,12 @@ jobs:
           git archive --format=tar HEAD -- \
             ':!tests' ':!.github' ':!.claude' ':!docker-compose.yml' \
             ':!Dockerfile' ':!.dockerignore' ':!docker-start.sh' \
-            ':!composer.json' ':!composer.lock' ':!phpunit.xml' ':!scripts' \
+            ':!phpunit.xml' ':!scripts' \
             | tar -C "$stage" -xf -
+          # vendor/ steht in .gitignore, git archive kennt es also nicht -
+          # deshalb der Umweg ueber ein Stage-Verzeichnis statt eines direkten
+          # git-archive-Zips (#353).
+          cp -r vendor "$stage/vendor"
           # Die beiden Listen sind nicht versioniert - sie entstehen erst hier
           # und werden deshalb neben das Archiv gelegt, nicht hineingecheckt.
           cp KERN-SHA256SUMS.txt ABGELOESTE-DATEIEN.txt "$stage/"

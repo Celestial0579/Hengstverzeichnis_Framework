@@ -828,3 +828,20 @@ a:not(.btn):not(.nav-link) { color: var(--link-color); }
         grid-template-columns: 1fr;
     }
 }
+
+/* Rueckmeldung der Passkey-Zeremonie (#353). Sie ersetzt keinen Dialog: Der
+   Browser zeigt seine eigene Aufforderung an, diese Zeile sagt nur, dass der
+   Vorgang laeuft - und im Fehlerfall, woran er gescheitert ist. */
+.passkey-meldung {
+    margin: 0 0 0.8rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    background-color: var(--info-soft-bg, rgba(0, 0, 0, 0.04));
+    color: var(--text-color);
+}
+
+.passkey-meldung.passkey-fehler {
+    background-color: var(--danger-soft-bg);
+    color: var(--danger-fg);
+}

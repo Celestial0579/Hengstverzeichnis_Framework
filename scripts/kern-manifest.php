@@ -66,6 +66,43 @@ foreach (versionierteDateien($wurzel) as $pfad) {
     $aktuell[$pfad] = hash_file('sha256', $voll);
 }
 
+// Nicht alles, was ausgeliefert wird, steht in git: vendor/ entsteht erst beim
+// Bauen (#353). Deshalb ueber die KERN-Pfade auch das Dateisystem laufen und
+// aufnehmen, was git nicht kennt. Ohne das haette die Solliste ausgerechnet
+// ueber die Bibliothek im Anmeldepfad nichts zu sagen.
+foreach (Baumordnung::kernPfade() as $kernPfad) {
+    $basis = $wurzel . '/' . $kernPfad;
+    if (!is_dir($basis)) {
+        continue;
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($basis, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $datei) {
+        if (!$datei->isFile()) {
+            continue;
+        }
+        $rel = substr($datei->getPathname(), strlen($wurzel) + 1);
+        if (isset($aktuell[$rel]) || !Baumordnung::istKern($rel)) {
+            continue;
+        }
+        $aktuell[$rel] = hash_file('sha256', $datei->getPathname());
+    }
+}
+
+// Schutz gegen die naheliegendste Verwechslung: Wer das Skript in einer
+// Arbeitskopie laufen laesst, hat die Entwicklungs-Abhaengigkeiten in vendor/
+// und schriebe sie in die Solliste. Eine Installation bekaeme sie nie zu
+// Gesicht und meldete ab da dauerhaft fehlende Dateien - die Pruefung waere
+// vom ersten Tag an rot und damit wertlos.
+if (is_dir($wurzel . '/vendor') && is_dir($wurzel . '/vendor/phpunit')) {
+    fwrite(STDERR,
+        "vendor/ enthaelt Entwicklungs-Abhaengigkeiten (vendor/phpunit).\n"
+        . "Die Solliste wuerde damit Dateien nennen, die eine Installation nie bekommt.\n"
+        . "Erst 'composer install --no-dev -o -a' laufen lassen, dann dieses Skript.\n");
+    exit(65);
+}
+
 if ($aktuell === []) {
     fwrite(STDERR, "Kein einziger KERN-Pfad gefunden - das kann nicht stimmen.\n");
     exit(70);

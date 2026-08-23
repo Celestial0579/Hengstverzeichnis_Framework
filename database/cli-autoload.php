@@ -26,3 +26,9 @@ spl_autoload_register(function ($class) {
         require $file;
     }
 });
+
+// Composer-Autoloader (#353) - gleicher Weg wie in public/index.php, damit die
+// beiden nicht auseinanderlaufen. Die CLI-Werkzeuge brauchen die Bibliothek
+// heute nicht; sie bekaemen sonst aber einen anderen Klassenbestand als der
+// Web-Weg, und genau davor warnt der Kommentar am Kopf dieser Datei.
+\App\Bootstrap\VendorAutoload::laden(__DIR__);

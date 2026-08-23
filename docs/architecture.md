@@ -3,7 +3,19 @@
 ## Grundprinzip
 
 Das Framework ist ein selbstgebautes, minimalistisches MVC-ähnliches System
-ohne externe Abhängigkeiten (kein Composer, kein Framework wie Laravel/Symfony).
+ohne fremdes Anwendungs-Framework (kein Laravel, kein Symfony) und mit einer
+bewusst **kurzen** Liste von Laufzeit-Abhängigkeiten.
+
+Bis v0.9 war die Liste leer. Mit den Passkeys (#353) kam die erste hinzu:
+`web-auth/webauthn-lib`. Das war eine Abwägung, keine Aufweichung — WebAuthn
+ist kryptografischer Code (CBOR, COSE, Attestation, Signaturprüfung), und
+Fehler darin sind **still**: Sie fallen nicht als Ausnahme auf, sondern als
+eine Anmeldung, die durchgeht, obwohl sie es nicht sollte. Für alles andere
+gilt die Linie weiter — CSV, S3, WebDAV, FTPS, Übersetzungen, QR-Codes und
+Captcha sind nach wie vor selbst gebaut.
+
+`vendor/` wird deshalb seit v0.10 **mitgeliefert**: im Release-Archiv und im
+Docker-Image. Ein Betreiber auf Shared Hosting braucht kein Composer.
 Alles läuft über einen einzigen Front-Controller (`public/index.php`), einen
 schlanken Router, Controller-Klassen und PHP-Views mit einem gemeinsamen Layout.
 

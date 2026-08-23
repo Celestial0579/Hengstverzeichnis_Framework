@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS `users` (
     -- ausfuehrliche Begruendung.
     `email_2fa_enabled` TINYINT(1) NOT NULL DEFAULT 0,
     `backup_codes` TEXT NULL,
-    `passkeys` TEXT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
     `session_version` INT NOT NULL DEFAULT 1,
     `last_totp_timeslice` BIGINT NULL DEFAULT NULL,
@@ -669,6 +668,24 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
 -- gespeichert und ist nach dem Anlegen nicht wieder abrufbar (wie die
 -- 2FA-Backup-Codes). `scope_permissions` = NULL bedeutet "alle Rechte des
 -- Besitzers" (dynamisch), sonst eine JSON-Liste erlaubter "modul.aktion"-Paare.
+-- Passkeys je Benutzer (#353). Eigene Tabelle statt eines JSON-Klumpens in
+-- users: Widerruf, Anzeige ("zuletzt benutzt") und vor allem die
+-- Eindeutigkeit der Credential-ID brauchen sie - und die Eindeutigkeit ist
+-- die Grundlage jeder Anmeldung.
+CREATE TABLE IF NOT EXISTS `user_passkeys` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY,
+    `user_id` INT NOT NULL,
+    `credential_id` VARCHAR(512) NOT NULL,
+    `credential` TEXT NOT NULL,
+    `label` VARCHAR(100) NOT NULL,
+    `sign_count` BIGINT NOT NULL DEFAULT 0,
+    `created_at` DATETIME NOT NULL,
+    `last_used_at` DATETIME NULL DEFAULT NULL,
+    UNIQUE KEY `uq_user_passkeys_credential` (`credential_id`(255)),
+    INDEX `idx_user_passkeys_user` (`user_id`),
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `api_keys` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NOT NULL,

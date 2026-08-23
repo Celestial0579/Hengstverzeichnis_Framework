@@ -2,7 +2,9 @@
 
 ## Voraussetzungen
 
-Keine Paketmanager-Abhängigkeiten zur Laufzeit (kein Composer, kein npm) –
+Genau eine Laufzeit-Abhängigkeit seit v0.10 (`web-auth/webauthn-lib`, #353),
+kein npm. `vendor/` liegt dem Release bei; wer entwickelt, holt es mit
+`composer install`. Ansonsten gilt weiter –
 das Framework läuft mit reinem PHP 8.5 + PDO MySQL-Erweiterung. Für lokale
 Entwicklung entweder Docker (empfohlen) oder ein klassischer lokaler
 PHP/MySQL-Stack. Composer wird ausschließlich **dev-only** für die

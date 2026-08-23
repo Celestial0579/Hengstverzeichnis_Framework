@@ -1,3 +1,17 @@
+# Bau-Stufe fuer die Laufzeit-Abhaengigkeiten (#353). Seit den Passkeys braucht
+# die Anwendung web-auth/webauthn-lib; vendor/ entsteht hier frisch aus dem
+# Lock, statt vom Entwicklerrechner mitgeschleppt zu werden (siehe
+# .dockerignore). Composer-Image ebenfalls per Digest festgenagelt.
+#
+# --no-dev: Die Testsuite gehoert nicht ins Auslieferungs-Image.
+# --classmap-authoritative: schaltet den PSR-4-Fallback ab, damit Klassen aus
+#   einer abgeloesten Bibliotheksfassung nicht auf Zuruf ladbar bleiben.
+FROM composer:2@sha256:4d71c3c2109c61d5415544264b59ad4087e4c5b7244481723664138fd36d5040 AS deps
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --classmap-authoritative \
+    --no-interaction --no-progress --no-scripts
+
 # Base-Image per Digest festgenagelt (Supply-Chain-Härtung, OpenSSF Scorecard
 # "Pinned-Dependencies"). Der Tag bleibt lesbar dran; Dependabot (docker) hält
 # den Digest aktuell, Diun meldet neue Tags weiterhin.
@@ -76,6 +90,9 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
 WORKDIR /var/www/html
 
 COPY . .
+
+# vendor/ aus der Bau-Stufe, nicht aus dem Kontext (#353).
+COPY --from=deps /app/vendor ./vendor
 
 # In-Place-Selbstaktualisierung im Container ABschalten: Anders als beim
 # klassischen Shared-Hosting (dort besitzt der PHP-Benutzer den Code selbst)

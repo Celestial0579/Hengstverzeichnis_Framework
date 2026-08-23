@@ -105,6 +105,32 @@ Breaking Changes sind jederzeit möglich).
   Dann ist ein sicherheitsrelevantes Ereignis nicht revisionssicher
   festgehalten.
 
+- **Der Verzeichnis-Stempel bleibt, wie er ist — und sagt jetzt Bescheid, wenn
+  er teuer wird** (#400). Die Manipulationserkennung der Addons (#224) läuft
+  bei jeder Anfrage über jede Datei jedes aktivierten Addons. Das war als
+  mögliches Leistungsproblem gemeldet und ist nachgemessen worden:
+
+  | Bestand | Dateien | Stempel | Anteil an der Anfrage |
+  |---|---:|---:|---:|
+  | Instanz mit 20 Addons | 60 | 0,38 ms | ~4 % |
+  | alle 36 Addons | 126 | 0,98 ms | ~10 % |
+  | 100 Dateien je Addon | 3 600 | 15,7 ms | mehr als der ganze Rest |
+
+  Bei 4 % die Erkennung zu schwächen wäre ein schlechtes Geschäft — jeder
+  Zwischenspeicher und jedes Prüfintervall schafft ein Fenster, in dem eine
+  geänderte Datei als freigegeben gilt. Der naheliegende Verdacht, der Aufwand
+  stecke im SPL-Iterator, wurde geprüft und **verworfen**: Eine Fassung mit
+  `scandir`+`lstat`, die beweisbar byte-identische Stempel liefert, bringt
+  1,02×–1,17×, und der Gewinn schrumpft mit wachsender Dateizahl gegen null.
+  Die Kosten sind die Syscalls.
+
+  Geändert hat sich deshalb nur eines: Ab 600 geprüften Dateien — dem
+  Fünffachen des heutigen Gesamtbestands — steht ein Hinweis unter
+  `/admin/plugins`, samt Schätzung und dem Hinweis, dass sie eine Untergrenze
+  ist. Damit fällt es als benennbare Ursache auf und nicht als „die Seite ist
+  langsam geworden".
+
+
 ## [0.9.0-beta.5] – 2026-08-23
 
 Fünftes Beta der 0.9er-Linie und der bisher vollständigste Stand: zehn

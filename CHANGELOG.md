@@ -8,6 +8,35 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.0-beta.5] – 2026-08-23
+
+Fünftes Beta der 0.9er-Linie und der bisher vollständigste Stand: zehn
+Themen aus dem Meilenstein, dazu drei Nachträge (#379, #397 und ein
+Nebenbefund aus #378).
+
+> **Warum Beta und nicht 0.9.0.** Ein `v0.9.0` war am 22.08. kurzzeitig
+> getaggt und ist zurückgezogen worden — die Freigabe war nicht abgesprochen.
+> Null Downloads, keine Instanz betroffen. Der Stand hier ist derselbe plus
+> die drei Nachträge; die Freigabe entscheidet der Auftraggeber.
+
+**Drei Bruchstellen**, die eine bestehende Installation betreffen:
+
+| Bruchstelle | was zu tun ist |
+|---|---|
+| **Galerie ist Kernmodul** (#339) | Das Addon `galerie` wird beim Update automatisch entfernt; seine Bilder wandern mit. |
+| **Sprachen sind Addons** (#344) | Wer eine der zehn ausgelagerten Sprachen benutzt, installiert das passende Sprach-Addon — sonst fällt die Oberfläche auf Deutsch zurück. Der Adminbereich benennt die fehlenden Sprachen. |
+| **Feld „Mitgliedsstatus" ist raus** (#349) | Wer die Werte behalten will, installiert das Addon `mitgliedsstatus`, **bevor** er auf die Version nach der 0.9er-Linie hebt. Die Spalte steht hier noch. |
+
+Dazu die beiden Themen dieser Linie, die keinen Umstieg verlangen:
+**Anmeldung mit E-Mail-Adresse und zweitem Faktor per E-Mail** (#348/#354),
+und ein **durchgängig responsives Verhalten** in Kern (#345) und Addons
+(Addons#129) — mit benannten Umbruchpunkten an einer Stelle statt zweier
+verstreuter, und einem Lint, der beides festhält.
+
+> Der passende Addons-Release ist `v0.9.0-beta.5`. Er verlangt einen Kern
+> **ab 0.9.0-beta.5** dort, wo die Addons an den neuen Erweiterungspunkten
+> hängen.
+
 ### Neu
 
 - **Vorschaubilder für Pferdefotos — abschaltbar, Vorgabe aus** (#397).
@@ -109,26 +138,6 @@ Breaking Changes sind jederzeit möglich).
 
   **Für Addon-Autoren:** Wer `birth_date` ausgibt, prüft `birth_date_precision`
   — sonst behauptet das Addon einen Tag, den keine Quelle hergibt.
-
-## [0.9.0] – 2026-08-22
-
-Abschluss der 0.9er-Linie. Zehn Themen, vier Betas, und **drei Bruchstellen**,
-die eine bestehende Installation betreffen:
-
-| Bruchstelle | was zu tun ist |
-|---|---|
-| **Galerie ist Kernmodul** (#339) | Das Addon `galerie` wird beim Update automatisch entfernt; seine Bilder wandern mit. |
-| **Sprachen sind Addons** (#344) | Wer eine der zehn ausgelagerten Sprachen benutzt, installiert das passende Sprach-Addon — sonst fällt die Oberfläche auf Deutsch zurück. Der Adminbereich benennt die fehlenden Sprachen. |
-| **Feld „Mitgliedsstatus" ist raus** (#349) | Wer die Werte behalten will, installiert das Addon `mitgliedsstatus`, **bevor** er auf die nächste Version hebt. Die Spalte steht in v0.9.0 noch. |
-
-Dazu die beiden Themen dieser Linie, die keinen Umstieg verlangen:
-**Anmeldung mit E-Mail-Adresse und zweitem Faktor per E-Mail** (#348/#354),
-und ein **durchgängig responsives Verhalten** in Kern (#345) und Addons
-(Addons#129) — mit benannten Umbruchpunkten an einer Stelle statt zweier
-verstreuter, und einem Lint, der beides festhält.
-
-> Der passende Addons-Release ist `v0.9.0`. Er verlangt einen Kern **ab
-> 0.9.0** dort, wo die Addons an den neuen Erweiterungspunkten hängen.
 
 ### Entfernt
 

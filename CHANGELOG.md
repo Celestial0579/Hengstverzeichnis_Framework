@@ -42,6 +42,39 @@ Breaking Changes sind jederzeit möglich).
   **Für Betreiber ändert sich nichts:** `vendor/` liegt dem Release-Archiv bei
   und wird im Docker-Image in einer eigenen Bau-Stufe erzeugt. Es braucht
   weiterhin kein Composer auf dem Webspace.
+### Behoben — Nachbesserungen am Update-Abgleich (#403)
+
+Alle vier aus einer adversarischen Prüfung des Codes von #404, jeder
+Befund vorher reproduziert.
+
+- **Leere Verzeichnisse wurden ohne jeden Beweis entfernt — und nirgends
+  gemeldet.** Der Beweiszwang galt nur für Dateien; für Verzeichnisse prüfte
+  der Abgleich lediglich „fehlt im Archiv" und „ist leer". Damit verschwand
+  auch, was ein Betreiber selbst angelegt hatte: `public/.well-known/
+  acme-challenge` etwa, der Webroot für certbot, der im Ruhezustand immer
+  leer ist. Weg waren Besitzer, Rechte und ACL — und die nächste
+  Zertifikatserneuerung schlug fehl. Ohne Protokolleintrag, weil der Zähler
+  nur Dateien zählt.
+
+  Ein Verzeichnis hat keine Prüfsumme. Der Beweis ist deshalb ein anderer:
+  Es darf nur gehen, wenn **dieser Abgleich es geleert hat** — dann bestand
+  es nachweislich aus unseren Dateien. Was übrig bleibt, wird gemeldet.
+
+- **Die Unversehrtheitsprüfung meldete „heil" bei leerer Solliste.** Eine
+  leere oder unparsebare `KERN-SHA256SUMS.txt` ergab „0 geprüft, keine
+  Abweichung" samt grünem Kasten. Und das ist ausgerechnet die Lage, in der
+  man hinsehen will: abgebrochener Upload, halb eingespieltes Update, volle
+  Platte — oder jemand mit Schreibrecht, der die Liste einfach leert.
+
+- **Die zweite Beweisquelle war in jedem echten Release wirkungslos.** Das
+  Manifest der Installation wurde erst gelesen, nachdem `copyTree()` es mit
+  dem des neuen Releases überschrieben hatte. Sie half also nur, wenn das
+  Archiv gar kein Manifest mitbrachte — dann nicht, wenn sie gebraucht wird.
+
+- **Zwei Pfade konnten auf dieselbe Sicherungskopie fallen.** `lang/a/b.php`
+  und `lang/a__b.php` ergaben denselben flachen Namen; ein Rückrollen stellte
+  die eine aus dem Inhalt der anderen wieder her — ohne Fehler, ohne Warnung.
+  Nebenbei fällt damit die Längengrenze weg, an der tiefe Pfade scheiterten.
 
 
 ### Behoben

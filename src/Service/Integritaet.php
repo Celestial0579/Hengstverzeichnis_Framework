@@ -227,7 +227,24 @@ final class Integritaet {
         if (!is_file($datei)) {
             return null;
         }
-        return self::parse((string)file_get_contents($datei));
+
+        $liste = self::parse((string)file_get_contents($datei));
+
+        // EINE LEERE LISTE IST KEINE LISTE.
+        //
+        // Die erste Fassung gab hier [] zurueck. Damit war $soll !== null,
+        // die Schleife lief nullmal, geaendert und fehlt blieben leer - und
+        // heraus kam `heil = true`. Der Adminbereich zeigte den gruenen
+        // Kasten "Keine Abweichung", das Protokoll "0 Datei(en) geprueft".
+        //
+        // Und die Lage, in der das passiert, ist ausgerechnet die, in der man
+        // hinsehen will: ein abgebrochener Upload, ein halb eingespieltes
+        // Update, eine volle Platte - oder jemand mit Schreibrecht, der die
+        // Liste einfach leert. Wer die Pruefung dann startet, bekommt einen
+        // gruenen Haken fuer nichts.
+        //
+        // Null heisst "nicht geprueft", und genau das soll dastehen.
+        return $liste === [] ? null : $liste;
     }
 
     /** @return array<string, string>|null pfad => sha256 */

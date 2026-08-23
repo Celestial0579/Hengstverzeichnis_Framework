@@ -152,6 +152,48 @@ class IntegritaetTest extends TestCase {
         $this->assertNotNull($ergebnis['hinweis']);
     }
 
+    /**
+     * EINE LEERE SOLLLISTE IST KEINE LISTE — und darf kein „heil" ergeben.
+     *
+     * Die erste Fassung gab für eine leere oder unparsebare Datei ein leeres
+     * Array zurück statt `null`. Damit lief die Schleife nullmal, `geaendert`
+     * und `fehlt` blieben leer — und heraus kam `heil = true`. Der
+     * Adminbereich zeigte den grünen Kasten „Keine Abweichung", das Protokoll
+     * „0 Datei(en) geprüft".
+     *
+     * Die Lage, in der das passiert, ist ausgerechnet die, in der man
+     * hinsehen will: ein abgebrochener Upload, ein halb eingespieltes Update,
+     * eine volle Platte — oder jemand mit Schreibrecht, der die Liste einfach
+     * leert. Ein grüner Haken für nichts ist schlimmer als gar keine Prüfung.
+     */
+    public function testLeereSolllisteGiltAlsNichtGeprueft(): void {
+        foreach ([
+            'ganz leer'        => '',
+            'nur Kommentar'    => "# Kopfzeile ohne Eintraege\n",
+            'nur Unlesbares'   => "voellig kaputt\ndeadbeef  zu kurzer hash\n",
+        ] as $fall => $inhalt) {
+            $wurzel = $this->tempVerzeichnis();
+            mkdir($wurzel . '/src', 0755, true);
+            file_put_contents($wurzel . '/src/App.php', "<?php\n");
+            file_put_contents($wurzel . '/src/Untergeschoben.php', "<?php\n// nicht von uns\n");
+            file_put_contents($wurzel . '/' . Integritaet::MANIFEST, $inhalt);
+            UpdateService::overrideBaseDirForTests($wurzel);
+
+            $ergebnis = Integritaet::pruefe();
+
+            $this->assertSame(
+                Integritaet::QUELLE_FEHLT,
+                $ergebnis['quelle'],
+                "Fall '{$fall}': eine Liste ohne einen einzigen Eintrag ist keine Liste."
+            );
+            $this->assertFalse(
+                $ergebnis['heil'],
+                "Fall '{$fall}': ein grüner Haken für 0 geprüfte Dateien ist schlimmer als keine Prüfung."
+            );
+            $this->assertSame(0, $ergebnis['geprueft']);
+        }
+    }
+
     // ---- Format der Liste ------------------------------------------------
 
     /** Kommentare und Leerzeilen werden überlesen, kaputte Zeilen ignoriert. */

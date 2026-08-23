@@ -3,6 +3,7 @@
 
 namespace Tests\Unit\Service;
 
+use App\Database;
 use App\Service\AuditLogger;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
@@ -38,9 +39,25 @@ class AuditLoggerStilleTest extends TestCase {
         $this->fehlerprotokoll = rtrim(sys_get_temp_dir(), '/')
             . '/hv_auditstille_' . bin2hex(random_bytes(6)) . '.log';
         ini_set('error_log', $this->fehlerprotokoll);
+
+        // BEIDE Tests brauchen denselben erzwungenen Fehlschlag - eine
+        // Datenbank, die antwortet, aber die Tabelle `audit_logs` nicht hat.
+        // Nur so landet der Ablauf ueberhaupt im catch-Zweig, und nur dort
+        // entscheidet sich, ob gemeldet wird oder nicht.
+        //
+        // Ohne das prueft der Stille-Fall nichts: Mit einer funktionierenden
+        // Datenbank gelingt der Eintrag, es gibt keinen Fehler, und der Test
+        // waere gruen, egal was die Regel sagt. Genau so blieb die Gegenprobe
+        // zweimal gruen.
+        $pdo = new \PDO('sqlite::memory:', null, null, [
+            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+        ]);
+        (new \ReflectionProperty(Database::class, 'instance'))->setValue(null, $pdo);
     }
 
     protected function tearDown(): void {
+        AuditLogger::overrideDatenbankEingerichtetForTests(null);
+        (new \ReflectionProperty(Database::class, 'instance'))->setValue(null, null);
         if ($this->fehlerprotokoll !== '' && is_file($this->fehlerprotokoll)) {
             @unlink($this->fehlerprotokoll);
         }
@@ -48,19 +65,15 @@ class AuditLoggerStilleTest extends TestCase {
     }
 
     /**
-     * Ohne DB_HOST ist keine Datenbank eingerichtet - der Logger schweigt.
+     * Ohne eingerichtete Datenbank schweigt der Logger.
      *
-     * Die Unit-Suite läuft ohne config/config.php, DB_HOST ist hier also
-     * tatsächlich nicht definiert. Dieser Test verlässt sich nicht darauf,
-     * sondern stellt es fest und überspringt sonst - eine grüne Zusicherung
-     * unter einer Bedingung, die gar nicht galt, wäre keine.
+     * Der Zustand wird AUSDRÜCKLICH gesetzt statt vorgefunden. Die erste
+     * Fassung prüfte `defined('DB_HOST')` und übersprang sich sonst - und
+     * damit übersprang sie sich in jeder Umgebung mit Datenbankkonfiguration,
+     * also in der gesamten CI. Zwei grüne Haken, die nie etwas geprüft hatten.
      */
     public function testOhneEingerichteteDatenbankSchweigtDerLogger(): void {
-        if (defined('DB_HOST')) {
-            $this->markTestSkipped(
-                'DB_HOST ist in diesem Lauf definiert - der Stille-Fall lässt sich hier nicht prüfen.'
-            );
-        }
+        AuditLogger::overrideDatenbankEingerichtetForTests(false);
 
         AuditLogger::log('Testereignis', 'test', 'ohne Datenbank');
 
@@ -87,11 +100,7 @@ class AuditLoggerStilleTest extends TestCase {
      * lautlos unter den Tisch.
      */
     public function testMitEingerichteterAberKaputterDatenbankWirdGemeldet(): void {
-        if (defined('DB_HOST')) {
-            $this->markTestSkipped('DB_HOST ist bereits definiert - dieser Test setzt ihn selbst.');
-        }
-
-        define('DB_HOST', '203.0.113.255');   // TEST-NET-3, nicht erreichbar
+        AuditLogger::overrideDatenbankEingerichtetForTests(true);
 
         AuditLogger::log('Testereignis', 'test', 'mit kaputter Datenbank');
 

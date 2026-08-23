@@ -107,9 +107,85 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
         <p style="color: var(--text-muted);">Noch kein zweiter Faktor eingerichtet.</p>
     <?php endif; ?>
 
-    <h3 style="font-size: 1rem; margin-bottom: 0.3rem;">Authentikator-App (TOTP)</h3>
+    <?php
+    // ---- Passkeys (#353) ------------------------------------------------
+    $passkeys = App\Security\Passkeys::fuerBenutzer((int)$_SESSION['user_id']);
+    $passkeyFehler = $_SESSION['passkey_fehler'] ?? null;
+    $passkeyHinweis = $_SESSION['passkey_hinweis'] ?? null;
+    unset($_SESSION['passkey_fehler'], $_SESSION['passkey_hinweis']);
+    $passkeyCsrf = App\Router::generateCsrfToken();
+    ?>
+    <h3 id="passkeys" style="font-size: 1rem; margin-bottom: 0.3rem;">Passkeys</h3>
     <p style="color: var(--text-muted); margin-top: 0;">
-        Der stärkere der beiden Faktoren: Der Code entsteht auf Ihrem Gerät und geht nirgends über das Netz.
+        Der stärkste der drei Faktoren, und als einziger gegen Phishing geschützt:
+        Ein Passkey ist fest an diese Adresse gebunden und lässt sich auf einer
+        nachgebauten Seite gar nicht erst verwenden. Ein abgetippter Code schon.
+        <?= $passkeys === [] ? 'Noch keiner eingerichtet.' : count($passkeys) . ' eingerichtet.' ?>
+    </p>
+
+    <?php if ($passkeyFehler !== null): ?>
+        <div class="alert alert-danger"><?= htmlspecialchars((string)$passkeyFehler) ?></div>
+    <?php endif; ?>
+    <?php if ($passkeyHinweis !== null): ?>
+        <div class="alert alert-success"><?= htmlspecialchars((string)$passkeyHinweis) ?></div>
+    <?php endif; ?>
+
+    <?php if ($passkeys !== []): ?>
+        <div class="tabelle-scroll">
+        <table class="table" style="margin-bottom: 0.8rem;">
+            <thead><tr><th>Bezeichnung</th><th>Eingerichtet</th><th>Zuletzt benutzt</th><th></th></tr></thead>
+            <tbody>
+            <?php foreach ($passkeys as $pk): ?>
+                <tr>
+                    <td><?= htmlspecialchars((string)$pk['label']) ?></td>
+                    <td><?= htmlspecialchars(date('d.m.Y', strtotime((string)$pk['created_at']))) ?></td>
+                    <td>
+                        <?= $pk['last_used_at']
+                            ? htmlspecialchars(date('d.m.Y', strtotime((string)$pk['last_used_at'])))
+                            : '<span style="color: var(--text-muted);">nie</span>' ?>
+                    </td>
+                    <td style="text-align: right;">
+                        <form method="POST" action="/passkeys/entziehen" style="display:inline;"
+                              data-confirm="Diesen Passkey wirklich entziehen?">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($passkeyCsrf) ?>">
+                            <input type="hidden" name="id" value="<?= (int)$pk['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-danger">Entziehen</button>
+                        </form>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        </div>
+    <?php endif; ?>
+
+    <?php if (App\Security\Passkeys::verfuegbar()): ?>
+        <p data-passkey-meldung class="passkey-meldung" hidden></p>
+        <label for="passkey-bezeichnung" style="display:block; font-size:0.9rem; margin-bottom:0.3rem;">
+            Bezeichnung (damit Sie ihn später wiedererkennen)
+        </label>
+        <input type="text" id="passkey-bezeichnung" data-passkey-bezeichnung maxlength="100"
+               placeholder="z. B. Diensttelefon" style="max-width: 320px; margin-bottom: 0.6rem;">
+        <br>
+        <button type="button" class="btn" data-passkey-registrieren
+                data-csrf="<?= htmlspecialchars($passkeyCsrf) ?>">
+            Passkey hinzufügen
+        </button>
+        <noscript>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">
+                Zum Einrichten eines Passkeys wird JavaScript benötigt.
+            </p>
+        </noscript>
+    <?php else: ?>
+        <p style="color: var(--text-muted); font-size: 0.85rem;">
+            Passkeys brauchen eine gesicherte Verbindung (HTTPS). Über diese Verbindung
+            lässt sich keiner einrichten.
+        </p>
+    <?php endif; ?>
+
+    <h3 style="font-size: 1rem; margin-top: 1.6rem; margin-bottom: 0.3rem;">Authentikator-App (TOTP)</h3>
+    <p style="color: var(--text-muted); margin-top: 0;">
+        Der Code entsteht auf Ihrem Gerät und geht nirgends über das Netz. Schwächer als ein Passkey nur darin, dass er sich abtippen und damit auf eine nachgebaute Seite tragen lässt.
         <?= $hatTotp ? 'Eingerichtet.' : 'Nicht eingerichtet.' ?>
     </p>
     <?php if (!$hatTotp): ?>
@@ -252,3 +328,5 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
     </p>
     <a href="/api-keys" class="btn btn-secondary">Zu den API-Schlüsseln</a>
 </div>
+
+<script defer src="/js/passkeys.js"></script>

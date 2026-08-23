@@ -39,17 +39,38 @@ final class SecondFactors {
     /** Einmalcode an die hinterlegte E-Mail-Adresse (#354). */
     public const EMAIL = 'email';
 
+    /** Passkey / WebAuthn (#353). */
+    public const PASSKEY = 'passkey';
+
     /**
      * Alle Verfahren in der Reihenfolge ihrer Staerke - der erste Eintrag ist
      * der, den die Anmeldung von sich aus anbietet, wenn mehrere aktiv sind.
      */
-    public const ALL = [self::TOTP, self::EMAIL];
+    public const ALL = [self::PASSKEY, self::TOTP, self::EMAIL];
 
     /**
      * Die Spalten, aus denen fromRow() lesen kann. Wer eine users-Zeile
      * selbst holt und hier hineingibt, muss sie mitselektieren.
      */
     public const COLUMNS = ['totp_enabled', 'email_2fa_enabled'];
+
+    /**
+     * Passkeys sind die Ausnahme von der Regel oben - und die Ausnahme hat
+     * einen Grund, keine Bequemlichkeit (#353).
+     *
+     * Bei TOTP und Mailcode stehen Schalter und Material in derselben
+     * users-Zeile; deshalb kann kein Register behaupten "aktiv", waehrend das
+     * Geheimnis fehlt. Bei Passkeys gibt es kein einzelnes Geheimnis, sondern
+     * beliebig viele Schluessel - ein Konto kann Telefon, Notebook und einen
+     * Sicherheitsstick haben, und jeden davon einzeln entziehen. Ein Schalter
+     * in users waere dann eine zweite Wahrheit neben der Tabelle, die
+     * auseinanderlaufen kann: genau die Fehlerklasse, die der Kommentar oben
+     * vermeiden will.
+     *
+     * Die Zahl der Schluessel IST hier der Schalter. Damit steht die Aussage
+     * "hat einen Passkey" weiterhin an genau einer Stelle - sie wird nur
+     * gezaehlt statt gelesen.
+     */
 
     private function __construct() {}
 
@@ -66,7 +87,12 @@ final class SecondFactors {
             );
             $stmt->execute([$userId]);
             $row = $stmt->fetch();
-            return is_array($row) ? self::fromRow($row) : [];
+            if (!is_array($row)) {
+                return [];
+            }
+            // Passkeys stehen nicht in der users-Zeile, sie werden gezaehlt.
+            $row['passkey_count'] = Passkeys::anzahl($userId);
+            return self::fromRow($row);
         } catch (\Throwable $e) {
             // Fail-closed: Ohne belastbare Auskunft gilt das Konto als
             // ungeschuetzt. Das fuehrt zur Einrichtungsaufforderung, nie zu
@@ -84,6 +110,12 @@ final class SecondFactors {
      */
     public static function fromRow(array $row): array {
         $faktoren = [];
+        // Reihenfolge = Staerke. Der Passkey steht vorn, weil er als einziger
+        // gegen Phishing traegt: Er ist an die Domain gebunden, ein
+        // abgetippter Code ist es nicht.
+        if ((int)($row['passkey_count'] ?? 0) > 0) {
+            $faktoren[] = self::PASSKEY;
+        }
         if (!empty($row['totp_enabled'])) {
             $faktoren[] = self::TOTP;
         }
@@ -109,7 +141,8 @@ final class SecondFactors {
      * Wissen ueber die Verfahren nicht selbst tragen.
      */
     public static function sqlHasAnyFactor(string $alias = 'u'): string {
-        return "({$alias}.totp_enabled = 1 OR {$alias}.email_2fa_enabled = 1)";
+        return "({$alias}.totp_enabled = 1 OR {$alias}.email_2fa_enabled = 1"
+            . " OR EXISTS (SELECT 1 FROM user_passkeys pk WHERE pk.user_id = {$alias}.id))";
     }
 
     /**

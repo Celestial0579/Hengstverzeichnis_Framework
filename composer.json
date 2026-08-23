@@ -1,10 +1,11 @@
 {
     "name": "hengstverzeichnis/framework",
-    "description": "Dev-only Composer-Manifest für die PHPUnit-Testsuite. Die Anwendung selbst läuft weiterhin ohne Composer/vendor (siehe docs/development.md) - dies wird ausschließlich für 'composer test' in lokaler Entwicklung und CI benötigt.",
+    "description": "Hengstverzeichnis-Framework. Seit #353 hat die Anwendung eine Laufzeit-Abhaengigkeit (web-auth/webauthn-lib fuer Passkeys); vendor/ wird deshalb mit dem Release ausgeliefert und im Docker-Image gebaut. require-dev deckt weiterhin nur die Testsuite ab.",
     "type": "project",
     "license": "proprietary",
     "require": {
-        "php": ">=8.5"
+        "php": ">=8.5",
+        "web-auth/webauthn-lib": "^5.3"
     },
     "require-dev": {
         "phpunit/phpunit": "^13.2"

@@ -20,6 +20,16 @@ spl_autoload_register(function ($class) {
     }
 });
 
+// Composer-Autoloader (#353). Seit den Passkeys hat die Anwendung eine
+// Laufzeit-Abhaengigkeit; vendor/ liegt dem Release bei und wird im
+// Docker-Image gebaut. Der Pfad wird gesucht, nicht geraten - im Addons-Repo
+// liegt der Kern innerhalb eines fremden vendor-Baums und hat kein eigenes
+// daneben (siehe App\Bootstrap\VendorAutoload).
+//
+// Nach dem App-Autoloader, weil VendorAutoload selbst eine App-Klasse ist.
+// Und VOR config.php, weil ab hier alles verfuegbar sein soll.
+\App\Bootstrap\VendorAutoload::laden(__DIR__);
+
 require_once __DIR__ . '/../config/config.php';
 
 // Wartungsmodus (#232): Muss unmittelbar nach config.php stehen - also VOR
@@ -192,6 +202,14 @@ $router->get('/login/2fa', [App\Controllers\AuthController::class, 'show2faVerif
 $router->post('/login/2fa', [App\Controllers\AuthController::class, 'process2faVerify']);
 // Zweiter Faktor per E-Mail (#354). Der Versand haengt ausschliesslich an
 // POST-Routen: Ein GET, der Mail ausloest, tut das auch beim Neuladen.
+// Passkeys (#353): Registrierung im Profil, Anmeldung als zweiter Faktor.
+$router->post('/passkeys/optionen', [App\Controllers\PasskeyController::class, 'registrierungsOptionen']);
+$router->post('/passkeys/registrieren', [App\Controllers\PasskeyController::class, 'registrierungAbschliessen']);
+$router->post('/passkeys/entziehen', [App\Controllers\PasskeyController::class, 'entziehen']);
+$router->get('/login/passkey', [App\Controllers\PasskeyController::class, 'anmeldeSeite']);
+$router->post('/login/passkey/optionen', [App\Controllers\PasskeyController::class, 'anmeldeOptionen']);
+$router->post('/login/passkey/pruefen', [App\Controllers\PasskeyController::class, 'anmeldungPruefen']);
+$router->get('/login/passkey/fertig', [App\Controllers\PasskeyController::class, 'anmeldungAbschliessen']);
 $router->get('/login/2fa/email', [App\Controllers\AuthController::class, 'showEmail2faVerify']);
 $router->post('/login/2fa/email', [App\Controllers\AuthController::class, 'processEmail2faVerify']);
 $router->post('/login/2fa/email/senden', [App\Controllers\AuthController::class, 'resendEmail2faCode']);

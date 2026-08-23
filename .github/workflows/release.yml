@@ -77,6 +77,25 @@ jobs:
           php-version: '8.5'
           coverage: none
 
+      # Seit #353 hat die Anwendung eine Laufzeit-Abhaengigkeit. vendor/ gehoert
+      # damit zur Auslieferung - und muss VOR der Listenerzeugung stehen,
+      # sonst haette die Solliste ausgerechnet ueber die Bibliothek im
+      # Anmeldepfad nichts zu sagen.
+      #
+      # --no-dev ist nicht optional: Mit den Entwicklungs-Abhaengigkeiten
+      # naennte die Liste Dateien, die eine Installation nie bekommt, und die
+      # Pruefung waere vom ersten Tag an rot. kern-manifest.php bricht in dem
+      # Fall ab (Exit 65), aber der Abbruch soll gar nicht erst noetig sein.
+      #
+      # --classmap-authoritative schaltet den PSR-4-Fallback ab. Das ist die
+      # Gegenmassnahme dagegen, dass Klassen aus einer abgeloesten
+      # Bibliotheksfassung nach einem Update noch ladbar waeren.
+      - name: Abhaengigkeiten installieren
+        run: composer install --no-dev --optimize-autoloader --classmap-authoritative --no-interaction --no-progress
+
+      - name: Auf offene Sicherheitsmeldungen pruefen
+        run: composer audit --no-dev --locked
+
       - name: Kern-Listen erzeugen
         run: |
           mkdir -p dist/listen
@@ -141,8 +160,12 @@ jobs:
           git archive --format=tar HEAD -- \
             ':!tests' ':!.github' ':!.claude' ':!docker-compose.yml' \
             ':!Dockerfile' ':!.dockerignore' ':!docker-start.sh' \
-            ':!composer.json' ':!composer.lock' ':!phpunit.xml' ':!scripts' \
+            ':!phpunit.xml' ':!scripts' \
             | tar -C "$stage" -xf -
+          # vendor/ steht in .gitignore, git archive kennt es also nicht -
+          # deshalb der Umweg ueber ein Stage-Verzeichnis statt eines direkten
+          # git-archive-Zips (#353).
+          cp -r vendor "$stage/vendor"
           # Die beiden Listen sind nicht versioniert - sie entstehen erst hier
           # und werden deshalb neben das Archiv gelegt, nicht hineingecheckt.
           cp KERN-SHA256SUMS.txt ABGELOESTE-DATEIEN.txt "$stage/"

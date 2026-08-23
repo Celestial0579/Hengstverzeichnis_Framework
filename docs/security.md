@@ -604,3 +604,36 @@ verwerfen und dem Absender trotzdem Erfolg zu melden.
 Setup-Wizard als auch (implizit über dieselbe Methode) bei der
 Benutzerverwaltung, um Verwechslung mit Systemkonten oder Phishing-artige
 Benutzernamen zu vermeiden.
+
+## Passkeys (WebAuthn)
+
+Seit v0.10 (#353). Der stärkste der drei zweiten Faktoren, und der einzige,
+der gegen Phishing trägt: Ein Passkey ist an die Domain gebunden und lässt
+sich auf einer nachgebauten Seite nicht verwenden.
+
+**Die RP-ID kommt nie aus der Anfrage.** Sie ist die Bindung zwischen Passkey
+und Domain; käme sie aus `HTTP_HOST`, bestimmte der Aufrufer selbst, wofür
+sein Schlüssel gilt. Vorrang hat die konfigurierte `base_url`, danach der über
+`App\Security\TrustedHost` geprüfte Host — und in beiden Fällen ohne Port.
+
+**Die Challenge steht nie im Formular.** Sie wird serverseitig erzeugt und in
+der Sitzung abgelegt. Über das Formular zurückgereicht prüfte die Zeremonie
+gegen einen Wert, den der Aufrufer gesetzt hat.
+
+**Der Schlüssel muss zum Konto gehören.** Wird die Zeremonie für einen
+bestimmten Benutzer eröffnet (Passkey als zweiter Faktor nach dem Passwort),
+wird zusätzlich geprüft, dass der vorgelegte Schlüssel diesem Konto gehört.
+Ohne das könnte jemand mit einem eigenen Passkey den zweiten Faktor eines
+fremden Kontos erfüllen, dessen Passwort er kennt. Die Prüfung steht
+absichtlich **zweimal** da (Dienst und Controller) — die Folge eines Fehlers
+an dieser Stelle wäre eine Anmeldung als fremde Person.
+
+**Keine Attestation-Prüfung.** `attestation: none`. Ein Verband hat kein
+Interesse daran, Authenticator-Modelle vorzuschreiben, und eine halbherzige
+Attestation-Prüfung ist schlechter als gar keine: Sie behauptet Sicherheit,
+die sie nicht liefert.
+
+**Wiederherstellung.** Geht das Gerät verloren, hilft ein zweiter Passkey, die
+Authentikator-App oder das Zurücksetzen durch die Verwaltung. Der letzte
+verbleibende zweite Faktor lässt sich deshalb nicht über die Profilseite
+entziehen.

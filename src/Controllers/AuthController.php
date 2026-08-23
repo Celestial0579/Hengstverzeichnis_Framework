@@ -314,6 +314,14 @@ class AuthController extends BaseController {
      * @param array<int, string> $faktoren
      */
     private static function faktorPfad(array $faktoren): string {
+        // Reihenfolge = Staerke (#353). Der Passkey steht vorn, weil er als
+        // einziger gegen Phishing traegt - er ist an die Domain gebunden,
+        // ein abgetippter Code ist es nicht. Wer mehrere Faktoren hat,
+        // bekommt den staerksten angeboten und kann auf der Seite selbst
+        // umschalten.
+        if (in_array(SecondFactors::PASSKEY, $faktoren, true)) {
+            return '/login/passkey';
+        }
         return in_array(SecondFactors::TOTP, $faktoren, true) ? '/login/2fa' : '/login/2fa/email';
     }
 
@@ -376,6 +384,30 @@ class AuthController extends BaseController {
             $_SESSION['last_token_rotation'],
             $_SESSION['created_time']
         );
+    }
+
+    /**
+     * Abschluss einer Passkey-Anmeldung (#353).
+     *
+     * Fuehrt in denselben gemeinsamen Abschluss wie jeder andere zweite
+     * Faktor. Ein eigener Weg hier waere eine zweite Stelle, an der eine
+     * Anmeldung fertig wird - und die zweite ist immer die, die eine Regel
+     * vergisst. Konkret haengt an afterSecondFactor() die TOTP-Pflicht fuer
+     * Administratoren (#354) und die Sitzungs-Erneuerung.
+     *
+     * Oeffentlich, weil PasskeyController sie aufruft; sie prueft deshalb
+     * selbst, dass der erste Faktor wirklich erbracht wurde, statt sich auf
+     * den Aufrufer zu verlassen.
+     */
+    public function passkeyAbschluss(int $userId): void {
+        $erwartet = $_SESSION['pending_2fa_user_id'] ?? null;
+        if ($erwartet === null || (int)$erwartet !== $userId) {
+            unset($_SESSION['pending_2fa_user_id']);
+            header('Location: /login');
+            exit;
+        }
+
+        $this->afterSecondFactor($userId);
     }
 
     /**

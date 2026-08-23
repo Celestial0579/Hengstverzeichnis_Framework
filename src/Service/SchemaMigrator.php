@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 18;
+    public const SCHEMA_VERSION = 19;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -246,7 +246,31 @@ final class SchemaMigrator {
         $addColumn('users', 'totp_secret', 'VARCHAR(64) NULL AFTER `role`');
         $addColumn('users', 'totp_enabled', 'TINYINT(1) DEFAULT 0 AFTER `totp_secret`');
         $addColumn('users', 'backup_codes', 'TEXT NULL AFTER `totp_enabled`');
-        $addColumn('users', 'passkeys', 'TEXT NULL AFTER `backup_codes`');
+        // 39. Passkeys (#353). Die Spalte users.passkeys stand seit Langem im
+        // Schema und wurde NIRGENDS gelesen oder geschrieben - sie versprach
+        // eine Funktion, die es nicht gab. Jetzt gibt es sie, und sie braucht
+        // eine eigene Tabelle: Ein JSON-Klumpen je Benutzer machte Widerruf,
+        // Anzeige ("zuletzt benutzt") und die Eindeutigkeit der Credential-ID
+        // umstaendlich, und genau die ist die Grundlage jeder Anmeldung.
+        //
+        // Die Reihenfolge ist wesentlich: erst die Tabelle, dann die Spalte
+        // weg. Andersherum stuende zwischen beiden Schritten ein Zustand ohne
+        // beides - und ein Abbruch dazwischen liesse eine Installation ohne
+        // jeden Passkey-Speicher zurueck.
+        $createTable('user_passkeys', "CREATE TABLE IF NOT EXISTS `user_passkeys` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `user_id` INT NOT NULL,
+            `credential_id` VARCHAR(512) NOT NULL,
+            `credential` TEXT NOT NULL,
+            `label` VARCHAR(100) NOT NULL,
+            `sign_count` BIGINT NOT NULL DEFAULT 0,
+            `created_at` DATETIME NOT NULL,
+            `last_used_at` DATETIME NULL DEFAULT NULL,
+            UNIQUE KEY `uq_user_passkeys_credential` (`credential_id`(255)),
+            INDEX `idx_user_passkeys_user` (`user_id`),
+            FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
 
         // 3. Erweiterungen für Pferdeprofile (Ausländische UELN, Abstammung, Deckstation)
         $addColumn('horses', 'foreign_ueln', 'VARCHAR(50) NULL DEFAULT NULL AFTER `ueln`');
@@ -1117,6 +1141,18 @@ final class SchemaMigrator {
                 }
             } catch (\Throwable $e) {
                 // Tabelle/Spalte gibt es (noch) nicht - Setup-Fall.
+            }
+        };
+
+        // Gibt es diese Spalte? Bewusst neben $tabelleExistiert und mit
+        // derselben Vorsicht: Scheitert SHOW COLUMNS, gibt es die Tabelle
+        // nicht - und dann gibt es die Spalte erst recht nicht.
+        $spalteExistiert = function (string $table, string $column) use ($pdo): bool {
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column));
+                return $stmt !== false && $stmt->fetch() !== false;
+            } catch (\Throwable) {
+                return false;
             }
         };
 
@@ -2026,6 +2062,31 @@ final class SchemaMigrator {
                 . 'abgelaufen - laufende Anbindungen brauchen einen neuen Schlüssel',
                 $betroffen
             )];
+        });
+
+        // 39b. Die alte Spalte users.passkeys faellt (#353).
+        //
+        // Sie stand seit Langem im Schema und wurde NIRGENDS gelesen oder
+        // geschrieben - eine leere Zusage. Der Ersatz (Tabelle user_passkeys)
+        // wird weiter oben angelegt; erst danach darf sie weg, sonst stuende
+        // zwischen beiden Schritten ein Zustand ohne beides.
+        //
+        // Dass nichts verloren geht, wird geprueft und nicht behauptet: Ist
+        // die Spalte wider Erwarten belegt, bleibt sie stehen und der Lauf
+        // meldet es. Ein Datenverlust beim Aufraeumen einer nie benutzten
+        // Spalte waere die Ironie zu viel.
+        $dataStep('353_passkeys_spalte_faellt', function () use ($pdo, $spalteExistiert): ?array {
+            if (!$spalteExistiert('users', 'passkeys')) {
+                return null;
+            }
+            $belegt = (int)$pdo->query(
+                "SELECT COUNT(*) FROM `users` WHERE `passkeys` IS NOT NULL AND `passkeys` <> ''"
+            )->fetchColumn();
+            if ($belegt > 0) {
+                return ['uebersprungen' => "users.passkeys ist in {$belegt} Zeile(n) belegt - Spalte bleibt stehen."];
+            }
+            $pdo->exec("ALTER TABLE `users` DROP COLUMN `passkeys`");
+            return ['entfernt' => 'users.passkeys'];
         });
 
         // 32. Dauerhafte Entscheidungen über Dubletten-Vorschläge (#355,

@@ -7,11 +7,15 @@ public/uploads/*
 !public/uploads/.htaccess
 
 # Dev-only Testtooling (siehe docs/development.md, Abschnitt "Tests") - die
-# Anwendung selbst läuft ohne Composer/vendor, das Docker-Image braucht das
-# also nicht.
+# vendor/ bleibt AUSGESPERRT, obwohl das Image es seit #353 braucht - es wird
+# in einer eigenen Bau-Stufe frisch erzeugt. Waere es hier freigegeben, wanderte
+# das vendor/ des Entwicklerrechners ins Image: mit dessen PHP-Fassung gebaut,
+# womoeglich mit Entwicklungs-Abhaengigkeiten, und ohne dass jemand den
+# Unterschied sieht. Genau davor stand dieser Eintrag urspruenglich.
+#
+# composer.json und composer.lock muessen dagegen HEREIN - die Bau-Stufe
+# arbeitet mit ihnen.
 tests
 vendor
-composer.json
-composer.lock
 phpunit.xml
 .phpunit.cache

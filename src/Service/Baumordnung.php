@@ -79,6 +79,13 @@ final class Baumordnung {
     private const ORDNUNG = [
         // --- Kern: Code und mitgelieferte Inhalte ------------------------
         'src'                    => self::KERN,
+        // Seit #353 hat die Anwendung eine Laufzeit-Abhaengigkeit, und vendor/
+        // wird mit ausgeliefert. Es gehoert ausdruecklich dem KERN: Was dort
+        // liegt und nicht zum Release gehoert, ist eine abgeloeste
+        // Bibliotheksfassung - und die faellt anders ins Gewicht als eine
+        // verwaiste Klasse in src/, weil an jeder vendor-Datei ein Autoloader
+        // haengt, der sie auf Zuruf laedt.
+        'vendor'                 => self::KERN,
         'lang'                   => self::KERN,
         'database'               => self::KERN,
         'docs'                   => self::KERN,
@@ -90,6 +97,11 @@ final class Baumordnung {
         '.env.example'           => self::KERN,
         '.pre-commit-config.yaml' => self::KERN,
         'eslint.config.js'       => self::KERN,
+        // Seit #353 im Archiv: Ohne sie liesse sich der ausgelieferte
+        // vendor-Baum von aussen gegen nichts pruefen - weder mit
+        // 'composer audit' noch von Hand.
+        'composer.json'          => self::KERN,
+        'composer.lock'          => self::KERN,
         'CHANGELOG.md'           => self::KERN,
         'LICENSE'                => self::KERN,
         'README.md'              => self::KERN,

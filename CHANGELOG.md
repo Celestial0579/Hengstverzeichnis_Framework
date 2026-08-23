@@ -8,6 +8,42 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Neu — Passkeys
+
+- **Passkeys (WebAuthn/FIDO2)** (#353). Anmelden mit Fingerabdruck, Gesicht,
+  Geräte-PIN oder Sicherheitsschlüssel — als zweiter Faktor, verwaltbar im
+  Profil, jederzeit einzeln entziehbar. Mehrere Passkeys je Konto sind
+  ausdrücklich vorgesehen; der letzte verbleibende zweite Faktor lässt sich
+  nicht über diesen Weg entfernen.
+
+  Ein Passkey ist der einzige der drei Faktoren, der gegen Phishing trägt: Er
+  ist an die Domain gebunden und lässt sich auf einer nachgebauten Seite gar
+  nicht erst verwenden. Ein abgetippter Code schon. Deshalb steht er in der
+  Reihenfolge vorn und wird beim Anmelden zuerst angeboten.
+
+  **Die Spalte `users.passkeys` gab es seit Langem, die Funktion nicht** — sie
+  wurde nirgends gelesen oder geschrieben und versprach etwas, das es nicht
+  gab. Sie fällt jetzt; die Daten liegen in der neuen Tabelle `user_passkeys`.
+  Der Migrationsschritt prüft vorher, dass sie unbelegt ist, und lässt sie
+  andernfalls stehen.
+
+- **Erste Laufzeit-Abhängigkeit: `web-auth/webauthn-lib`.** Bis v0.9 hatte der
+  Kern keine. WebAuthn ist kryptografischer Code — CBOR, COSE, Attestation,
+  Signaturprüfung —, und Fehler darin sind still: Sie fallen nicht als
+  Ausnahme auf, sondern als eine Anmeldung, die durchgeht, obwohl sie es nicht
+  sollte. Für alles andere gilt die Linie weiter; CSV, S3, WebDAV, FTPS,
+  Übersetzungen, QR-Codes und Captcha bleiben selbst gebaut.
+
+  Bei der Auswahl kam ein Kriterium hinzu, das vorher nicht auf der Liste
+  stand: **Gibt es einen Weg, Lücken zu melden?** Der naheliegendste Treffer
+  hatte weder SECURITY.md noch privates Reporting — und bei der Prüfung fand
+  sich dort ein zu lockerer Origin-Vergleich.
+
+  **Für Betreiber ändert sich nichts:** `vendor/` liegt dem Release-Archiv bei
+  und wird im Docker-Image in einer eigenen Bau-Stufe erzeugt. Es braucht
+  weiterhin kein Composer auf dem Webspace.
+
+
 ### Behoben
 
 - **Ein Update ließ abgelöste Kerndateien liegen — zehn Sprachen fielen dabei

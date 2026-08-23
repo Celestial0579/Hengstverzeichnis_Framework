@@ -33,9 +33,14 @@ class HttpClient {
 
     /**
      * @param array<string, string> $fields
+     * @param array<string, string> $headers Zusätzliche Request-Header, wie bei get().
+     *        Gebraucht seit #353: Ob Passkeys angeboten werden, haengt am Host -
+     *        ueber localhost gilt der Kontext als sicher, ueber einen fremden
+     *        Namen ohne TLS nicht. Diese Ausnahme laesst sich nur pruefen, wenn
+     *        der Test den Host-Kopf setzen kann.
      */
-    public function post(string $path, array $fields): HttpResponse {
-        return $this->request('POST', $path, http_build_query($fields));
+    public function post(string $path, array $fields, array $headers = []): HttpResponse {
+        return $this->request('POST', $path, http_build_query($fields), $headers);
     }
 
     /**

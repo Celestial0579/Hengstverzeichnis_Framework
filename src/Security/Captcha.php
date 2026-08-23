@@ -16,7 +16,7 @@ namespace App\Security;
  * Browser-Fingerprint an einen weiteren Empfänger (i. d. R. Drittland) zu
  * übertragen, wäre ausgerechnet für dieses Formular kaum zu rechtfertigen und
  * müsste zudem in der Datenschutzerklärung stehen. Zusätzlich läuft die
- * Anwendung ohne Composer und ohne externe Dienste (siehe
+ * Anwendung ohne externe Dienste und ohne eigene Abhaengigkeit (siehe
  * docs/development.md) und setzt keine GD-Extension voraus (siehe Dockerfile) -
  * ein Bild-CAPTCHA wäre daher auch technisch eine neue Abhängigkeit.
  *

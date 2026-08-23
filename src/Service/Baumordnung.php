@@ -102,6 +102,30 @@ final class Baumordnung {
         // 'composer audit' noch von Hand.
         'composer.json'          => self::KERN,
         'composer.lock'          => self::KERN,
+
+        // --- Ausgenommen: Bau-Metadaten ------------------------------------
+        //
+        // vendor/composer/installed.php beschreibt nicht den ausgelieferten
+        // Code, sondern den KONTEXT, in dem er gebaut wurde. Composer traegt
+        // dort Version und Commit des WURZELPAKETS ein - und die haengen
+        // davon ab, ob ein .git-Verzeichnis danebenlag:
+        //
+        //   im Release-Job (Git-Baum):  'dev-main', reference '42c98a4...'
+        //   in der Docker-Bau-Stufe:    '1.0.0+no-version-set', reference null
+        //
+        // Nachgemessen: Von 1.304 vendor-Dateien ist das die EINZIGE, die
+        // sich zwischen beiden unterscheidet. Bliebe sie im KERN, waere die
+        // Unversehrtheitspruefung auf JEDEM unveraenderten Original-Image rot
+        // - ein Fehlalarm bei jedem Betreiber, und damit eine Pruefung, der
+        // niemand mehr glaubt.
+        //
+        // Der Preis ist klein und benannt: Eine Aenderung an dieser Datei
+        // faellt nicht auf. Sie speist ausschliesslich
+        // Composer\InstalledVersions; im Kern liest sie nichts (nachgeprueft),
+        // und der Autoloader haengt an autoload_*.php, die weiterhin geprueft
+        // werden. Wer sie faelscht, bringt eine Selbstauskunft zum Luegen -
+        // mehr nicht.
+        'vendor/composer/installed.php' => self::LAUFZEIT,
         'CHANGELOG.md'           => self::KERN,
         'LICENSE'                => self::KERN,
         'README.md'              => self::KERN,

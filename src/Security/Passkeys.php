@@ -219,8 +219,9 @@ final class Passkeys {
             throw new \RuntimeException('Der Sicherheitsschlüssel hat unerwartet geantwortet.');
         }
 
-        $csmFactory = new CeremonyStepManagerFactory();
-        $validator = AuthenticatorAttestationResponseValidator::create($csmFactory->creationCeremony());
+        $validator = AuthenticatorAttestationResponseValidator::create(
+            self::zeremonieFabrik()->creationCeremony()
+        );
 
         try {
             $datensatz = $validator->check($antwort, $optionen, self::rpId());
@@ -312,8 +313,29 @@ final class Passkeys {
             'json'
         );
 
-        $csmFactory = new CeremonyStepManagerFactory();
-        $validator = AuthenticatorAssertionResponseValidator::create($csmFactory->requestCeremony());
+        $validator = AuthenticatorAssertionResponseValidator::create(
+            self::zeremonieFabrik()->requestCeremony()
+        );
+
+        // Das ERWARTETE Benutzer-Handle, nicht das aus der Antwort.
+        //
+        // Hier stand urspruenglich $antwort->userHandle - also der Wert aus
+        // der Antwort als sein eigener Erwartungswert. Das ist in zweierlei
+        // Hinsicht falsch:
+        //
+        // 1. Ein Schluessel, der das Credential nicht auffindbar ablegt
+        //    (residentKey ist PREFERRED, aeltere Sticks oder solche ohne
+        //    freien Speicher tun das), liefert userHandle = null. CheckUserHandle
+        //    nimmt dann den else-Zweig, der genau dieses null-Feld als NICHT
+        //    leer verlangt - logisch unerfuellbar. Der Schluessel liesse sich
+        //    registrieren und nie wieder benutzen.
+        // 2. Selbst wenn ein Handle kaeme, praefte man es gegen sich selbst.
+        //
+        // Mit dem erwarteten Handle greift der andere Zweig: Er prueft, dass
+        // der GESPEICHERTE Schluessel zu diesem Konto gehoert, und zusaetzlich
+        // die Antwort, falls sie ein Handle mitbringt. Also strenger, nicht
+        // nachsichtiger.
+        $erwartetesHandle = self::benutzerHandle((int)$eintrag['user_id']);
 
         try {
             $aktualisiert = $validator->check(
@@ -321,7 +343,7 @@ final class Passkeys {
                 $antwort,
                 $optionen,
                 self::rpId(),
-                $antwort->userHandle
+                $erwartetesHandle
             );
         } catch (\Throwable $e) {
             AuditLogger::log(
@@ -394,14 +416,44 @@ final class Passkeys {
 
     // ---- Innereien -------------------------------------------------------
 
+    /**
+     * Die Zeremonie-Fabrik mit UNSEREN Algorithmen.
+     *
+     * Ohne setAlgorithmManager() setzt die Fabrik von sich aus nur ES256 und
+     * RS256 (CeremonyStepManagerFactory Zeile 52). Die Registrierung bietet
+     * aber fuenf an - ES256/384/512, RS256 und Ed25519 -, und CheckAlgorithm
+     * prueft dort gegen genau diese Liste, laesst also Ed25519 durch.
+     *
+     * Die Folge waere die unangenehmste Sorte Fehler: Ein SoloKey oder
+     * Nitrokey liesse sich anstandslos registrieren und beim ersten
+     * Anmeldeversuch abweisen ("Unsupported algorithm"), ohne dass der
+     * Benutzer versteht, warum. Registrierung und Anmeldung muessen dieselbe
+     * Liste kennen - deshalb steht sie an einer Stelle.
+     */
+    private static function zeremonieFabrik(): CeremonyStepManagerFactory {
+        $fabrik = new CeremonyStepManagerFactory();
+        $fabrik->setAlgorithmManager(self::algorithmen());
+        return $fabrik;
+    }
+
+    /** Die angebotenen Signaturverfahren - Registrierung wie Anmeldung. */
+    private static function algorithmen(): AlgorithmManager {
+        // create() nimmt KEINE Argumente - die Algorithmen kommen ueber add().
+        // Ein Manager, dem man sie als Array uebergibt, kennt anschliessend
+        // gar keine, und die Anmeldung schluege fuer JEDEN Schluessel fehl.
+        return AlgorithmManager::create()->add(
+            ES256::create(),
+            ES384::create(),
+            ES512::create(),
+            RS256::create(),
+            Ed25519::create()
+        );
+    }
+
     private static function serializer(): \Symfony\Component\Serializer\SerializerInterface {
         static $serializer = null;
         if ($serializer === null) {
-            $algorithmen = AlgorithmManager::create([
-                ES256::create(), ES384::create(), ES512::create(),
-                RS256::create(), Ed25519::create(),
-            ]);
-            $serializer = (new WebauthnSerializerFactory($algorithmen))->create();
+            $serializer = (new WebauthnSerializerFactory(self::algorithmen()))->create();
         }
         return $serializer;
     }

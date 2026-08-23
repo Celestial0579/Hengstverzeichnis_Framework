@@ -63,9 +63,32 @@ jobs:
           # ohne dass es jemandem auffiele.
           fetch-depth: 0
 
+      # Die Version kommt aus dem TAG - und nur aus einem Tag.
+      #
+      # Der Workflow ist auch fuer workflow_dispatch freigegeben, und die
+      # GitHub-Oberflaeche waehlt dort standardmaessig den Default-Branch.
+      # Ein Lauf auf 'main' ergab damit version='main': Docker-Tags 'main'
+      # UND 'latest', ein Zip namens ...-main.zip, und ein GitHub-Release mit
+      # tag_name 'main', das einen Git-Tag gleichen Namens neben den Branch
+      # legt (mehrdeutige Ref) und wegen prerelease=contains('main','-')=false
+      # das "Latest release"-Abzeichen bekommt - vor der eigentlichen Version.
+      #
+      # Deshalb hier eine Schranke statt einer Annahme. workflow_dispatch
+      # bleibt nutzbar, aber nur mit einem ausgewaehlten Versions-Tag.
       - name: Determine version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::Dieser Workflow laeuft nur auf einem Versions-Tag." \
+                 "Aktuell: ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'." \
+                 "Bei 'Run workflow' oben das Tag auswaehlen, nicht den Branch."
+            exit 1
+          fi
+          case "${GITHUB_REF_NAME}" in
+            v[0-9]*) ;;
+            *) echo "::error::'${GITHUB_REF_NAME}' ist kein Versions-Tag (erwartet: vX.Y.Z)."; exit 1 ;;
+          esac
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       # Nicht auf das PHP der Runner-Vorgabe verlassen: Welche Fassung dort
       # liegt, kann sich mit dem Image aendern, und kern-manifest.php liefe
@@ -115,7 +138,18 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest
+            # ':latest' NUR fuer stabile Versionen.
+            #
+            # Ohne die Bedingung verschiebt jede Vorabversion das Tag, auf das
+            # ein Betreiber laut README "fuer den produktiven Betrieb" setzt -
+            # und der in docker-compose.yml vorgeschlagene Watchtower spielt
+            # es beim naechsten Lauf ein. Eine Beta laege dann in einer
+            # Produktionsinstallation, ohne dass sie je angefordert wurde.
+            #
+            # Beim GitHub-Release ist die Kanaltrennung laengst da
+            # (prerelease unten, UpdateService::selectBestRelease liest sie).
+            # Der Docker-Weg kannte sie nicht - das war der Bruch.
+            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-') }}
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0

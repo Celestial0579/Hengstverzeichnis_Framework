@@ -123,6 +123,40 @@ class BaumordnungTest extends TestCase {
         $this->assertFalse(Baumordnung::darfAbgeglichenWerden('var/cache'));
     }
 
+    /**
+     * Die mitgelieferte Bibliothek gehört zum KERN — ihre Bau-Metadaten nicht.
+     *
+     * `vendor/composer/installed.php` beschreibt nicht den ausgelieferten
+     * Code, sondern den Kontext, in dem er gebaut wurde: Version und Commit
+     * des Wurzelpakets, und die hängen davon ab, ob ein `.git` danebenlag.
+     * Nachgemessen ist das von 1.304 vendor-Dateien die **einzige**, die sich
+     * zwischen Release-Job und Docker-Bau-Stufe unterscheidet.
+     *
+     * Bliebe sie im KERN, wäre die Unversehrtheitsprüfung auf **jedem**
+     * unveränderten Original-Image rot — ein Fehlalarm bei jedem Betreiber,
+     * und damit eine Prüfung, der niemand mehr glaubt.
+     */
+    public function testVendorIstKernAberDieBauMetadatenNicht(): void {
+        $this->assertSame(
+            Baumordnung::KERN,
+            Baumordnung::klasse('vendor/web-auth/webauthn-lib/src/WebAuthn.php'),
+            'Die Bibliothek im Anmeldepfad gehört geprüft.'
+        );
+        $this->assertSame(
+            Baumordnung::KERN,
+            Baumordnung::klasse('vendor/composer/autoload_real.php'),
+            'Der Autoloader gehört geprüft - an ihm hängt, was geladen wird.'
+        );
+
+        $this->assertNotSame(
+            Baumordnung::KERN,
+            Baumordnung::klasse('vendor/composer/installed.php'),
+            'installed.php unterscheidet sich zwischen Release-Job und Docker-Bau-Stufe. '
+            . 'Im KERN wäre die Prüfung auf jedem Original-Image rot.'
+        );
+        $this->assertFalse(Baumordnung::darfAbgeglichenWerden('vendor/composer/installed.php'));
+    }
+
     /** Pferdefotos liegen in storage/, gehören aber dem Betreiber (#366). */
     public function testPferdefotosSindBetreiberdaten(): void {
         $this->assertSame(Baumordnung::BETREIBER, Baumordnung::klasse('storage/horses'));

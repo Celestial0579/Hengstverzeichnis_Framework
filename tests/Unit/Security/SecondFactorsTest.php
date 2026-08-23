@@ -15,28 +15,73 @@ use PHPUnit\Framework\TestCase;
  */
 class SecondFactorsTest extends TestCase {
 
+    /**
+     * SEIT #353 GEHOERT passkey_count IN JEDE ZEILE, die hier hineingeht.
+     *
+     * Nicht aus Umstaendlichkeit: Passkeys stehen als einziges Verfahren
+     * nicht in der users-Zeile. Wer eine Zeile baut und das Feld weglaesst,
+     * hat die Frage "hat dieses Konto einen Passkey" nicht beantwortet -
+     * und die erste Fassung antwortete dann stillschweigend mit "nein".
+     * Genau so meldete sich ein Passkey-only-Konto mit dem Passwort allein
+     * an. fromRow() wirft deshalb, wenn weder passkey_count noch id dasteht.
+     *
+     * Die Tests hier setzen das Feld ausdruecklich auf 0 - das ist die
+     * Aussage "diese Zeile behauptet nichts ueber Passkeys", und sie steht
+     * jetzt da, statt vorausgesetzt zu werden.
+     */
     public function testKeineSpaltenGesetztHeisstKeinFaktor(): void {
-        $this->assertSame([], SecondFactors::fromRow(['totp_enabled' => 0, 'email_2fa_enabled' => 0]));
+        $this->assertSame([], SecondFactors::fromRow([
+            'totp_enabled' => 0, 'email_2fa_enabled' => 0, 'passkey_count' => 0,
+        ]));
     }
 
     public function testTotpUndMailcodeWerdenBeideErkannt(): void {
-        $this->assertSame([SecondFactors::TOTP], SecondFactors::fromRow(['totp_enabled' => 1, 'email_2fa_enabled' => 0]));
-        $this->assertSame([SecondFactors::EMAIL], SecondFactors::fromRow(['totp_enabled' => 0, 'email_2fa_enabled' => 1]));
+        $ohnePasskey = ['passkey_count' => 0];
+        $this->assertSame([SecondFactors::TOTP], SecondFactors::fromRow($ohnePasskey + ['totp_enabled' => 1, 'email_2fa_enabled' => 0]));
+        $this->assertSame([SecondFactors::EMAIL], SecondFactors::fromRow($ohnePasskey + ['totp_enabled' => 0, 'email_2fa_enabled' => 1]));
         $this->assertSame(
             [SecondFactors::TOTP, SecondFactors::EMAIL],
-            SecondFactors::fromRow(['totp_enabled' => 1, 'email_2fa_enabled' => 1]),
+            SecondFactors::fromRow($ohnePasskey + ['totp_enabled' => 1, 'email_2fa_enabled' => 1]),
             'Die Reihenfolge ist die Reihenfolge der Staerke - die Anmeldung waehlt daraus den ersten.'
         );
     }
 
+    /** Und der Passkey steht vorn, weil er als einziger gegen Phishing traegt. */
+    public function testPasskeyStehtVorDenAnderen(): void {
+        $this->assertSame(
+            [SecondFactors::PASSKEY, SecondFactors::TOTP, SecondFactors::EMAIL],
+            SecondFactors::fromRow(['passkey_count' => 2, 'totp_enabled' => 1, 'email_2fa_enabled' => 1])
+        );
+    }
+
     /**
-     * Fehlende Spalten duerfen nicht in eine Warnung laufen: Nicht jede
-     * Abfrage im Kern holt beide, und ein "undefined array key" waere unter
-     * failOnWarning ein roter Lauf statt einer Antwort.
+     * Fehlende TOTP-/Mailcode-Spalten duerfen nicht in eine Warnung laufen:
+     * Nicht jede Abfrage im Kern holt beide, und ein "undefined array key"
+     * waere unter failOnWarning ein roter Lauf statt einer Antwort.
+     *
+     * Fuer passkey_count gilt das AUSDRUECKLICH NICHT - siehe unten.
      */
     public function testFehlendeSpaltenGeltenAlsNichtGesetzt(): void {
-        $this->assertSame([], SecondFactors::fromRow([]));
-        $this->assertSame([SecondFactors::TOTP], SecondFactors::fromRow(['totp_enabled' => 1]));
+        $this->assertSame([], SecondFactors::fromRow(['passkey_count' => 0]));
+        $this->assertSame(
+            [SecondFactors::TOTP],
+            SecondFactors::fromRow(['passkey_count' => 0, 'totp_enabled' => 1])
+        );
+    }
+
+    /**
+     * Eine Zeile ohne passkey_count UND ohne id wird abgewiesen.
+     *
+     * Der Unterschied zu den anderen Spalten ist Absicht: Ein fehlendes
+     * totp_enabled bedeutet nachweislich "nicht eingeschaltet", denn der
+     * Schalter steht in derselben Zeile. Ein fehlendes passkey_count bedeutet
+     * gar nichts - die Auskunft liegt in einer anderen Tabelle. Sie
+     * stillschweigend als "kein Passkey" zu lesen, hat eine Anmeldung
+     * durchgelassen.
+     */
+    public function testZeileOhnePasskeyAuskunftWirdAbgewiesen(): void {
+        $this->expectException(\RuntimeException::class);
+        SecondFactors::fromRow(['totp_enabled' => 1]);
     }
 
     public function testSqlAusdruckNenntAlleVerfahrenUndDenAlias(): void {

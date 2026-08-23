@@ -94,9 +94,25 @@ final class SecondFactors {
             $row['passkey_count'] = Passkeys::anzahl($userId);
             return self::fromRow($row);
         } catch (\Throwable $e) {
-            // Fail-closed: Ohne belastbare Auskunft gilt das Konto als
-            // ungeschuetzt. Das fuehrt zur Einrichtungsaufforderung, nie zu
-            // einer uebersprungenen Pruefung.
+            // Ohne belastbare Auskunft gilt das Konto als ungeschuetzt.
+            //
+            // ACHTUNG, die urspruengliche Begruendung hier war zu optimistisch:
+            // Sie sagte, das fuehre "zur Einrichtungsaufforderung, nie zu einer
+            // uebersprungenen Pruefung". Das gilt nur fuer Konten MIT
+            // 2FA-Pflicht. Ist sie fuer das Konto nicht verpflichtend, geht
+            // AuthController::login() bei leerer Liste direkt in
+            // completeLogin() - eine leere Liste ist dort also sehr wohl eine
+            // uebersprungene Pruefung.
+            //
+            // Der Rueckfall bleibt trotzdem: Ein Datenbankfehler an dieser
+            // Stelle darf die Anmeldung nicht mit einem Fehlerbild beenden.
+            // Er wird aber protokolliert, damit er nicht unbemerkt bleibt.
+            \App\Service\AuditLogger::log(
+                'Zweite Faktoren nicht ermittelbar',
+                'security',
+                "Benutzer-ID {$userId}: " . $e->getMessage()
+                . ' - das Konto gilt fuer diese Anmeldung als ungeschuetzt.'
+            );
             return [];
         }
     }
@@ -113,7 +129,7 @@ final class SecondFactors {
         // Reihenfolge = Staerke. Der Passkey steht vorn, weil er als einziger
         // gegen Phishing traegt: Er ist an die Domain gebunden, ein
         // abgetippter Code ist es nicht.
-        if ((int)($row['passkey_count'] ?? 0) > 0) {
+        if (self::hatPasskey($row)) {
             $faktoren[] = self::PASSKEY;
         }
         if (!empty($row['totp_enabled'])) {
@@ -123,6 +139,48 @@ final class SecondFactors {
             $faktoren[] = self::EMAIL;
         }
         return $faktoren;
+    }
+
+    /**
+     * Hat dieses Konto einen Passkey?
+     *
+     * DIE STELLE, AN DER DIESE KLASSE EINMAL EINE ANMELDUNG DURCHGELASSEN HAT.
+     *
+     * Passkeys stehen als einziges Verfahren nicht in der users-Zeile,
+     * sondern in einer eigenen Tabelle. Die erste Fassung las sie deshalb aus
+     * `$row['passkey_count']` - einer Groesse, die NUR forUser() nachtraegt.
+     * Alle sechs anderen Aufrufer von fromRow() uebergeben eine rohe
+     * users-Zeile ohne dieses Feld, darunter der Anmeldeweg. Fuer ein Konto,
+     * dessen einziger zweiter Faktor ein Passkey ist, kam damit eine leere
+     * Faktorliste heraus: kein pending_2fa_user_id, kein /login/passkey,
+     * direkt completeLogin(). Wer das Passwort hatte, war drin.
+     *
+     * Die Zahl wird jetzt hier geholt, wenn sie nicht schon dasteht. Damit
+     * kann kein Aufrufer sie mehr vergessen - und genau das war der Fehler,
+     * nicht eine falsche Abfrage.
+     *
+     * Fehlt AUCH die Benutzer-ID, ist das ein Programmierfehler. Er endet
+     * ausdruecklich in einer Ausnahme und nicht in einem "dann eben keine
+     * Faktoren": Ein Fehlerbild ist harmlos, eine stillschweigend
+     * uebersprungene Anmeldepruefung nicht.
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function hatPasskey(array $row): bool {
+        if (array_key_exists('passkey_count', $row)) {
+            return (int)$row['passkey_count'] > 0;
+        }
+
+        $userId = (int)($row['id'] ?? 0);
+        if ($userId <= 0) {
+            throw new \RuntimeException(
+                'SecondFactors::fromRow() braucht entweder passkey_count oder id in der '
+                . 'uebergebenen Zeile - sonst laesst sich nicht feststellen, ob das Konto '
+                . 'einen Passkey hat.'
+            );
+        }
+
+        return Passkeys::anzahl($userId) > 0;
     }
 
     public static function has(int $userId, string $type): bool {

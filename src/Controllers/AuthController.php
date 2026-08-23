@@ -585,7 +585,14 @@ class AuthController extends BaseController {
 
         $db = Database::getInstance();
         $stmt = $db->prepare(
-            "SELECT password_hash, totp_secret, totp_enabled, email_2fa_enabled, last_totp_timeslice
+            // `id` gehoert seit #353 mit in JEDE Abfrage, deren Zeile nach
+            // SecondFactors::fromRow() geht: Passkeys stehen nicht in dieser
+            // Zeile, sondern in einer eigenen Tabelle, und ohne die Kennung
+            // laesst sich die Frage "hat dieses Konto einen Passkey" gar nicht
+            // beantworten. Ohne sie galt ein Passkey-only-Konto hier als
+            // ungeschuetzt - und der Step-up-Schutz vor der 2FA-Neukonfiguration
+            // griff genau bei denen nicht, die ihn am noetigsten haben.
+            "SELECT id, password_hash, totp_secret, totp_enabled, email_2fa_enabled, last_totp_timeslice
              FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL"
         );
         $stmt->execute([$userId]);

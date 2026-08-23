@@ -167,6 +167,77 @@ class PasskeysTest extends TestCase {
         );
     }
 
+    /**
+     * DER TEST, DER GEFEHLT HAT.
+     *
+     * Der Anmeldeweg ruft `SecondFactors::fromRow()` mit der ROHEN
+     * users-Zeile aus `findeKontoFuerAnmeldung()` auf — nicht `forUser()`.
+     * Diese Zeile enthält kein `passkey_count`.
+     *
+     * Die erste Fassung las den Passkey ausschließlich aus diesem Feld. Für
+     * ein Konto, dessen einziger zweiter Faktor ein Passkey ist, kam damit
+     * eine leere Faktorliste heraus: kein zweiter Faktor, direkt angemeldet.
+     * Wer das Passwort hatte, war drin.
+     *
+     * Mein Integrationstest prüfte `forUser()` und war grün. Die Anmeldung
+     * ruft `fromRow()`. Beide grün, die Lücke dazwischen — dasselbe Muster
+     * wie bei #344.
+     *
+     * Dieser Test bildet deshalb die Abfrage des Anmeldewegs Spalte für
+     * Spalte nach, statt eine bequeme zu nehmen.
+     */
+    public function testDerAnmeldewegSiehtDenPasskey(): void {
+        $this->legePasskeyAn($this->userId, 'IT-TEST anmeldeweg');
+
+        // Exakt die Spalten aus AuthController::findeKontoFuerAnmeldung().
+        $stmt = $this->db->prepare(
+            "SELECT id, username, email, password_hash, totp_enabled, email_2fa_enabled,
+                    email_verification_token
+               FROM users WHERE id = ?"
+        );
+        $stmt->execute([$this->userId]);
+        $zeile = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertIsArray($zeile);
+        $this->assertArrayNotHasKey(
+            'passkey_count',
+            $zeile,
+            'Wenn die Anmeldeabfrage das Feld eines Tages doch mitbringt, ist dieser '
+            . 'Test wertlos geworden und muss neu gedacht werden.'
+        );
+
+        $faktoren = SecondFactors::fromRow($zeile);
+
+        $this->assertContains(
+            SecondFactors::PASSKEY,
+            $faktoren,
+            'Ohne diesen Eintrag meldet sich ein Passkey-only-Konto mit dem Passwort allein an.'
+        );
+    }
+
+    /**
+     * Und die Gegenrichtung: Ohne Passkey darf nichts erfunden werden - sonst
+     * verlangte die Anmeldung einen Faktor, den das Konto nicht hat.
+     */
+    public function testOhnePasskeyMeldetDerAnmeldewegKeinen(): void {
+        $stmt = $this->db->prepare("SELECT id, username, totp_enabled, email_2fa_enabled FROM users WHERE id = ?");
+        $stmt->execute([$this->userId]);
+        $zeile = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        $this->assertNotContains(SecondFactors::PASSKEY, SecondFactors::fromRow($zeile));
+    }
+
+    /**
+     * Fehlt beides - weder `passkey_count` noch `id` -, ist das ein
+     * Programmierfehler. Er endet in einer Ausnahme und ausdrücklich nicht in
+     * einem "dann eben keine Faktoren": Ein Fehlerbild ist harmlos, eine
+     * stillschweigend übersprungene Anmeldeprüfung nicht.
+     */
+    public function testOhneIdUndOhneZaehlerWirdGeworfen(): void {
+        $this->expectException(\RuntimeException::class);
+        SecondFactors::fromRow(['username' => 'ohne-alles', 'totp_enabled' => 0]);
+    }
+
     // ---- Hilfen ----------------------------------------------------------
 
     private function legePasskeyAn(int $userId, string $label, ?string $credentialId = null): int {

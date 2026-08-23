@@ -1130,6 +1130,21 @@ class UpdateService {
                 'deleted' => [], 'rmdir' => [],
             ];
 
+            // Das Manifest der LAUFENDEN Installation JETZT lesen - vor
+            // copyTree().
+            //
+            // Es ist die zweite Beweisquelle des Abgleichs: Was ihm entspricht,
+            // ist nachweislich unsere Datei und seither unangetastet. Nur
+            // liegt KERN-SHA256SUMS.txt auch im Archiv, und copyTree() kopiert
+            // es mit - danach steht dort das Manifest des NEUEN Releases, und
+            // das weiss ueber die abgeloesten Dateien der alten Installation
+            // naturgemaess nichts.
+            //
+            // Die Quelle war damit in jedem echten Release wirkungslos: Sie
+            // half nur, wenn das Archiv gar kein Manifest mitbrachte - also
+            // ausgerechnet dann nicht, wenn sie gebraucht wird.
+            $eigeneBeweise = self::beweiseAusInstallation($target);
+
             try {
                 $kopiert = self::copyTree($sourceDir, $target, '', $backupDir, $journal);
 
@@ -1138,7 +1153,7 @@ class UpdateService {
                 // mitbringt, wird jetzt entfernt. NACH dem Kopieren, damit der
                 // Ersatz schon liegt; VOR entferneAbgeloesteAddons(), weil bis
                 // hierher noch zurueckgerollt werden kann.
-                $entfernt = self::abgleicheKernPfade($sourceDir, $target, $backupDir, $journal);
+                $entfernt = self::abgleicheKernPfade($sourceDir, $target, $backupDir, $journal, $eigeneBeweise);
                 $unklar = self::unklareFunde();
 
                 if ($entfernt > 0) {
@@ -1500,7 +1515,7 @@ class UpdateService {
                 // Sicherungskopie in einer flachen Ablage - der relative Pfad
                 // wird zum Dateinamen, damit keine Verzeichnisstruktur
                 // nachgebaut werden muss.
-                $backupPath = $backupDir . '/' . str_replace('/', '__', $relPath);
+                $backupPath = $backupDir . '/' . self::sicherungsname('ueberschrieben', $relPath);
                 if (!copy($dst, $backupPath)) {
                     throw new \RuntimeException("Sicherungskopie fehlgeschlagen: {$relPath}");
                 }
@@ -1575,11 +1590,14 @@ class UpdateService {
         string $sourceDir,
         string $targetDir,
         string $backupDir,
-        array &$journal
+        array &$journal,
+        array $eigeneBeweise = []
     ): int {
         self::$unklareFunde = [];
-        $beweise = self::leseBeweisliste($sourceDir);
-        $beweise += self::beweiseAusInstallation($targetDir);
+        // Die Beweise der Installation werden VOM AUFRUFER uebergeben, weil
+        // sie vor copyTree() gelesen werden muessen - danach steht dort das
+        // Manifest des neuen Releases. Siehe applyUpdateArchive().
+        $beweise = self::leseBeweisliste($sourceDir) + $eigeneBeweise;
         $entfernt = 0;
 
         foreach (Baumordnung::kernPfade() as $kernPfad) {
@@ -1700,14 +1718,44 @@ class UpdateService {
             }
 
             if (is_dir($ziel)) {
-                $entfernt += self::abgleicheVerzeichnis(
+                $darin = self::abgleicheVerzeichnis(
                     $sourceDir, $targetDir, $relPath, $backupDir, $beweise, $journal
                 );
-                // Nur ein Verzeichnis entfernen, das im Archiv fehlt UND durch
-                // den Abgleich leer geworden ist. rmdir schlaegt sonst fehl -
-                // und das ist die richtige Bremse, kein Fehler.
-                if (!is_dir($quelle) && @rmdir($ziel)) {
+                $entfernt += $darin;
+
+                if (is_dir($quelle)) {
+                    continue;   // gibt es im Archiv, bleibt
+                }
+
+                // WAS IST DER BEWEIS FUER EIN VERZEICHNIS?
+                //
+                // Eine Datei laesst sich ueber ihre Pruefsumme als unsere
+                // ausweisen. Ein Verzeichnis hat keinen Inhalt, den eine Liste
+                // kennen koennte - hier gibt es nichts zu vergleichen.
+                //
+                // Die erste Fassung entfernte deshalb jedes leere Verzeichnis,
+                // das im Archiv fehlte. Damit verschwand auch, was der
+                // Betreiber selbst angelegt hatte: public/.well-known/
+                // acme-challenge etwa, der Webroot fuer certbot. Leer ist es
+                // im Ruhezustand immer. Weg waren Besitzer, Rechte und ACL -
+                // und die naechste Zertifikatserneuerung schlug fehl. Kein
+                // Protokolleintrag, keine Meldung: $entfernt zaehlt nur
+                // Dateien, also griff auch der AuditLogger nicht.
+                //
+                // Der Beweis ist deshalb ein anderer: Ein Verzeichnis darf nur
+                // gehen, wenn DIESER Abgleich es geleert hat. Dann bestand es
+                // nachweislich aus unseren Dateien. War es schon vorher leer,
+                // haben wir es nicht angelegt und fassen es nicht an.
+                if ($darin > 0 && @rmdir($ziel)) {
                     $journal['rmdir'][] = $ziel;
+                    continue;
+                }
+
+                // Uebrig bleibt: fehlt im Archiv, aber wir haben es nicht
+                // geleert. Das wird gemeldet statt still liegen gelassen -
+                // dieselbe Zusage wie bei den Dateien.
+                if ($darin === 0 && self::istLeer($ziel)) {
+                    self::$unklareFunde[] = $relPath . '/ (leeres Verzeichnis)';
                 }
                 continue;
             }
@@ -1723,14 +1771,25 @@ class UpdateService {
                 continue;
             }
 
-            // Die Ablage ist flach - der relative Pfad wird zum Dateinamen,
-            // genau wie beim Sichern in copyTree(). Sehr lange Pfade sprengen
-            // damit NAME_MAX; das @ unterdrueckt nur die rohe PHP-Warnung, der
-            // Fehlerfall wird ausgewertet. Und er endet richtig herum: ohne
-            // Sicherung wird NICHT geloescht, sondern abgebrochen. Ein
-            // Abgleich ohne Rueckweg waere schlimmer als eine liegengebliebene
-            // Datei.
-            $sicherung = $backupDir . '/geloescht__' . str_replace('/', '__', $relPath);
+            // Die Ablage ist flach - der relative Pfad wird zum Dateinamen.
+            //
+            // Der Pfad allein reicht dafuer NICHT: str_replace('/','__') bildet
+            // lang/a/b.php und lang/a__b.php auf denselben Namen ab. Beide
+            // Sicherungen landeten uebereinander, das Journal zeigte zweimal
+            // auf dieselbe Datei, und ein Rollback stellte die eine aus dem
+            // Inhalt der anderen wieder her - ohne Fehler, ohne Warnung, mit
+            // der Meldung "2 Datei(en) zurueckgeholt". Nachgestellt.
+            //
+            // Deshalb kommt eine Kurzfassung des vollstaendigen Pfades dazu.
+            // Der lesbare Teil bleibt vorn (fuer den Fall, dass jemand in das
+            // Verzeichnis schaut) und wird gekuerzt, damit auch tiefe Pfade
+            // unter NAME_MAX bleiben.
+            //
+            // Das @ unterdrueckt nur die rohe PHP-Warnung, der Fehlerfall wird
+            // ausgewertet. Und er endet richtig herum: ohne Sicherung wird
+            // NICHT geloescht, sondern abgebrochen. Ein Abgleich ohne Rueckweg
+            // waere schlimmer als eine liegengebliebene Datei.
+            $sicherung = $backupDir . '/' . self::sicherungsname('geloescht', $relPath);
             if (!@copy($ziel, $sicherung)) {
                 throw new \RuntimeException(
                     "Sicherungskopie vor dem Entfernen fehlgeschlagen: {$relPath} - es wurde nichts entfernt."
@@ -1848,6 +1907,29 @@ class UpdateService {
             self::removeTree($extractDir);
             self::removeTree($backupDir);
         }
+    }
+
+    /**
+     * Ein eindeutiger, noch lesbarer Name fuer die flache Sicherungsablage.
+     *
+     * Der Pfad allein taugt nicht: Ersetzt man '/' durch '__', fallen
+     * lang/a/b.php und lang/a__b.php zusammen. Deshalb haengt eine
+     * Kurzfassung des VOLLSTAENDIGEN Pfades hinten an - sie unterscheidet die
+     * beiden zuverlaessig. Der lesbare Teil bleibt vorn und wird gekuerzt,
+     * damit auch tiefe Pfade unter NAME_MAX (255) bleiben.
+     */
+    private static function sicherungsname(string $zweck, string $relPath): string {
+        $lesbar = str_replace('/', '__', $relPath);
+        if (strlen($lesbar) > 160) {
+            $lesbar = substr($lesbar, -160);
+        }
+        return $zweck . '__' . substr(hash('sha256', $relPath), 0, 16) . '__' . $lesbar;
+    }
+
+    /** Ist dieses Verzeichnis leer? (Ohne '.' und '..'.) */
+    private static function istLeer(string $dir): bool {
+        $eintraege = @scandir($dir);
+        return $eintraege !== false && count(array_diff($eintraege, ['.', '..'])) === 0;
     }
 
     private static function removeTree(string $dir): void {

@@ -421,122 +421,236 @@ class UpdateAbgleichTest extends TestCase {
     // ---- Rückweg ---------------------------------------------------------
 
     /**
-     * Bricht das Update NACH dem Abgleich ab, müssen die entfernten Dateien
-     * zurückkommen. Ohne Journalisierung wäre der Rückweg genau um das ärmer,
-     * was der Abgleich gelöscht hat.
+     * Ohne Sicherung wird NICHT gelöscht.
      *
-     * Erzwungen wird der Abbruch über eine echte Grenze des Verfahrens: Die
-     * Sicherungsablage ist flach, der relative Pfad wird zum Dateinamen. Ist
-     * er länger als NAME_MAX (255), lässt sich die Sicherung nicht anlegen -
-     * und der Abgleich bricht ab, statt ohne Rückweg zu löschen. Genau das
-     * soll er tun.
+     * Der Abgleich sichert jede Datei, bevor er sie entfernt — sonst könnte
+     * `rollback()` sie nicht zurückholen. Schlägt das Sichern fehl, bricht er
+     * ab und lässt alles stehen; ein Abgleich ohne Rückweg wäre schlimmer als
+     * eine liegengebliebene Datei.
      *
-     * Die Reihenfolge macht den Test scharf: `src` wird vor `lang`
-     * abgeglichen (siehe Baumordnung::kernPfade()), src/Alt.php ist also
-     * bereits gelöscht und journalisiert, wenn es in lang/ schiefgeht.
-     */
-    public function testRollbackHoltEntfernteDateienZurueck(): void {
-        $zuLang = str_repeat('z', 250) . '.php';
-
-        $archiv = $this->baueArchiv([
-            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
-            'lang/de.php'       => "<?php\nreturn ['a' => 'neu'];\n",
-            'src/Neu.php'       => "<?php\n// neu\n",
-        ], [
-            'src/Alt.php'     => "<?php\n// abgeloest\n",
-            'lang/' . $zuLang => "<?php\nreturn [];\n",
-        ]);
-        $ziel = $this->baueInstallation([
-            'config/config.php'  => "<?php\nconst CORE_VERSION = '0.8.0';\n",
-            'lang/de.php'        => "<?php\nreturn ['a' => 'alt'];\n",
-            'lang/fr.php'        => "<?php\nreturn ['a' => 'franzoesisch'];\n",
-            'lang/' . $zuLang    => "<?php\nreturn [];\n",
-            'src/Neu.php'        => "<?php\n// alt\n",
-            'src/Alt.php'        => "<?php\n// abgeloest\n",
-        ]);
-
-        try {
-            UpdateService::applyUpdateArchive($archiv, $ziel);
-            $this->fail('Das Update hätte abbrechen müssen.');
-        } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('zurückgerollt', $e->getMessage());
-        }
-
-        $this->assertFileExists(
-            "{$ziel}/src/Alt.php",
-            'src/Alt.php war beim Abgleich schon gelöscht - nach dem Rückrollen muss es wieder da sein.'
-        );
-        $this->assertStringContainsString(
-            'abgeloest',
-            (string)file_get_contents("{$ziel}/src/Alt.php"),
-            'Und zwar mit seinem Inhalt, nicht als leere Hülle.'
-        );
-        $this->assertStringContainsString(
-            "'alt'",
-            (string)file_get_contents("{$ziel}/lang/de.php"),
-            'Die überschriebene Datei muss ebenfalls auf dem alten Stand sein.'
-        );
-        $this->assertFileExists("{$ziel}/lang/fr.php", 'Was noch nicht gelöscht war, bleibt ohnehin.');
-    }
-
-    /**
-     * Und der wichtigere Teil derselben Grenze: Lässt sich die Sicherung
-     * nicht anlegen, wird NICHT gelöscht. Ein Abgleich ohne Rückweg wäre
-     * schlimmer als eine liegengebliebene Datei.
+     * ERZWUNGEN ÜBER EIN UNBRAUCHBARES SICHERUNGSVERZEICHNIS. Die frühere
+     * Fassung nahm dafür einen 250 Zeichen langen Dateinamen, dessen flacher
+     * Sicherungsname NAME_MAX sprengte. Diese Grenze gibt es nicht mehr:
+     * `sicherungsname()` kürzt den lesbaren Teil und hängt eine Kurzfassung
+     * des Pfades an, damit zwei verschiedene Pfade nicht mehr auf denselben
+     * Namen fallen. Der alte Auslöser ist also weggefallen, WEIL er behoben
+     * wurde — ein Test darf sich nicht auf eine Schwäche stützen.
      */
     public function testOhneSicherungWirdNichtGeloescht(): void {
-        $zuLang = str_repeat('z', 250) . '.php';
-
-        $archiv = $this->baueArchiv([
-            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
-            'lang/de.php'       => "<?php\nreturn [];\n",
-        ], ['lang/' . $zuLang => "<?php\nreturn [];\n"]);
+        $unsere = "<?php\nreturn ['a' => 'unsere Fassung'];\n";
         $ziel = $this->baueInstallation([
             'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
             'lang/de.php'       => "<?php\nreturn [];\n",
-            'lang/' . $zuLang   => "<?php\nreturn [];\n",
+            'lang/fr.php'       => $unsere,
         ]);
+        $quelle = $this->baueQuellbaum([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'lang/de.php'       => "<?php\nreturn [];\n",
+        ], ['lang/fr.php' => $unsere]);
+
+        $journal = $this->leeresJournal();
+        $unbrauchbar = $quelle . '/gibt-es-nicht/und-auch-nicht';
 
         try {
-            UpdateService::applyUpdateArchive($archiv, $ziel);
-            $this->fail('Das Update hätte abbrechen müssen.');
-        } catch (\RuntimeException) {
-            // erwartet
+            $this->rufeAbgleich($quelle, $ziel, $unbrauchbar, $journal);
+            $this->fail('Der Abgleich hätte abbrechen müssen.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Sicherungskopie', $e->getMessage());
+            $this->assertStringContainsString('nichts entfernt', $e->getMessage());
         }
 
-        $this->assertFileExists("{$ziel}/lang/{$zuLang}", 'Ohne Sicherungskopie darf nicht gelöscht werden.');
+        $this->assertFileExists($ziel . '/lang/fr.php', 'Ohne Sicherung darf nichts verschwinden.');
+        $this->assertSame([], $journal['deleted']);
     }
 
     /**
-     * Ein fehlgeschlagenes Update darf kein leeres Verzeichnisgerüst
-     * hinterlassen. Bis #403 journalisierte copyTree() angelegte
-     * Verzeichnisse gar nicht - rollback() wusste also nicht, welche neu waren.
+     * Und der Rückweg: Was der Abgleich entfernt hat, holt `rollback()`
+     * zurück — mit seinem Inhalt, nicht als leere Hülle.
      */
-    public function testRollbackEntferntNeuAngelegteVerzeichnisse(): void {
-        $zuLang = str_repeat('z', 250) . '.php';
+    public function testRollbackHoltEntfernteDateienZurueck(): void {
+        $fr = "<?php\nreturn ['a' => 'franzoesisch'];\n";
+        $it = "<?php\nreturn ['a' => 'italienisch'];\n";
 
-        $archiv = $this->baueArchiv([
-            'config/config.php'     => "<?php\nconst CORE_VERSION = '0.9.0';\n",
-            'src/Ganz/Neu/Tief.php' => "<?php\n",
-            'lang/de.php'           => "<?php\nreturn [];\n",
-        ], ['lang/' . $zuLang => "<?php\nreturn [];\n"]);
         $ziel = $this->baueInstallation([
             'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
             'lang/de.php'       => "<?php\nreturn [];\n",
-            'lang/' . $zuLang   => "<?php\nreturn [];\n",
+            'lang/fr.php'       => $fr,
+            'lang/it.php'       => $it,
+        ]);
+        $quelle = $this->baueQuellbaum([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'lang/de.php'       => "<?php\nreturn [];\n",
+        ], ['lang/fr.php' => $fr, 'lang/it.php' => $it]);
+
+        $sicherungen = $this->tempVerzeichnis('sicherungen');
+        $journal = $this->leeresJournal();
+
+        $entfernt = $this->rufeAbgleich($quelle, $ziel, $sicherungen, $journal);
+
+        $this->assertSame(2, $entfernt);
+        $this->assertFileDoesNotExist($ziel . '/lang/fr.php');
+        $this->assertFileDoesNotExist($ziel . '/lang/it.php');
+
+        $this->rufeRollback($journal);
+
+        $this->assertSame($fr, (string)file_get_contents($ziel . '/lang/fr.php'));
+        $this->assertSame($it, (string)file_get_contents($ziel . '/lang/it.php'));
+    }
+
+    /**
+     * Zwei Pfade dürfen nicht auf dieselbe Sicherung fallen.
+     *
+     * `lang/a/b.php` und `lang/a__b.php` ergaben mit dem alten
+     * `str_replace('/','__')` denselben Sicherungsnamen. Die zweite Kopie
+     * überschrieb die erste, das Journal zeigte zweimal auf dieselbe Datei —
+     * und ein Rollback stellte die eine aus dem Inhalt der anderen wieder her.
+     * Ohne Fehler, ohne Warnung, mit der Meldung „2 Datei(en) zurückgeholt".
+     */
+    public function testZweiPfadeFallenNichtAufDieselbeSicherung(): void {
+        $tief  = "<?php\nreturn ['woher' => 'lang/a/b.php'];\n";
+        $flach = "<?php\nreturn ['woher' => 'lang/a__b.php'];\n";
+
+        $ziel = $this->baueInstallation([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
+            'lang/de.php'       => "<?php\nreturn [];\n",
+            'lang/a/b.php'      => $tief,
+            'lang/a__b.php'     => $flach,
+        ]);
+        $quelle = $this->baueQuellbaum([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'lang/de.php'       => "<?php\nreturn [];\n",
+        ], ['lang/a/b.php' => $tief, 'lang/a__b.php' => $flach]);
+
+        $journal = $this->leeresJournal();
+        $this->rufeAbgleich($quelle, $ziel, $this->tempVerzeichnis('sicherungen'), $journal);
+        $this->rufeRollback($journal);
+
+        $this->assertSame(
+            $tief,
+            (string)file_get_contents($ziel . '/lang/a/b.php'),
+            'lang/a/b.php muss seinen EIGENEN Inhalt zurückbekommen, nicht den von lang/a__b.php.'
+        );
+        $this->assertSame($flach, (string)file_get_contents($ziel . '/lang/a__b.php'));
+    }
+
+    /**
+     * Das Manifest der INSTALLATION muss gelesen werden, BEVOR copyTree() es
+     * überschreibt.
+     *
+     * Es ist die zweite Beweisquelle: Was ihm entspricht, ist nachweislich
+     * unsere Datei und seither unangetastet. Nur liegt `KERN-SHA256SUMS.txt`
+     * auch im Archiv — copyTree() kopiert es mit, und danach steht dort das
+     * Manifest des NEUEN Releases, das über die abgelösten Dateien der alten
+     * Installation naturgemäß nichts weiß.
+     *
+     * Die Quelle war damit in jedem echten Release wirkungslos: Sie half nur,
+     * wenn das Archiv gar kein Manifest mitbrachte — also ausgerechnet dann
+     * nicht, wenn sie gebraucht wird. Dieser Test bildet den Realfall ab:
+     * Archiv MIT Manifest.
+     */
+    public function testDasManifestDerInstallationWirdVorDemUeberschreibenGelesen(): void {
+        $alt = "<?php\n// Fassung, die diese Installation ausgeliefert bekam\n";
+
+        // Das Archiv bringt ein EIGENES Manifest mit - wie jedes echte Release.
+        $archiv = $this->baueArchiv([
+            'config/config.php'   => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'src/Neu.php'         => "<?php\n",
+            'KERN-SHA256SUMS.txt' => "# Manifest des NEUEN Release\n"
+                . hash('sha256', "<?php\n") . "  src/Neu.php\n",
+        ], []);
+
+        $ziel = $this->baueInstallation([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
+            'src/Neu.php'       => "<?php\n",
+            'src/Alt.php'       => $alt,
         ]);
 
-        try {
-            UpdateService::applyUpdateArchive($archiv, $ziel);
-            $this->fail('Das Update hätte abbrechen müssen.');
-        } catch (\RuntimeException) {
-            // erwartet
-        }
-
-        $this->assertDirectoryDoesNotExist(
-            "{$ziel}/src/Ganz",
-            'Vom abgebrochenen Update angelegte Verzeichnisse müssen wieder weg sein.'
+        // Das Manifest der Installation kennt src/Alt.php - das des Archivs nicht.
+        file_put_contents(
+            $ziel . '/KERN-SHA256SUMS.txt',
+            "# Manifest dieser Installation\n" . hash('sha256', $alt) . "  src/Alt.php\n"
         );
+
+        UpdateService::applyUpdateArchive($archiv, $ziel);
+
+        $this->assertFileDoesNotExist(
+            $ziel . '/src/Alt.php',
+            'Der Abgleich muss das Manifest der Installation gelesen haben, bevor copyTree() '
+            . 'es mit dem des Archivs überschrieben hat.'
+        );
+        $this->assertSame([], UpdateService::unklareFunde());
+
+        // Und danach steht das neue Manifest da - das ist richtig so.
+        $this->assertStringContainsString(
+            'NEUEN Release',
+            (string)file_get_contents($ziel . '/KERN-SHA256SUMS.txt')
+        );
+    }
+
+    // ---- Leere Verzeichnisse ----------------------------------------------
+
+    /**
+     * DER BEFUND, DER DIESE RUNDE AUSGELÖST HAT.
+     *
+     * Ein leeres Verzeichnis, das der Betreiber angelegt hat, verschwand
+     * ohne jeden Beweis und ohne Meldung. `public/.well-known/acme-challenge`
+     * — der Webroot für certbot — ist im Ruhezustand immer leer. Weg waren
+     * Besitzer, Rechte und ACL, und die nächste Zertifikatserneuerung schlug
+     * fehl.
+     *
+     * Ein Verzeichnis hat keine Prüfsumme. Der Beweis ist deshalb ein
+     * anderer: Es darf nur gehen, wenn DIESER Abgleich es geleert hat.
+     */
+    public function testLeeresBetreiberVerzeichnisBleibtUndWirdGemeldet(): void {
+        $ziel = $this->baueInstallation([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
+            'public/index.php'  => "<?php\n",
+        ]);
+        mkdir($ziel . '/public/.well-known/acme-challenge', 0775, true);
+        mkdir($ziel . '/public/kundenbereich', 0755, true);
+
+        $archiv = $this->baueArchiv([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'public/index.php'  => "<?php\n",
+        ], []);
+
+        UpdateService::applyUpdateArchive($archiv, $ziel);
+
+        $this->assertDirectoryExists($ziel . '/public/.well-known/acme-challenge');
+        $this->assertDirectoryExists($ziel . '/public/kundenbereich');
+        $this->assertEqualsCanonicalizing(
+            // `.well-known` selbst taucht NICHT auf: Es enthaelt
+            // acme-challenge, ist also nicht leer. Gemeldet wird nur, was
+            // wirklich leer ist und im Archiv fehlt.
+            ['public/.well-known/acme-challenge/ (leeres Verzeichnis)',
+             'public/kundenbereich/ (leeres Verzeichnis)'],
+            UpdateService::unklareFunde(),
+            'Was nicht entfernt wird, gehört gemeldet - sonst ist es genau der stille '
+            . 'Zustand, gegen den der Abgleich gebaut wurde.'
+        );
+    }
+
+    /**
+     * Die Gegenrichtung: Ein Verzeichnis, das der Abgleich SELBST geleert
+     * hat, bestand nachweislich aus unseren Dateien und darf gehen.
+     */
+    public function testSelbstGeleertesVerzeichnisVerschwindet(): void {
+        $inhalt = "<?php\n// abgeloest\n";
+
+        $ziel = $this->baueInstallation([
+            'config/config.php'   => "<?php\nconst CORE_VERSION = '0.8.0';\n",
+            'src/Neu.php'         => "<?php\n",
+            'src/Alt/Weg.php'     => $inhalt,
+        ]);
+        $archiv = $this->baueArchiv([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'src/Neu.php'       => "<?php\n",
+        ], ['src/Alt/Weg.php' => $inhalt]);
+
+        UpdateService::applyUpdateArchive($archiv, $ziel);
+
+        $this->assertDirectoryDoesNotExist($ziel . '/src/Alt');
+        $this->assertSame([], UpdateService::unklareFunde());
     }
 
     // ---- Hilfen ----------------------------------------------------------
@@ -608,6 +722,46 @@ class UpdateAbgleichTest extends TestCase {
         }
         $zip->addFromString($name, $inhalt);
         $zip->close();
+    }
+
+    /**
+     * Ein entpackter Quellbaum samt Beweisliste - fuer die Tests, die
+     * abgleicheKernPfade() direkt rufen statt ueber applyUpdateArchive().
+     *
+     * @param array<string, string> $dateien
+     * @param array<string, string> $abgeloest
+     */
+    private function baueQuellbaum(array $dateien, array $abgeloest): string {
+        $wurzel = $this->tempVerzeichnis('quellbaum');
+        foreach ($dateien as $pfad => $inhalt) {
+            $voll = $wurzel . '/' . $pfad;
+            if (!is_dir(dirname($voll))) {
+                mkdir(dirname($voll), 0755, true);
+            }
+            file_put_contents($voll, $inhalt);
+        }
+        $zeilen = ['# Beweisliste (Test)'];
+        foreach ($abgeloest as $pfad => $inhalt) {
+            $zeilen[] = hash('sha256', $inhalt) . '  ' . $pfad;
+        }
+        file_put_contents($wurzel . '/' . UpdateService::ABGELOESTE_LISTE, implode("\n", $zeilen) . "\n");
+        return $wurzel;
+    }
+
+    /** @return array<string, array<int, mixed>> */
+    private function leeresJournal(): array {
+        return ['restore' => [], 'created' => [], 'created_dirs' => [], 'deleted' => [], 'rmdir' => []];
+    }
+
+    /** @param array<string, array<int, mixed>> $journal */
+    private function rufeAbgleich(string $quelle, string $ziel, string $sicherungen, array &$journal): int {
+        $m = new \ReflectionMethod(UpdateService::class, 'abgleicheKernPfade');
+        return (int)$m->invokeArgs(null, [$quelle, $ziel, $sicherungen, &$journal, []]);
+    }
+
+    /** @param array<string, array<int, mixed>> $journal */
+    private function rufeRollback(array $journal): void {
+        (new \ReflectionMethod(UpdateService::class, 'rollback'))->invoke(null, $journal);
     }
 
     /** @param array<string, string> $dateien */

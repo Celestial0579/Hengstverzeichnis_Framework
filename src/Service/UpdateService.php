@@ -1579,6 +1579,7 @@ class UpdateService {
     ): int {
         self::$unklareFunde = [];
         $beweise = self::leseBeweisliste($sourceDir);
+        $beweise += self::beweiseAusInstallation($targetDir);
         $entfernt = 0;
 
         foreach (Baumordnung::kernPfade() as $kernPfad) {
@@ -1591,6 +1592,49 @@ class UpdateService {
         }
 
         return $entfernt;
+    }
+
+    /**
+     * Die ZWEITE Beweisquelle: das Manifest der laufenden Installation.
+     *
+     * `ABGELOESTE-DATEIEN.txt` entsteht aus der Git-Historie und deckt damit
+     * nur ab, was auch in git steht. Fuer alles andere - allen voran ein
+     * kuenftiges `vendor/`, das erst beim Bauen entsteht - waere sonst nie ein
+     * Beweis zu fuehren, und der Abgleich koennte dort nie aufraeumen.
+     *
+     * Das eigene Manifest schliesst die Luecke, und zwar mit derselben
+     * Beweiskraft: Es beschreibt den Sollzustand DIESER Installation, wurde
+     * beim Einspielen aus einem gegen SHA256SUMS.txt geprueften Archiv
+     * uebernommen, und eine Datei, die ihm exakt entspricht, ist damit
+     * nachweislich unsere und seither unangetastet. Fehlt sie im neuen
+     * Archiv, ist sie abgeloest.
+     *
+     * Die Grenze ist ehrlich zu benennen: Wer Dateien schreiben kann, kann
+     * auch das Manifest schreiben und sich so eine Loeschung erschleichen.
+     * Das aendert nichts an der Lage - wer so weit ist, kann die Datei
+     * genauso gut selbst loeschen. Der Beweis schuetzt vor VERSEHEN, nicht
+     * vor einem Angreifer mit Schreibrecht; wogegen der schuetzt, steht in
+     * App\Service\Integritaet.
+     *
+     * @return array<string, true> "<sha256>  <pfad>" => true
+     */
+    private static function beweiseAusInstallation(string $targetDir): array {
+        $datei = rtrim($targetDir, '/') . '/' . Integritaet::MANIFEST;
+        if (!is_file($datei)) {
+            return [];
+        }
+
+        $beweise = [];
+        foreach (file($datei, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $zeile) {
+            if ($zeile === '' || $zeile[0] === '#') {
+                continue;
+            }
+            if (preg_match('/^([0-9a-f]{64})  (.+)$/', $zeile, $t) === 1) {
+                $beweise[$t[1] . '  ' . $t[2]] = true;
+            }
+        }
+
+        return $beweise;
     }
 
     /**

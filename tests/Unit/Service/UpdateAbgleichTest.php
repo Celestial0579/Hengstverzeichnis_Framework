@@ -3,6 +3,7 @@
 
 namespace Tests\Unit\Service;
 
+use App\Service\Integritaet;
 use App\Service\UpdateService;
 use PHPUnit\Framework\TestCase;
 
@@ -352,6 +353,69 @@ class UpdateAbgleichTest extends TestCase {
 
         $this->assertFileExists("{$ziel}/lang/it.php");
         $this->assertSame(['lang/it.php'], UpdateService::unklareFunde());
+    }
+
+    /**
+     * Die ZWEITE Beweisquelle: das Manifest der Installation selbst.
+     *
+     * `ABGELOESTE-DATEIEN.txt` entsteht aus der Git-Historie und kann deshalb
+     * nichts über Dateien sagen, die erst beim Bauen entstehen - ein
+     * künftiges `vendor/` etwa. Das eigene Manifest schließt die Lücke: Was
+     * ihm exakt entspricht, ist nachweislich unsere Datei und seither
+     * unangetastet.
+     */
+    public function testDasEigeneManifestGiltEbenfallsAlsBeweis(): void {
+        $alt = "<?php\n// Fassung, die diese Installation ausgeliefert bekam\n";
+
+        // Das Archiv kennt die Datei NICHT und hat auch keinen Beweis dafür.
+        $archiv = $this->baueArchiv([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'src/Neu.php'       => "<?php\n",
+        ], []);
+
+        $ziel = $this->baueInstallation([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
+            'src/Neu.php'       => "<?php\n",
+            'src/Alt.php'       => $alt,
+        ]);
+
+        // ... aber die Installation weiß, dass sie sie mal bekommen hat.
+        file_put_contents(
+            $ziel . '/' . Integritaet::MANIFEST,
+            "# Manifest dieser Installation\n" . hash('sha256', $alt) . "  src/Alt.php\n"
+        );
+
+        UpdateService::applyUpdateArchive($archiv, $ziel);
+
+        $this->assertFileDoesNotExist($ziel . '/src/Alt.php');
+        $this->assertSame([], UpdateService::unklareFunde());
+    }
+
+    /**
+     * Und die Gegenprobe dazu: Steht die Datei im eigenen Manifest, wurde
+     * aber seither GEÄNDERT, ist der Beweis hinfällig. Sie bleibt.
+     */
+    public function testGeaenderteDateiGiltAuchMitManifestNichtAlsBeweisbar(): void {
+        $archiv = $this->baueArchiv([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.9.0';\n",
+            'src/Neu.php'       => "<?php\n",
+        ], []);
+
+        $ziel = $this->baueInstallation([
+            'config/config.php' => "<?php\nconst CORE_VERSION = '0.8.0';\n",
+            'src/Neu.php'       => "<?php\n",
+            'src/Alt.php'       => "<?php\n// vom Betreiber angepasst\n",
+        ]);
+
+        file_put_contents(
+            $ziel . '/' . Integritaet::MANIFEST,
+            "# Manifest\n" . hash('sha256', "<?php\n// unsere Fassung\n") . "  src/Alt.php\n"
+        );
+
+        UpdateService::applyUpdateArchive($archiv, $ziel);
+
+        $this->assertFileExists($ziel . '/src/Alt.php');
+        $this->assertSame(['src/Alt.php'], UpdateService::unklareFunde());
     }
 
     // ---- Rückweg ---------------------------------------------------------

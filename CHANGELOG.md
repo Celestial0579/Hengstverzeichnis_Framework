@@ -21,10 +21,11 @@ führen lassen.
 > (siehe [Pipeline-Stufen](docs/releasing.md)).
 >
 > Auf GitHub steht `latest` unverändert auf v0.8.0. **Im Docker-Register
-> zeigt `:latest` derzeit auf `v0.9.0-beta.5`** — ein Altstand aus der Zeit,
-> als die Kanaltrennung nur für den GitHub-Release galt. Seit dieser Version
-> verschiebt eine Vorabversion das Tag nicht mehr; der Altstand wird in #409
-> entschieden.
+> zeigt `:latest` derzeit auf `v0.9.0-beta.5`.** Die Kanaltrennung für das
+> Docker-Tag gab es bereits (`36a1c11`), sie wurde beim Auflösen des
+> Beta-Branch-Modells versehentlich mitentfernt (`7f67477`) — sie gehörte zur
+> Beta-*Version*, nicht zum Beta-*Branch*. Diese Version stellt sie **wieder
+> her**; der Altstand wird in #409 entschieden.
 
 ### Neu — Passkeys
 

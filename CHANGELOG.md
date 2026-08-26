@@ -83,8 +83,14 @@ schwer, darunter eine Anmeldung, die sich mit dem Passwort allein hätte
 führen lassen.
 
 > **Weiterhin Beta.** Die Freigabe der 0.9.0 entscheidet der Auftraggeber
-> (siehe [Pipeline-Stufen](docs/releasing.md)). `latest` steht unverändert
-> auf v0.8.0 — seit dieser Version gilt das auch für das Docker-Tag.
+> (siehe [Pipeline-Stufen](docs/releasing.md)).
+>
+> Auf GitHub steht `latest` unverändert auf v0.8.0. **Im Docker-Register
+> zeigt `:latest` derzeit auf `v0.9.0-beta.5`.** Die Kanaltrennung für das
+> Docker-Tag gab es bereits (`36a1c11`), sie wurde beim Auflösen des
+> Beta-Branch-Modells versehentlich mitentfernt (`7f67477`) — sie gehörte zur
+> Beta-*Version*, nicht zum Beta-*Branch*. Diese Version stellt sie **wieder
+> her**; der Altstand wird in #409 entschieden.
 
 ### Neu — Passkeys
 

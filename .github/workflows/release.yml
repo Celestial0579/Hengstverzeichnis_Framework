@@ -146,9 +146,16 @@ jobs:
             # es beim naechsten Lauf ein. Eine Beta laege dann in einer
             # Produktionsinstallation, ohne dass sie je angefordert wurde.
             #
-            # Beim GitHub-Release ist die Kanaltrennung laengst da
-            # (prerelease unten, UpdateService::selectBestRelease liest sie).
-            # Der Docker-Weg kannte sie nicht - das war der Bruch.
+            # DIESE BEDINGUNG GAB ES SCHON EINMAL. 36a1c11 hat sie eingefuehrt,
+            # 7f67477 hat sie neunzehn Tage spaeter wieder entfernt - beim
+            # Aufloesen des Beta-BRANCH-Modells. Das war zu breit gegriffen:
+            # Das separate 'beta'-Docker-Tag gehoerte zum Branch und konnte
+            # weg, diese Bedingung gehoert zur VERSION und wird unabhaengig
+            # vom Verzweigungsmodell gebraucht. In der Zwischenzeit haben
+            # fuenf Vorabversionen ':latest' verschoben (#409).
+            #
+            # Wer hier aufraeumt, trennt also bitte zwischen dem, was zu einem
+            # Branch-Modell gehoert, und dem, was zu Versionsnummern gehoert.
             type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-') }}
 
       - name: Log in to GHCR

@@ -248,6 +248,16 @@ class DatabaseTest extends TestCase {
         // an session_version (#217)
         $this->assertIndexExists($pdo, 'horses', 'idx_horses_color');
         $this->assertIndexExists($pdo, 'horses', 'idx_horses_breed');
+
+        /* Indexlage der Katalog-Vorschlagslisten (#412, SCHEMA_VERSION 20).
+           Die Spalten werden mitgeprüft, nicht nur der Name: Der Index
+           `idx_horse_persons_contact` existierte schon vorher - nur zu schmal.
+           Ein reiner Namenstest wäre für eine Bestandsinstallation grün, ohne
+           dass die Erweiterung je gelaufen wäre. */
+        $this->assertIndexColumns($pdo, 'contacts', 'idx_contacts_published_name',
+            ['is_published', 'deleted_at', 'name']);
+        $this->assertIndexColumns($pdo, 'horse_persons', 'idx_horse_persons_contact',
+            ['contact_id', 'horse_id']);
         $this->assertColumnExists($pdo, 'plugins', 'dir_stamp');
         $this->assertColumnExists($pdo, 'api_keys', 'issued_session_version');
 
@@ -385,6 +395,23 @@ class DatabaseTest extends TestCase {
         $stmt = $pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
         $stmt->execute([$indexName]);
         $this->assertGreaterThan(0, $stmt->rowCount(), "Erwarteter Index {$table}.{$indexName} fehlt nach ensureSchemaUpToDate()");
+    }
+
+    /**
+     * @param array<int, string> $erwartet Spalten in der erwarteten Reihenfolge
+     */
+    private function assertIndexColumns(PDO $pdo, string $table, string $indexName, array $erwartet): void {
+        // SHOW INDEX vertraegt kein ORDER BY - deshalb hier sortieren.
+        $stmt = $pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
+        $stmt->execute([$indexName]);
+        $zeilen = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        usort($zeilen, static fn(array $a, array $b): int => (int)$a['Seq_in_index'] <=> (int)$b['Seq_in_index']);
+        $spalten = array_column($zeilen, 'Column_name');
+        $this->assertSame(
+            $erwartet,
+            $spalten,
+            "Index {$table}.{$indexName} hat nicht die erwarteten Spalten nach ensureSchemaUpToDate()"
+        );
     }
 
     private function assertColumnExists(PDO $pdo, string $table, string $column): void {

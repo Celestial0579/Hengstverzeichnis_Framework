@@ -8,6 +8,71 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Behoben
+
+- **Katalog-Filterlisten: die fehlende Indexlage nachgezogen** (#412). Die
+  beiden Vorschlagslisten des öffentlichen Katalogs (Deckstation, Person)
+  laufen bei jedem vollen Seitenaufruf. Seit der Zusammenlegung auf `contacts`
+  (#336) sind daraus Mehr-Tabellen-Abfragen geworden, und die Auswahl der
+  veröffentlichten Kontakte lief mangels passendem Index als Full Table Scan
+  mit Filesort — auf der meistbesuchten Seite, mit dem Bestand wachsend.
+
+  Zwei neue bzw. erweiterte Indizes (`contacts(is_published, deleted_at, name)`
+  und `horse_persons(contact_id, horse_id)`) beheben das. Gemessen auf einer
+  Kopie mit 10.000 Kontakten / 50.000 Pferden / 90.694 Rollenzuordnungen:
+
+  | Abfrage | vorher | nachher |
+  |---|---|---|
+  | Deckstationen | 8,4 ms | 7,5 ms |
+  | Personen | 133,3 ms | 89,9 ms |
+
+  Auf einer kleinen Instanz (300 / 500 / 1.000): 0,30 → 0,27 ms bzw.
+  1,45 → 0,47 ms. Beide Grössenordnungen gewinnen, keine verliert.
+
+  **Die Abfragen selbst bleiben unangetastet, und einen Zwischenspeicher gibt
+  es bewusst nicht.** Eine Umschreibung auf `EXISTS` war gemessen
+  zweischneidig — auf der grossen Kopie 91 → 73 ms, auf der kleinen aber
+  0,47 → 0,94 ms, also doppelt so teuer für die Mehrheit der Instanzen. Und
+  ein Zwischenspeicher schied aus, weil diese Listen eine Sichtbarkeitsfläche
+  sind: Wird ein Kontakt zurückgezogen (typischer Anlass: DSGVO-Widerspruch),
+  muss sein Name sofort verschwinden, nicht nach Ablauf einer Frist.
+
+  `SCHEMA_VERSION` steigt auf 20. Bestandsinstallationen ziehen die Indizes
+  beim nächsten Start selbsttätig nach; der Schritt prüft die Spalten und
+  nicht bloss den Namen, weil `idx_horse_persons_contact` schon vorher
+  existierte — nur zu schmal.
+
+### Tests
+
+Vier Zusicherungen, die es bisher nicht gab. Alle vier stammen aus einem
+Fehler-Scan und sind einzeln durch Gegenproben belegt: Schutz entfernen, Test
+muss rot werden.
+
+- **Die Sende-Drossel für Anmeldecodes** (#411) war an keinem ihrer drei
+  Endpunkte geprüft. Sie ist die einzige Barriere, die verhindert, dass die
+  Fünf-Fehlversuche-Sperre durch schlichtes Nachfordern frischer Codes
+  ausgehebelt wird — jede Neuausstellung setzt die Fehlversuchszählung
+  zurück. Geprüft werden jetzt der Anmelde- und der Profilweg, der gemeinsame
+  Topf beider (ein Zähler je Konto, nicht je Formular) und die eingestellten
+  Grenzwerte selbst.
+
+- **Die Ablehnungswege des Bild-Uploads** (#413): eine als `.png` benannte
+  SVG-Datei und eine Datei über der 5-MB-Grenze. Beide müssen abgewiesen
+  werden, ohne eine Medienzeile zu hinterlassen. Der Testserver setzt dafür
+  jetzt dieselben PHP-Uploadgrenzen wie das offizielle Image (8M/12M) —
+  sonst hinge der Grössenfall an der php.ini des jeweiligen Läufers.
+
+- **Der Dekompressionsbomben-Schutz der Vorschaubilder** (#414). Ein Bild
+  oberhalb der Pixel- oder Speichergrenze darf nicht einmal gelesen werden.
+  Da ein abgewiesenes und ein nicht dekodierbares Bild dieselbe Antwort
+  liefern, misst der Test das Speicher-Hochwasser — sonst wäre er auch ganz
+  ohne Schutz grün.
+
+- **Die Filter-Vorschlagslisten des Katalogs** (#412) waren komplett
+  ungeprüft. Sie sind dieselbe Sichtbarkeitsfläche wie die Filter selbst: Ein
+  Name, der dort steht, ist öffentlich, auch wenn kein Filter je darauf
+  trifft.
+
 ## [0.9.0-beta.6] – 2026-08-24
 
 Sechstes Beta der 0.9er-Linie. Zwei grosse Themen, und beide sind das

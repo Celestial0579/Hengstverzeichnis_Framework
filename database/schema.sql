@@ -217,7 +217,14 @@ CREATE TABLE IF NOT EXISTS `contacts` (
     `deleted_at` DATETIME NULL DEFAULT NULL,
     INDEX `idx_contacts_deleted_name` (`deleted_at`, `name`),
     -- Für die Zucht-Suche (#293): Züchter je Ort/Land filtern.
-    INDEX `idx_contacts_is_breeder` (`is_breeder`, `is_published`, `deleted_at`)
+    INDEX `idx_contacts_is_breeder` (`is_breeder`, `is_published`, `deleted_at`),
+    -- Für die Filter-Vorschlagslisten des öffentlichen Katalogs (#412).
+    -- Spiegelbildlich zu `idx_horses_published_name`: Ohne diesen Index läuft
+    -- die Auswahl der veröffentlichten Kontakte als Full Table Scan mit
+    -- Filesort, und zwar bei JEDEM vollen Katalog-Seitenaufruf. Weil InnoDB
+    -- den Primärschlüssel anhängt, deckt (is_published, deleted_at, name) die
+    -- Abfrage vollständig ab - inklusive der id für die Rollenprüfung.
+    INDEX `idx_contacts_published_name` (`is_published`, `deleted_at`, `name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Zuordnung alte Kennung -> Kontakt-Kennung (#336).
@@ -398,7 +405,14 @@ CREATE TABLE IF NOT EXISTS `horse_persons` (
     INDEX `idx_horse_persons_horse_role` (`horse_id`, `role`),
     -- Fuer den Rueckweg "welche Pferde haengen an diesem Kontakt" (Kontaktseite,
     -- Deduplizierer, DSGVO-Loeschung) - beide Steckplaetze einzeln.
-    INDEX `idx_horse_persons_contact` (`contact_id`),
+    --
+    -- `horse_id` ist mit drin (#412): Die Personen-Vorschlagsliste des Katalogs
+    -- fragt je Kontakt nur, OB eine Zuordnung auf ein veroeffentlichtes Pferd
+    -- zeigt. Mit der zweiten Spalte beantwortet der Index das allein, ohne die
+    -- Zeile zu holen - bei rund 90.000 Zuordnungen gemessene 133 ms -> 90 ms
+    -- je Seitenaufruf. Fuer den urspruenglichen Zweck (Suche nach contact_id)
+    -- aendert der Zusatz nichts, der Praefix bleibt derselbe.
+    INDEX `idx_horse_persons_contact` (`contact_id`, `horse_id`),
     INDEX `idx_horse_persons_station_contact` (`station_contact_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

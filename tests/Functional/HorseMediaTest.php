@@ -23,9 +23,24 @@ class HorseMediaTest extends FunctionalTestCase {
     protected function tearDown(): void {
         if ($this->aufraeumen !== []) {
             $db = Database::getInstance();
-            $stmt = $db->prepare('DELETE FROM horses WHERE id = ?');
+            /* Erst die Dateien, dann die Zeilen: Der Weg über
+               /admin/horses/media/delete taugt hier nicht - HorseMedia::loeschen()
+               räumt die Datei ab, SOLANGE horses.image_url noch darauf zeigt, und
+               lässt sie dann liegen. Ohne das hier blieben je Lauf mehrere MB in
+               storage/horses zurück (der Grössen-Test lädt allein 10 MB hoch). */
+            $dateien = $db->prepare(
+                'SELECT file_name FROM horse_media WHERE horse_id = ? AND file_name IS NOT NULL'
+            );
+            $loeschen = $db->prepare('DELETE FROM horses WHERE id = ?');
             foreach ($this->aufraeumen as $id) {
-                $stmt->execute([$id]);
+                $dateien->execute([$id]);
+                foreach ($dateien->fetchAll(\PDO::FETCH_COLUMN) as $wert) {
+                    $name = basename((string)$wert);
+                    if ($name !== '' && $name !== '.' && $name !== '..') {
+                        @unlink(\App\Helper\HorseImagePath::dir() . '/' . $name);
+                    }
+                }
+                $loeschen->execute([$id]);
             }
             $this->aufraeumen = [];
         }
@@ -79,6 +94,129 @@ class HorseMediaTest extends FunctionalTestCase {
         $stmt->execute([$horseId]);
 
         return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Ein Upload OHNE Erfolgszusicherung — für die Ablehnungsfälle.
+     *
+     * `bildHochladen()` sichert Erfolg schon in sich zu und taugt hier nicht.
+     * `video_url` wird bewusst NICHT mitgesendet: Der Controller greift nach
+     * einer abgelehnten Datei auf den Video-Link zurück, ein mitgeschickter
+     * gültiger Link liesse also trotzdem eine Zeile entstehen.
+     */
+    private function medienUpload(
+        HttpClient $admin,
+        int $horseId,
+        string $dateiname,
+        string $inhalt,
+        string $gemeldeterTyp = 'image/png'
+    ): \Tests\Support\HttpResponse {
+        return $admin->postFile(
+            '/admin/horses/media/add',
+            [
+                'csrf_token' => $this->csrfTokenFrom($admin, '/admin/horses/edit?id=' . $horseId),
+                'horse_id' => (string)$horseId,
+            ],
+            'media_image',
+            $dateiname,
+            $inhalt,
+            $gemeldeterTyp
+        );
+    }
+
+    private function medienZeilen(int $horseId): int {
+        $stmt = Database::getInstance()->prepare('SELECT COUNT(*) FROM horse_media WHERE horse_id = ?');
+        $stmt->execute([$horseId]);
+
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * #413: Beide Ablehnungswege des Bild-Uploads — falscher Inhalt und
+     * Übergrösse — und der Nachweis, dass dabei KEINE Medienzeile entsteht.
+     *
+     * WARUM DIE ZUSICHERUNGEN SO GENAU SIND. „Nicht erfolgreich" ist hier
+     * wertlos: Ein CSRF-Fehler antwortet mit 403 ganz ohne Weiterleitung, ein
+     * unbekanntes Pferd leitet auf `/admin/horses` um, und eine PHP-Warnung
+     * verhinderte den Location-Header überhaupt. Alle drei sähen aus wie eine
+     * erfolgreiche Abweisung. Deshalb wird auf 302 UND den exakten Zielwert
+     * `media=media_invalid` zugesichert, und zusätzlich auf die Zeilenzahl
+     * dieses einen Pferdes.
+     *
+     * Und weil `$_FILES['media_image']` auch dann fehlt, wenn der Feldname
+     * falsch geschrieben ist — was ebenfalls zu `media_invalid` führte, ohne
+     * die Prüfung je zu erreichen —, steht am Ende eine Positivkontrolle mit
+     * demselben Aufruf und gültigen Bytes.
+     */
+    public function testEinAlsBildGetarnterFremdinhaltWirdAbgelehnt(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Uploadablehnung ' . uniqid());
+
+        /* Name und gemeldeter Typ lügen bewusst: Nur so beweist der Test,
+           dass der INHALT entscheidet und nicht $_FILES['type'] des Clients. */
+        $svg = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg">'
+             . '<script>alert(1)</script></svg>';
+        $antwort = $this->medienUpload($admin, $pferd, 'foto.png', $svg, 'image/png');
+
+        $this->assertSame(302, $antwort->statusCode,
+            'Keine Weiterleitung heisst: etwas VOR der Inhaltsprüfung hat gegriffen '
+            . '(CSRF, Recht, Warnung). Body: ' . substr($antwort->body, 0, 300));
+        $this->assertSame(
+            '/admin/horses/edit?id=' . $pferd . '&media=media_invalid',
+            (string)$antwort->location()
+        );
+        $this->assertSame(0, $this->medienZeilen($pferd),
+            'Ein abgelehnter Upload darf keine Medienzeile hinterlassen.');
+
+        // Positivkontrolle: derselbe Weg, gültige Bytes - und es entsteht eine Zeile.
+        $this->assertGreaterThan(0, $this->bildHochladen($admin, $pferd));
+        $this->assertSame(1, $this->medienZeilen($pferd));
+    }
+
+    /**
+     * #413, zweiter Ablehnungsweg: die Grössengrenze der Anwendung.
+     *
+     * Die Nutzlast MUSS ein echter PNG-Kopf mit Füllung sein. Mit beliebigem
+     * Müll erfolgte die Ablehnung schon an der Inhaltsprüfung — die
+     * Grössengrenze bliebe ungeprüft, und eine Gegenprobe, die sie entfernt,
+     * bliebe grün.
+     *
+     * Der Grenzfall am Ende ist der Selbstschutz gegen PHPs eigene Grenzen:
+     * Läge `upload_max_filesize` unter 5 MB, käme die Datei mit
+     * UPLOAD_ERR_INI_SIZE an und würde schon davor abgewiesen — der erste Teil
+     * wäre dann aus dem falschen Grund grün. Kommt genau MAX_BYTES nicht durch,
+     * wird dieser Test rot statt still zu lügen. (PhpBuiltInServer setzt die
+     * Werte des offiziellen Images.)
+     */
+    public function testEineZuGrosseBilddateiWirdAbgelehnt(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Uploadgroesse ' . uniqid());
+
+        $png = $this->pngBytes();
+        $zuGross = $png . str_repeat('A', \App\Service\HorseMedia::MAX_BYTES + 1 - strlen($png));
+        $this->assertSame(\App\Service\HorseMedia::MAX_BYTES + 1, strlen($zuGross));
+
+        $antwort = $this->medienUpload($admin, $pferd, 'gross.png', $zuGross);
+
+        $this->assertSame(302, $antwort->statusCode,
+            'Body: ' . substr($antwort->body, 0, 300));
+        $this->assertSame(
+            '/admin/horses/edit?id=' . $pferd . '&media=media_invalid',
+            (string)$antwort->location()
+        );
+        $this->assertSame(0, $this->medienZeilen($pferd));
+
+        // Genau MAX_BYTES muss durchgehen - sonst hat PHP schon davor verworfen.
+        $genau = $png . str_repeat('A', \App\Service\HorseMedia::MAX_BYTES - strlen($png));
+        $grenze = $this->medienUpload($admin, $pferd, 'grenze.png', $genau);
+        $this->assertSame(
+            '/admin/horses/edit?id=' . $pferd . '&media=media_added',
+            (string)$grenze->location(),
+            'Genau 5 MB muss die Anwendung annehmen. Kommt hier media_invalid, hat PHP die '
+            . 'Datei selbst verworfen (upload_max_filesize/post_max_size) - dann hat der Fall '
+            . 'darüber die 5-MB-Grenze der Anwendung nie erreicht.'
+        );
+        $this->assertSame(1, $this->medienZeilen($pferd));
     }
 
     public function testEinHochgeladenesBildWirdHauptbildUndIstAuslieferbar(): void {

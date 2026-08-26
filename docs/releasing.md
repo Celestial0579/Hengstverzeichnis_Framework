@@ -111,8 +111,27 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
      [development.md](development.md#tests)) als Gate – bricht ohne Release ab,
      falls etwas fehlschlägt.
    - Docker-Image aus dem [Dockerfile](../Dockerfile), gepusht nach
-     `ghcr.io/celestial0579/hengstverzeichnis_framework` (Tags `<version>` +
-     `latest`).
+     `ghcr.io/celestial0579/hengstverzeichnis_framework`. Getaggt wird immer
+     mit `<version>`; **`latest` bekommt nur eine Version OHNE Suffix**
+     (`type=raw,value=latest,enable=...` in `release.yml`). Eine Vorabversion
+     verschiebt `latest` also nicht.
+
+     **Beim nächsten Release ohne Suffix ist das zu kontrollieren** (#409):
+     Zwischen `7f67477` (05.08.) und v0.9.0-beta.6 fehlte diese Bedingung, und
+     fünf Vorabversionen haben `latest` in dieser Zeit mitgenommen. `latest`
+     zeigt seither auf **v0.9.0-beta.5**. Bewusst nicht zurückgehängt: Ein
+     Rückhängen auf v0.8.0 wäre für Installationen mit Watchtower ein
+     Downgrade, und `SCHEMA_VERSION` lässt sich nicht zurückrollen — der
+     schlechtere Schaden. Der Zustand korrigiert sich mit dem ersten Release
+     ohne Suffix von selbst. Nach diesem Release also einmal nachsehen:
+
+     ```bash
+     docker buildx imagetools inspect \
+       ghcr.io/celestial0579/hengstverzeichnis_framework:latest
+     ```
+
+     Zeigt `latest` danach auf den neuen Digest, ist #409 erledigt und das
+     Issue kann geschlossen werden.
    - Bereinigtes Source-Zip für klassisches Shared-Hosting (ausgeschlossen
      sind `tests/`, `.github/`, `.claude/`, `composer.json`/`composer.lock`,
      `phpunit.xml` sowie die Docker-Dateien — die vollständige Liste steht

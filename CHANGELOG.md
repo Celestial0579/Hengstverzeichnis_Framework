@@ -8,6 +8,19 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Dokumentation
+
+- **Release-Anleitung: was `latest` bekommt, und was mit dem Altstand ist**
+  (#409). Die Anleitung behauptete, jeder Release setze `<version>` **und**
+  `latest`. Seit v0.9.0-beta.6 stimmt das nicht mehr: `latest` bekommt nur
+  eine Version ohne Suffix. Dazu die Entscheidung zum Altstand, damit sie
+  nicht bei der nächsten Freigabe neu getroffen werden muss — `latest` zeigt
+  auf v0.9.0-beta.5 und bleibt dort, weil ein Rückhängen auf v0.8.0 für
+  Installationen mit Watchtower ein Downgrade wäre und `SCHEMA_VERSION` sich
+  nicht zurückrollen lässt. Der Zustand korrigiert sich mit dem ersten
+  Release ohne Suffix; die Kontrolle dafür steht jetzt als Schritt in der
+  Anleitung.
+
 ### Behoben
 
 - **Katalog-Filterlisten: die fehlende Indexlage nachgezogen** (#412). Die

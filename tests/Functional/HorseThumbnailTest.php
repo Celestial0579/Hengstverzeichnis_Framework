@@ -100,6 +100,44 @@ class HorseThumbnailTest extends FunctionalTestCase {
         )->execute([$an ? '1' : '0', $an ? '1' : '0']);
     }
 
+    /**
+     * Ein Pferd mit einem Foto, dessen KOPF eine Riesengrösse behauptet (#414).
+     *
+     * Dieselbe Attrappe wie in `tests/Unit/Service/ThumbnailsTest.php`: ein
+     * winziger PNG-Kopf ohne Bildkörper. Hier bewusst OHNE das dünn besetzte
+     * 24-MB-Loch — über HTTP käme die Datei sonst als Antwortkörper zurück.
+     *
+     * @return array{0: int, 1: string, 2: string}  Pferd-ID, Dateipfad, Spaltenwert
+     */
+    private function pferdMitKopfattrappe(int $breite, int $hoehe): array {
+        $dir = \App\Helper\HorseImagePath::dir();
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        /* Die Endung muss .png sein: MediaController lässt nur bekannte
+           Bildendungen durch, eine .bin-Attrappe fiele schon vorher als 404
+           heraus und der Test prüfte etwas anderes. */
+        $name = 'thumbbombe_' . uniqid() . '.png';
+        $pfad = $dir . '/' . $name;
+
+        $ihdr = 'IHDR' . pack('N2', $breite, $hoehe) . chr(8) . chr(2) . "\0\0\0";
+        file_put_contents(
+            $pfad,
+            "\x89PNG\r\n\x1a\n" . pack('N', 13) . $ihdr . pack('N', crc32($ihdr) ^ 0xFFFFFFFF)
+        );
+        $this->dateien[] = $pfad;
+
+        $spaltenwert = '/uploads/horses/' . $name;
+        $db = Database::getInstance();
+        $db->prepare("INSERT INTO horses (name, sex, image_url, is_published, created_at) VALUES (?, 'stallion', ?, 1, NOW())")
+           ->execute(['Bombenprobe ' . uniqid(), $spaltenwert]);
+        $id = (int)$db->lastInsertId();
+        $this->pferde[] = $id;
+
+        return [$id, $pfad, $spaltenwert];
+    }
+
     public function testOhneSchalterLiefertDieAdresseDasOriginal(): void {
         $id = $this->pferdMitFoto();
         $this->schalter(false);
@@ -228,6 +266,33 @@ class HorseThumbnailTest extends FunctionalTestCase {
      * wäre seit dieser Änderung ein hochskaliertes Vorschaubild. Der
      * Schalter hätte dann die Grossansicht mit verschlechtert.
      */
+    /**
+     * #414: Ein Foto mit absurder Kopfangabe darf die Auslieferung nicht
+     * sprengen — es kommt das Original zurück, mit 200.
+     *
+     * WAS DIESER TEST BEWEIST UND WAS NICHT. Er sichert die ZUSAGE der Route:
+     * kein 500, kein leerer Körper, kein hängender Prozess. Er beweist NICHT
+     * den Schutz selbst — `erzeugen()` liefert bei abgewiesener Bombe und bei
+     * gescheitertem Dekodieren dasselbe `null`, das Original käme also so oder
+     * so. Der Beweis, dass der Schutz greift, steht im Unit-Test über das
+     * Speicher-Hochwasser; der Beweis, dass diese Route den Schutz überhaupt
+     * erreicht, ist eine Gegenprobe: Lässt man `speicherReicht()` unbedingt
+     * `false` liefern, wird `testMitSchalterKommtEineKleinereFassung` rot.
+     */
+    public function testEinFotoMitRiesigerKopfangabeLiefertDasOriginal(): void {
+        [$id, $pfad, $spaltenwert] = $this->pferdMitKopfattrappe(100000, 100000);
+        $this->schalter(true);
+
+        $antwort = $this->newClient()->get('/media/horse-image?id=' . $id . '&groesse=thumb');
+
+        $this->assertSame(200, $antwort->statusCode,
+            'Ein Bild darf nie zu einer Fehlerseite werden. Body: ' . substr($antwort->body, 0, 200));
+        $this->assertSame(file_get_contents($pfad), $antwort->body,
+            'Es muss das unveränderte Original zurückkommen.');
+        $this->assertNull(Thumbnails::pfad($spaltenwert, 'thumb'),
+            'Es darf keine verkleinerte Fassung entstanden sein.');
+    }
+
     public function testDieLightboxBekommtDasOriginalMitgegeben(): void {
         $id = $this->pferdMitFoto();
         $this->schalter(true);

@@ -23,7 +23,21 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
     /** @var array<int, string> */
     private array $aufraeumen = [];
 
+    /** @var array<int, int> Konten, deren Drosseltopf wieder weg muss. */
+    private array $toepfe = [];
+
     protected function tearDown(): void {
+        /* Zuerst die Drosseltoepfe: `login_attempts` haengt an keinem
+           Fremdschluessel, die Zeilen ueberleben das Loeschen des Kontos sonst
+           und binden die Konto-ID ueber den Lauf hinaus. */
+        foreach ($this->toepfe as $id) {
+            \App\Security\RateLimiter::clearAttempts(
+                (string)$id,
+                EmailSecondFactor::RESEND_LIMITER_TYPE
+            );
+        }
+        $this->toepfe = [];
+
         if ($this->aufraeumen !== []) {
             $db = \App\Database::getInstance();
             $stmt = $db->prepare("DELETE FROM users WHERE username = ?");
@@ -123,6 +137,269 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
             'code' => self::TESTCODE,
         ]);
         $this->assertSame('/profil?success=email_factor_on', $ein->location(), "Einschalten fehlgeschlagen, Body: {$ein->body}");
+    }
+
+    private function userIdVon(string $username): int {
+        $stmt = \App\Database::getInstance()->prepare("SELECT id FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        $id = (int)$stmt->fetchColumn();
+        self::assertGreaterThan(0, $id, "Konto '{$username}' nicht gefunden.");
+
+        return $id;
+    }
+
+    /**
+     * Der Abdruck des aktuell gültigen Codes - `null`, wenn keiner vorliegt.
+     *
+     * WARUM DER ABDRUCK UND NICHT DIE ZEILENZAHL. `email_2fa_codes` hat den
+     * Primärschlüssel (user_id, purpose), und `issue()` schreibt mit
+     * REPLACE INTO. Eine Neuausstellung ERSETZT die Zeile - die Anzahl bleibt
+     * in beiden Fällen 1, ein Zähl-Vergleich wäre auch mit entfernter Drossel
+     * grün. Auch `expires_at`/`created_at` taugen nicht: beide sind
+     * sekundengenau und können bei schnellem Ablauf gleich bleiben. Nur
+     * `code_hash` ist ein verlässlicher Zeuge, weil `password_hash()` bei
+     * jedem Aufruf ein neues Salz zieht.
+     */
+    private function codeAbdruck(int $userId, string $purpose): ?string {
+        $stmt = \App\Database::getInstance()->prepare(
+            "SELECT code_hash FROM email_2fa_codes WHERE user_id = ? AND purpose = ?"
+        );
+        $stmt->execute([$userId, $purpose]);
+        $wert = $stmt->fetchColumn();
+
+        return $wert === false ? null : (string)$wert;
+    }
+
+    /** Leert den Sendezähler dieses Kontos und merkt ihn fürs Aufräumen vor. */
+    private function drosselZaehlerLeeren(int $userId): void {
+        $this->toepfe[] = $userId;
+        \App\Security\RateLimiter::clearAttempts(
+            (string)$userId,
+            EmailSecondFactor::RESEND_LIMITER_TYPE
+        );
+    }
+
+    /**
+     * #411: Die Sende-Drossel ist die einzige Barriere, die verhindert, dass
+     * jemand die 5-Fehlversuche-Sperre durch simples Nachfordern aushebelt.
+     *
+     * DER ANGRIFF, GEGEN DEN SIE STEHT. Wer das Passwort kennt, hat den ersten
+     * Faktor. Ohne wirksame Drossel: Code anfordern, fünfmal raten, neuen Code
+     * anfordern - und weil `issue()` die Zeile ersetzt, steht `attempts` wieder
+     * auf 0. Der sechsstellige Coderaum fiele so in etwa 200.000 Runden.
+     *
+     * WORAUF DER TEST ZUSICHERT UND WARUM NICHT AUF „kein Fehler". Die Suite
+     * hat kein SMTP; jede ERLAUBTE Sendung endet deshalb ohnehin auf
+     * `?fehler=versand`. Ein Test, der „ohne ?fehler=" verlangt, wäre von
+     * vornherein rot; einer, der nur `fehler=` sucht, immer grün. Trägt
+     * ausschliesslich die Unterscheidung `?fehler=gedrosselt` gegen alles
+     * andere - dieser Marker entsteht im ganzen Kern an genau einer Stelle,
+     * dem Drosselzweig in `AuthController::sendeAnmeldecode()`.
+     */
+    public function testDieVierteSendungWirdGedrosseltUndStelltKeinenNeuenCodeAus(): void {
+        $unique = uniqid();
+        [$client, $username, , $passwort] = $this->angemeldetesKonto($unique);
+        $this->mailcodeEinschalten($client, $username, $passwort);
+        $userId = $this->userIdVon($username);
+
+        /* Pflicht: mailcodeEinschalten() hat über /profil/2fa/email/code schon
+           eine Sendung auf DEMSELBEN Topf verbraucht (ein Topf je Konto, geteilt
+           über alle drei Sende-Endpunkte). Ohne das Leeren griffe die Drossel
+           eine Sendung früher als gerechnet, und die Arithmetik verschöbe sich
+           still, sobald jemand den Helfer ändert. */
+        $this->drosselZaehlerLeeren($userId);
+
+        // Sendung 1 von 3: die Anmeldung selbst.
+        $zweiter = $this->newClient();
+        $loginPage = $zweiter->get('/login');
+        $login = $zweiter->post('/login', [
+            'csrf_token' => $loginPage->formField('csrf_token') ?? '',
+            'kennung' => $username,
+            'password' => $passwort,
+        ]);
+        $this->assertNotSame('/login/2fa/email?fehler=gedrosselt', $login->location(),
+            "Die erste Sendung darf nicht gedrosselt sein. Body: {$login->body}");
+        $this->assertNotNull($this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN),
+            'Die Anmeldung muss einen Code ausgestellt haben.');
+
+        // Sendungen 2 und 3: erlaubt - und jede stellt nachweislich einen NEUEN Code aus.
+        for ($i = 2; $i <= EmailSecondFactor::RESEND_MAX; $i++) {
+            $vorher = $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN);
+            $antwort = $zweiter->post('/login/2fa/email/senden', [
+                'csrf_token' => $this->csrfTokenFrom($zweiter, '/login/2fa/email'),
+            ]);
+            $this->assertSame(302, $antwort->statusCode, "Sendung {$i}, Body: {$antwort->body}");
+            $this->assertNotSame('/login/2fa/email?fehler=gedrosselt', $antwort->location(),
+                "Sendung {$i} von " . EmailSecondFactor::RESEND_MAX . ' darf noch nicht gedrosselt sein.');
+            $this->assertNotSame($vorher, $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN),
+                "Eine erlaubte Sendung muss wirklich einen neuen Code ausstellen (Sendung {$i}).");
+        }
+
+        /* Bekannten Code unterschieben: Ab hier ist jede Änderung am Abdruck
+           der Beweis, dass die Anwendung neu ausgestellt hat. */
+        $this->codeUnterschieben($username, EmailSecondFactor::PURPOSE_LOGIN);
+        $abdruckVorher = $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN);
+
+        $gedrosselt = $zweiter->post('/login/2fa/email/senden', [
+            'csrf_token' => $this->csrfTokenFrom($zweiter, '/login/2fa/email'),
+        ]);
+        $this->assertSame('/login/2fa/email?fehler=gedrosselt', $gedrosselt->location(),
+            'Die ' . (EmailSecondFactor::RESEND_MAX + 1) . ". Sendung im Fenster muss abgewiesen werden. Body: {$gedrosselt->body}");
+        $this->assertSame($abdruckVorher, $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN),
+            'Ein gedrosselter Versand darf KEINEN neuen Code ausstellen - sonst setzt er attempts '
+            . 'zurück und hängt damit genau die Sperre aus, die er schützen soll.');
+
+        // Und die Bedeutung davon: im Postfach liegt weiterhin der alte Code.
+        $fertig = $zweiter->post('/login/2fa/email', [
+            'csrf_token' => $this->csrfTokenFrom($zweiter, '/login/2fa/email'),
+            'code' => self::TESTCODE,
+        ]);
+        $this->assertSame('/admin', $fertig->location(), "Body: {$fertig->body}");
+    }
+
+    /**
+     * Die Gegenprobe IM Test: Nach dem Leeren des Zählers steht der Versand
+     * sofort wieder offen.
+     *
+     * Ohne sie bliebe offen, ob die Abweisung oben wirklich vom Zähler kam -
+     * eine verlorene Sitzung, ein 403 oder ein deaktiviertes Konto sähen
+     * genauso aus. Alle diese Ursachen wären vom Leeren des Zählers unberührt.
+     */
+    public function testNachDemLeerenDesZaehlersDarfWiederGesendetWerden(): void {
+        $unique = uniqid();
+        [$client, $username, , $passwort] = $this->angemeldetesKonto($unique);
+        $this->mailcodeEinschalten($client, $username, $passwort);
+        $userId = $this->userIdVon($username);
+        $this->drosselZaehlerLeeren($userId);
+
+        $zweiter = $this->newClient();
+        $loginPage = $zweiter->get('/login');
+        $zweiter->post('/login', [
+            'csrf_token' => $loginPage->formField('csrf_token') ?? '',
+            'kennung' => $username,
+            'password' => $passwort,
+        ]);
+        for ($i = 2; $i <= EmailSecondFactor::RESEND_MAX + 1; $i++) {
+            $letzte = $zweiter->post('/login/2fa/email/senden', [
+                'csrf_token' => $this->csrfTokenFrom($zweiter, '/login/2fa/email'),
+            ]);
+        }
+        $this->assertSame('/login/2fa/email?fehler=gedrosselt', $letzte->location(),
+            "Vorbedingung: der Topf muss ausgeschöpft sein. Body: {$letzte->body}");
+
+        $this->drosselZaehlerLeeren($userId);
+        $vorher = $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN);
+        $wieder = $zweiter->post('/login/2fa/email/senden', [
+            'csrf_token' => $this->csrfTokenFrom($zweiter, '/login/2fa/email'),
+        ]);
+
+        $this->assertNotSame('/login/2fa/email?fehler=gedrosselt', $wieder->location(),
+            "Nach dem Leeren muss der Versand wieder offenstehen. Body: {$wieder->body}");
+        $this->assertNotSame($vorher, $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN),
+            'Und er muss dann auch wirklich einen neuen Code ausstellen.');
+    }
+
+    /** #411, zweiter Sende-Endpunkt: derselbe Schutz im Profil (Setup-Weg). */
+    public function testDerProbecodeImProfilIstEbensoGedrosselt(): void {
+        $unique = uniqid();
+        [$client, $username, , ] = $this->angemeldetesKonto($unique);
+        $userId = $this->userIdVon($username);
+        $this->drosselZaehlerLeeren($userId);
+
+        for ($i = 1; $i <= EmailSecondFactor::RESEND_MAX; $i++) {
+            $vorher = $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_SETUP);
+            $antwort = $client->post('/profil/2fa/email/code', [
+                'csrf_token' => $this->csrfTokenFrom($client, '/profil'),
+            ]);
+            $this->assertNotSame('/profil?error=rate_limited', $antwort->location(),
+                "Sendung {$i}, Body: {$antwort->body}");
+            $this->assertNotSame($vorher, $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_SETUP),
+                "Eine erlaubte Sendung muss einen neuen Code ausstellen (Sendung {$i}).");
+        }
+
+        $abdruckVorher = $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_SETUP);
+        $gedrosselt = $client->post('/profil/2fa/email/code', [
+            'csrf_token' => $this->csrfTokenFrom($client, '/profil'),
+        ]);
+
+        $this->assertSame('/profil?error=rate_limited', $gedrosselt->location(), "Body: {$gedrosselt->body}");
+        $this->assertSame($abdruckVorher, $this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_SETUP));
+    }
+
+    /**
+     * Der eigentliche Angriffspfad: Der Topf gilt JE KONTO, nicht je Endpunkt.
+     *
+     * Wer ihn über das Profil ausschöpft, bekommt anschliessend auch keinen
+     * Anmeldecode mehr. Hinge an jedem Endpunkt ein eigener Zähler, könnte man
+     * die Drossel durch Wechseln des Formulars umgehen - dieser Test hält fest,
+     * dass sie das nicht tut.
+     */
+    public function testEinAusgeschoepfterProfilTopfBremstAuchDenAnmeldecode(): void {
+        $unique = uniqid();
+        [$client, $username, , $passwort] = $this->angemeldetesKonto($unique);
+        $this->mailcodeEinschalten($client, $username, $passwort);
+        $userId = $this->userIdVon($username);
+        $this->drosselZaehlerLeeren($userId);
+
+        for ($i = 0; $i < EmailSecondFactor::RESEND_MAX; $i++) {
+            $client->post('/profil/2fa/email/code', [
+                'csrf_token' => $this->csrfTokenFrom($client, '/profil'),
+            ]);
+        }
+
+        /* Für den Anmeldezweck existiert noch gar keine Zeile - hier ist
+           „keine Zeile" ausnahmsweise aussagekräftig. */
+        $this->assertNull($this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN),
+            'Vorbedingung: bisher wurde kein Anmeldecode ausgestellt.');
+
+        $zweiter = $this->newClient();
+        $loginPage = $zweiter->get('/login');
+        $login = $zweiter->post('/login', [
+            'csrf_token' => $loginPage->formField('csrf_token') ?? '',
+            'kennung' => $username,
+            'password' => $passwort,
+        ]);
+
+        $this->assertSame('/login/2fa/email?fehler=gedrosselt', $login->location(),
+            "Der über das Profil ausgeschöpfte Topf muss auch hier greifen. Body: {$login->body}");
+        $this->assertNull($this->codeAbdruck($userId, EmailSecondFactor::PURPOSE_LOGIN),
+            'Es darf überhaupt kein Anmeldecode entstanden sein.');
+    }
+
+    /**
+     * Die eingestellten Grenzen selbst - festgenagelt.
+     *
+     * WARUM DAS EINEN EIGENEN TEST BRAUCHT. Die drei Tests darüber zählen mit
+     * `RESEND_MAX` statt mit einer festen Zahl. Das ist richtig so: Sie prüfen
+     * den MECHANISMUS („die (N+1)-te Sendung wird abgewiesen"), nicht einen
+     * Zahlenwert, und bleiben damit korrekt, wenn jemand die Grenze bewusst
+     * verschiebt. Der Preis ist, dass sie eine Änderung der Konstante gar nicht
+     * bemerken KÖNNEN - sie wandern einfach mit. Nachgemessen: `RESEND_MAX`
+     * von 3 auf 4 zu setzen lässt alle drei grün.
+     *
+     * Für eine Sicherheitsgrenze ist das zu wenig. Ein Vertipper (30 statt 3)
+     * hebt die Drossel praktisch auf, ohne dass ein Test rot wird. Deshalb hier
+     * die Werte ausdrücklich - wer sie ändern will, muss diesen Test anfassen
+     * und dabei begründen, warum.
+     */
+    public function testDieEingestelltenSendegrenzenSindFestgenagelt(): void {
+        $this->assertSame(3, EmailSecondFactor::RESEND_MAX,
+            'Drei Sendungen je Fenster. Mehr Spielraum heisst mehr Rateversuche, denn jede '
+            . 'neue Sendung setzt die Fehlversuchszählung zurück.');
+        $this->assertSame(900, EmailSecondFactor::RESEND_WINDOW,
+            'Fünfzehn Minuten. Ein kürzeres Fenster verwässert die Drossel.');
+        $this->assertSame('2fa_email_send', EmailSecondFactor::RESEND_LIMITER_TYPE,
+            'Ein eigener Topf - nicht der des Passwort-Logins, sonst sperrten sich beide gegenseitig.');
+
+        /* Und die Beziehung, auf die es ankommt: Der Coderaum muss gross genug
+           gegen die Zahl der Versuche bleiben, die ein Fenster zulässt. */
+        $versucheProFenster = EmailSecondFactor::RESEND_MAX * EmailSecondFactor::MAX_ATTEMPTS;
+        $this->assertLessThan(
+            10 ** EmailSecondFactor::CODE_LENGTH / 10000,
+            $versucheProFenster,
+            'Sendungen mal Fehlversuche ergibt die Rateversuche je Fenster - die müssen '
+            . 'verschwindend klein gegen den Coderaum bleiben.'
+        );
     }
 
     public function testDerFaktorLaesstSichEinschaltenUndTraegtDieAnmeldung(): void {

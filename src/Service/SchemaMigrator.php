@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 19;
+    public const SCHEMA_VERSION = 20;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -2087,6 +2087,68 @@ final class SchemaMigrator {
             }
             $pdo->exec("ALTER TABLE `users` DROP COLUMN `passkeys`");
             return ['entfernt' => 'users.passkeys'];
+        });
+
+        // 40. Indexlage der Katalog-Vorschlagslisten (#412, SCHEMA_VERSION 20).
+        //
+        // Die beiden Filter-Vorschlagslisten des oeffentlichen Katalogs
+        // (Deckstation, Person) laufen bei JEDEM vollen Seitenaufruf. Seit der
+        // Zusammenlegung auf `contacts` (#336) sind daraus Mehr-Tabellen-
+        // Abfragen mit DISTINCT geworden; die Auswahl der veroeffentlichten
+        // Kontakte lief mangels Index als Full Table Scan mit Filesort.
+        //
+        // Gemessen auf einer Kopie mit 10.000 Kontakten / 50.000 Pferden /
+        // 90.694 Rollenzuordnungen, je 30 Durchlaeufe gegen warmen Puffer:
+        //
+        //                       Deckstationen     Personen
+        //   ohne die Indizes        8,39 ms       133,32 ms
+        //   mit beiden              7,54 ms        89,85 ms
+        //
+        // Und auf einer kleinen Instanz (300 / 500 / 1.000, 200 Durchlaeufe):
+        // 0,30 -> 0,27 ms bzw. 1,45 -> 0,47 ms. Beide Groessenordnungen
+        // gewinnen, keine verliert.
+        //
+        // Die Abfragen selbst bleiben unangetastet. Eine Umschreibung auf
+        // EXISTS war gemessen zweischneidig (auf der grossen Kopie 91 -> 73 ms,
+        // auf der kleinen 0,47 -> 0,94 ms, also doppelt so teuer fuer die
+        // Mehrheit der Instanzen); ein Zwischenspeicher schied aus, weil diese
+        // Listen eine Sichtbarkeitsflaeche sind - ein zurueckgezogener Kontakt
+        // muss sofort verschwinden, nicht nach Ablauf einer Frist.
+        $addIndex('contacts', 'idx_contacts_published_name', '`is_published`, `deleted_at`, `name`');
+
+        // `idx_horse_persons_contact` gibt es seit #336 - aber nur ueber
+        // `contact_id`. Die Personenliste fragt je Kontakt lediglich, OB eine
+        // Zuordnung auf ein veroeffentlichtes Pferd zeigt; mit `horse_id` als
+        // zweiter Spalte beantwortet der Index das allein.
+        //
+        // $addIndex prueft nur den NAMEN und wuerde den vorhandenen, zu
+        // schmalen Index fuer erledigt halten. Deshalb hier ausdruecklich ueber
+        // die Spaltenzahl - und Neuanlage vor Loeschung, damit zwischen beiden
+        // Schritten kein Zustand ganz ohne Index steht.
+        $dataStep('412_horse_persons_contact_deckend', function () use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('horse_persons')) {
+                return null;
+            }
+            try {
+                $spalten = $pdo->query(
+                    "SHOW INDEX FROM `horse_persons` WHERE Key_name = 'idx_horse_persons_contact'"
+                )->fetchAll(\PDO::FETCH_ASSOC);
+            } catch (\Throwable $e) {
+                return null;
+            }
+            if ($spalten === [] || count($spalten) >= 2) {
+                return null;      // fehlt ganz (dann legt ihn schema.sql an) oder ist schon deckend
+            }
+
+            $pdo->exec(
+                "CREATE INDEX `idx_horse_persons_contact_deckend` ON `horse_persons` (`contact_id`, `horse_id`)"
+            );
+            $pdo->exec("DROP INDEX `idx_horse_persons_contact` ON `horse_persons`");
+            $pdo->exec(
+                "ALTER TABLE `horse_persons` RENAME INDEX `idx_horse_persons_contact_deckend` TO `idx_horse_persons_contact`"
+            );
+
+            return ['erweitert' => 'horse_persons.idx_horse_persons_contact um horse_id (#412)'];
         });
 
         // 32. Dauerhafte Entscheidungen über Dubletten-Vorschläge (#355,

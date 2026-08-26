@@ -86,7 +86,17 @@ class PhpBuiltInServer {
             // Test Zeitstempel in einer anderen Zeitzone, als die App sie
             // liest - das äußert sich nicht als Fehler, sondern als
             // unerklärlich abgelaufener Cache.
+            // upload_max_filesize/post_max_size ausdrücklich auf die Werte des
+            // offiziellen Images (Dockerfile: 8M/12M). Ohne sie hinge jeder
+            // Test an der 5-MB-Grenze der Anwendung an der php.ini des
+            // jeweiligen Läufers: Liegt upload_max_filesize darunter, verwirft
+            // PHP die Datei selbst, sie kommt mit UPLOAD_ERR_INI_SIZE an, und
+            // die Grenze der Anwendung wird nie erreicht - der Test wäre grün,
+            // ohne das Geprüfte je berührt zu haben. Genau dieser Unterschied
+            // hat in Produktion schon einmal 4-MB-Bilder verschluckt (siehe
+            // die Begründung im Dockerfile).
             ['php', '-d', 'date.timezone=' . date_default_timezone_get(),
+                '-d', 'upload_max_filesize=8M', '-d', 'post_max_size=12M',
                 '-S', self::HOST . ':' . self::port(), '-t', $publicDir],
             $descriptorSpec,
             $pipes,

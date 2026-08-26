@@ -309,6 +309,25 @@ class PublicController extends BaseController {
         // Stationstabelle. Ein Join über unveröffentlichte Pferde machte die
         // Vorschlagsliste zum Existenz-Orakel für genau die Datensätze, die der
         // Betreiber zurückhält - dieselbe Überlegung wie bei #121/#122.
+        //
+        // KOSTEN UND INDEXLAGE (#412). Beide Abfragen laufen bei jedem vollen
+        // Seiten-Render, also auf der meistbesuchten Seite. Sie hängen an zwei
+        // Indizes, die es ohne sie nicht gäbe:
+        //   contacts(is_published, deleted_at, name)  - deckt die Auswahl der
+        //     veröffentlichten Kontakte samt Sortierung ab; ohne ihn ein Full
+        //     Table Scan mit Filesort.
+        //   horse_persons(contact_id, horse_id)       - beantwortet die Frage
+        //     "hängt an diesem Kontakt ein Pferd?" aus dem Index heraus.
+        // Gemessen (10.000 Kontakte / 50.000 Pferde / 90.694 Zuordnungen):
+        // 8,4 -> 7,5 ms bzw. 133 -> 90 ms je Seitenaufruf. Wer die Abfragen
+        // ändert, prüft die Indizes mit - tests/Integration/DatabaseTest.php
+        // hält beide samt Spaltenreihenfolge fest.
+        //
+        // BEWUSST OHNE ZWISCHENSPEICHER. Diese Listen sind eine
+        // Sichtbarkeitsfläche: Wird ein Kontakt zurückgezogen (typischer Fall:
+        // DSGVO-Widerspruch), muss sein Name sofort verschwinden, nicht nach
+        // Ablauf einer Frist. tests/Functional/CatalogFilterOptionsTest.php
+        // sichert genau das zu.
         $stations = $db->query("
             SELECT DISTINCT c.name
             FROM contacts c

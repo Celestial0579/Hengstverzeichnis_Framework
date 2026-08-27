@@ -8,6 +8,24 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Behoben
+
+- **Der nächtliche Testlauf meldete einen Fehler, wo keiner war** (#424). Die
+  Functional-Suite hat die 300-Sekunden-Grenze erreicht, die Composer für
+  Kindprozesse setzt: 383 Tests über HTTP, gemessene 4:58. Auf den
+  CI-Runnern bleibt sie knapp darunter, auf einem gewöhnlichen Host nicht
+  mehr. Gemeldet wurde „Functional gescheitert" — dabei war kein einziger
+  Test fehlgeschlagen, der Lauf wurde mitten drin abgeschnitten.
+
+  `config.process-timeout` steht jetzt im Repo auf 1800. Bewusst nicht auf 0:
+  Ein hängender Test soll weiterhin abbrechen, nur nicht ein Lauf, der
+  ordentlich durchläuft.
+
+- **Eine falsche Versionsangabe in einer Fehlermeldung**, die Betreiber zu
+  sehen bekommen: Fehlt `vendor/autoload.php`, sagte die Meldung „Seit v0.10
+  braucht die Anwendung die mitgelieferten Abhängigkeiten". Es ist seit
+  v0.9.0.
+
 ## [0.9.0] – 2026-08-27
 
 **Die erste Fassung der 0.9er-Linie ohne Vorabsuffix.** Was in den sechs Betas

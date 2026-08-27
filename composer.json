@@ -24,6 +24,18 @@
         "test": "phpunit"
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "_process-timeout": [
+            "Composer bricht einen Kindprozess nach 300 Sekunden ab. Die",
+            "Functional-Suite hat diese Grenze am 2026-08-27 erreicht (#424):",
+            "383 Tests ueber HTTP, gemessene 4:58 - der naechtliche Lauf auf",
+            "einem Host ohne CI-Hardware fiel damit aus, ohne dass ein",
+            "einziger Test fehlgeschlagen waere. Gemeldet wurde trotzdem",
+            "'Functional gescheitert' - genau die Verwechslung, gegen die die",
+            "Regel 'ein Umgebungsfehler ist kein Ergebnis' steht.",
+            "1800 statt 0: Ein haengender Test soll weiterhin abbrechen, nur",
+            "nicht mitten in einem Lauf, der ordentlich durchlaeuft."
+        ],
+        "process-timeout": 1800
     }
 }

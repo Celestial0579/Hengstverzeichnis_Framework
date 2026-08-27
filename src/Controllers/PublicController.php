@@ -771,15 +771,10 @@ class PublicController extends BaseController {
         // Formular anbieten koennen, OHNE dass die Adresse dafuer oeffentlich
         // werden muss.
         //
-        // person.detail_sections und station.detail_sections laufen als ALIAS
-        // mit denselben Argumenten hinterher, jeweils auf dem Ergebnis des
-        // vorherigen - ein Addon, das einen der alten Namen registriert hat,
-        // laeuft in v0.8 unveraendert weiter. Die Aliasse entfallen in v0.9.0
-        // (siehe docs/plugin-development.md und
-        // docs/kontaktliste-umstellung.md).
+        // Die Aliasse person.detail_sections und station.detail_sections sind
+        // mit v0.9.0 entfallen (#347) - siehe
+        // die Begruendung im Kommentar bei den Kontakt-Hooks in ContactController.
         $pluginDetailSections = $this->hooks()->applyFilters('contact.detail_sections', [], $contact, $horsesByRole, $stationHorses);
-        $pluginDetailSections = $this->hooks()->applyFilters('person.detail_sections', $pluginDetailSections, $contact, $horsesByRole, $stationHorses);
-        $pluginDetailSections = $this->hooks()->applyFilters('station.detail_sections', $pluginDetailSections, $contact, $horsesByRole, $stationHorses);
 
         $this->render('public_contact_detail', [
             'title' => $contact['name'] . ' - ' . \App\I18n\Translator::t('meta.title_contact_detail_suffix'),

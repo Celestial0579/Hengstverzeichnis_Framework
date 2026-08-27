@@ -14,6 +14,7 @@ Admins/Betreiber und Endnutzer.
 
 - [architecture.md](architecture.md) – Aufbau der Anwendung, Request-Flow, Verzeichnisstruktur
 - [database.md](database.md) – Datenmodell, Tabellen, Beziehungen, Schema-Migration
+- [kontaktliste-umstellung.md](kontaktliste-umstellung.md) – Zusammenlegung von `persons` und `breeding_stations` zu `contacts` ([#336](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/336)): was sich für Addons geändert hat und welche Aliasse mit v0.9.0 entfallen sind
 - [security.md](security.md) – Auth, 2FA, Sessions, Verschlüsselung, Rate-Limiting, Audit-Log
 - [development.md](development.md) – Lokale Entwicklungsumgebung, Coding-Konventionen, Deployment
 - [api.md](api.md) – Read-only-JSON-API für Katalogdaten ([#47](https://github.com/Celestial0579/Hengstverzeichnis_Framework/issues/47)), Zugriff nur mit API-Schlüssel
@@ -29,7 +30,7 @@ Verwaltung und öffentlichen Darstellung von Blutlinien/Stammbäumen in der
 Pferdezucht (Hengstverzeichnis, vergleichbar mit Zuchtverzeichnissen wie dem
 IGF-Hengstverzeichnis). Es ist ein klassisches serverseitig gerendertes
 PHP-Framework mit einer bewusst **kurzen** Liste von Laufzeit-Abhängigkeiten:
-seit v0.10 genau eine, `web-auth/webauthn-lib` für die Passkeys (#353).
+seit v0.9.0 genau eine, `web-auth/webauthn-lib` für die Passkeys (#353).
 `vendor/` liegt dem Release bei, ein Betreiber braucht also selbst kein
 Composer und kein npm. Zusätzlich wird Composer für die PHPUnit-Testsuite in
 Entwicklung und CI benötigt) – bewusst schlank gehalten, um auf einfachem

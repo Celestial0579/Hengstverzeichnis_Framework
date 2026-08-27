@@ -259,9 +259,8 @@ $hatAngaben = !empty($placeParts)
 <?php if (!empty($pluginDetailSections)): ?>
     <?php // Erweiterungspunkt 'contact.detail_sections' - z. B. fuer eine
           // Kontaktanfrage, die ohne oeffentliche Adresse auskommt. Die alten
-          // Namen 'person.detail_sections' und 'station.detail_sections'
-          // laufen als Alias mit (siehe PublicController::contactDetail()) und
-          // landen im selben Block. ?>
+          // Namen 'person.detail_sections' und 'station.detail_sections' sind
+          // mit v0.9.0 entfallen (#347). ?>
     <div class="card" style="margin-top: 2rem;">
         <?php foreach ($pluginDetailSections as $section): ?>
             <div class="horse-plugin-section"><?= $section ?></div>

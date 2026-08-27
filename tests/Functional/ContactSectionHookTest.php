@@ -7,7 +7,8 @@ use App\Database;
 
 /**
  * Die Erweiterungspunkte der Kontaktseite: `contact.detail_sections` und
- * `contact.edit_sections` - samt der Aliasse `person.*` und `station.*`.
+ * `contact.edit_sections` - und der Nachweis, dass die alten Namen `person.*`
+ * und `station.*` NICHT mehr feuern.
  *
  * Anlass ist die geplante Kontaktanfrage
  * ([Addons #106](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/106)):
@@ -15,15 +16,20 @@ use App\Database;
  * dass die Adresse dafür öffentlich werden muss. Ohne diese Hooks gäbe es dort
  * keinen Platz dafür.
  *
- * Mit #336 sind aus Personen- und Stationsseite eine Kontaktseite geworden,
- * und aus den beiden Hook-Namen einer. Die alten Namen bleiben bis v0.9.0 als
- * ALIAS bestehen und feuern zusätzlich mit denselben Argumenten - das ist eine
- * Zusage an Addons, die bereits im Feld sind (siehe
- * docs/kontaktliste-umstellung.md und docs/plugin-development.md). Eine Zusage,
- * die niemand prüft, ist keine: Deshalb hält dieser Test nicht nur fest, DASS
- * die Aliasse feuern, sondern auch, dass sie DIESELBEN Argumente bekommen und
- * in der dokumentierten Reihenfolge laufen (contact.* -> person.* ->
- * station.*, jeweils auf dem Ergebnis des vorherigen).
+ * WAS SICH MIT v0.9.0 GEÄNDERT HAT. Mit #336 sind aus Personen- und
+ * Stationsseite eine Kontaktseite geworden, und aus den beiden Hook-Namen
+ * einer. Die alten Namen liefen die 0.8-Linie über als ALIAS mit - eine
+ * befristete Zusage an Addons, die bereits im Feld waren, angekündigt in
+ * docs/kontaktliste-umstellung.md und docs/plugin-development.md **für
+ * v0.9.0**. Die Frist ist abgelaufen, die Aliasse sind entfernt (#347).
+ *
+ * Dieser Test hat die Richtung gewechselt, statt zu verschwinden: Er hielt
+ * fest, DASS die Aliasse feuern; jetzt hält er fest, dass sie es nicht mehr
+ * tun. Beides ist dieselbe Zusage, nur von der anderen Seite - und ohne die
+ * zweite Hälfte könnte jemand sie unbemerkt wieder einführen, was genau den
+ * Doppelaufruf zurückbrächte, dessentwegen sie fielen: Seit `persons` und
+ * `breeding_stations` eine Tabelle sind, bekäme ein Addon, das beide Paare
+ * registriert hat, denselben Datensatz zweimal.
  *
  * Geprüft wird mit einem eigenen Test-Plugin, das für die Testdauer in das
  * gitignorete `plugins/`-Verzeichnis geschrieben wird - dasselbe Muster wie in
@@ -45,15 +51,22 @@ class ContactSectionHookTest extends FunctionalTestCase {
      *
      * @var array<int, string>
      */
-    private const DETAIL_KETTE = [
-        'contact.detail_sections',
-        'person.detail_sections',
-        'station.detail_sections',
-    ];
+    private const DETAIL_KETTE = ['contact.detail_sections'];
 
     /** @var array<int, string> */
-    private const EDIT_KETTE = [
-        'contact.edit_sections',
+    private const EDIT_KETTE = ['contact.edit_sections'];
+
+    /**
+     * Die mit v0.9.0 entfallenen Aliasse. Das Test-Plugin registriert sie
+     * weiterhin - genau deshalb: Ein Addon aus der 0.7/0.8-Linie tut das auch,
+     * und der Test soll zeigen, was ihm passiert. Sie dürfen in keiner Antwort
+     * mehr auftauchen.
+     *
+     * @var array<int, string>
+     */
+    private const ENTFALLENE_ALIASSE = [
+        'person.detail_sections',
+        'station.detail_sections',
         'person.edit_sections',
         'station.edit_sections',
     ];
@@ -85,7 +98,7 @@ class ContactSectionHookTest extends FunctionalTestCase {
         parent::tearDown();
     }
 
-    public function testContactPageOffersTheExtensionPointAndFiresTheOldNamesAsAliases(): void {
+    public function testContactPageOffersTheExtensionPointAndTheOldAliasesAreGone(): void {
         $db = Database::getInstance();
         $admin = $this->authenticatedClient();
         $unique = uniqid();
@@ -118,9 +131,8 @@ class ContactSectionHookTest extends FunctionalTestCase {
 
         // Ein Pferd, das an BEIDEN Steckplätzen derselben Zuordnungszeile
         // hängt: als Person (Züchter) und als Deckstation. Damit sind
-        // $horsesByRole und $stationHorses beide gefüllt - ein Alias, der
-        // seine Argumente verlöre oder nur teilweise bekäme, fiele sonst
-        // nicht auf, weil leere Arrays untereinander gleich aussehen.
+        // $horsesByRole und $stationHorses beide gefüllt, und der
+        // Fingerabdruck unten ist aussagekräftig statt trivial.
         $db->prepare("INSERT INTO horses (name, sex, is_published, created_at) VALUES (?, 'stallion', 1, NOW())")
            ->execute(["Hook Pferd {$unique}"]);
         $pferdId = (int)$db->lastInsertId();
@@ -139,17 +151,14 @@ class ContactSectionHookTest extends FunctionalTestCase {
         $this->assertSame(
             self::DETAIL_KETTE,
             array_keys($gefeuert),
-            'Der neue Hook contact.detail_sections muss feuern - und die alten Namen als Alias hinterher, '
-            . 'in der dokumentierten Reihenfolge'
-        );
-        $this->assertCount(
-            1,
-            array_unique(array_values($gefeuert)),
-            'Die Aliasse müssen DIESELBEN Argumente bekommen wie contact.detail_sections'
+            'Nur contact.detail_sections darf feuern. Steht hier mehr, sind die mit v0.9.0 '
+            . 'entfernten Aliasse zurück - und ein Addon, das beide Paare registriert hat, '
+            . 'bekommt denselben Datensatz zweimal.'
         );
 
-        // Und der Fingerabdruck darf nicht leer sein - sonst wäre "alle gleich"
-        // trivial erfüllt.
+        // Der Fingerabdruck darf nicht leer sein - sonst prüfte der Test oben
+        // nur, dass GAR NICHTS gefeuert hat, und wäre auch bei kaputtem
+        // Erweiterungspunkt grün.
         $fingerabdruck = reset($gefeuert);
         $this->assertStringContainsString("id={$kontaktId};", $fingerabdruck, 'Der Hook bekommt den Kontakt selbst');
         $this->assertStringContainsString('rollen=breeder;', $fingerabdruck, 'Und die Pferde nach Rolle gruppiert');
@@ -162,14 +171,15 @@ class ContactSectionHookTest extends FunctionalTestCase {
         $this->assertSame(
             self::EDIT_KETTE,
             array_keys($editHooks),
-            'contact.edit_sections und seine beiden Aliasse müssen im Bearbeitungsformular feuern'
-        );
-        $this->assertCount(
-            1,
-            array_unique(array_values($editHooks)),
-            'Auch im Formular bekommen die Aliasse dieselben Argumente'
+            'Im Bearbeitungsformular darf ebenfalls nur contact.edit_sections feuern'
         );
         $this->assertStringContainsString("id={$kontaktId};", (string)reset($editHooks));
+
+        // Und ausdrücklich: keiner der entfallenen Namen taucht irgendwo auf.
+        foreach (self::ENTFALLENE_ALIASSE as $alias) {
+            $this->assertArrayNotHasKey($alias, $gefeuert, "Der Alias {$alias} ist mit v0.9.0 entfallen.");
+            $this->assertArrayNotHasKey($alias, $editHooks, "Der Alias {$alias} ist mit v0.9.0 entfallen.");
+        }
 
         // Gegenprobe: Ohne aktives Plugin bleibt kein leerer Rahmen stehen.
         $admin->post('/admin/plugins/toggle', [
@@ -207,7 +217,7 @@ class ContactSectionHookTest extends FunctionalTestCase {
             'version' => '1.0.0',
             'core_compatibility' => '>=0.1.0-beta.1',
             'core_supported_max' => '9.9',
-            'description' => 'Prüft die Erweiterungspunkte der Kontaktseite samt ihrer Aliasse.',
+            'description' => 'Prüft die Erweiterungspunkte der Kontaktseite und dass die alten Aliasse schweigen.',
             'author' => 'Tests',
             'hooks' => [
                 'contact.detail_sections', 'person.detail_sections', 'station.detail_sections',
@@ -223,9 +233,8 @@ namespace Plugin\HooktestAddon;
 class Plugin {
 
     public function register($hooks): void {
-        // Fingerabdruck der Argumente: Er muss bei contact.* und bei beiden
-        // Aliassen Zeichen fuer Zeichen derselbe sein - genau das ist die
-        // Zusage "mit denselben Argumenten".
+        // Fingerabdruck der Argumente - er belegt, dass der Hook den Kontakt
+        // und seine Pferde wirklich bekommt und nicht bloss leer feuert.
         $fingerabdruck = static function (array $contact, array $horsesByRole, array $stationHorses): string {
             $rollen = array_keys($horsesByRole);
             sort($rollen);

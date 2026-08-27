@@ -40,7 +40,7 @@ abgelegten Plugins, unabhängig davon, ob/wann eine externe Registry kommt.
 ## 2. Architektur-Grundentscheidungen
 
 Angelehnt an die bestehenden Prinzipien des Frameworks (keine externen
-Abhängigkeiten (seit v0.10 genau eine, siehe docs/architecture.md),
+Abhängigkeiten (seit v0.9.0 genau eine, siehe docs/architecture.md),
 minimalistisches MVC, `ensureSchemaUpToDate()`-
 Pattern statt klassischer Migrationen):
 

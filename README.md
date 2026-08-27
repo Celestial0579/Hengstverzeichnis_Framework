@@ -26,10 +26,13 @@ Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 
 Für den produktiven Betrieb ohne lokalen Build steht das bei jedem Release
 automatisch gebaute Image unter `ghcr.io/celestial0579/hengstverzeichnis_framework`
-bereit (Tags `<version>` und `latest`); klassisches Shared-Hosting ohne
-Docker nutzt stattdessen das bereinigte Source-Zip aus den
-[Releases](../../releases) (siehe [docs/releasing.md](docs/releasing.md)
-und Variante B unten).
+bereit. **Für den produktiven Betrieb wird ein fester Versions-Tag empfohlen**
+(`:0.9.0`), nicht `:latest`: Wer `latest` fährt, bekommt jede neue Hauptversion
+ungefragt, samt der Schema-Migration, die dazugehört. `latest` folgt
+ausschliesslich Versionen ohne Vorabsuffix — eine Beta verschiebt es nicht.
+Klassisches Shared-Hosting ohne Docker nutzt stattdessen das bereinigte
+Source-Zip aus den [Releases](../../releases) (siehe
+[docs/releasing.md](docs/releasing.md) und Variante B unten).
 
 ## Bereits umgesetzt
 
@@ -49,9 +52,13 @@ und Variante B unten).
   Selfservice-Registrierung
 - Anmeldung mit Benutzername **oder** E-Mail-Adresse; die Adresse ist nur für
   Konten mit Bearbeitungs- oder Veröffentlichungsrechten Pflicht (#348)
-- 2FA wahlweise per Authentikator-App (TOTP) oder Einmalcode per E-Mail (#354),
-  mit konfigurierbarer Pflicht pro Gruppe, optional Microsoft
-  Entra ID SSO, Session-Hardening, Rate-Limiting, revisionssicheres Audit-Log
+- Zweiter Faktor wahlweise als **Passkey** (WebAuthn/FIDO2 — Fingerabdruck,
+  Gesicht, Geräte-PIN oder Sicherheitsschlüssel, #353), Authentikator-App
+  (TOTP) oder Einmalcode per E-Mail (#354). Der Passkey ist der einzige der
+  drei, der gegen Phishing trägt: Er ist an die Domain gebunden und lässt sich
+  auf einer nachgebauten Seite nicht verwenden. Dazu konfigurierbare Pflicht
+  pro Gruppe, optional Microsoft Entra ID SSO, Session-Hardening,
+  Rate-Limiting, revisionssicheres Audit-Log
 - JSON-API mit benutzergebundenen, rechtebegrenzten API-Schlüsseln
 - Foto- und Videopflege je Pferd (Hauptbild, Reihenfolge, Bildunterschrift),
   Auslieferung ausschliesslich über eine zugriffsgeschützte Route
@@ -59,6 +66,12 @@ und Variante B unten).
 - Zeitgesteuerte Aufgaben (Cron/Scheduler), automatische externe Backups
   (S3/WebDAV/FTPS, optional inkl. hochgeladener Dateien), E-Mail-Digest,
   Auto-Update mit Pflicht-Backup
+- **Integritätsprüfung und Selbstreparatur** (#403): Die Installation vergleicht
+  ihre Kern-Dateien gegen die Prüfsummen der ausgelieferten Fassung und meldet
+  jede Abweichung im Adminbereich; fehlende oder veränderte Kern-Dateien lassen
+  sich von dort wiederherstellen. Grundlage ist eine ausdrückliche Einteilung
+  des Verzeichnisbaums in Kern, Betreiber-Daten und Laufzeit — ein Update fasst
+  nur den Kern an, und gelöscht wird ausschliesslich mit Nachweis
 - Mehrsprachigkeit (Deutsch/Englisch)
 - DSGVO-Kontaktformular inkl. Verwaltung (Anonymisierung/Löschung) im Admin-Bereich
 - Impressum & Datenschutzinformationen

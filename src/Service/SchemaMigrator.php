@@ -1558,7 +1558,17 @@ final class SchemaMigrator {
         // Die Tabellen werden UMBENANNT, nicht gelöscht: Der Umbau fasst jeden
         // Kontakt und jede Zuordnung an, und ein Rückweg muss existieren. Unter
         // dem alten Namen kann kein Code sie mehr versehentlich lesen, die Daten
-        // sind aber noch da. Entfernt werden sie in v0.9.0.
+        // sind aber noch da.
+        //
+        // ENTFERNT WERDEN SIE IN v0.10, NICHT IN v0.9.0. Die ursprüngliche
+        // Zusage lautete auf 0.9.0 und wurde bei der Freigabe bewusst
+        // verschoben: Mit den Tabellen stirbt `database/rollback-336.php`, der
+        // einzige Rückweg aus der Kontakt-Zusammenlegung. Die 0.9.0 ist die
+        // erste suffixfreie Fassung, die diese Umstellung an Bestände
+        // ausliefert — genau der Zeitpunkt, zu dem der Rückweg am ehesten
+        // gebraucht wird. Ihn im selben Release zu kappen wäre die falsche
+        // Reihenfolge. Wer den Termin erneut verschiebt, ändert BEIDE Stellen:
+        // diesen Kommentar und die Meldung an den Betreiber weiter unten.
         $dataStep('336_altbestand_stilllegen', function () use ($pdo, $tabelleExistiert, $dropForeignKey): ?array {
             if (!$tabelleExistiert('persons') && !$tabelleExistiert('breeding_stations')) {
                 return null;
@@ -1592,7 +1602,7 @@ final class SchemaMigrator {
                 if ($tabelleExistiert($alt) && !$tabelleExistiert($neu)) {
                     $dropForeignKey($alt, 'id');
                     $pdo->exec("RENAME TABLE `{$alt}` TO `{$neu}`");
-                    $meldungen[] = "Tabelle {$alt} nach {$neu} umbenannt (Rückweg für #336; entfällt in v0.9.0)";
+                    $meldungen[] = "Tabelle {$alt} nach {$neu} umbenannt (Rückweg für #336; entfällt in v0.10)";
                 }
             }
 

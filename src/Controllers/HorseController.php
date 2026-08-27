@@ -1487,18 +1487,22 @@ class HorseController extends BaseController {
 
             foreach ($personsData as $index => $item) {
                 // Die Formularfelder heissen seit #336 contact_id und
-                // station_contact_id wie die Spalten. Die alten Namen werden
-                // WEITER angenommen - genau wie die Hook-Aliasse person.* /
-                // station.* und aus demselben Grund: Skript-POSTs und externe
-                // Formulare, die auf dieser Schnittstelle sitzen, sollen nicht
-                // still ins Leere schreiben. Faellt in v0.9.0 weg.
-                $contactId = !empty($item['contact_id'])
-                    ? (int)$item['contact_id']
-                    : (!empty($item['person_id']) ? (int)$item['person_id'] : null);
+                // station_contact_id wie die Spalten.
+                //
+                // DIE ALTEN NAMEN person_id / breeding_station_id WERDEN SEIT
+                // v0.9.0 NICHT MEHR ANGENOMMEN - zusammen mit den Hook-Aliassen
+                // person.*/station.* und aus demselben Grund (#347). Sie liefen
+                // seit v0.8 mit, damit Skript-POSTs und externe Formulare nicht
+                // still ins Leere schreiben; das Ende war fuer v0.9.0
+                // angekuendigt. Wer sie noch sendet, schreibt ab jetzt genau
+                // das: ins Leere. Das ist gewollt und angekuendigt - eine
+                // Schnittstelle, die zwei Namen fuer dieselbe Sache dauerhaft
+                // annimmt, hat am Ende zwei Wahrheiten.
+                $contactId = !empty($item['contact_id']) ? (int)$item['contact_id'] : null;
                 $role = $item['role'] ?? 'owner';
                 $stationId = !empty($item['station_contact_id'])
                     ? (int)$item['station_contact_id']
-                    : (!empty($item['breeding_station_id']) ? (int)$item['breeding_station_id'] : null);
+                    : null;
                 // Unbekannte IDs auf NULL statt in den Fremdschluessel laufen
                 // lassen (#317). Die Auswahl im Formular ist beim Oeffnen der
                 // Seite eingefroren; was dort stand, kann inzwischen hart

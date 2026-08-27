@@ -8,20 +8,69 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
-### Dokumentation
+## [0.9.0] – 2026-08-27
 
-- **Release-Anleitung: was `latest` bekommt, und was mit dem Altstand ist**
-  (#409). Die Anleitung behauptete, jeder Release setze `<version>` **und**
-  `latest`. Seit v0.9.0-beta.6 stimmt das nicht mehr: `latest` bekommt nur
-  eine Version ohne Suffix. Dazu die Entscheidung zum Altstand, damit sie
-  nicht bei der nächsten Freigabe neu getroffen werden muss — `latest` zeigt
-  auf v0.9.0-beta.5 und bleibt dort, weil ein Rückhängen auf v0.8.0 für
-  Installationen mit Watchtower ein Downgrade wäre und `SCHEMA_VERSION` sich
-  nicht zurückrollen lässt. Der Zustand korrigiert sich mit dem ersten
-  Release ohne Suffix; die Kontrolle dafür steht jetzt als Schritt in der
-  Anleitung.
+**Die erste Fassung der 0.9er-Linie ohne Vorabsuffix.** Was in den sechs Betas
+seit dem 21.08. entstanden ist, gilt ab hier als freigegeben; die Abschnitte
+darunter beschreiben es im Einzelnen. Neu gegenüber `v0.9.0-beta.6` sind die
+Punkte in diesem Abschnitt.
+
+> **Für Betreiber, die von 0.8.x kommen:** Diese Version bringt brechende
+> Änderungen mit und hebt das Datenbankschema von 12 auf 20. Die Anleitung
+> dazu steht im Wiki unter *Upgrade von 0.8 auf 0.9* — bitte vorher lesen,
+> besonders den Abschnitt zur Sicherung: Pferdefotos liegen seit 0.8 unter
+> `storage/horses` und **nicht** mehr in `public/uploads`.
+
+### Entfernt — angekündigte Fristen, die jetzt ablaufen
+
+- **Die Hook-Aliasse `person.*` und `station.*` feuern nicht mehr** (#347).
+  Sie liefen die 0.8-Linie über zusätzlich zu ihren `contact.*`-Gegenstücken,
+  damit ein Addon aus der 0.7-Linie unverändert weiterlief;
+  `docs/plugin-development.md` und `docs/kontaktliste-umstellung.md` haben ihr
+  Ende für v0.9.0 angekündigt. **Ein Addon, das noch an ihnen hängt, wird ab
+  jetzt nicht mehr gerufen** und muss auf `contact.*` umgestellt werden — die
+  Argumente sind dieselben.
+
+  Der Grund war nie Aufräumen: Seit `persons` und `breeding_stations` eine
+  Tabelle sind (#336), bekäme ein Addon, das beide Paare registriert hat,
+  denselben Datensatz zweimal. Kein offizielles Addon war betroffen.
+
+  Mit der Auffächerung fällt auch die Hilfsmethode, die den Hook-Namen
+  zusammensetzte. Ein zusammengesetzter Name ist für jeden statischen Leser
+  unsichtbar — für den, der nach `contact.after_save` greppt, und für den
+  Abdeckungstest im Addons-Repo, der aus dem Kern-Quelltext ausliest, welche
+  Hooks es gibt. Hooks werden jetzt ausschliesslich als Literal ausgelöst.
+
+- **Die alten POST-Feldnamen `person_id` und `breeding_station_id` werden am
+  Pferdeformular nicht mehr angenommen** (#347, dieselbe Frist). Die Felder
+  heissen seit #336 `contact_id` und `station_contact_id`. Wer die alten Namen
+  noch sendet, schreibt ab jetzt ins Leere — angekündigt und gewollt: Eine
+  Schnittstelle, die zwei Namen für dieselbe Sache dauerhaft annimmt, hat am
+  Ende zwei Wahrheiten. Das gleichnamige Feld des Pferds selbst,
+  `horses.breeding_station_id`, ist davon **nicht** betroffen.
+
+- **Verschoben, nicht vergessen:** Die stillgelegten Alttabellen
+  `persons_pre_contacts` und `breeding_stations_pre_contacts` sollten laut
+  Code-Kommentar ebenfalls in v0.9.0 fallen. Sie bleiben bis **v0.10**. Mit
+  ihnen stirbt `database/rollback-336.php`, der einzige Rückweg aus der
+  Kontakt-Zusammenlegung — und diese Version ist die erste ohne Suffix, die
+  die Umstellung an Bestände ausliefert, also genau der Zeitpunkt, zu dem der
+  Rückweg am ehesten gebraucht wird. Der Kommentar und die betreibersichtbare
+  Migrationsmeldung nennen jetzt v0.10 statt v0.9.0.
 
 ### Behoben
+
+- **Die Datenschutz-Auskunft im Kontaktformular nannte ein Feld, das es nicht
+  mehr gibt.** Der Kasten „Was von diesem Kontakt öffentlich wird" führte
+  `Mitgliedsstatus` unter *Immer öffentlich* — das Freitextfeld ist mit #349
+  entfallen. Eine falsche Angabe ausgerechnet dort, wo ein Betreiber
+  nachliest, was er gerade freigibt.
+
+- **`docker-compose.yml`: der `app`-Dienst hatte keinen Registry-Namen.**
+  Damit liefen beide dort dokumentierten Update-Wege ins Leere —
+  `docker compose pull` kann nur ziehen, was einen Namen hat, und Watchtower
+  aktualisiert nur Container aus einem Registry-Image. `image:` ist jetzt
+  gesetzt, `build: .` bleibt für die Entwicklung daneben.
 
 - **Katalog-Filterlisten: die fehlende Indexlage nachgezogen** (#412). Die
   beiden Vorschlagslisten des öffentlichen Katalogs (Deckstation, Person)
@@ -54,6 +103,34 @@ Breaking Changes sind jederzeit möglich).
   beim nächsten Start selbsttätig nach; der Schritt prüft die Spalten und
   nicht bloss den Namen, weil `idx_horse_persons_contact` schon vorher
   existierte — nur zu schmal.
+
+### Betreiber-Dokumentation
+
+- **Das Wiki stand auf dem Stand v0.4.0 vom 10.08.** — fünf Nebenversionen
+  zurück. Es ist auf 0.9 nachgezogen: Passkeys, Integritätsprüfung und
+  Selbstreparatur, die Einteilung des Verzeichnisbaums, Kontaktverwaltung,
+  Galerie, Sprach-Addons und Vorschaubilder. Dazu eine neue Seite *Upgrade von
+  0.8 auf 0.9*.
+
+  Zwei Korrekturen wiegen schwerer als der Rest: Die Installationsanleitung
+  verlangte **PHP 8.3**, das Framework braucht 8.5 — wer ihr folgte, richtete
+  die falsche Umgebung ein. Und die Sicherungsanleitung nannte
+  `public/uploads` als Ort der Pferdefotos; die liegen seit 0.8 unter
+  `storage/horses`. Eine Sicherung nach dem alten Text enthielt **kein
+  einziges Pferdefoto**.
+
+### Dokumentation
+
+- **Release-Anleitung: was `latest` bekommt, und was mit dem Altstand ist**
+  (#409). Die Anleitung behauptete, jeder Release setze `<version>` **und**
+  `latest`. Seit v0.9.0-beta.6 stimmt das nicht mehr: `latest` bekommt nur
+  eine Version ohne Suffix. Dazu die Entscheidung zum Altstand, damit sie
+  nicht bei der nächsten Freigabe neu getroffen werden muss — `latest` zeigt
+  auf v0.9.0-beta.5 und bleibt dort, weil ein Rückhängen auf v0.8.0 für
+  Installationen mit Watchtower ein Downgrade wäre und `SCHEMA_VERSION` sich
+  nicht zurückrollen lässt. Der Zustand korrigiert sich mit dem ersten
+  Release ohne Suffix; die Kontrolle dafür steht jetzt als Schritt in der
+  Anleitung.
 
 ### Tests
 

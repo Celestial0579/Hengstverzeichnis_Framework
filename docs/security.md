@@ -607,7 +607,7 @@ Benutzernamen zu vermeiden.
 
 ## Passkeys (WebAuthn)
 
-Seit v0.10 (#353). Der stärkste der drei zweiten Faktoren, und der einzige,
+Seit v0.9.0 (#353). Der stärkste der drei zweiten Faktoren, und der einzige,
 der gegen Phishing trägt: Ein Passkey ist an die Domain gebunden und lässt
 sich auf einer nachgebauten Seite nicht verwenden.
 

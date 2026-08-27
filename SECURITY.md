@@ -46,8 +46,11 @@ ausschließlich auf eigenen Installationen testen, sind ausgeschlossen.
 
 ## Unterstützte Versionen
 
-Da sich das Projekt aktuell in der Beta-Phase befindet, wird jeweils nur die
-neueste veröffentlichte Version mit Sicherheitsupdates versorgt.
+Es wird jeweils nur die neueste veröffentlichte Version mit Sicherheitsupdates
+versorgt. Das Projekt steht in der `0.y.z`-Linie: Breaking Changes sind nach
+SemVer jederzeit möglich, und rückwirkende Korrekturen für ältere Nebenlinien
+gibt es nicht — wer abgesichert bleiben will, bleibt auf der aktuellen
+Version.
 
 ## Bereits umgesetzte Schutzmaßnahmen
 

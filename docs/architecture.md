@@ -14,7 +14,7 @@ eine Anmeldung, die durchgeht, obwohl sie es nicht sollte. Für alles andere
 gilt die Linie weiter — CSV, S3, WebDAV, FTPS, Übersetzungen, QR-Codes und
 Captcha sind nach wie vor selbst gebaut.
 
-`vendor/` wird deshalb seit v0.10 **mitgeliefert**: im Release-Archiv und im
+`vendor/` wird deshalb seit v0.9.0 **mitgeliefert**: im Release-Archiv und im
 Docker-Image. Ein Betreiber auf Shared Hosting braucht kein Composer.
 Alles läuft über einen einzigen Front-Controller (`public/index.php`), einen
 schlanken Router, Controller-Klassen und PHP-Views mit einem gemeinsamen Layout.

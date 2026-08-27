@@ -8,6 +8,24 @@
 # auskommentierte Dienst). Migrationen laufen wie gewohnt beim nächsten Aufruf.
 services:
   app:
+    # BEIDES, und das ist Absicht.
+    #
+    # `image:` ist der Grund, warum der oben dokumentierte Update-Weg
+    # ueberhaupt funktioniert: `docker compose pull` kann nur ziehen, was einen
+    # Registry-Namen hat, und Watchtower aktualisiert ausschliesslich Container,
+    # die aus einem Registry-Image entstanden sind. Ohne diese Zeile liefen
+    # beide dokumentierten Wege ins Leere - der Dienst wurde nur lokal gebaut.
+    #
+    # `build: .` bleibt fuer die Entwicklung: Ist das Image lokal nicht da,
+    # baut Compose es aus diesem Verzeichnis. Wer aus dem Quellbaum arbeitet,
+    # nimmt `docker compose up -d --build`.
+    #
+    # FUER DEN PRODUKTIVBETRIEB hier einen FESTEN Versions-Tag eintragen
+    # (z. B. `:0.9.0`) statt `:latest`. `latest` folgt zwar nur Versionen ohne
+    # Vorabsuffix, springt aber ungefragt auf die naechste Hauptversion - samt
+    # der Schema-Migration, die dazugehoert. Mit einem festen Tag entscheidet
+    # der Betreiber, wann das passiert.
+    image: ghcr.io/celestial0579/hengstverzeichnis_framework:latest
     build: .
     ports:
       - "8080:80"

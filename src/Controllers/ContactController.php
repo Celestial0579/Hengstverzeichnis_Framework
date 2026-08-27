@@ -376,21 +376,26 @@ class ContactController extends BaseController {
         return $errors;
     }
 
-    /**
-     * Löst einen Kontakt-Hook aus - und zusätzlich die alten Namen `person.*`
-     * und `station.*` mit denselben Argumenten (#347).
+    /*
+     * HIER STAND doContactAction(). Die Methode setzte den Hook-Namen aus
+     * einem Präfix und dem Ereignis zusammen und löste jedes Kontakt-Ereignis
+     * dreimal aus: `contact.*`, `person.*`, `station.*`.
      *
-     * Grund: Ein Addon, das sich bis v0.7 an `person.…`/`station.…` gehängt
-     * hat, läuft in v0.8 unverändert weiter. Die Aliasse entfallen in v0.9.0,
-     * so steht es in docs/plugin-development.md und
-     * docs/kontaktliste-umstellung.md. Für Filter gilt dieselbe Reihenfolge,
-     * dort aber kaskadierend - siehe edit().
+     * DIE ALIASSE SIND MIT v0.9.0 ENTFALLEN (#347). Sie liefen die 0.8-Linie
+     * über mit, damit ein Addon aus der 0.7-Linie unverändert weiterlief;
+     * `docs/plugin-development.md` und `docs/kontaktliste-umstellung.md` haben
+     * ihr Ende für v0.9.0 angekündigt. Der Grund war nie Aufräumen: Seit
+     * `persons` und `breeding_stations` EINE Tabelle sind (#336), bekäme ein
+     * Addon, das beide Paare registriert hatte, denselben Datensatz zweimal.
+     *
+     * Mit der Auffächerung fällt auch die Methode - und zwar nicht aus
+     * Ordnungsliebe. Ein zusammengesetzter Hook-Name ist für jeden statischen
+     * Leser unsichtbar: für den, der nach `contact.after_save` greppt, und für
+     * den Abdeckungstest im Addons-Repo, der aus dem Kern-Quelltext ausliest,
+     * welche Hooks es überhaupt gibt. Der musste die Stelle bisher als
+     * Sonderfall führen. Hooks werden deshalb ausschliesslich als Literal
+     * ausgelöst.
      */
-    private function doContactAction(string $event, mixed ...$args): void {
-        foreach (['contact.', 'person.', 'station.'] as $prefix) {
-            $this->hooks()->doAction($prefix . $event, ...$args);
-        }
-    }
 
     public function store(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -443,7 +448,7 @@ class ContactController extends BaseController {
 
         // Muster wie horse.after_save: erst speichern, dann melden - ein Addon
         // soll den fertigen Datensatz vorfinden, nicht einen halben.
-        $this->doContactAction('after_save', $newContactId, $_POST, true);
+        $this->hooks()->doAction('contact.after_save', $newContactId, $_POST, true);
 
         header("Location: /admin/contacts?success=created");
         exit;
@@ -483,16 +488,9 @@ class ContactController extends BaseController {
         // eigene Felder am Datensatz pflegen (etwa ein Kontaktanfragen-Opt-out),
         // ohne dass der Kern eine Spalte dafuer mitbringen muss.
         //
-        // Die beiden alten Namen laufen KASKADIEREND hinterher (#347): erst
-        // contact.*, dann person.*, dann station.*, jedes auf dem Ergebnis des
-        // vorherigen. Anders als bei einer Action ist die Reihenfolge hier
-        // wesentlich - wer $sections zurueckgibt, muss die Abschnitte der
-        // vorherigen Fassung mitbekommen, sonst wirft der zweite Hook die
-        // Arbeit des ersten weg. So steht es in
-        // docs/kontaktliste-umstellung.md; ab v0.9.0 bleibt nur contact.*.
+        // Die kaskadierenden Aliasse person.*/station.* sind mit v0.9.0
+        // entfallen (#347) - siehe den Kommentar oben bei den Kontakt-Hooks.
         $pluginEditSections = $this->hooks()->applyFilters('contact.edit_sections', [], $contact);
-        $pluginEditSections = $this->hooks()->applyFilters('person.edit_sections', $pluginEditSections, $contact);
-        $pluginEditSections = $this->hooks()->applyFilters('station.edit_sections', $pluginEditSections, $contact);
 
         $this->render('admin_contact_form', [
             'title' => 'Kontakt bearbeiten',
@@ -582,7 +580,7 @@ class ContactController extends BaseController {
 
         \App\Service\AuditLogger::log("Kontakt aktualisiert", "contacts", "Kontakt ID {$id}: {$name}");
 
-        $this->doContactAction('after_save', $id, $_POST, false);
+        $this->hooks()->doAction('contact.after_save', $id, $_POST, false);
 
         header("Location: /admin/contacts?success=updated");
         exit;
@@ -899,7 +897,7 @@ class ContactController extends BaseController {
             // an dem der Kontakt aus der Oberflaeche verschwindet und ein Addon
             // seine abhaengigen Daten stilllegen muss. Der FK-CASCADE greift
             // beim Soft-Delete nicht, dieselbe Lage wie bei horse.trashed.
-            $this->doContactAction('deleted', $id, $contact);
+            $this->hooks()->doAction('contact.deleted', $id, $contact);
         }
 
         header("Location: /admin/contacts?success=deleted");

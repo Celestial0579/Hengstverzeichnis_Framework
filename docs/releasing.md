@@ -128,10 +128,22 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
      ```bash
      docker buildx imagetools inspect \
        ghcr.io/celestial0579/hengstverzeichnis_framework:latest
+     docker buildx imagetools inspect \
+       ghcr.io/celestial0579/hengstverzeichnis_framework:<version>
      ```
 
      Zeigt `latest` danach auf den neuen Digest, ist #409 erledigt und das
      Issue kann geschlossen werden.
+
+     **Der zweite Aufruf gehört dazu, nicht nur der erste.** Aus der am
+     22.08. zurückgenommenen Freigabe blieb in GHCR ein Image-Tag `0.9.0`
+     stehen: Der Git-Tag wurde entfernt, das Image nicht. Es trug
+     `CORE_VERSION=0.9.0` und war 18 Commits alt — wer es zog, bekam eine
+     Installation, die sich für 0.9.0 hielt, jedes 0.9.0-Merkmal vermissen
+     liess und deshalb auch nie ein Update angeboten bekommen hätte. Der
+     Release-Lauf überschreibt den Versions-Tag zwar, aber genau das gehört
+     nachgesehen: Eine Rücknahme, die im Git vollzogen und in der Registry
+     vergessen wird, fällt sonst niemandem auf.
    - Bereinigtes Source-Zip für klassisches Shared-Hosting (ausgeschlossen
      sind `tests/`, `.github/`, `.claude/`, `composer.json`/`composer.lock`,
      `phpunit.xml` sowie die Docker-Dateien — die vollständige Liste steht

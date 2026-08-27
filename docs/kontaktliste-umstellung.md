@@ -67,11 +67,13 @@ ebenfalls dauerhaft um.
 Neu: `contact.detail_sections`, `contact.edit_sections`, `contact.after_save`,
 `contact.deleted`.
 
-Die alten Namen `person.*` und `station.*` werden **zusätzlich** ausgelöst,
-mit denselben Argumenten — ein Addon, das sie registriert hat, läuft in v0.8
-unverändert weiter. Für Filter (`applyFilters`) gilt: erst `contact.*`, dann
-`person.*`, dann `station.*`, jeweils auf dem Ergebnis des vorherigen. Die
-Aliasse entfallen in v0.9.0; `docs/plugin-development.md` sagt das.
+Die alten Namen `person.*` und `station.*` wurden in der 0.8-Linie
+**zusätzlich** ausgelöst, mit denselben Argumenten — ein Addon, das sie
+registriert hatte, lief unverändert weiter. **Mit v0.9.0 sind sie entfallen**,
+wie hier und in `docs/plugin-development.md` angekündigt. Dasselbe gilt für die
+alten POST-Feldnamen `person_id` und `breeding_station_id` am Pferdeformular:
+Sie werden nicht mehr angenommen, die Felder heissen `contact_id` und
+`station_contact_id`.
 
 ## Was NICHT umbenannt wird
 

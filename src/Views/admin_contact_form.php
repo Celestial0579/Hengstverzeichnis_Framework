@@ -4,8 +4,8 @@
  * Ein Formular für alle Kontakte (#336) - aus admin_person_form.php und
  * admin_breeding_station_form.php zusammengeführt. Es kann deshalb beides:
  * Ansprechpartner und Freitext-Anschrift (kamen von den Deckstationen),
- * interne Notiz, Mobilnummer, Mitgliedsstatus und das Züchter-Kennzeichen
- * (kamen von den Personen).
+ * interne Notiz, Mobilnummer und das Züchter-Kennzeichen (kamen von den
+ * Personen).
  *
  * @var array|null $contact
  * @var array<int, string>|null $errors
@@ -187,7 +187,7 @@ $haken = static function (string $name) use ($old, $contact): bool {
             <strong>Was von diesem Kontakt öffentlich wird:</strong>
             <ul style="margin: 0.4rem 0 0 1.1rem;">
                 <li><strong>Immer</strong> (sobald der Kontakt veröffentlicht ist): Name, Ort,
-                    Bundesland/Kanton, Land, Mitgliedsstatus, Website, Züchter-Kennzeichen.</li>
+                    Bundesland/Kanton, Land, Website, Züchter-Kennzeichen.</li>
                 <li><strong>Nur mit dem Häkchen unten:</strong> E-Mail, Telefon, Mobil, Straße,
                     Hausnummer, PLZ, Anschrift-Freitext, Ansprechpartner.</li>
                 <li><strong>Nie:</strong> die interne Notiz.</li>
@@ -249,9 +249,10 @@ $haken = static function (string $name) use ($old, $contact): bool {
 </div>
 
 <?php
-// Plugin-Abschnitte (Hook contact.edit_sections, dazu die Aliasse
-// person.edit_sections und station.edit_sections bis v0.9.0 - siehe
-// ContactController::edit()). Bewusst AUSSERHALB des Formulars oben:
+// Plugin-Abschnitte (Hook contact.edit_sections; die Aliasse
+// person.edit_sections und station.edit_sections sind mit v0.9.0 entfallen,
+// siehe den Kommentar bei den Kontakt-Hooks in ContactController). Bewusst
+// AUSSERHALB des Formulars oben:
 // Verschachtelte <form> sind ungueltiges HTML, und die Abnehmer brauchen
 // eigene Formulare. So bleibt jeder Schreibvorgang beim Plugin-Controller mit
 // dessen eigener Berechtigungspruefung - dieselbe Begruendung wie bei

@@ -48,7 +48,7 @@ final class VendorAutoload {
             // einem "Class not found" mitten im Anmeldevorgang - also an der
             // Stelle, an der eine klare Meldung am meisten wert ist.
             throw new \RuntimeException(
-                'vendor/autoload.php wurde nicht gefunden. Seit v0.10 braucht die Anwendung '
+                'vendor/autoload.php wurde nicht gefunden. Seit v0.9.0 braucht die Anwendung '
                 . 'die mitgelieferten Abhängigkeiten. Im Release-Archiv liegen sie bei; '
                 . 'in einer Arbeitskopie hilft "composer install --no-dev".'
             );

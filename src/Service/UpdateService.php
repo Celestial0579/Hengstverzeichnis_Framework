@@ -40,8 +40,16 @@ class UpdateService {
      * "/releases/latest"-Endpunkt: der schließt Prereleases immer aus und
      * könnte den Beta-Kanal (siehe CHANNEL_BETA) nicht bedienen - die
      * Kanal-Filterung übernimmt selectBestRelease().
+     *
+     * Seit dem Umzug nach Forgejo (2026-09) zeigt die Adresse auf
+     * git.firestrike.de statt auf api.github.com. Die Instanz dort ist die
+     * führende; GitHub wird über einen Push-Spiegel nachgezogen und bleibt
+     * als zweite Bezugsquelle bestehen. Forgejos Release-API bildet die von
+     * GitHub nach - `tag_name`, `draft`, `prerelease`, `html_url` und
+     * `assets[].browser_download_url` heißen dort gleich, weshalb an der
+     * Auswertung nichts anzupassen war. `per_page` versteht Forgejo ebenfalls.
      */
-    private const DEFAULT_RELEASES_URL = 'https://api.github.com/repos/Celestial0579/Hengstverzeichnis_Framework/releases?per_page=30';
+    private const DEFAULT_RELEASES_URL = 'https://git.firestrike.de/api/v1/repos/tim.heyne/Hengstverzeichnis_Framework/releases?per_page=30';
 
     /**
      * Update-Kanäle (#85-Follow-up): 'stable' (Default) sieht nur reguläre

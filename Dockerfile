@@ -15,7 +15,7 @@ RUN composer install --no-dev --optimize-autoloader --classmap-authoritative \
 # Base-Image per Digest festgenagelt (Supply-Chain-Härtung, OpenSSF Scorecard
 # "Pinned-Dependencies"). Der Tag bleibt lesbar dran; Dependabot (docker) hält
 # den Digest aktuell, Diun meldet neue Tags weiterhin.
-FROM php:8.5-apache@sha256:c9b6cccfd92473ce7c80ba15a52767ce403a21a6af8849296b6f23799bf2221f
+FROM php:8.5-apache@sha256:609de4eac65a03f20975441c9c3f313811d785575f0d02413c630753ab5c5532
 
 # ftp: für App\Service\FtpsClient (#93, FTPS als Backup-Ziel) - das
 # FTP-Protokoll selbst lässt sich anders als S3/WebDAV nicht über PHP-Streams

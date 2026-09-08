@@ -6,7 +6,7 @@
 # --no-dev: Die Testsuite gehoert nicht ins Auslieferungs-Image.
 # --classmap-authoritative: schaltet den PSR-4-Fallback ab, damit Klassen aus
 #   einer abgeloesten Bibliotheksfassung nicht auf Zuruf ladbar bleiben.
-FROM composer:2@sha256:d020706319701a44468968321dccd0fce6620190159a7a9ec195d78e6e971c71 AS deps
+FROM composer:2@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332 AS deps
 WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --optimize-autoloader --classmap-authoritative \

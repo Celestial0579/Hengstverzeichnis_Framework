@@ -8,23 +8,24 @@
     "packages": [
         {
             "name": "brick/math",
-            "version": "0.18.0",
+            "version": "1.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/brick/math.git",
-                "reference": "82944324d1c1bdb2c2618e89978d4e2ad78d69ad"
+                "reference": "2effe05d2177c451b86c6a073196a4034c02f211"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/brick/math/zipball/82944324d1c1bdb2c2618e89978d4e2ad78d69ad",
-                "reference": "82944324d1c1bdb2c2618e89978d4e2ad78d69ad",
+                "url": "https://api.github.com/repos/brick/math/zipball/2effe05d2177c451b86c6a073196a4034c02f211",
+                "reference": "2effe05d2177c451b86c6a073196a4034c02f211",
                 "shasum": ""
             },
             "require": {
                 "php": "^8.2"
             },
             "require-dev": {
-                "phpstan/phpstan": "2.1.22",
+                "phpstan/phpstan": "2.2.13",
+                "phpstan/phpstan-phpunit": "2.0.18",
                 "phpunit/phpunit": "^11.5"
             },
             "type": "library",
@@ -55,7 +56,7 @@
             ],
             "support": {
                 "issues": "https://github.com/brick/math/issues",
-                "source": "https://github.com/brick/math/tree/0.18.0"
+                "source": "https://github.com/brick/math/tree/1.0.0"
             },
             "funding": [
                 {
@@ -63,7 +64,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-06-14T18:21:03+00:00"
+            "time": "2026-09-12T10:28:18+00:00"
         },
         {
             "name": "doctrine/deprecations",
@@ -360,16 +361,16 @@
         },
         {
             "name": "phpstan/phpdoc-parser",
-            "version": "2.3.3",
+            "version": "2.3.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpstan/phpdoc-parser.git",
-                "reference": "fb19eedd2bb67ff8cf7a5502ad329e701d6398a3"
+                "reference": "148cefffaf0233e4c08cc13db8a195a56dd6dfe9"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpdoc-parser/zipball/fb19eedd2bb67ff8cf7a5502ad329e701d6398a3",
-                "reference": "fb19eedd2bb67ff8cf7a5502ad329e701d6398a3",
+                "url": "https://api.github.com/repos/phpstan/phpdoc-parser/zipball/148cefffaf0233e4c08cc13db8a195a56dd6dfe9",
+                "reference": "148cefffaf0233e4c08cc13db8a195a56dd6dfe9",
                 "shasum": ""
             },
             "require": {
@@ -401,9 +402,9 @@
             "description": "PHPDoc parser with support for nullable, intersection and generic types",
             "support": {
                 "issues": "https://github.com/phpstan/phpdoc-parser/issues",
-                "source": "https://github.com/phpstan/phpdoc-parser/tree/2.3.3"
+                "source": "https://github.com/phpstan/phpdoc-parser/tree/2.3.5"
             },
-            "time": "2026-07-08T07:01:06+00:00"
+            "time": "2026-08-31T16:05:28+00:00"
         },
         {
             "name": "psr/clock",
@@ -608,22 +609,23 @@
         },
         {
             "name": "spomky-labs/cbor-php",
-            "version": "3.3.0",
+            "version": "3.4.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Spomky-Labs/cbor-php.git",
-                "reference": "013d13da69cf28b1ae501887daceccc850ca1c76"
+                "reference": "8f5ea00a07ad529d20886505cdbeb2b9ac7bb2d6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Spomky-Labs/cbor-php/zipball/013d13da69cf28b1ae501887daceccc850ca1c76",
-                "reference": "013d13da69cf28b1ae501887daceccc850ca1c76",
+                "url": "https://api.github.com/repos/Spomky-Labs/cbor-php/zipball/8f5ea00a07ad529d20886505cdbeb2b9ac7bb2d6",
+                "reference": "8f5ea00a07ad529d20886505cdbeb2b9ac7bb2d6",
                 "shasum": ""
             },
             "require": {
-                "brick/math": "^0.9|^0.10|^0.11|^0.12|^0.13|^0.14|^0.15|^0.16|^0.17|^0.18",
+                "brick/math": "^0.9|^0.10|^0.11|^0.12|^0.13|^0.14|^0.15|^0.16|^0.17|^0.18|^0.19|^0.20|^1.0",
                 "ext-mbstring": "*",
-                "php": ">=8.0"
+                "php": ">=8.0",
+                "symfony/polyfill-php81": "^1.32"
             },
             "require-dev": {
                 "ext-json": "*",
@@ -632,8 +634,8 @@
                 "symfony/var-dumper": "^6.4|^7.1|^8.0"
             },
             "suggest": {
-                "ext-bcmath": "GMP or BCMath extensions will drastically improve the library performance. BCMath extension needed to handle the Big Float and Decimal Fraction Tags",
-                "ext-gmp": "GMP or BCMath extensions will drastically improve the library performance"
+                "ext-bcmath": "Improves the library performance when ext-gmp is missing, and is required to handle the Big Float and Decimal Fraction Tags (4 and 5)",
+                "ext-gmp": "Strongly recommended when decoding untrusted input: without it, converting the byte string of a Big Number Tag (2 and 3) is quadratic in its length. Also improves the library performance overall"
             },
             "type": "library",
             "autoload": {
@@ -663,7 +665,7 @@
             ],
             "support": {
                 "issues": "https://github.com/Spomky-Labs/cbor-php/issues",
-                "source": "https://github.com/Spomky-Labs/cbor-php/tree/3.3.0"
+                "source": "https://github.com/Spomky-Labs/cbor-php/tree/3.4.2"
             },
             "funding": [
                 {
@@ -675,24 +677,24 @@
                     "type": "patreon"
                 }
             ],
-            "time": "2026-07-15T18:56:27+00:00"
+            "time": "2026-09-15T06:55:29+00:00"
         },
         {
             "name": "spomky-labs/pki-framework",
-            "version": "1.6.0",
+            "version": "1.6.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/Spomky-Labs/pki-framework.git",
-                "reference": "80778a25426288acd2e3a7cde2def41a3d59cddf"
+                "reference": "792e909d4e387adffe3c4f404451c7d57a3d2022"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Spomky-Labs/pki-framework/zipball/80778a25426288acd2e3a7cde2def41a3d59cddf",
-                "reference": "80778a25426288acd2e3a7cde2def41a3d59cddf",
+                "url": "https://api.github.com/repos/Spomky-Labs/pki-framework/zipball/792e909d4e387adffe3c4f404451c7d57a3d2022",
+                "reference": "792e909d4e387adffe3c4f404451c7d57a3d2022",
                 "shasum": ""
             },
             "require": {
-                "brick/math": "^0.10|^0.11|^0.12|^0.13|^0.14|^0.15|^0.16|^0.17|^0.18|^0.19",
+                "brick/math": "^0.10|^0.11|^0.12|^0.13|^0.14|^0.15|^0.16|^0.17|^0.18|^0.19|^0.20|^1.0",
                 "ext-mbstring": "*",
                 "php": ">=8.1"
             },
@@ -717,7 +719,8 @@
             "suggest": {
                 "ext-bcmath": "For better performance (or GMP)",
                 "ext-gmp": "For better performance (or BCMath)",
-                "ext-openssl": "For OpenSSL based cyphering"
+                "ext-openssl": "For OpenSSL based cyphering",
+                "ext-sodium": "To verify Ed25519 signatures where the OpenSSL extension has no EdDSA"
             },
             "type": "library",
             "autoload": {
@@ -772,7 +775,7 @@
             ],
             "support": {
                 "issues": "https://github.com/Spomky-Labs/pki-framework/issues",
-                "source": "https://github.com/Spomky-Labs/pki-framework/tree/1.6.0"
+                "source": "https://github.com/Spomky-Labs/pki-framework/tree/1.6.3"
             },
             "funding": [
                 {
@@ -784,7 +787,7 @@
                     "type": "patreon"
                 }
             ],
-            "time": "2026-08-06T16:21:11+00:00"
+            "time": "2026-09-12T19:02:49+00:00"
         },
         {
             "name": "symfony/clock",
@@ -1101,16 +1104,16 @@
         },
         {
             "name": "symfony/polyfill-intl-normalizer",
-            "version": "v1.38.0",
+            "version": "v1.42.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-intl-normalizer.git",
-                "reference": "2d446c214bdbe5b71bde5011b060a05fece3ae6b"
+                "reference": "aa20edea75bd9c48cfecc8360922e5a6e5c44502"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-intl-normalizer/zipball/2d446c214bdbe5b71bde5011b060a05fece3ae6b",
-                "reference": "2d446c214bdbe5b71bde5011b060a05fece3ae6b",
+                "url": "https://api.github.com/repos/symfony/polyfill-intl-normalizer/zipball/aa20edea75bd9c48cfecc8360922e5a6e5c44502",
+                "reference": "aa20edea75bd9c48cfecc8360922e5a6e5c44502",
                 "shasum": ""
             },
             "require": {
@@ -1162,7 +1165,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.38.0"
+                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.42.0"
             },
             "funding": [
                 {
@@ -1182,7 +1185,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-05-25T13:48:31+00:00"
+            "time": "2026-08-07T06:33:24+00:00"
         },
         {
             "name": "symfony/polyfill-mbstring",
@@ -1268,6 +1271,86 @@
                 }
             ],
             "time": "2026-05-27T06:59:30+00:00"
+        },
+        {
+            "name": "symfony/polyfill-php81",
+            "version": "v1.38.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/symfony/polyfill-php81.git",
+                "reference": "6bfb9c766cacffbc8e118cb87217d08ed84e5cd7"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/symfony/polyfill-php81/zipball/6bfb9c766cacffbc8e118cb87217d08ed84e5cd7",
+                "reference": "6bfb9c766cacffbc8e118cb87217d08ed84e5cd7",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.2"
+            },
+            "type": "library",
+            "extra": {
+                "thanks": {
+                    "url": "https://github.com/symfony/polyfill",
+                    "name": "symfony/polyfill"
+                }
+            },
+            "autoload": {
+                "files": [
+                    "bootstrap.php"
+                ],
+                "psr-4": {
+                    "Symfony\\Polyfill\\Php81\\": ""
+                },
+                "classmap": [
+                    "Resources/stubs"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Nicolas Grekas",
+                    "email": "p@tchwork.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Symfony polyfill backporting some PHP 8.1+ features to lower PHP versions",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "compatibility",
+                "polyfill",
+                "portable",
+                "shim"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/polyfill-php81/tree/v1.38.1"
+            },
+            "funding": [
+                {
+                    "url": "https://symfony.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/fabpot",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/nicolas-grekas",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2026-05-26T12:45:58+00:00"
         },
         {
             "name": "symfony/polyfill-uuid",
@@ -1435,16 +1518,16 @@
         },
         {
             "name": "symfony/property-info",
-            "version": "v8.1.5",
+            "version": "v8.1.7",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/property-info.git",
-                "reference": "b335f8e7fb1440ed3448fb33340efc6127678e53"
+                "reference": "b42ee98197831d33788c33492cfc35ba62d1f701"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/property-info/zipball/b335f8e7fb1440ed3448fb33340efc6127678e53",
-                "reference": "b335f8e7fb1440ed3448fb33340efc6127678e53",
+                "url": "https://api.github.com/repos/symfony/property-info/zipball/b42ee98197831d33788c33492cfc35ba62d1f701",
+                "reference": "b42ee98197831d33788c33492cfc35ba62d1f701",
                 "shasum": ""
             },
             "require": {
@@ -1497,7 +1580,7 @@
                 "validator"
             ],
             "support": {
-                "source": "https://github.com/symfony/property-info/tree/v8.1.5"
+                "source": "https://github.com/symfony/property-info/tree/v8.1.7"
             },
             "funding": [
                 {
@@ -1517,20 +1600,20 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-08-21T17:47:34+00:00"
+            "time": "2026-09-04T10:14:04+00:00"
         },
         {
             "name": "symfony/serializer",
-            "version": "v8.1.5",
+            "version": "v8.1.7",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/serializer.git",
-                "reference": "9c064d505c661e3e17aa8999870f4fb0ed05e024"
+                "reference": "9a88015b4bb1a2bc5a3bbdf6ca3025444ba67321"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/serializer/zipball/9c064d505c661e3e17aa8999870f4fb0ed05e024",
-                "reference": "9c064d505c661e3e17aa8999870f4fb0ed05e024",
+                "url": "https://api.github.com/repos/symfony/serializer/zipball/9a88015b4bb1a2bc5a3bbdf6ca3025444ba67321",
+                "reference": "9a88015b4bb1a2bc5a3bbdf6ca3025444ba67321",
                 "shasum": ""
             },
             "require": {
@@ -1596,7 +1679,7 @@
             "description": "Handles serializing and deserializing data structures, including object graphs, into array structures or other formats like XML and JSON.",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/serializer/tree/v8.1.5"
+                "source": "https://github.com/symfony/serializer/tree/v8.1.7"
             },
             "funding": [
                 {
@@ -1616,20 +1699,20 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-08-22T09:06:25+00:00"
+            "time": "2026-09-08T13:39:13+00:00"
         },
         {
             "name": "symfony/string",
-            "version": "v8.1.2",
+            "version": "v8.1.7",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/string.git",
-                "reference": "286a76b7255e5cc4bf0101a0bc5388ecf1c38ccc"
+                "reference": "d950140b5f56f31901e5b7a0c04ffc3a3deb943c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/string/zipball/286a76b7255e5cc4bf0101a0bc5388ecf1c38ccc",
-                "reference": "286a76b7255e5cc4bf0101a0bc5388ecf1c38ccc",
+                "url": "https://api.github.com/repos/symfony/string/zipball/d950140b5f56f31901e5b7a0c04ffc3a3deb943c",
+                "reference": "d950140b5f56f31901e5b7a0c04ffc3a3deb943c",
                 "shasum": ""
             },
             "require": {
@@ -1686,7 +1769,7 @@
                 "utf8"
             ],
             "support": {
-                "source": "https://github.com/symfony/string/tree/v8.1.2"
+                "source": "https://github.com/symfony/string/tree/v8.1.7"
             },
             "funding": [
                 {
@@ -1706,7 +1789,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-07-28T07:35:25+00:00"
+            "time": "2026-09-11T14:51:16+00:00"
         },
         {
             "name": "symfony/type-info",
@@ -1870,32 +1953,36 @@
         },
         {
             "name": "web-auth/cose-lib",
-            "version": "4.6.0",
+            "version": "4.8.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/web-auth/cose-lib.git",
-                "reference": "3afe04df137baf97c5c3e28c5ee6f05536405148"
+                "reference": "8849e8bf043a2d42d0bec5bda5db2469ad376148"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/web-auth/cose-lib/zipball/3afe04df137baf97c5c3e28c5ee6f05536405148",
-                "reference": "3afe04df137baf97c5c3e28c5ee6f05536405148",
+                "url": "https://api.github.com/repos/web-auth/cose-lib/zipball/8849e8bf043a2d42d0bec5bda5db2469ad376148",
+                "reference": "8849e8bf043a2d42d0bec5bda5db2469ad376148",
                 "shasum": ""
             },
             "require": {
-                "brick/math": "^0.9|^0.10|^0.11|^0.12|^0.13|^0.14|^0.15|^0.16|^0.17|^0.18",
+                "brick/math": "^0.9 || ^0.10 || ^0.11 || ^0.12 || ^0.13 || ^0.14 || ^0.15 || ^0.16 || ^0.17 || ^0.18 || ^0.19 || ^0.20 || ^1.0",
                 "ext-json": "*",
                 "ext-openssl": "*",
                 "php": ">=8.1",
                 "spomky-labs/pki-framework": "^1.0"
             },
+            "conflict": {
+                "spomky-labs/cbor-php": "<3.4.0"
+            },
             "require-dev": {
-                "spomky-labs/cbor-php": "^3.2.2"
+                "spomky-labs/cbor-php": "^3.4"
             },
             "suggest": {
-                "ext-bcmath": "For better performance, please install either GMP (recommended) or BCMath extension",
-                "ext-gmp": "For better performance, please install either GMP (recommended) or BCMath extension",
-                "spomky-labs/cbor-php": "For COSE Signature support"
+                "ext-bcmath": "Recommended: without GMP or BCMath, signing with RSASSA-PSS (PS256/PS384/PS512) blinds its private exponentiation in pure PHP",
+                "ext-gmp": "Recommended: without GMP or BCMath, signing with RSASSA-PSS (PS256/PS384/PS512) blinds its private exponentiation in pure PHP",
+                "ext-sodium": "Required by the EdDSA/Ed25519 signature algorithms (-8, -19, -260, -261) and to recompute an OKP public key from its private key",
+                "spomky-labs/cbor-php": "Required by the RFC 9052 header reader and cryptographic structures. 3.4.0 or later: it ships the six COSE message classes (CBOR\\Tag\\CoseSign1Tag and its siblings) that replace the deprecated Cose\\...Tag classes, and its decoder is what enforces the RFC 9052 label uniqueness and nesting bounds this library relies on"
             },
             "type": "library",
             "autoload": {
@@ -1925,7 +2012,7 @@
             ],
             "support": {
                 "issues": "https://github.com/web-auth/cose-lib/issues",
-                "source": "https://github.com/web-auth/cose-lib/tree/4.6.0"
+                "source": "https://github.com/web-auth/cose-lib/tree/4.8.2"
             },
             "funding": [
                 {
@@ -1937,20 +2024,20 @@
                     "type": "patreon"
                 }
             ],
-            "time": "2026-07-16T10:19:49+00:00"
+            "time": "2026-09-15T17:30:33+00:00"
         },
         {
             "name": "web-auth/webauthn-lib",
-            "version": "5.3.5",
+            "version": "5.3.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/web-auth/webauthn-lib.git",
-                "reference": "9e0986d999f4102e24ac8a598d3a80d98b56c19f"
+                "reference": "727e378fb7a36c26be5c911e4a0120c146741ce7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/web-auth/webauthn-lib/zipball/9e0986d999f4102e24ac8a598d3a80d98b56c19f",
-                "reference": "9e0986d999f4102e24ac8a598d3a80d98b56c19f",
+                "url": "https://api.github.com/repos/web-auth/webauthn-lib/zipball/727e378fb7a36c26be5c911e4a0120c146741ce7",
+                "reference": "727e378fb7a36c26be5c911e4a0120c146741ce7",
                 "shasum": ""
             },
             "require": {
@@ -1962,7 +2049,7 @@
                 "psr/clock": "^1.0",
                 "psr/event-dispatcher": "^1.0",
                 "psr/log": "^1.0|^2.0|^3.0",
-                "spomky-labs/cbor-php": "^3.0",
+                "spomky-labs/cbor-php": "^3.4",
                 "spomky-labs/pki-framework": "^1.0",
                 "symfony/clock": "^6.4|^7.0|^8.0",
                 "symfony/deprecation-contracts": "^3.2",
@@ -1970,7 +2057,7 @@
                 "symfony/property-info": "^6.4|^7.0|^8.0",
                 "symfony/serializer": "^6.4|^7.0|^8.0",
                 "symfony/uid": "^6.4|^7.0|^8.0",
-                "web-auth/cose-lib": "^4.2.3"
+                "web-auth/cose-lib": "^4.8"
             },
             "suggest": {
                 "psr/log-implementation": "Recommended to receive logs from the library",
@@ -2011,7 +2098,7 @@
                 "webauthn"
             ],
             "support": {
-                "source": "https://github.com/web-auth/webauthn-lib/tree/5.3.5"
+                "source": "https://github.com/web-auth/webauthn-lib/tree/5.3.9"
             },
             "funding": [
                 {
@@ -2023,7 +2110,7 @@
                     "type": "patreon"
                 }
             ],
-            "time": "2026-05-31T15:00:08+00:00"
+            "time": "2026-09-10T21:10:45+00:00"
         },
         {
             "name": "webmozart/assert",

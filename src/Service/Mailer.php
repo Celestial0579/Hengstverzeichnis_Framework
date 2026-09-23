@@ -21,6 +21,16 @@ class Mailer {
     }
 
     /**
+     * Verbandsname für Betreff und Text. ?: statt ??, aus demselben Grund wie
+     * beim Absender (#132): settings speichert ein geleertes Feld als
+     * Leerstring, der Schlüssel existiert also - ?? griffe nie, und die Mails
+     * gingen mit "Passwort zurücksetzen - " im Betreff raus (#452).
+     */
+    private function siteName(): string {
+        return ($this->config['site_name'] ?? '') ?: 'Hengstverzeichnis';
+    }
+
+    /**
      * Helper to get configured base URL
      */
     public function getBaseUrl(): string {
@@ -86,7 +96,7 @@ class Mailer {
         // schreibt - ein leeres "Absender E-Mail"-Feld muss trotzdem auf smtp_user
         // zurückfallen, sonst geht jede Mail mit leerem MAIL FROM raus (#132).
         $fromEmail = ($this->config['mail_from_email'] ?? '') ?: (($this->config['smtp_user'] ?? '') ?: 'noreply@' . (\App\Security\TrustedHost::resolve() ?: 'localhost'));
-        $fromName = ($this->config['mail_from_name'] ?? '') ?: (($this->config['site_name'] ?? '') ?: 'Hengstverzeichnis');
+        $fromName = ($this->config['mail_from_name'] ?? '') ?: $this->siteName();
 
         // Defense in depth gegen SMTP-Command-/Header-Injection: Empfänger- und
         // Absenderadresse fließen roh in MAIL FROM/RCPT TO bzw. die To:/From:-Header
@@ -310,7 +320,7 @@ class Mailer {
     // --- High-level Triggers ---
 
     public function sendWelcomeEmail(string $userEmail, string $userName, string $initialPassword): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $loginUrl = $this->getBaseUrl() . 'login';
 
         $subject = "Willkommen bei {$siteName} - Ihr Konto wurde erstellt";
@@ -333,7 +343,7 @@ class Mailer {
 
     public function sendDsgvoNotification(string $requesterEmail, string $requestType, string $messageDetails = '', ?string $requesterName = null): bool {
         $adminEmail = $this->config['admin_notification_email'] ?? ($this->config['mail_from_email'] ?? 'admin@example.com');
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
 
         $subject = "⚠️ Neue DSGVO-Anfrage ({$requestType}) - {$siteName}";
         $nameText = $requesterName ? htmlspecialchars($requesterName) . " &lt;" . htmlspecialchars($requesterEmail) . "&gt;" : htmlspecialchars($requesterEmail);
@@ -358,7 +368,7 @@ class Mailer {
     }
 
     public function sendPasswordResetEmail(string $userEmail, string $resetToken): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $resetUrl = $this->getBaseUrl() . "reset-password?token={$resetToken}";
 
         $subject = "Passwort zurücksetzen - {$siteName}";
@@ -382,7 +392,7 @@ class Mailer {
      * (siehe RegistrationController::verify()).
      */
     public function sendEmailVerification(string $userEmail, string $verificationToken): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $verifyUrl = $this->getBaseUrl() . "verify-email?token={$verificationToken}";
 
         $subject = "E-Mail-Adresse bestätigen - {$siteName}";
@@ -416,7 +426,7 @@ class Mailer {
         bool $autoInstallEnabled,
         ?bool $coreWirdEingespielt = null
     ): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $updatesUrl = $this->getBaseUrl() . 'admin/updates';
 
         $subject = "📦 Update verfügbar - {$siteName}";
@@ -500,7 +510,7 @@ class Mailer {
         ?string $errorMessage,
         array $addonFailureReasons = []
     ): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $updatesUrl = $this->getBaseUrl() . 'admin/updates';
 
         if ($success) {
@@ -569,7 +579,7 @@ class Mailer {
         string $toVersion,
         array $blockingAddons
     ): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $updatesUrl = $this->getBaseUrl() . 'admin/updates';
         $storeUrl = $this->getBaseUrl() . 'admin/plugins/store';
         $pluginsUrl = $this->getBaseUrl() . 'admin/plugins';
@@ -658,7 +668,7 @@ class Mailer {
      * Passwort-Reset-Weg nicht uebernehmen.
      */
     public function sendProfileEmailChangeConfirmation(string $newEmail, string $token): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $link = $this->getBaseUrl() . 'profil/email/bestaetigen?token=' . urlencode($token);
 
         $html = "
@@ -684,7 +694,7 @@ class Mailer {
      * die alte Adresse noch gilt.
      */
     public function sendProfileEmailChangeNotice(string $currentEmail, string $newEmail): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $neu = htmlspecialchars($newEmail, ENT_QUOTES, 'UTF-8');
 
         $html = "
@@ -710,7 +720,7 @@ class Mailer {
      * angefordert hat.
      */
     public function sendSecondFactorCode(string $userEmail, string $code, int $gueltigMinuten): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $sicher = htmlspecialchars($code, ENT_QUOTES, 'UTF-8');
 
         $html = "
@@ -738,7 +748,7 @@ class Mailer {
         int $expiringTrashCount,
         array $pendingDeactivations = []
     ): bool {
-        $siteName = $this->config['site_name'] ?? 'Hengstverzeichnis';
+        $siteName = $this->siteName();
         $matchesUrl = $this->getBaseUrl() . 'admin/matches';
         $trashUrl = $this->getBaseUrl() . 'admin/trash';
 

@@ -306,6 +306,35 @@ class GdprEraseTest extends FunctionalTestCase {
         $this->assertGreaterThan(0, (int)$stmt->fetchColumn(), 'Anonymisierung muss im Audit-Log protokolliert werden');
     }
 
+    /**
+     * Die Entscheidung über eine Anfrage steht im Audit-Log (#453) - ohne den
+     * Notiztext, der personenbezogene Daten enthalten kann.
+     */
+    public function testUpdateStatusIsAuditedWithoutNoteText(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $db = $this->db();
+
+        $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message, status) VALUES (?, ?, 'deletion', 'Bitte löschen', 'pending')")
+           ->execute(["DSGVO Statusperson {$unique}", "gdpr-status-{$unique}@example.com"]);
+        $requestId = (int)$db->lastInsertId();
+        $note = "Rückruf bei Frau Muster {$unique}";
+
+        $response = $admin->post('/admin/gdpr/update-status', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'id' => (string)$requestId,
+            'status' => 'rejected',
+            'admin_notes' => $note,
+        ]);
+        $this->assertSame('/admin/gdpr?success=status_updated', $response->location(), "Body: {$response->body}");
+
+        $stmt = $db->prepare("SELECT details FROM audit_logs WHERE action = 'DSGVO: Anfrage-Status geändert' AND details LIKE ?");
+        $stmt->execute(["Anfrage ID {$requestId} -> %"]);
+        $details = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(["Anfrage ID {$requestId} -> rejected (Notiz hinterlegt)"], $details);
+        $this->assertStringNotContainsString($unique, (string)$details[0], 'Der Notiztext gehört nicht ins Audit-Log');
+    }
+
     public function testNonAdminIsRejectedWithForbidden(): void {
         $admin = $this->authenticatedClient();
         $unique = uniqid();

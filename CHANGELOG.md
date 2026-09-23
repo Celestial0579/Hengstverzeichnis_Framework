@@ -10,6 +10,29 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Nach einem Werksreset erbten neue Konten Rechte alter Konten** (#451).
+  Der CLI-Reset `php database/reset.php` leerte `user_groups` nicht. Weil
+  `TRUNCATE users` die Benutzer-IDs wieder bei 1 beginnen lässt, bekam ein
+  neu angelegtes Konto die Gruppen des alten Kontos mit derselben ID, bis hin
+  zu Administratorrechten. Beim Nachprüfen fiel auf, dass auch der Reset über
+  die Oberfläche `api_keys`, `user_passkeys`, `email_2fa_codes`,
+  `horse_media` und `match_labels` stehen ließ: Ein alter API-Schlüssel oder
+  Passkey hätte danach zum neuen Konto gehört.
+
+  Beide Reset-Wege nutzen jetzt dieselbe Tabellenliste
+  (`App\Service\SystemReset`). Ein Test leitet aus `database/schema.sql` ab,
+  dass jede Tabelle mit einem Fremdschlüssel auf eine geleerte Tabelle
+  mitgeleert wird.
+
+- **Mails ohne Verbandsnamen** (#452). War das Feld „Verbandsname" leer
+  gespeichert, standen Betreffzeilen wie „Passwort zurücksetzen - " im
+  Postfach. Der Rückfall auf „Hengstverzeichnis" greift jetzt auch beim
+  Leerstring.
+
+- **Statusänderungen an DSGVO-Anfragen fehlten im Audit-Log** (#453). Wer
+  eine Anfrage erledigt oder abgelehnt hat und wann, ist jetzt nachvollziehbar.
+  Der Notiztext selbst wird nicht protokolliert, nur dass es einen gibt.
+
 - **Der nächtliche Testlauf meldete einen Fehler, wo keiner war** (#424). Die
   Functional-Suite hat die 300-Sekunden-Grenze erreicht, die Composer für
   Kindprozesse setzt: 383 Tests über HTTP, gemessene 4:58. Auf den

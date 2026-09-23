@@ -566,30 +566,10 @@ class AdminController extends BaseController {
         // Reset-Vorgang protokollieren, bevor die Daten gelöscht werden (Audit-Log bleibt über Resets hinweg erhalten)
         \App\Service\AuditLogger::log("System zurückgesetzt (Reset)", "settings", "Alle Daten außer dem Audit-Log wurden auf Werkseinstellungen zurückgesetzt.");
 
-        // Disable foreign key checks to allow truncating/wiping tables cleanly.
-        // user_groups MUSS mitgeleert werden: TRUNCATE feuert keine ON DELETE
-        // CASCADE, und SetupController::needsSetup() entscheidet über die
-        // Existenz von admin-Gruppen-Mitgliedschaften - verwaiste Zeilen würden
-        // die Installation nach dem Reset dauerhaft unbrauchbar machen (#118).
-        $db->exec("SET FOREIGN_KEY_CHECKS = 0;");
-        $db->exec("TRUNCATE TABLE horse_persons;");
-        $db->exec("TRUNCATE TABLE horse_registrations;");
-        $db->exec("TRUNCATE TABLE password_resets;");
-        $db->exec("TRUNCATE TABLE gdpr_requests;");
-        $db->exec("TRUNCATE TABLE horses;");
-        // contact_id_map MUSS mit contacts zusammen geleert werden (#336):
-        // Die Tabelle bildet alte Personen-/Stationskennungen auf Kontakte ab.
-        // Bliebe sie stehen, zeigten ihre Zeilen nach dem Reset auf Kennungen,
-        // die eine frisch eingerichtete Installation neu vergibt - die alten
-        // Adressen /person?id= und /station?id= landeten dann bei einem
-        // fremden Kontakt. TRUNCATE feuert kein ON DELETE CASCADE, das
-        // Aufraeumen passiert hier also nicht von selbst.
-        $db->exec("TRUNCATE TABLE contact_id_map;");
-        $db->exec("TRUNCATE TABLE contacts;");
-        $db->exec("TRUNCATE TABLE user_groups;");
-        $db->exec("TRUNCATE TABLE users;");
-        $db->exec("TRUNCATE TABLE settings;");
-        $db->exec("SET FOREIGN_KEY_CHECKS = 1;");
+        // Welche Tabellen geleert werden und warum, steht in SystemReset -
+        // die Liste ist mit database/reset.php geteilt, damit die beiden
+        // Reset-Wege nicht wieder auseinanderlaufen (#118, #336, #451).
+        \App\Service\SystemReset::truncateAll($db);
 
         // Optionally remove db_config.php to force full database re-setup
         $dbConfigFile = __DIR__ . '/../../config/db_config.php';

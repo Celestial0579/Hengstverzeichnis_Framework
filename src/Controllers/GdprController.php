@@ -286,10 +286,23 @@ class GdprController extends BaseController {
         $status = $_POST['status'] ?? 'pending';
         $notes = trim($_POST['admin_notes'] ?? '');
 
-        if ($id > 0 && in_array($status, ['pending', 'processed', 'rejected'])) {
+        if ($id > 0 && in_array($status, ['pending', 'processed', 'rejected'], true)) {
             $db = Database::getInstance();
             $stmt = $db->prepare("UPDATE gdpr_requests SET status = ?, admin_notes = ? WHERE id = ?");
             $stmt->execute([$status, $notes ?: null, $id]);
+
+            // Auch die Entscheidung über eine Anfrage gehört ins Audit-Log
+            // (#135, #453) - ohne sie endet die Historie eines DSGVO-Vorgangs
+            // bei seinem Eingang. Den Notiztext selbst NICHT mitschreiben: Er
+            // kann personenbezogene Daten enthalten, und das Audit-Log
+            // überlebt jeden Reset. Dass eine Notiz hinterlegt wurde, reicht.
+            if ($stmt->rowCount() > 0) {
+                \App\Service\AuditLogger::log(
+                    "DSGVO: Anfrage-Status geändert",
+                    "gdpr",
+                    "Anfrage ID {$id} -> {$status}" . ($notes !== '' ? " (Notiz hinterlegt)" : "")
+                );
+            }
         }
 
         header("Location: /admin/gdpr?success=status_updated");

@@ -657,11 +657,10 @@ class PublicController extends BaseController {
 
         // `membership_status` stand bis v0.8 in dieser Zeile und ist mit
         // #349 herausgefallen: bedingungslos öffentlich, Freitext ohne
-        // Vokabular, und eine Aussage über einen Menschen. Die Spalte gibt es
-        // noch (sie fällt im Release nach v0.9.0, damit ein Betreiber die
-        // Werte sichern kann) - sie wird nur nirgends mehr ausgegeben. Das
-        // Addon `mitgliedsstatus` führt die Angabe mit fester Werteliste und
-        // Freigabe je Kontakt und hängt sie über `contact.detail_sections` an.
+        // Vokabular, und eine Aussage über einen Menschen. Seit #395 gibt es
+        // die Spalte nicht mehr. Das Addon `mitgliedsstatus` führt die Angabe
+        // mit fester Werteliste und Freigabe je Kontakt und hängt sie über
+        // `contact.detail_sections` an.
         $spalten = 'id, name, city, state, country, website, is_breeder, contact_public';
         if ($kontaktFrei) {
             // Die Anschrift kommt aus `breeding_stations` mit dazu (#336): Für

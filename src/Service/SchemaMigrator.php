@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 20;
+    public const SCHEMA_VERSION = 21;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -1184,7 +1184,6 @@ final class SchemaMigrator {
             `phone` VARCHAR(50) NULL DEFAULT NULL,
             `mobile` VARCHAR(50) NULL DEFAULT NULL,
             `website` VARCHAR(255) NULL DEFAULT NULL,
-            `membership_status` VARCHAR(100) NULL DEFAULT NULL,
             `is_breeder` TINYINT(1) NOT NULL DEFAULT 0,
             `contact_public` TINYINT(1) NOT NULL DEFAULT 0,
             `is_published` TINYINT(1) NOT NULL DEFAULT 0,
@@ -1218,7 +1217,7 @@ final class SchemaMigrator {
         // Altspalten-Schritte laufen nach #336 nicht mehr (die Tabellen sind
         // stillgelegt), und für die neue Tabelle gäbe es kein Gegenstück. Eine
         // fehlende Spalte bliebe dauerhaft fehlend - aufgefallen ist das, weil
-        // DatabaseTest genau das prüft (er entfernt membership_status und
+        // DatabaseTest genau das prüft (er entfernt eine contacts-Spalte und
         // erwartet, dass der nächste Lauf sie zurückbringt).
         //
         // Die Reihenfolge der AFTER-Klauseln entspricht der Spaltenfolge in
@@ -1237,8 +1236,7 @@ final class SchemaMigrator {
         $addColumn('contacts', 'phone', 'VARCHAR(50) NULL DEFAULT NULL AFTER `email`');
         $addColumn('contacts', 'mobile', 'VARCHAR(50) NULL DEFAULT NULL AFTER `phone`');
         $addColumn('contacts', 'website', 'VARCHAR(255) NULL DEFAULT NULL AFTER `mobile`');
-        $addColumn('contacts', 'membership_status', 'VARCHAR(100) NULL DEFAULT NULL AFTER `website`');
-        $addColumn('contacts', 'is_breeder', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `membership_status`');
+        $addColumn('contacts', 'is_breeder', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `website`');
         $addColumn('contacts', 'contact_public', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_breeder`');
         $addColumn('contacts', 'is_published', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `contact_public`');
         $addColumn('contacts', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
@@ -1290,10 +1288,10 @@ final class SchemaMigrator {
                 $pdo->exec("
                     INSERT INTO contacts
                         (id, name, contact_info, street, house_number, postal_code, city, state,
-                         country, email, phone, mobile, website, membership_status, is_breeder,
+                         country, email, phone, mobile, website, is_breeder,
                          contact_public, is_published, created_at, updated_at, deleted_at)
                     SELECT id, name, contact_info, street, house_number, postal_code, city, state,
-                           country, email, phone, mobile, website, membership_status, is_breeder,
+                           country, email, phone, mobile, website, is_breeder,
                            contact_public, is_published, created_at, created_at, deleted_at
                     FROM persons
                 ");
@@ -2097,6 +2095,21 @@ final class SchemaMigrator {
             }
             $pdo->exec("ALTER TABLE `users` DROP COLUMN `passkeys`");
             return ['entfernt' => 'users.passkeys'];
+        });
+
+        // 39c. contacts.membership_status fällt (#395, SCHEMA_VERSION 21).
+        //
+        // Seit #349 (v0.9.0) zeigt der Kern das Feld nicht mehr an und nimmt
+        // es nicht mehr entgegen; die Angabe führt das Addon
+        // `mitgliedsstatus` mit fester Werteliste. Die Spalte stand ein
+        // Release lang weiter da, damit die Übernahme ins Addon laufen
+        // konnte. Die ist erledigt - jetzt geht die Spalte.
+        $dataStep('395_membership_status_faellt', function () use ($pdo, $spalteExistiert): ?array {
+            if (!$spalteExistiert('contacts', 'membership_status')) {
+                return null;
+            }
+            $pdo->exec("ALTER TABLE `contacts` DROP COLUMN `membership_status`");
+            return ['entfernt' => 'contacts.membership_status'];
         });
 
         // 40. Indexlage der Katalog-Vorschlagslisten (#412, SCHEMA_VERSION 20).

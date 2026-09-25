@@ -324,15 +324,6 @@ class GdprController extends BaseController {
             // Alle PII-Felder nullen - auch city/state/country sind
             // personenbezogen, sobald sie am Namen hängen (#188, state seit #256).
             //
-            // `membership_status` steht hier weiter mit drin, obwohl der Kern
-            // das Feld seit #349 weder anzeigt noch zur Eingabe anbietet: Die
-            // SPALTE gibt es noch (sie fällt im Release nach v0.9.0, damit ein
-            // Betreiber die Werte vorher sichern kann), und was in der Tabelle
-            // steht, ist personenbezogen - unabhängig davon, ob es irgendwo
-            // ausgegeben wird. Sie hier auszulassen, hiesse ein Feld
-            // zurückzulassen, das eine Löschanfrage ausdrücklich meint. Erst
-            // mit der Spalte fällt diese Zuweisung.
-            //
             // Diese Liste ist hartkodiert und muss bei JEDER neuen Spalte in
             // contacts mitgezogen werden. Ein vergessenes Feld fällt nicht auf:
             // Die Anonymisierung meldet weiterhin Erfolg, und die Lücke bleibt
@@ -352,7 +343,7 @@ class GdprController extends BaseController {
             // is_published, is_breeder und contact_public: Sie sagen etwas über
             // den Datensatz, nicht über die Person, und sind NOT NULL.
             $anonName = "Anonymisierte Person (#" . $personId . ")";
-            $stmt = $db->prepare("UPDATE contacts SET name = ?, contact_person = NULL, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, address = NULL, email = NULL, phone = NULL, mobile = NULL, website = NULL, membership_status = NULL WHERE id = ?");
+            $stmt = $db->prepare("UPDATE contacts SET name = ?, contact_person = NULL, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, address = NULL, email = NULL, phone = NULL, mobile = NULL, website = NULL WHERE id = ?");
             $stmt->execute([$anonName, $personId]);
 
             // Automatically mark GDPR request as processed

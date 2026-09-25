@@ -193,7 +193,7 @@ class DatabaseTest extends TestCase {
         // stand; keine Spalte darf beim Zusammenlegen verlorengegangen sein.
         foreach ([
             'street', 'house_number', 'postal_code', 'city', 'state', 'country',
-            'email', 'phone', 'mobile', 'website', 'membership_status',
+            'email', 'phone', 'mobile', 'website',
             'is_breeder', 'contact_public', 'is_published',
             // kamen von den Deckstationen:
             'contact_person', 'address',
@@ -202,6 +202,11 @@ class DatabaseTest extends TestCase {
         ] as $column) {
             $this->assertColumnExists($pdo, 'contacts', $column);
         }
+
+        // membership_status ist mit #395 gefallen und darf auch aus einem
+        // Altbestand heraus nicht wieder entstehen.
+        $stmt = $pdo->query("SHOW COLUMNS FROM `contacts` LIKE 'membership_status'");
+        $this->assertSame(0, $stmt->rowCount(), 'contacts.membership_status ist seit #395 entfernt');
 
         // Und die Zuordnungstabelle, ohne die Addons ihre gespeicherten
         // Verweise nicht umrechnen können (#336). Sie bleibt dauerhaft.
@@ -329,16 +334,16 @@ class DatabaseTest extends TestCase {
      */
     #[Depends('testEnsureSchemaUpToDateMigratesLegacySchema')]
     public function testCurrentSchemaVersionShortCircuitsMigrationOnNewConnection(): void {
-        self::$setupPdo->exec("ALTER TABLE `contacts` DROP COLUMN `membership_status`");
+        self::$setupPdo->exec("ALTER TABLE `contacts` DROP COLUMN `mobile`");
 
         self::resetDatabaseSingleton();
         $pdo = Database::getInstance();
 
-        $stmt = $pdo->query("SHOW COLUMNS FROM `contacts` LIKE 'membership_status'");
+        $stmt = $pdo->query("SHOW COLUMNS FROM `contacts` LIKE 'mobile'");
         $this->assertSame(
             0,
             $stmt->rowCount(),
-            'contacts.membership_status wurde trotz aktuellem schema_version-Stand neu angelegt - der Kurzschluss in ensureSchemaUpToDate() greift nicht'
+            'contacts.mobile wurde trotz aktuellem schema_version-Stand neu angelegt - der Kurzschluss in ensureSchemaUpToDate() greift nicht'
         );
     }
 
@@ -363,7 +368,7 @@ class DatabaseTest extends TestCase {
         $pdo = Database::getInstance();
 
         // Die im Kurzschluss-Test gedroppte Spalte muss wieder da sein ...
-        $this->assertColumnExists($pdo, 'contacts', 'membership_status');
+        $this->assertColumnExists($pdo, 'contacts', 'mobile');
         // ... und der Stand erneut auf der aktuellen SCHEMA_VERSION stehen.
         $this->assertSame(Database::SCHEMA_VERSION, $this->storedSchemaVersion());
 

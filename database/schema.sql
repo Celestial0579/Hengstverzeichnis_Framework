@@ -181,18 +181,6 @@ CREATE TABLE IF NOT EXISTS `contacts` (
     `phone` VARCHAR(50) NULL DEFAULT NULL,
     `mobile` VARCHAR(50) NULL DEFAULT NULL,
     `website` VARCHAR(255) NULL DEFAULT NULL,
-    -- AUSGEDIENT SEIT v0.9.0 (#349) - NICHT WIEDER ANSCHLIESSEN.
-    -- Mitgliedsstatus beim Verband (#188), Freitext analog breed
-    -- (z. B. 'Mitglied', 'Nichtmitglied NO'). Der Kern zeigt das Feld nicht
-    -- mehr an, nimmt es nicht mehr entgegen und sucht nicht mehr darin; die
-    -- Angabe führt jetzt das Addon `mitgliedsstatus` (Addons#132) mit fester
-    -- Werteliste und Freigabe je Kontakt.
-    -- Die SPALTE steht noch hier, damit ein Betreiber die Bestandswerte
-    -- sichern kann - genau das ist die Eingangsgröße der Übernahme im Addon.
-    -- Sie fällt im Release NACH v0.9.0. Bis dahin wird sie weiter von der
-    -- DSGVO-Anonymisierung mitgenullt (GdprController): Was in der Tabelle
-    -- steht, ist personenbezogen, ob es ausgegeben wird oder nicht.
-    `membership_status` VARCHAR(100) NULL DEFAULT NULL,
     -- Kennzeichen "dieser Kontakt züchtet" - redaktionell gepflegt und
     -- ausdrücklich NICHT aus horse_persons.role='breeder' abgeleitet.
     -- Beide Richtungen der Ableitung wären falsch: Wer noch kein Pferd im

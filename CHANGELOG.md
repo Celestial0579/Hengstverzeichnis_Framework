@@ -8,6 +8,14 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Entfernt
+
+- **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
+  der Kern das Feld nicht mehr an und nahm es nicht mehr entgegen; die Angabe
+  führt das Addon `mitgliedsstatus`. Die Spalte stand ein Release lang weiter
+  da, damit die Übernahme ins Addon laufen konnte. Das Update entfernt sie
+  (`SCHEMA_VERSION` 21) - **vorhandene Werte gehen dabei verloren.**
+
 ### Behoben
 
 - **Nach einem Werksreset erbten neue Konten Rechte alter Konten** (#451).

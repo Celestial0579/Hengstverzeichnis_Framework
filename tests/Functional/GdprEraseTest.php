@@ -53,7 +53,7 @@ class GdprEraseTest extends FunctionalTestCase {
         // aus breeding_stations uebernommenen Spalten - gerade sie duerfen
         // nicht leer bleiben, sonst pruefte der Test die eine Erweiterung
         // nicht, wegen der die Feldliste ueberhaupt gewachsen ist.
-        $stmt = $db->prepare("INSERT INTO contacts (name, contact_person, contact_info, street, house_number, postal_code, city, state, country, address, email, phone, mobile, website, membership_status, is_published) VALUES (?, 'Ansprechpartner Erika Muster', 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'Schleswig-Holstein', 'DE', 'Weideweg 1\n24000 Kiel', ?, '01234 56789', '0170 1234567', 'https://beispiel.example', 'Mitglied', 1)");
+        $stmt = $db->prepare("INSERT INTO contacts (name, contact_person, contact_info, street, house_number, postal_code, city, state, country, address, email, phone, mobile, website, is_published) VALUES (?, 'Ansprechpartner Erika Muster', 'Tel. 0170-1234567', 'Musterweg', '3', '12345', 'Musterstadt', 'Schleswig-Holstein', 'DE', 'Weideweg 1\n24000 Kiel', ?, '01234 56789', '0170 1234567', 'https://beispiel.example', 1)");
         $stmt->execute([$personName, $email]);
         $personId = (int)$db->lastInsertId();
 

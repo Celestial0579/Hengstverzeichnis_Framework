@@ -135,7 +135,8 @@ curl-basierten HTTP-Client (`tests/Support/HttpClient.php`) an – kein
 Headless-Browser/WebDriver nötig, da die App serverseitig gerendertes PHP
 ohne clientseitige JS-Logik ist. Die App-Instanz provisioniert sich beim
 ersten Test selbst über die vollautomatische Ersteinrichtung (siehe README,
-Abschnitt „Ersteinrichtung ganz ohne Wizard“) – zusätzlich zu `DB_*` werden
+Abschnitt „Ersteinrichtung ganz ohne Wizard“) und meldet sich danach wie ein
+Betreiber über `/login` mit `ADMIN_PASSWORD` an – zusätzlich zu `DB_*` werden
 `APP_KEY`, `SITE_NAME`, `ADMIN_USERNAME`, `ADMIN_EMAIL` und `ADMIN_PASSWORD`
 als Umgebungsvariable benötigt:
 

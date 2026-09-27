@@ -412,12 +412,36 @@ abstract class FunctionalTestCase extends TestCase {
 
         $client = new HttpClient(PhpBuiltInServer::baseUrl());
 
+        // Die Env-Ersteinrichtung vergibt KEINE Sitzung (Audit H2): Sie legt
+        // das Konto an und leitet auf /login. Erst ADMIN_PASSWORD fuehrt zur
+        // 2FA-Einrichtung - genau wie beim Betreiber.
         $setupResponse = $client->get('/setup');
         self::assertSame(
-            '/2fa/setup',
+            '/login?success=setup_completed',
             $setupResponse->location(),
-            "Automatische Ersteinrichtung sollte zu /2fa/setup weiterleiten. " . self::setupDiagnose() .
-            "Body: {$setupResponse->body}"
+            "Automatische Ersteinrichtung sollte zu /login?success=setup_completed weiterleiten. "
+            . ($setupResponse->statusCode === 503 ? 'HTTP 503: ADMIN_*/APP_KEY/SITE_NAME/DB_* ungueltig. ' : '')
+            . self::setupDiagnose() . "Body: {$setupResponse->body}"
+        );
+
+        // Eingebaute Gegenprobe zu H2: Die provisionierende Sitzung kommt
+        // ohne Passwort nicht an die 2FA-Einrichtung des neuen Admins.
+        self::assertSame(
+            '/login',
+            $client->get('/2fa/setup')->location(),
+            'Die Env-Ersteinrichtung darf keine Sitzung fuer das neue Admin-Konto vergeben (Audit H2).'
+        );
+
+        $loginPage = $client->get('/login');
+        $loginResponse = $client->post('/login', [
+            'csrf_token' => $loginPage->formField('csrf_token') ?? '',
+            'kennung' => self::$adminEmail,
+            'password' => self::$adminPassword,
+        ]);
+        self::assertSame(
+            '/2fa/setup',
+            $loginResponse->location(),
+            "Erste Anmeldung des Env-Admins sollte zur 2FA-Einrichtung fuehren, Body: {$loginResponse->body}"
         );
 
         $setupPage = $client->get('/2fa/setup');

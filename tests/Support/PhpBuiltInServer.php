@@ -127,7 +127,7 @@ class PhpBuiltInServer {
      * eingerichteter Datenbank.
      *
      * Das Fehlerbild führt in die Irre: Die Ersteinrichtung meldet `/login`
-     * statt `/2fa/setup`, danach scheitert jeder Test mit "Table users doesn't
+     * statt `/login?success=setup_completed`, danach scheitert jeder Test mit "Table users doesn't
      * exist", obwohl die eigene Datenbank frisch angelegt wurde. Es sieht nach
      * einem Schema-Problem aus und ist ein Portproblem.
      *

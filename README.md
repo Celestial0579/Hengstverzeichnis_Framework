@@ -122,13 +122,17 @@ Zusätzlich zu den DB-Variablen können folgende optionale Variablen gesetzt wer
 | Variable | Pflicht | Beschreibung |
 |---|:---:|---|
 | `SITE_NAME` | – | Name des Verbands / der Seite |
-| `ADMIN_USERNAME` | – | Benutzername des ersten Admin-Accounts |
+| `ADMIN_USERNAME` | – | Benutzername des ersten Admin-Accounts (kein `@`, höchstens 50 Zeichen, kein reservierter Name wie `admin`, `root`, `administrator`) |
 | `ADMIN_EMAIL` | – | E-Mail-Adresse des ersten Admin-Accounts |
-| `ADMIN_PASSWORD` | – | Passwort des ersten Admin-Accounts (mind. 8 Zeichen) |
+| `ADMIN_PASSWORD` | – | Passwort des ersten Admin-Accounts (mind. 8 Zeichen, kein Beispielpasswort wie `change-me`) |
 
-Sind **alle vier** zusätzlich zur Datenbankverbindung gesetzt, wird der Setup-Wizard komplett übersprungen: Schema wird automatisch importiert, der Admin-Account angelegt, direkte Weiterleitung zu `/login`. Die 2FA-Pflicht bleibt bestehen — sie wird beim ersten Login des Admin-Accounts normal eingerichtet (Klarnamen/Passwort funktionieren erst danach vollständig).
+Sind **alle vier** zusätzlich zur Datenbankverbindung und `APP_KEY` gesetzt, wird der Setup-Wizard komplett übersprungen: Beim ersten Aufruf wird das Schema importiert und der Admin-Account angelegt. Danach leitet die App auf `/login` weiter — **dort meldet sich der Betreiber mit `ADMIN_USERNAME` oder `ADMIN_EMAIL` und `ADMIN_PASSWORD` an** und richtet anschließend die verpflichtende Zwei-Faktor-Authentifizierung ein. Der erste Aufruf selbst meldet niemanden an: Wer auch immer `/setup` zuerst aufruft, bekommt keine Sitzung für das neue Konto.
 
-Ist nur ein Teil dieser Variablen gesetzt (z. B. `SITE_NAME`, aber keine `ADMIN_*`-Variablen), zeigt der Wizard nur noch die Abschnitte an, die noch nicht über Env-Variablen feststehen — so kann z. B. nur noch der erste Admin-Account manuell angelegt werden, ohne versehentlich bereits korrekte DB-/Verbandseinstellungen zu überschreiben.
+**Sobald eine `ADMIN_*`-Variable gesetzt ist, müssen alle gültig sein** — ebenso die Datenbankverbindung, `SITE_NAME` und `APP_KEY`. Andernfalls zeigt `/setup` eine Fehlerseite (HTTP 503) mit den zu korrigierenden Variablen, aber **kein Formular**. Ein Rückfall auf den Wizard würde sonst dem ersten beliebigen Besucher das Anlegen des Admin-Kontos anbieten.
+
+Empfehlung: Nach der Einrichtung die `ADMIN_*`-Zeilen aus der `.env` entfernen und das Passwort im Profil ändern — die Werte stehen im Klartext in der Datei und in der Container-Umgebung.
+
+Ohne `ADMIN_*` (etwa nur `SITE_NAME` oder nur die Datenbankverbindung) zeigt der Wizard nur noch die Abschnitte an, die noch nicht über Env-Variablen feststehen — so kann z. B. nur noch der erste Admin-Account manuell angelegt werden, ohne versehentlich bereits korrekte DB-/Verbandseinstellungen zu überschreiben.
 
 Beispiel `.env` für Docker (mit vollautomatischer Ersteinrichtung):
 ```env
@@ -141,9 +145,9 @@ APP_KEY=<generierter 64-stelliger Hex-Wert>
 APP_ENV=production
 
 SITE_NAME=Mein Verband
-ADMIN_USERNAME=admin
+ADMIN_USERNAME=verbandsadmin
 ADMIN_EMAIL=admin@example.org
-ADMIN_PASSWORD=change-me-too
+ADMIN_PASSWORD=<eigenes, starkes Passwort>
 ```
 
 ### Variante B: Ohne Umgebungsvariablen (Setup-Wizard, klassisches Webhosting)

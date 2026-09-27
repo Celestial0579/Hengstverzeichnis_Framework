@@ -96,6 +96,7 @@ case "${1:-up}" in
     PORT="$(port_from_compose)"
     echo
     info "Fertig! Die App ist erreichbar unter: http://localhost:${PORT}"
+    info "Mit ADMIN_* in .env: unter http://localhost:${PORT}/login mit ADMIN_EMAIL und ADMIN_PASSWORD anmelden, danach 2FA einrichten."
     info "Logs ansehen:  ./docker-start.sh logs"
     info "Stoppen:       ./docker-start.sh down"
     ;;

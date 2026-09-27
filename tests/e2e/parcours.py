@@ -454,11 +454,16 @@ def run():
                     except Exception as e:
                         log(f"  OIDC-Injektion fehlgeschlagen: {e}")
             elif DO_SETUP != "skip":
-                # Auto-Provisionierung IN DIESER Session auslösen (hält pending_2fa_user_id,
-                # damit /2fa/setup danach das Secret rendert). GET /setup provisioniert bei
-                # leerer DB und leitet auf /2fa/setup.
+                # Auto-Provisionierung: GET /setup legt das Konto aus ADMIN_* an, vergibt
+                # aber KEINE Sitzung (Audit H2) und leitet auf /login?success=setup_completed.
+                # Erst die Anmeldung mit ADMIN_PASSWORD führt zur 2FA-Einrichtung.
                 page.goto(BASE + "/setup", wait_until="domcontentloaded", timeout=30000)
                 log(f"  nach GET /setup auf {page.url}")
+                page.fill('[name="kennung"]', ADMIN_EMAIL)
+                page.fill('[name="password"]', ADMIN_PW)
+                page.locator('form:has(#kennung) button[type="submit"]').first.click()
+                page.wait_for_load_state("domcontentloaded")
+                log(f"  nach Login auf {page.url}")
             # 2FA abschließen (beide Wege enden hier)
             page.goto(BASE + "/2fa/setup", wait_until="domcontentloaded", timeout=30000)
             body = page.content()

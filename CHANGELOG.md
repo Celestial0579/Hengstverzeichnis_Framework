@@ -8,6 +8,35 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **Die vollautomatische Ersteinrichtung gibt dem ersten Besucher keine
+  Admin-Sitzung mehr** (Audit H2). Mit `ADMIN_*` in der Umgebung richtete
+  schon ein beliebiger erster Aufruf von `/setup` die Instanz ein – und der
+  Aufrufer bekam dabei die Sitzung des neuen Admin-Kontos, ohne das Passwort
+  zu kennen. Er konnte seinen eigenen zweiten Faktor einrichten und den
+  Betreiber aussperren. Dasselbe galt nach jedem Werksreset.
+
+  Jetzt legt der erste Aufruf nur das vorgegebene Konto an und leitet auf
+  `/login` weiter. Angemeldet wird mit `ADMIN_USERNAME` oder `ADMIN_EMAIL`
+  und `ADMIN_PASSWORD`, danach folgt die 2FA-Einrichtung.
+
+  Zweite Lücke derselben Art: Ein ungültiger `ADMIN_*`-Wert – etwa das
+  bisherige README-Beispiel `ADMIN_USERNAME=admin`, ein reservierter Name –
+  fiel still auf den Wizard zurück, und der bot dem ersten Besucher das
+  Admin-Formular an. **Sobald eine `ADMIN_*`-Variable gesetzt ist, müssen
+  jetzt alle gültig sein** (dieselben Regeln wie beim normalen Anlegen, dazu
+  kein Beispielpasswort wie `change-me`), ebenso Datenbankverbindung,
+  `SITE_NAME` und `APP_KEY`. Sonst zeigt `/setup` eine Fehlerseite ohne
+  Formular (HTTP 503), und `POST /setup` ist gesperrt. Fehlerdetails der
+  Datenbank stehen nur noch im Server-Log.
+
+  **Für Betreiber:** Betrifft nur noch nicht eingerichtete Instanzen. Eigene
+  Provisionierungsskripte, die sich auf `GET /setup` → `/2fa/setup`
+  verlassen, brauchen einen Login-Schritt. Wer bisher das README-Beispiel
+  (`admin` / `change-me-too`) verwendet hat, muss es vor einer erneuten
+  Einrichtung ersetzen.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte

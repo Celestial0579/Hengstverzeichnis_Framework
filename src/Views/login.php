@@ -19,6 +19,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['success'] ?? '') === 'setup_completed'): ?>
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Die Ersteinrichtung ist abgeschlossen. Bitte melden Sie sich mit ADMIN_USERNAME oder ADMIN_EMAIL und ADMIN_PASSWORD an; danach richten Sie die Zwei-Faktor-Authentifizierung ein.
+        </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['success']) && $_GET['success'] === 'email_verified'): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars(App\I18n\Translator::t('auth.email_verified_success')) ?>

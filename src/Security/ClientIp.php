@@ -49,6 +49,64 @@ class ClientIp {
     }
 
     /**
+     * Präfixlänge, auf die IPv6-Adressen für Rate-Limits gekürzt werden.
+     */
+    public const IPV6_RATE_LIMIT_PREFIX = 64;
+
+    /**
+     * Der Schlüssel, unter dem eine Client-Adresse in IP-Zählern geführt wird
+     * (Audit M7).
+     *
+     * WARUM NICHT DIE VOLLE ADRESSE. Jeder IPv6-Anschluss bekommt mindestens
+     * ein /64, also 2^64 Adressen, und kann jede Anfrage von einer neuen
+     * schicken. Ein Zähler je voller Adresse griff damit nie: Wer
+     * Passwörter rät, Reset-Mails auslöst oder Formulare flutet, wechselte
+     * einfach die Absenderadresse. Adressen aus demselben Präfix teilen sich
+     * deshalb einen Zähler - wie mehrere Geräte hinter einem IPv4-NAT.
+     *
+     * IPv4-gemappte Adressen (`::ffff:203.0.113.7`) werden ZUERST zu IPv4.
+     * Ohne diese Weiche landeten auf Dual-Stack-Sockets alle IPv4-Clients in
+     * einem einzigen /64-Topf (`::ffff:0:0/64` wäre für alle derselbe).
+     *
+     * Was keine gültige Adresse ist (auch eine mit Zonen-ID wie `fe80::1%eth0`),
+     * bleibt unverändert: Hier wird nichts geraten. Das Ergebnis `…/64` ist
+     * seinerseits kein gültiges IP-Literal, ein zweiter Aufruf ändert es also
+     * nicht mehr.
+     *
+     * @param string|null $ip Adresse; ohne Angabe die aus resolve()
+     * @param int $ipv6Prefix Präfixlänge für IPv6 (1-128)
+     */
+    public static function rateLimitKey(?string $ip = null, int $ipv6Prefix = self::IPV6_RATE_LIMIT_PREFIX): string {
+        $ip ??= self::resolve();
+        if ($ipv6Prefix < 1 || $ipv6Prefix > 128) {
+            throw new \InvalidArgumentException("IPv6-Präfixlänge {$ipv6Prefix} liegt nicht zwischen 1 und 128.");
+        }
+
+        $bin = @inet_pton($ip);
+        if ($bin === false) {
+            return $ip;
+        }
+        if (strlen($bin) === 4) {
+            return (string)inet_ntop($bin);
+        }
+        if (strlen($bin) !== 16) {
+            return $ip;
+        }
+
+        if (substr($bin, 0, 12) === str_repeat("\0", 10) . "\xff\xff") {
+            return (string)inet_ntop(substr($bin, 12));
+        }
+
+        $maske = str_repeat("\xff", intdiv($ipv6Prefix, 8));
+        if ($ipv6Prefix % 8 !== 0) {
+            $maske .= chr((0xFF << (8 - $ipv6Prefix % 8)) & 0xFF);
+        }
+        $maske = str_pad($maske, 16, "\0");
+
+        return inet_ntop($bin & $maske) . '/' . $ipv6Prefix;
+    }
+
+    /**
      * Ermittelt, ob die ursprüngliche Verbindung über HTTPS lief. Berücksichtigt
      * X-Forwarded-Proto nur, wenn REMOTE_ADDR ein vertrauenswürdiger Proxy ist.
      */

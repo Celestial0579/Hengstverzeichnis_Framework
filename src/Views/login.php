@@ -2,6 +2,10 @@
 // src/Views/login.php
 /**
  * @var string $error (optional)
+ * @var string $captchaField (optional) Spam-Schutz-Abfrage der kontoweiten
+ *      Bremse (Audit M7, AuthController::loginSubmit()) - nur nach gehäuften
+ *      Fehlversuchen gegen dasselbe Konto
+ * @var string $kennung (optional) Vorbelegung nach der Bremse
  */
 ?>
 <div class="card" style="max-width: 400px; margin: 4rem auto;">
@@ -55,7 +59,8 @@
         <div class="form-group">
             <label for="kennung"><?= htmlspecialchars(App\I18n\Translator::t('auth.identifier_label')) ?></label>
             <input type="text" id="kennung" name="kennung" class="form-control" required autofocus
-                   autocomplete="username" maxlength="100" autocapitalize="none" spellcheck="false">
+                   autocomplete="username" maxlength="100" autocapitalize="none" spellcheck="false"
+                   value="<?= htmlspecialchars((string)($kennung ?? '')) ?>">
         </div>
 
         <div class="form-group">
@@ -65,6 +70,13 @@
             </div>
             <input type="password" id="password" name="password" class="form-control" required>
         </div>
+
+        <?php if (!empty($captchaField)): ?>
+            <?php // Markiert, dass die Abfrage angezeigt war - dann ist eine
+                  // fehlende Lösung ein Fehler und kein erster Kontakt. ?>
+            <input type="hidden" name="login_captcha" value="1">
+            <?= $captchaField /* HTML aus Captcha::renderField(), dort escaped */ ?>
+        <?php endif; ?>
 
         <button type="submit" class="btn" style="width: 100%"><?= htmlspecialchars(App\I18n\Translator::t('auth.login_button')) ?></button>
     </form>

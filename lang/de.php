@@ -262,6 +262,7 @@ return [
     'auth.login_button' => 'Anmelden',
     'auth.rate_limited_login' => 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuchen Sie es in 15 Minuten erneut.',
     'auth.invalid_credentials' => 'Ungültige Zugangsdaten.',
+    'auth.login_captcha_required' => 'Nach vielen fehlgeschlagenen Anmeldeversuchen ist zusätzlich eine Sicherheitsabfrage nötig. Bitte beantworten Sie sie unten und melden Sie sich erneut an.',
     'auth.email_not_verified' => 'Bitte bestätigen Sie zunächst Ihre E-Mail-Adresse über den Link aus unserer E-Mail (bitte auch im Spam-Ordner nachsehen). Ist er abgelaufen oder verloren gegangen, senden wir Ihnen bei der Anmeldung mit Ihrem Passwort automatisch einen aktuellen Link.',
     'auth.email_verified_success' => '✓ E-Mail-Adresse bestätigt. Sie können sich jetzt anmelden.',
     'auth.register_link' => 'Noch kein Konto? Jetzt registrieren',

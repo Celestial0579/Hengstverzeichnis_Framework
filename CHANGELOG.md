@@ -149,6 +149,38 @@ Breaking Changes sind jederzeit möglich).
   zeigt Passkeys an und bietet den Reset auch für Konten an, die nur einen
   Passkey haben.
 
+- **Brute-Force-Zähler sind jetzt atomar** (Audit M20). Bisher prüfte der
+  Kern erst die Zahl der Fehlversuche, dann Passwort oder Code, und buchte
+  den Fehlversuch zuletzt. Parallel gestartete Anfragen sahen dazwischen alle
+  denselben alten Stand; so ließ sich ein Vielfaches der erlaubten Versuche
+  für Passwort, TOTP-, Mail- und Backup-Code erzwingen. Anmeldung, zweiter
+  Faktor samt Step-up (auch per Passkey), erzwungener Passwortwechsel,
+  „Passwort vergessen“, Registrierung, DSGVO-Formular und der Versand von
+  Mail- und Bestätigungscodes buchen den Versuch jetzt zuerst und zählen
+  danach (`RateLimiter::reserveAttempt()`). Auch der Zähler je Mailcode wird
+  vor der Prüfung gebucht.
+- **IPv6: Rate-Limits zählen je /64-Präfix** (Audit M7). Wer ein IPv6-Netz
+  besitzt, konnte bisher jede Anfrage von einer neuen Adresse schicken, und
+  keine IP-Grenze griff. Adressen aus demselben /64 teilen sich jetzt einen
+  Zähler (`ClientIp::rateLimitKey()`), auch in den Formularen der Addons.
+  Die Anmeldung hat bei IPv6 zusätzlich eine Stufe je /48 (100 Fehlversuche
+  in 15 Minuten).
+- **Kontoweite Bremse statt Sperre** (Audit M7). Nach zehn Fehlversuchen
+  gegen dasselbe Konto in 15 Minuten, gleich von welchen Adressen, verlangt
+  die Anmeldung zusätzlich die Spam-Schutz-Abfrage (neuer Kontext
+  „Anmeldung“; empfohlen wird ein Proof-of-Work-Anbieter wie Altcha). Das
+  Konto wird dabei nie gesperrt, der Schutz gegen Aussperren aus #115 bleibt
+  erhalten.
+- **„Passwort vergessen“ zusätzlich je Empfänger begrenzt** (Audit M7):
+  höchstens drei Reset-Mails je Adresse und Stunde. Die Antwort bleibt in
+  jedem Fall gleich, und die Adresse wird dafür nur als Hash gespeichert.
+- **Einmal-Nachweise werden nur einmal verbraucht** (Audit N43). Ein
+  Backup-Code ließ sich mit parallelen Anfragen mehrfach einlösen, und eine
+  laufende Einlösung konnte einen gerade neu erzeugten Codesatz mit dem alten
+  überschreiben. Beim TOTP-Code ließ sich der gespeicherte Zeitschlitz
+  senken. Backup-Codes, TOTP-Zeitschlitze (Anmeldung und Step-up) und
+  Mailcodes werden jetzt per Vergleich mit dem gelesenen Stand verbraucht.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -322,6 +354,11 @@ Breaking Changes sind jederzeit möglich).
   Profil und beim Bearbeiten in der Benutzerverwaltung. Konten im Papierkorb
   zählen bei der Prüfung mit – ihre Adresse ist erst nach dem endgültigen
   Löschen wieder frei.
+- **Die Sperre beim erzwungenen Passwortwechsel griff nie** (Audit M8). Der
+  Zählertyp `force_password_change` war mit 21 Zeichen länger als die Spalte
+  `login_attempts.type` (20 Zeichen). Das Buchen scheiterte still, und das
+  bisherige Passwort ließ sich unbegrenzt raten. Nach fünf Fehlversuchen ist
+  das Formular jetzt für 15 Minuten gesperrt.
 
 ### Geändert
 
@@ -405,6 +442,27 @@ Breaking Changes sind jederzeit möglich).
   `stepUpMitTotp()`, `adminStepUp()`, `bekanntenMailcodeSetzen()`,
   `angemeldetOhneFaktor()`) – gleichnamige private Methoden in Unterklassen
   brechen mit einem Fatal Error ab.
+
+- **IPv6-Clients aus demselben /64 teilen sich alle IP-Zähler** (Anmeldung,
+  „Passwort vergessen“, Registrierung, DSGVO-Formular, Formulare der Addons),
+  wie Geräte hinter einem IPv4-NAT. Bestehende Zählerstände unter voller
+  IPv6-Adresse verfallen mit dem Update.
+- **Mehr als drei Reset-Mails je Adresse und Stunde werden still verworfen.**
+- **Neuer Captcha-Kontext „Anmeldung“** in den Systemeinstellungen. Er greift
+  nur nach gehäuften Fehlversuchen; ein global gewählter Drittanbieter
+  erscheint dann auch auf der Login-Seite und lässt sich für diesen Kontext
+  umstellen.
+- Die Kennzahl `login_attempts.created` der Stats-API zählt nur noch
+  stehengebliebene Buchungen, also Fehlversuche; freigegebene Reservierungen
+  erfolgreicher Anmeldungen verschwinden wieder.
+- Für Addon-Entwickler: `RateLimiter` kennt zusätzlich `reserveAttempt()` und
+  `releaseAttempt()`, `ClientIp` zusätzlich `rateLimitKey()`; die bisherigen
+  Methoden bleiben unverändert. Zählertypen über 20 Zeichen oder ohne Inhalt
+  lösen jetzt eine `InvalidArgumentException` aus, statt still nicht zu
+  zählen. `reserveAttempt()` in einer offenen Transaktion löst eine
+  `LogicException` aus. Neu ist `App\Security\OneTimeProofs`.
+- Neuer Übersetzungsschlüssel `auth.login_captcha_required` – die
+  Sprach-Addons brauchen ihn ab diesem Stand.
 
 ## [0.9.0] – 2026-08-27
 

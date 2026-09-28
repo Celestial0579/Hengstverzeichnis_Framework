@@ -165,7 +165,8 @@ final class StepUp {
      * - Ein reines Passkey-Konto bestätigt mit dem Passkey
      *   (PasskeyController::stepUpPruefen()); hier besteht es nie.
      *
-     * Ein akzeptierter TOTP-Code verbraucht seinen Zeitschlitz (#111).
+     * Ein akzeptierter TOTP-Code verbraucht seinen Zeitschlitz (#111), und zwar
+     * atomar (OneTimeProofs::consumeTotpSlice(), Audit N43).
      * $konto braucht `totp_secret` und `last_totp_timeslice`.
      *
      * @param array<string, mixed> $konto
@@ -185,10 +186,10 @@ final class StepUp {
             if ($slice === null) {
                 return false;
             }
-            Database::getInstance()
-                ->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?")
-                ->execute([$slice, $userId]);
-            return true;
+            // Verbrauch per Vergleich mit dem gespeicherten Stand (Audit
+            // N43): Zwei parallele Bestätigungen mit demselben Code bestehen
+            // nicht beide, und eine langsamere kann den Schlitz nicht senken.
+            return OneTimeProofs::consumeTotpSlice($userId, $slice);
         }
 
         if ($art === SecondFactors::EMAIL) {

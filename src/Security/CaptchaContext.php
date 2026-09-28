@@ -33,13 +33,16 @@ final class CaptchaContext {
 
     /**
      * Kern-Formulare. `dsgvo` ist das DSGVO-Portal (Art. 15/17), `register`
-     * die Selbstregistrierung.
+     * die Selbstregistrierung, `login` die Anmeldung - dort erscheint die
+     * Abfrage nur als kontoweite Bremse nach gehäuften Fehlversuchen (Audit
+     * M7, AuthController::loginSubmit()).
      *
      * @var array<string, string>
      */
     private const CORE_CONTEXTS = [
         'dsgvo' => 'DSGVO-Portal (Auskunft und Löschung)',
         'register' => 'Selbstregistrierung',
+        'login' => 'Anmeldung (nur nach gehäuften Fehlversuchen)',
     ];
 
     /** @var array<string, string>|null */

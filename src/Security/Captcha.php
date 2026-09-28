@@ -189,7 +189,8 @@ class Captcha {
      *
      * @param array<string, mixed> $settings
      * @param string $context Formularkennung aus App\Security\CaptchaContext.
-     *                        Der Kern kennt 'dsgvo' und 'register'; Addons melden
+     *                        Der Kern kennt 'dsgvo', 'register' und 'login'
+     *                        (nur als Bremse nach Fehlversuchen); Addons melden
      *                        ihre eigenen Formulare dort an (#351). Ein nicht
      *                        angemeldeter Kontext bekommt den eingebauten Schutz.
      */

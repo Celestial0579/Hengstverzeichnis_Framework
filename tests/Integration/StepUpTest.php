@@ -66,6 +66,23 @@ class StepUpTest extends TestCase {
         $this->assertFalse(StepUp::codePruefen($id, $this->zeile($id), $this->faktoren($id), $code, ''));
     }
 
+    /**
+     * Zwei parallele Bestätigungen lesen dieselbe, noch unverbrauchte Zeile
+     * (Audit N43). Die zweite darf trotzdem nicht bestehen - der Verbrauch
+     * vergleicht mit dem Stand in der Datenbank, nicht mit dem gelesenen.
+     */
+    public function testParallelGelesenerStandBestehtNurEinmal(): void {
+        $id = $this->totpKonto('su_parallel');
+        $code = Totp::getCode($this->secret);
+        $gelesen = $this->zeile($id);
+
+        $this->assertTrue(StepUp::codePruefen($id, $gelesen, $this->faktoren($id), $code, ''));
+        $this->assertFalse(
+            StepUp::codePruefen($id, $gelesen, $this->faktoren($id), $code, ''),
+            'Mit dem vor dem Verbrauch gelesenen Stand gilt der Code kein zweites Mal.'
+        );
+    }
+
     public function testMailcodeKontoBestaetigtMitDemMailcode(): void {
         $id = $this->kontoAnlegen('su_mail', ['email_2fa_enabled' => 1]);
         $this->assertSame([SecondFactors::EMAIL], $this->faktoren($id));

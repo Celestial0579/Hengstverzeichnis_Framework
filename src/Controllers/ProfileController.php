@@ -34,6 +34,13 @@ use App\Service\Mailer;
  * eine Sitzung übernommen hatte und das Passwort kannte, schaltete den
  * Mailcode ab und richtete ohne Nachweis eine eigene App ein, oder trug die
  * Adresse samt Faktor auf ein eigenes Postfach um. Siehe App\Security\StepUp.
+ *
+ * DIE profile_*-ZÄHLER bleiben bei tooManyAttempts()/recordAttempt() und
+ * werden nicht vorab gebucht (anders als Anmeldung und Codeversand, Audit
+ * M20): Sie setzen eine voll angemeldete Sitzung voraus, und deren Anfragen
+ * serialisiert die Sperre der PHP-Sitzungsdatei ohnehin. Der gemeinsame
+ * Versandtopf des Mailcodes wird dagegen gebucht - er ist dieselbe Grenze wie
+ * im Anmeldeweg.
  */
 class ProfileController extends BaseController {
 
@@ -325,15 +332,16 @@ class ProfileController extends BaseController {
         ) {
             $this->zurueck('error', 'email_factor_not_allowed');
         }
-        if (RateLimiter::tooManyAttempts(
+        // Derselbe Topf wie der Anmeldecode, erst gebucht, dann gezählt
+        // (Audit M20).
+        if (RateLimiter::reserveAttempt(
             (string)$userId,
             EmailSecondFactor::RESEND_LIMITER_TYPE,
             EmailSecondFactor::RESEND_MAX,
             EmailSecondFactor::RESEND_WINDOW
-        )) {
+        ) === null) {
             $this->zurueck('error', 'rate_limited');
         }
-        RateLimiter::recordAttempt((string)$userId, EmailSecondFactor::RESEND_LIMITER_TYPE);
 
         $code = EmailSecondFactor::issue($userId, EmailSecondFactor::PURPOSE_SETUP);
         $versandt = (new Mailer())->sendSecondFactorCode(

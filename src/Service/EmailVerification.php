@@ -100,10 +100,11 @@ final class EmailVerification {
             return false;
         }
 
-        if (RateLimiter::tooManyAttempts((string)$userId, self::RESEND_LIMITER_TYPE, self::RESEND_MAX, self::RESEND_WINDOW)) {
+        // Erst buchen, dann zählen (Audit M20): Parallele Anmeldungen kommen
+        // sonst alle an der Grenze vorbei.
+        if (RateLimiter::reserveAttempt((string)$userId, self::RESEND_LIMITER_TYPE, self::RESEND_MAX, self::RESEND_WINDOW) === null) {
             return false;
         }
-        RateLimiter::recordAttempt((string)$userId, self::RESEND_LIMITER_TYPE);
 
         try {
             $token = $bisherigesToken;

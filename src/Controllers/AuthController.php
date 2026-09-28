@@ -38,23 +38,48 @@ class AuthController extends BaseController {
         $kennung = trim((string)($_POST['kennung'] ?? ''));
         $password = $_POST['password'] ?? '';
 
-        // Zwei getrennte Zähler (Issue #115): Der Konto-Zähler ist an die
+        // Getrennte Zähler (Issue #115): Der Konto-Zähler ist an die
         // Client-IP gekoppelt, damit ein Angreifer mit gezielten Fehlversuchen
         // nicht beliebige bekannte Konten global aussperren kann
         // (Account-Lockout-DoS). Der zusätzliche reine IP-Zähler (höheres
         // Limit) bremst Passwort-Spraying über viele Konten von derselben
-        // Adresse. Beide Zähler bleiben durch den fail-open-Charakter des
+        // Adresse. Alle Zähler bleiben durch den fail-open-Charakter des
         // RateLimiters bei DB-Fehlern ausfallsicher.
-        $clientIp = \App\Security\ClientIp::resolve();
+        //
+        // Jeder Zähler BUCHT zuerst und zählt danach (Audit M20) - sonst
+        // kämen parallel abgeschickte Anmeldungen alle am selben alten Stand
+        // vorbei. Jeder frühe Ausstieg gibt die schon gemachten Buchungen
+        // wieder frei: Ein gesperrter Versuch hat kein Passwort geprüft und
+        // zählt nirgends.
+        //
+        // Der IP-Anteil ist bei IPv6 das /64 (Audit M7,
+        // ClientIp::rateLimitKey()): Wer ein ganzes Präfix hat, wechselt sonst
+        // bei jedem Versuch die Adresse.
+        $ipKey = \App\Security\ClientIp::rateLimitKey();
+        $gebucht = [];
 
         // Die reine IP-Bremse braucht keine Kontokenntnis und steht deshalb
         // vor der Suche.
-        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'login_ip', 20)) {
-            $this->render('login', [
-                'title' => \App\I18n\Translator::t('meta.title_login_failed'),
-                'error' => \App\I18n\Translator::t('auth.rate_limited_login')
-            ]);
+        $ipRes = \App\Security\RateLimiter::reserveAttempt($ipKey, 'login_ip', self::LOGIN_IP_MAX);
+        if ($ipRes === null) {
+            $this->loginGesperrt();
             return;
+        }
+        $gebucht[] = $ipRes;
+
+        // Zweite Stufe für IPv6: das /48 (D10). Ein /48 ist 65.536 /64 - so
+        // viel bekommt man bei Tunnelbrokern kostenlos. Ohne diese Stufe
+        // bremste dort allein die kontoweite Zusatzabfrage unten. Bei IPv4
+        // ergäbe sie denselben Schlüssel wie login_ip und entfällt.
+        $netzKey = \App\Security\ClientIp::rateLimitKey(null, self::LOGIN_NETZ_PRAEFIX);
+        if ($netzKey !== $ipKey) {
+            $netzRes = \App\Security\RateLimiter::reserveAttempt($netzKey, self::LOGIN_NETZ_TYP, self::LOGIN_NETZ_MAX);
+            if ($netzRes === null) {
+                $this->buchungenFreigeben($gebucht);
+                $this->loginGesperrt();
+                return;
+            }
+            $gebucht[] = $netzRes;
         }
 
         $user = $this->findeKontoFuerAnmeldung($kennung);
@@ -72,17 +97,73 @@ class AuthController extends BaseController {
         // Schlüssel - es gibt nichts Besseres, und es gibt auch nichts zu
         // erraten. Das Präfix trennt beide Fälle sauber: Ohne es teilte sich
         // ein Konto mit der ID 5 einen Zähler mit jemandem, der "5" eintippt.
-        $accountIdentifier = ($user !== null
+        $kontoKey = $user !== null
             ? 'uid:' . (int)$user['id']
-            : 'kennung:' . LoginIdentifier::normalize($kennung)) . '|' . $clientIp;
+            : 'kennung:' . LoginIdentifier::normalize($kennung);
+        $accountIdentifier = $kontoKey . '|' . $ipKey;
 
-        if (\App\Security\RateLimiter::tooManyAttempts($accountIdentifier, 'login')) {
-            $this->render('login', [
-                'title' => \App\I18n\Translator::t('meta.title_login_failed'),
-                'error' => \App\I18n\Translator::t('auth.rate_limited_login')
-            ]);
+        $accRes = \App\Security\RateLimiter::reserveAttempt($accountIdentifier, 'login');
+        if ($accRes === null) {
+            // Die IP-Buchungen zurück: Sonst verbrauchte jemand, der an EINEM
+            // Konto gesperrt ist, mit jedem weiteren Klick das IP-Budget des
+            // ganzen /64 bzw. NAT.
+            $this->buchungenFreigeben($gebucht);
+            $this->loginGesperrt();
             return;
         }
+
+        // KONTOWEITE BREMSE OHNE SPERRE (Audit M7). Die Zähler oben hängen an
+        // der Adresse; wer viele Adressen hat, verteilt seine Versuche und
+        // bleibt überall darunter. Ein kontoweiter Zähler, der SPERRT, wäre
+        // aber genau der Account-Lockout-DoS, gegen den #115 gebaut wurde.
+        // Deshalb bremst er nur: Ab KONTO_BREMSE_AB Fehlversuchen im Fenster
+        // verlangt die Anmeldung zusätzlich die Spam-Schutz-Abfrage (Kontext
+        // 'login'), und ohne gelöste Aufgabe wird das Passwort gar nicht erst
+        // geprüft. Das Konto selbst kommt mit gelöster Aufgabe jederzeit
+        // hinein. Unbekannte Kennungen werden genauso behandelt - die Bremse
+        // verrät nicht, ob es ein Konto gibt.
+        //
+        // Ein einzelnes /64 erreicht die Schwelle nie: Der Konto|/64-Zähler
+        // (5) sperrt vorher, und dann wird hier gar nicht erst gebucht.
+        $kontoRes = \App\Security\RateLimiter::reserveAttempt(
+            $kontoKey,
+            self::KONTO_BREMSE_TYP,
+            self::KONTO_BREMSE_AB,
+            self::KONTO_BREMSE_FENSTER
+        );
+        if ($kontoRes === null) {
+            $captcha = \App\Security\Captcha::verify($this->settings, 'login', $_POST);
+            if ($captcha !== \App\Security\Captcha::OK) {
+                // Kein Passwort geprüft: Der Konto|IP-Versuch zählt nicht.
+                // login_ip bleibt gebucht - er begrenzt, wie oft ein /64 die
+                // Abfrage durchprobieren kann.
+                \App\Security\RateLimiter::releaseAttempt($accRes);
+
+                $abgeschickt = isset($_POST['login_captcha']);
+                $this->render('login', [
+                    'title' => \App\I18n\Translator::t('meta.title_login_failed'),
+                    'error' => \App\I18n\Translator::t(match (true) {
+                        !$abgeschickt => 'auth.login_captcha_required',
+                        $captcha === \App\Security\Captcha::EXPIRED => 'dsgvo.captcha_expired',
+                        $captcha === \App\Security\Captcha::TOO_FAST => 'dsgvo.captcha_too_fast',
+                        default => 'dsgvo.captcha_wrong',
+                    }),
+                    'captchaField' => \App\Security\Captcha::renderField($this->settings, 'login'),
+                    'kennung' => $kennung,
+                ]);
+                return;
+            }
+            // Gelöst: Der Versuch zählt trotzdem kontoweit - mit eigener
+            // Buchung (ohne Grenze), damit ein Erfolg genau sie wieder
+            // freigeben kann.
+            $kontoRes = \App\Security\RateLimiter::reserveAttempt(
+                $kontoKey,
+                self::KONTO_BREMSE_TYP,
+                PHP_INT_MAX,
+                self::KONTO_BREMSE_FENSTER
+            );
+        }
+        $gebucht[] = $kontoRes;
 
         if ($user === null) {
             // Gleich lange Antwort, egal ob es das Konto gibt (#348).
@@ -94,12 +175,21 @@ class AuthController extends BaseController {
         }
 
         if ($user && password_verify($password, $user['password_hash'])) {
+            // Zuerst die Buchungen freigeben - vor jeder Weiterleitung und
+            // jedem exit. Der kontoweite Zähler wird dabei bewusst NICHT
+            // geleert, nur die eigene Buchung zurückgenommen: Sonst setzte
+            // jede Anmeldung des Opfers das Budget des Angreifers zurück.
+            // Ebenso bleibt der IP-Zähler stehen, damit ein erfolgreicher
+            // Login nicht die Spuren von Spraying gegen andere Konten löscht.
+            $this->buchungenFreigeben($gebucht);
+
             // Selfservice-Registrierung (#83): Ein gesetzter Verifizierungs-
             // Token bedeutet, dass die E-Mail-Adresse noch nicht bestätigt
             // wurde - der Login bleibt bis dahin gesperrt (erst NACH der
             // Passwortprüfung gemeldet, damit die Meldung nichts über fremde
             // Konten verrät).
             if (!empty($user['email_verification_token'])) {
+                \App\Security\RateLimiter::releaseAttempt($accRes);
                 // Abgelaufener oder verlorener Link war bis hierher eine
                 // Sackgasse (Audit N54): Wer sein Passwort kennt, bekommt
                 // einen aktuellen - gedrosselt und nie über die
@@ -114,9 +204,7 @@ class AuthController extends BaseController {
                 ]);
                 return;
             }
-            // Nur den eigenen Konto-Zähler zurücksetzen - der reine
-            // IP-Zähler bleibt bestehen, damit ein erfolgreicher Login nicht
-            // die Spuren von Spraying-Versuchen gegen andere Konten löscht.
+            // Den eigenen Konto|IP-Zähler zurücksetzen.
             \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
 
             // Wohin es nach dem Passwort geht, entscheidet die zentrale
@@ -125,13 +213,56 @@ class AuthController extends BaseController {
             $this->nachErstemFaktor($user);
         }
 
-        \App\Security\RateLimiter::recordAttempt($accountIdentifier, 'login');
-        \App\Security\RateLimiter::recordAttempt($clientIp, 'login_ip');
-
+        // Fehlschlag: Alle Buchungen bleiben stehen - sie SIND die
+        // Fehlversuche.
         $this->render('login', [
             'title' => \App\I18n\Translator::t('meta.title_login_failed'),
             'error' => \App\I18n\Translator::t('auth.invalid_credentials')
         ]);
+    }
+
+    /** Fehlversuche je Client-IP (bei IPv6 je /64) im Fenster. */
+    private const LOGIN_IP_MAX = 20;
+
+    /**
+     * Zweite IP-Stufe nur für IPv6: Fehlversuche je /48 (Audit M7, D10).
+     * Weit über login_ip, damit unbeteiligte Kunden desselben Providers nur
+     * unter einem echten Angriff gemeinsam gebremst werden.
+     */
+    private const LOGIN_NETZ_TYP = 'login_net';
+    private const LOGIN_NETZ_PRAEFIX = 48;
+    private const LOGIN_NETZ_MAX = 100;
+
+    /**
+     * Kontoweite Bremse (Audit M7): Ab so vielen Fehlversuchen gegen dasselbe
+     * Konto im Fenster verlangt die Anmeldung zusätzlich die
+     * Spam-Schutz-Abfrage. Sie sperrt nie (#115).
+     */
+    public const KONTO_BREMSE_TYP = 'login_konto';
+    public const KONTO_BREMSE_AB = 10;
+    public const KONTO_BREMSE_FENSTER = 900;
+
+    /**
+     * Zählertyp des erzwungenen Passwortwechsels (Audit M8). Bis hierher
+     * hiess er 'force_password_change' - 21 Zeichen, eines mehr als die
+     * Spalte login_attempts.type (VARCHAR(20)) fasst. Das Buchen scheiterte
+     * still, und das bisherige Passwort liess sich unbegrenzt raten.
+     */
+    public const FORCE_PW_LIMITER_TYPE = 'force_pw_change';
+
+    /** Die gemeinsame Sperrantwort der Anmeldung. */
+    private function loginGesperrt(): void {
+        $this->render('login', [
+            'title' => \App\I18n\Translator::t('meta.title_login_failed'),
+            'error' => \App\I18n\Translator::t('auth.rate_limited_login')
+        ]);
+    }
+
+    /** @param array<int, int|null> $reservierungen */
+    private function buchungenFreigeben(array $reservierungen): void {
+        foreach ($reservierungen as $id) {
+            \App\Security\RateLimiter::releaseAttempt($id);
+        }
     }
 
     /**
@@ -252,16 +383,17 @@ class AuthController extends BaseController {
             return;
         }
 
-        if (\App\Security\RateLimiter::tooManyAttempts(
+        // Erst buchen, dann zählen (Audit M20): Parallele Anforderungen
+        // kommen sonst alle an der Grenze vorbei.
+        if (\App\Security\RateLimiter::reserveAttempt(
             (string)$userId,
             EmailSecondFactor::RESEND_LIMITER_TYPE,
             EmailSecondFactor::RESEND_MAX,
             EmailSecondFactor::RESEND_WINDOW
-        )) {
+        ) === null) {
             header("Location: {$ziel}?fehler=gedrosselt");
             return;
         }
-        \App\Security\RateLimiter::recordAttempt((string)$userId, EmailSecondFactor::RESEND_LIMITER_TYPE);
 
         $code = EmailSecondFactor::issue($userId, EmailSecondFactor::PURPOSE_LOGIN);
         $versandt = (new \App\Service\Mailer())->sendSecondFactorCode(
@@ -756,7 +888,9 @@ class AuthController extends BaseController {
         $user = $stmt->fetch();
         $faktoren = is_array($user) ? SecondFactors::fromRow($user) : [];
 
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+        // Erst buchen, dann prüfen (Audit M20). Ein Fehlschlag lässt die
+        // Buchung stehen, ein Erfolg leert den Zähler.
+        if (\App\Security\RateLimiter::reserveAttempt((string)$userId, '2fa') === null) {
             $this->reauthSeite($userId, $faktoren, $fuer, \App\I18n\Translator::t('auth.rate_limited_2fa'));
             return;
         }
@@ -786,8 +920,6 @@ class AuthController extends BaseController {
             header("Location: " . StepUp::ziel($fuer));
             exit;
         }
-
-        \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
 
         $this->reauthSeite($userId, $faktoren, $fuer, 'Passwort oder Code ungültig. Bitte versuchen Sie es erneut.');
     }
@@ -827,16 +959,15 @@ class AuthController extends BaseController {
             exit;
         }
 
-        if (\App\Security\RateLimiter::tooManyAttempts(
+        if (\App\Security\RateLimiter::reserveAttempt(
             (string)$userId,
             EmailSecondFactor::RESEND_LIMITER_TYPE,
             EmailSecondFactor::RESEND_MAX,
             EmailSecondFactor::RESEND_WINDOW
-        )) {
+        ) === null) {
             header("Location: " . $zurueck);
             exit;
         }
-        \App\Security\RateLimiter::recordAttempt((string)$userId, EmailSecondFactor::RESEND_LIMITER_TYPE);
 
         $code = EmailSecondFactor::issue($userId, EmailSecondFactor::PURPOSE_SETUP);
         (new \App\Service\Mailer())->sendSecondFactorCode(
@@ -989,7 +1120,9 @@ class AuthController extends BaseController {
 
         $code = trim($_POST['totp_code'] ?? '');
 
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+        // Erst buchen, dann prüfen (Audit M20).
+        $res = \App\Security\RateLimiter::reserveAttempt((string)$userId, '2fa');
+        if ($res === null) {
             $this->render('2fa_verify', [
                 'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
                 'error' => \App\I18n\Translator::t('auth.rate_limited_2fa'),
@@ -1018,16 +1151,17 @@ class AuthController extends BaseController {
             // verifyCodeReturnSlice() auch bei korrektem Code ab.
             $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
             $matchedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, $code, $lastSlice);
-            if ($matchedSlice !== null) {
-                $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
-                $update->execute([$matchedSlice, $userId]);
-
+            // Den Schlitz nur verbrauchen, wenn er seit dem Lesen nicht schon
+            // von einer parallelen Anfrage verbraucht wurde (Audit N43) -
+            // sonst gälte derselbe Code zweimal, und eine langsamere Anfrage
+            // könnte den gespeicherten Schlitz wieder senken.
+            if ($matchedSlice !== null && \App\Security\OneTimeProofs::consumeTotpSlice((int)$userId, $matchedSlice)) {
                 \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
                 $this->afterSecondFactor((int)$userId, '/admin');
             }
         }
 
-        \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
+        // Fehlschlag: Die Buchung bleibt stehen.
 
         $this->render('2fa_verify', [
             'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
@@ -1085,7 +1219,8 @@ class AuthController extends BaseController {
         // Verfahren hat, soll dadurch nicht doppelt so viele Rateversuche
         // bekommen. Die Versuchsgrenze JE CODE (EmailSecondFactor::
         // MAX_ATTEMPTS) kommt zusaetzlich dazu und verbraucht den Code.
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+        $res = \App\Security\RateLimiter::reserveAttempt((string)$userId, '2fa');
+        if ($res === null) {
             $this->render('2fa_email_verify', [
                 'title' => \App\I18n\Translator::t('meta.title_2fa_confirm'),
                 'error' => \App\I18n\Translator::t('auth.rate_limited_2fa')
@@ -1097,6 +1232,8 @@ class AuthController extends BaseController {
         // in dieser Zeit gesperrt worden sein (#358).
         $konto = $this->aktivesKonto($userId);
         if ($konto === null) {
+            // Neutraler Ausstieg: nichts geprüft, nichts gezählt.
+            \App\Security\RateLimiter::releaseAttempt($res);
             unset($_SESSION['pending_2fa_user_id']);
             header("Location: /login");
             exit;
@@ -1110,7 +1247,7 @@ class AuthController extends BaseController {
             $this->afterSecondFactor($userId, '/admin');
         }
 
-        \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
+        // Fehlschlag: Die Buchung bleibt stehen.
         \App\Service\AuditLogger::log(
             "Anmeldecode abgelehnt",
             "auth",
@@ -1171,9 +1308,9 @@ class AuthController extends BaseController {
             exit;
         }
 
-        $inputCode = strtoupper(str_replace(['-', ' '], '', trim($_POST['backup_code'] ?? '')));
-
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, 'backup')) {
+        // Erst buchen, dann prüfen (Audit M20).
+        $res = \App\Security\RateLimiter::reserveAttempt((string)$userId, 'backup');
+        if ($res === null) {
             $this->render('2fa_backup', [
                 'title' => 'Backup-Code verwenden',
                 'error' => 'Zu viele fehlgeschlagene Versuche. Bitte versuchen Sie es in 15 Minuten erneut.'
@@ -1181,47 +1318,32 @@ class AuthController extends BaseController {
             return;
         }
 
-        $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT backup_codes FROM users WHERE id = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
-        $stmt->execute([$userId]);
-        $user = $stmt->fetch();
-
-        if (!$user) {
-            // Account wurde vermutlich zwischen 2FA-Pending und Backup-Code-Eingabe gelöscht
+        if ($this->aktivesKonto((int)$userId) === null) {
+            // Account wurde vermutlich zwischen 2FA-Pending und Backup-Code-
+            // Eingabe gelöscht oder gesperrt - neutraler Ausstieg.
+            \App\Security\RateLimiter::releaseAttempt($res);
             unset($_SESSION['pending_2fa_user_id']);
             header("Location: /login");
             exit;
         }
 
-        // json_decode liefert bei leerem String oder kaputtem JSON null -
-        // sauber als "keine Codes vorhanden" behandeln statt foreach über null (#128).
-        $backupCodes = json_decode($user['backup_codes'] ?? '[]', true);
-        if (!is_array($backupCodes)) {
-            $backupCodes = [];
-        }
-        $matchedKey = null;
-
-        foreach ($backupCodes as $key => $hashedCode) {
-            if (password_verify($inputCode, $hashedCode)) {
-                $matchedKey = $key;
-                break;
-            }
-        }
-
-        if ($matchedKey !== null) {
+        // Einlösen per Vergleich mit dem gelesenen Codesatz (Audit N43): Ein
+        // Code gilt auch bei parallelen Anfragen nur einmal, und eine
+        // laufende Einlösung überschreibt keinen inzwischen neu erzeugten
+        // Satz.
+        if (\App\Security\OneTimeProofs::redeemBackupCode((int)$userId, (string)($_POST['backup_code'] ?? ''))) {
             \App\Security\RateLimiter::clearAttempts((string)$userId, 'backup');
-
-            // Remove used backup code
-            unset($backupCodes[$matchedKey]);
-            $updatedCodes = array_values($backupCodes);
-
-            $stmt = $db->prepare("UPDATE users SET backup_codes = ? WHERE id = ?");
-            $stmt->execute([json_encode($updatedCodes), $userId]);
-
             $this->afterSecondFactor((int)$userId, '/admin?backup_code_used=1');
         }
 
-        \App\Security\RateLimiter::recordAttempt((string)$userId, 'backup');
+        // Fehlschlag (falsch, verbraucht oder im Wettlauf verloren): Die
+        // Buchung bleibt stehen.
+        \App\Service\AuditLogger::log(
+            "Backup-Code abgelehnt",
+            "auth",
+            "Falscher oder bereits verwendeter Backup-Code",
+            (int)$userId
+        );
 
         $this->render('2fa_backup', [
             'title' => 'Backup-Code verwenden',
@@ -1263,25 +1385,41 @@ class AuthController extends BaseController {
             $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
         }
 
-        // Nach Absender-IP begrenzen (nicht nach E-Mail): Ohne diese Sperre könnte jeder
-        // Client unbegrenzt oft echten SMTP-Versand auslösen (E-Mail-Bombing eines
-        // beliebigen Opfers, Missbrauch/Reputationsschaden des SMTP-Relays) - unabhängig
-        // davon, ob die eingegebene E-Mail-Adresse überhaupt existiert.
-        $clientIp = \App\Security\ClientIp::resolve();
-        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'password_reset')) {
+        // Nach Absender-IP begrenzen: Ohne diese Sperre könnte jeder Client
+        // unbegrenzt oft echten SMTP-Versand auslösen (E-Mail-Bombing eines
+        // beliebigen Opfers, Missbrauch/Reputationsschaden des SMTP-Relays) -
+        // unabhängig davon, ob die eingegebene E-Mail-Adresse überhaupt
+        // existiert. Jeder POST zählt, die Buchung wird nie freigegeben. Bei
+        // IPv6 zählt das /64 (Audit M7).
+        $clientKey = \App\Security\ClientIp::rateLimitKey();
+        if (\App\Security\RateLimiter::reserveAttempt($clientKey, 'password_reset') === null) {
             $this->render('auth_forgot_password', [
                 'title' => \App\I18n\Translator::t('meta.title_forgot_password'),
                 'error' => \App\I18n\Translator::t('auth.rate_limited_password_reset')
             ]);
             return;
         }
-        \App\Security\RateLimiter::recordAttempt($clientIp, 'password_reset');
 
         // Untergrenze für die Antwortzeit, siehe unten.
         $startedAt = microtime(true);
 
         $email = trim($_POST['email'] ?? '');
-        if (!empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        if (
+            !empty($email) && filter_var($email, FILTER_VALIDATE_EMAIL)
+            // Zusätzlich je EMPFÄNGER begrenzt (Audit M7): Wer viele
+            // Adressen hat, umging die IP-Grenze und flutete ein Postfach
+            // trotzdem. Über der Grenze wird STILL nichts erzeugt - Antwort
+            // und Antwortzeit bleiben gleich, die Route wird kein Orakel.
+            // Gezählt wird nur ein Abdruck der Adresse: login_attempts wird
+            // nie aufgeräumt, und beliebige eingetippte Fremdadressen haben
+            // dort im Klartext nichts verloren.
+            && \App\Security\RateLimiter::reserveAttempt(
+                self::resetEmpfaengerKey($email),
+                self::RESET_EMPFAENGER_TYP,
+                self::RESET_EMPFAENGER_MAX,
+                self::RESET_EMPFAENGER_FENSTER
+            ) !== null
+        ) {
             $db = Database::getInstance();
             // Gelöschte und deaktivierte Konten bekommen keinen Reset-Link
             // (#358). Diese Stelle filterte bis dahin GAR NICHT - ein Konto im
@@ -1316,6 +1454,21 @@ class AuthController extends BaseController {
         // Always show success message to prevent user enumeration
         header("Location: /forgot-password?sent=1");
         exit;
+    }
+
+    /** Reset-Mails je Empfängeradresse und Stunde (Audit M7). */
+    public const RESET_EMPFAENGER_TYP = 'password_reset_to';
+    public const RESET_EMPFAENGER_MAX = 3;
+    public const RESET_EMPFAENGER_FENSTER = 3600;
+
+    /**
+     * Zählerschlüssel einer Empfängeradresse: SHA-256 der kleingeschriebenen
+     * Adresse, nie die Adresse selbst. Kleingeschrieben, weil die Suche in
+     * der Datenbank ohne Rücksicht auf Gross-/Kleinschreibung trifft - sonst
+     * brächte jede Schreibweise drei neue Mails.
+     */
+    public static function resetEmpfaengerKey(string $email): string {
+        return 'mail:' . hash('sha256', mb_strtolower(trim($email), 'UTF-8'));
     }
 
     /**
@@ -1538,7 +1691,11 @@ class AuthController extends BaseController {
         // beim Step-up vor einer 2FA-Änderung (#112): Wer eine unbeaufsichtigte
         // Sitzung übernimmt, soll das Konto nicht dauerhaft an sich binden
         // können. Gegen Raten gilt derselbe Zähler wie beim Login.
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, 'force_password_change')) {
+        // Erst buchen, dann prüfen (Audit M20). Typ siehe
+        // FORCE_PW_LIMITER_TYPE - mit dem alten, zu langen Namen griff diese
+        // Sperre nie (Audit M8).
+        $res = \App\Security\RateLimiter::reserveAttempt((string)$userId, self::FORCE_PW_LIMITER_TYPE);
+        if ($res === null) {
             $this->render('auth_force_password_change', [
                 'title' => 'Neues Passwort festlegen',
                 'error' => 'Zu viele Fehlversuche. Bitte versuchen Sie es später erneut.'
@@ -1552,7 +1709,7 @@ class AuthController extends BaseController {
         $currentHash = (string)$stmt->fetchColumn();
 
         if ($currentHash === '' || !password_verify($currentPassword, $currentHash)) {
-            \App\Security\RateLimiter::recordAttempt((string)$userId, 'force_password_change');
+            // Fehlversuch: Die Buchung bleibt stehen.
             \App\Service\AuditLogger::log(
                 "Erzwungener Passwortwechsel abgelehnt",
                 "auth",
@@ -1569,6 +1726,8 @@ class AuthController extends BaseController {
         }
 
         if (strlen($password) < 8 || $password !== $passwordConfirm) {
+            // Das bisherige Passwort war richtig - kein Rateversuch.
+            \App\Security\RateLimiter::releaseAttempt($res);
             $this->render('auth_force_password_change', [
                 'title' => 'Neues Passwort festlegen',
                 'error' => 'Die Passwörter stimmen nicht überein oder sind zu kurz (mindestens 8 Zeichen).'
@@ -1576,7 +1735,7 @@ class AuthController extends BaseController {
             return;
         }
 
-        \App\Security\RateLimiter::clearAttempts((string)$userId, 'force_password_change');
+        \App\Security\RateLimiter::clearAttempts((string)$userId, self::FORCE_PW_LIMITER_TYPE);
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
         $offenerAntrag = KontoSicherheit::offenerAdressantrag((int)$userId);

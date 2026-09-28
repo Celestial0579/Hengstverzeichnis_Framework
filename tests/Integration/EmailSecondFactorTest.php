@@ -22,6 +22,8 @@ use PHPUnit\Framework\TestCase;
  */
 class EmailSecondFactorTest extends TestCase {
 
+    use ParalleleArbeiter;
+
     private static PDO $db;
     private int $userId;
 
@@ -176,5 +178,106 @@ class EmailSecondFactorTest extends TestCase {
 
         $this->assertFalse(EmailSecondFactor::verify($this->userId, EmailSecondFactor::PURPOSE_LOGIN, ''));
         $this->assertFalse(EmailSecondFactor::verify($this->userId, EmailSecondFactor::PURPOSE_LOGIN, '   '));
+    }
+
+    private function versuche(): ?int {
+        $wert = self::$db->query("SELECT attempts FROM email_2fa_codes")->fetchColumn();
+        return $wert === false ? null : (int)$wert;
+    }
+
+    /**
+     * Der Versuch wird VOR der Prüfung gebucht (Audit M20) - auch der
+     * erfolgreiche. Ein falscher Code erhöht den Zähler um genau eins, und
+     * mit der letzten freien Buchung gilt der richtige noch.
+     */
+    public function testVersuchWirdVorDerPruefungGebucht(): void {
+        $code = EmailSecondFactor::issue($this->userId, EmailSecondFactor::PURPOSE_LOGIN);
+        $falsch = $code === '000000' ? '111111' : '000000';
+
+        $this->assertFalse(EmailSecondFactor::verify($this->userId, EmailSecondFactor::PURPOSE_LOGIN, $falsch));
+        $this->assertSame(1, $this->versuche());
+
+        self::$db->exec("UPDATE email_2fa_codes SET attempts = " . (EmailSecondFactor::MAX_ATTEMPTS - 1));
+        $this->assertTrue(
+            EmailSecondFactor::verify($this->userId, EmailSecondFactor::PURPOSE_LOGIN, $code),
+            'Die letzte freie Buchung ist noch erlaubt.'
+        );
+    }
+
+    /**
+     * Zehn gleichzeitige Einlösungen desselben richtigen Codes: genau eine
+     * gewinnt (Audit N43). Bisher lasen alle die Zeile, prüften und
+     * löschten - jede meldete Erfolg.
+     */
+    public function testParalleleEinloesungGiltGenauEinmal(): void {
+        $code = EmailSecondFactor::issue($this->userId, EmailSecondFactor::PURPOSE_LOGIN);
+
+        $ausgaben = $this->parallelAusfuehren(array_fill(
+            0,
+            10,
+            ['mailcode', (string)$this->userId, EmailSecondFactor::PURPOSE_LOGIN, $code]
+        ));
+
+        $this->assertSame(1, self::anzahl($ausgaben, 'OK'), implode('', $ausgaben));
+        $this->assertSame(0, (int)self::$db->query("SELECT COUNT(*) FROM email_2fa_codes")->fetchColumn());
+    }
+
+    /**
+     * Zwanzig gleichzeitige falsche Codes: Der Zähler je Code endet bei
+     * MAX_ATTEMPTS, nicht darüber (Audit M20). Jede Prüfung setzt eine
+     * gelungene Buchung voraus - höchstens MAX_ATTEMPTS Arbeiter kommen also
+     * überhaupt zum password_verify().
+     */
+    public function testParalleleFehlversuchePassierenDieGrenzeNicht(): void {
+        $code = EmailSecondFactor::issue($this->userId, EmailSecondFactor::PURPOSE_LOGIN);
+        $falsch = $code === '000000' ? '111111' : '000000';
+
+        $ausgaben = $this->parallelAusfuehren(array_fill(
+            0,
+            20,
+            ['mailcode', (string)$this->userId, EmailSecondFactor::PURPOSE_LOGIN, $falsch]
+        ));
+
+        $this->assertSame(0, self::anzahl($ausgaben, 'OK'));
+        $versuche = $this->versuche();
+        $this->assertTrue(
+            $versuche === null || $versuche <= EmailSecondFactor::MAX_ATTEMPTS,
+            "Der Zähler steht bei {$versuche} - mehr Prüfungen als erlaubt."
+        );
+        $this->assertFalse(
+            EmailSecondFactor::verify($this->userId, EmailSecondFactor::PURPOSE_LOGIN, $code),
+            'Nach der Grenze gilt auch der richtige Code nicht mehr.'
+        );
+    }
+
+    /**
+     * Wird während einer laufenden Prüfung ein neuer Code ausgestellt, darf
+     * das Ende dieser Prüfung den neuen nicht mit abräumen (Audit N43). Das
+     * Löschen ist deshalb an den gelesenen Abdruck gebunden.
+     *
+     * Die laufende Prüfung wird über einen absichtlich teuren Abdruck
+     * verlängert (bcrypt-Kosten 14); in dieser Zeit stellt der Test den
+     * neuen Code aus.
+     */
+    public function testNeuAusgestellterCodeWirdNichtVerworfen(): void {
+        EmailSecondFactor::issue($this->userId, EmailSecondFactor::PURPOSE_LOGIN);
+        $alt = '424242';
+        self::$db->prepare("UPDATE email_2fa_codes SET code_hash = ?")
+            ->execute([password_hash($alt, PASSWORD_BCRYPT, ['cost' => 14])]);
+
+        $lauf = $this->parallelStarten([
+            ['mailcode', (string)$this->userId, EmailSecondFactor::PURPOSE_LOGIN, $alt],
+        ]);
+        self::wartenBis($lauf['start'] + 0.3);
+        $neu = EmailSecondFactor::issue($this->userId, EmailSecondFactor::PURPOSE_LOGIN);
+        $ausgaben = $this->einsammeln($lauf);
+
+        $this->assertSame(0, self::anzahl($ausgaben, 'OK'), 'Der alte Code ist abgelöst: ' . implode('', $ausgaben));
+        $this->assertSame(
+            1,
+            (int)self::$db->query("SELECT COUNT(*) FROM email_2fa_codes")->fetchColumn(),
+            'Der neue Code muss stehen bleiben.'
+        );
+        $this->assertTrue(EmailSecondFactor::verify($this->userId, EmailSecondFactor::PURPOSE_LOGIN, $neu));
     }
 }

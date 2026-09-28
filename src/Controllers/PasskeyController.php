@@ -239,7 +239,10 @@ class PasskeyController extends BaseController {
         }
 
         $userId = (int)$_SESSION['user_id'];
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+        // Erst buchen, dann prüfen (Audit M20): Ein Fehlschlag lässt die
+        // Buchung stehen, ein Erfolg leert den Zähler.
+        $res = \App\Security\RateLimiter::reserveAttempt((string)$userId, '2fa');
+        if ($res === null) {
             $this->jsonFehler('Zu viele Fehlversuche. Bitte versuchen Sie es später erneut.', 429);
         }
 
@@ -249,19 +252,20 @@ class PasskeyController extends BaseController {
         $stmt->execute([$userId]);
         $hash = (string)($stmt->fetchColumn() ?: '');
         if ($hash === '' || !password_verify((string)($_POST['password'] ?? ''), $hash)) {
-            \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
             $this->jsonFehler('Das Passwort stimmt nicht.', 400);
         }
 
         $antwort = (string)($_POST['antwort'] ?? '');
         if ($antwort === '') {
+            // Das Passwort stimmte, der Schlüssel hat nur nicht geantwortet -
+            // kein Rateversuch.
+            \App\Security\RateLimiter::releaseAttempt($res);
             $this->jsonFehler('Es kam keine Antwort vom Sicherheitsschlüssel an.', 400);
         }
 
         try {
             $bestaetigt = Passkeys::anmeldungPruefen($antwort, Passkeys::ZWECK_STEPUP);
         } catch (\Throwable $e) {
-            \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
             $this->jsonFehler($e->getMessage(), 400);
         }
 
@@ -274,7 +278,6 @@ class PasskeyController extends BaseController {
                 'security',
                 sprintf('Schlüssel gehört %d, angemeldet ist %d.', $bestaetigt, $userId)
             );
-            \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
             $this->jsonFehler('Bestätigung mit diesem Sicherheitsschlüssel nicht möglich.', 400);
         }
 

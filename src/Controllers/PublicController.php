@@ -889,15 +889,19 @@ class PublicController extends BaseController {
         // Admin-Benachrichtigungen auslösen und Zeilen in gdpr_requests anlegen
         // kann. Die Trennung sorgt dafür, dass ein Tippfehler im CAPTCHA nicht
         // das kleine Kontingent echter Anfragen aufbraucht.
-        $clientIp = \App\Security\ClientIp::resolve();
+        //
+        // Beide werden zuerst gebucht und danach gezählt (Audit M20), bei
+        // IPv6 je /64 (Audit M7). Die frühe Prüfung von dsgvo_request ist nur
+        // ein Vorabblick, damit ein erschöpftes Kontingent nicht erst nach dem
+        // CAPTCHA auffällt; verbindlich ist die Buchung vor dem INSERT unten.
+        $clientKey = \App\Security\ClientIp::rateLimitKey();
         if (
-            \App\Security\RateLimiter::tooManyAttempts($clientIp, 'dsgvo_attempt', 20, 3600)
-            || \App\Security\RateLimiter::tooManyAttempts($clientIp, 'dsgvo_request', 3, 3600)
+            \App\Security\RateLimiter::tooManyAttempts($clientKey, 'dsgvo_request', 3, 3600)
+            || \App\Security\RateLimiter::reserveAttempt($clientKey, 'dsgvo_attempt', 20, 3600) === null
         ) {
             $this->renderDsgvoForm(\App\I18n\Translator::t('dsgvo.rate_limited'), $old);
             return;
         }
-        \App\Security\RateLimiter::recordAttempt($clientIp, 'dsgvo_attempt');
 
         // Honeypot: für Menschen unsichtbares Feld, das nur automatische
         // Formularausfüller befüllen. Bewusst mit der normalen Erfolgsmeldung
@@ -948,7 +952,10 @@ class PublicController extends BaseController {
             return;
         }
 
-        \App\Security\RateLimiter::recordAttempt($clientIp, 'dsgvo_request');
+        if (\App\Security\RateLimiter::reserveAttempt($clientKey, 'dsgvo_request', 3, 3600) === null) {
+            $this->renderDsgvoForm(\App\I18n\Translator::t('dsgvo.rate_limited'), $old);
+            return;
+        }
 
         $db = Database::getInstance();
         $stmt = $db->prepare("INSERT INTO gdpr_requests (name, email, request_type, message) VALUES (?, ?, ?, ?)");

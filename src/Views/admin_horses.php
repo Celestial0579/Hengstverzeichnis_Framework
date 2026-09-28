@@ -13,6 +13,8 @@
  * @var array<int, string> $breeds
  * @var array<int, string> $stations
  * @var array<int, string> $persons
+ * @var bool $kontakteSichtbar Kontaktfilter anbieten (contacts.view, Audit M13)
+ * @var bool $pferdeIntern Interne Einsicht in Pferde (Audit M13)
  * @var int $page
  * @var int $totalPages
  * @var int $totalCount
@@ -23,6 +25,8 @@ $publishBase = '/admin/horses'; // Basis-Pfad für Filter-/Bulk-/Blätter-Partia
 $publishFormId = 'horsePublishForm';
 $filters = $filters ?? [];
 $hasActiveFilters = $hasActiveFilters ?? false;
+$kontakteSichtbar = $kontakteSichtbar ?? false;
+$pferdeIntern = $pferdeIntern ?? false;
 // Beim Zurücksetzen bleibt der Veröffentlichungs-Filter stehen: Er ist eine
 // Ansicht der Liste, kein Suchbegriff.
 $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int)$publishedFilter : '');
@@ -119,7 +123,7 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
             <div style="flex: 1; min-width: 240px;">
                 <label for="admin-horse-search" class="sr-only">Pferde durchsuchen</label>
                 <input type="text" id="admin-horse-search" name="search" class="form-control" autocomplete="off"
-                       placeholder="🔍 Name, UELN, Züchter, Besitzer, Deckstation, Eltern …"
+                       placeholder="<?= $kontakteSichtbar ? '🔍 Name, UELN, Züchter, Besitzer, Deckstation, Eltern …' : '🔍 Name, UELN, Eltern …' ?>"
                        value="<?= htmlspecialchars($filters['search'] ?? '') ?>">
             </div>
             <button type="submit" class="btn">Suchen</button>
@@ -142,6 +146,11 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                     <label for="admin-horse-q-ueln" style="font-size: 0.85rem; font-weight: bold;">UELN / Lebensnummer</label>
                     <input type="text" id="admin-horse-q-ueln" name="q_ueln" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_ueln'] ?? '') ?>">
                 </div>
+                <?php
+                    // Kontaktfilter nur mit contacts.view (Audit M13) - der
+                    // Controller liest sie sonst auch nicht.
+                ?>
+                <?php if ($kontakteSichtbar): ?>
                 <div class="form-group">
                     <label for="admin-horse-q-breeder" style="font-size: 0.85rem; font-weight: bold;">Züchter</label>
                     <input type="text" id="admin-horse-q-breeder" name="q_breeder" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_breeder'] ?? '') ?>" list="admin_horse_person_list">
@@ -158,6 +167,7 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                     <label for="admin-horse-q-station" style="font-size: 0.85rem; font-weight: bold;">Deckstation / Gestüt</label>
                     <input type="text" id="admin-horse-q-station" name="q_station" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_station'] ?? '') ?>" list="admin_horse_station_list">
                 </div>
+                <?php endif; ?>
                 <div class="form-group">
                     <label for="admin-horse-q-sire" style="font-size: 0.85rem; font-weight: bold;">Vater</label>
                     <input type="text" id="admin-horse-q-sire" name="q_sire" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_sire'] ?? '') ?>">
@@ -237,18 +247,30 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
             </div>
         </details>
 
-        <?php // Vorschlagslisten: im Admin bewusst ohne is_published-Filter. ?>
+        <?php
+            // Vorschlagslisten der Kontaktfilter: nur mit contacts.view, und
+            // unveröffentlichte Kontakte nur mit interner Kontakt-Einsicht
+            // (Audit M13, gefiltert im Controller).
+        ?>
+        <?php if ($kontakteSichtbar): ?>
         <datalist id="admin_horse_person_list">
             <?php foreach (($persons ?? []) as $personName): ?><option value="<?= htmlspecialchars((string)$personName) ?>"><?php endforeach; ?>
         </datalist>
         <datalist id="admin_horse_station_list">
             <?php foreach (($stations ?? []) as $stationName): ?><option value="<?= htmlspecialchars((string)$stationName) ?>"><?php endforeach; ?>
         </datalist>
+        <?php endif; ?>
         <datalist id="admin_horse_breed_list">
             <?php foreach (($breeds ?? []) as $breedName): ?><option value="<?= htmlspecialchars((string)$breedName) ?>"><?php endforeach; ?>
         </datalist>
     </form>
 
+    <?php if (!$pferdeIntern): ?>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 1rem;">
+            Angezeigt wird nur der veröffentlichte Bestand. Unveröffentlichte Pferde sehen nur Gruppen
+            mit „Intern lesen“ oder einem Bearbeitungsrecht.
+        </p>
+    <?php endif; ?>
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
 

@@ -50,6 +50,13 @@ enum HorseSearchCondition {
     /** Allgemeiner Suchbegriff über Name, Lebensnummern, Eltern, Station und Personen. */
     case FullText;
 
+    /**
+     * Derselbe Suchbegriff OHNE Deckstation und verknüpfte Personen - für
+     * Konten, die keine Kontakte sehen dürfen (Audit M13). Sonst wäre die
+     * Trefferzahl ein Orakel für Kontaktnamen, die das Konto nicht lesen darf.
+     */
+    case FullTextOhneKontakte;
+
     case Name;
     case Ueln;
     case BirthYearFrom;
@@ -131,6 +138,9 @@ enum HorseSearchCondition {
             // Deckstation, einer für die verknüpften Personen und einer für
             // die weiteren Lebensnummern.
             self::FullText => 17,
+            // Dieselben 13 Pferde-/Elternspalten plus die weiteren
+            // Lebensnummern - ohne Deckstation (2) und Personen (1).
+            self::FullTextOhneKontakte => 14,
             // Acht ueln-Spalten plus die weiteren Lebensnummern (#246).
             self::Ueln => 9,
             self::Station, self::Sire, self::Dam => 2,

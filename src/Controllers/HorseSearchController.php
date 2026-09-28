@@ -19,7 +19,8 @@ use PDO;
  * SQL-Platzhalter `%` und `_` - die anderen sechs wissen bis heute nichts davon.
  *
  * SICHERHEIT. Der Endpunkt liegt hinter derselben Sitzungsprüfung wie der
- * übrige Adminbereich und verlangt `horses`.`view`. Er liefert AUSSCHLIESSLICH
+ * übrige Adminbereich und verlangt `horses`.`view`; unveröffentlichte Pferde
+ * findet nur, wer interne Einsicht hat (Audit M13). Er liefert AUSSCHLIESSLICH
  * die zwei Felder, die eine Auswahlliste braucht - `id` und `label`. Kein
  * `SELECT *`, keine Spalte "weil sie vielleicht noch nützlich ist": Ein
  * Suchendpunkt ist eine bequeme Stelle, um an Daten zu kommen, und was hier
@@ -68,6 +69,14 @@ class HorseSearchController extends BaseController {
 
         $bedingungen = ['h.deleted_at IS NULL'];
         $werte = [];
+
+        // Zugang bleibt horses.view (Vertrag mit den Addons, #341) - aber
+        // Unveröffentlichtes nur mit interner Einsicht (Audit M13). Bis dahin
+        // lieferte der Endpunkt jedem Inhaber von horses.view die Namen
+        // unveröffentlichter Pferde.
+        if (!$this->hasInternalAccess('horses')) {
+            $bedingungen[] = 'h.is_published = 1';
+        }
 
         // Name, Lebensnummer und die weiteren Registriernummern (#246) - wer
         // eine Nummer im Kopf hat, sucht danach und nicht nach dem Namen.

@@ -228,6 +228,40 @@ Breaking Changes sind jederzeit möglich).
     (`GroupMembership::isAdmin()`, `groupIds()`, `hasPermission()`)
     berücksichtigen nur noch aktive Konten.
 
+- **„Lesen“ gab in der Verwaltung alle Kontaktdaten und unveröffentlichte
+  Pferde preis** (Audit M10, M13). Das Recht `view` für Pferde und Kontakte
+  steuerte zugleich die öffentliche Sichtbarkeit und den vollen Lesezugriff
+  im Verwaltungsbereich. Jedes Konto einer Gruppe mit „Lesen“, etwa der
+  Standardgruppe der Selbstregistrierung, las in `/admin/contacts` E-Mail,
+  Telefon, Anschrift, Ansprechpartner und Notiz aller Kontakte, auch der
+  unveröffentlichten, und sah in `/admin/horses`, `/admin/horses/search` und
+  bei den Pferdefotos alle unveröffentlichten Pferde.
+  - „Lesen“ öffnet im Verwaltungsbereich jetzt nur noch den veröffentlichten
+    Bestand, ohne private Kontaktdaten (E-Mail, Telefon, Mobil, Straße, PLZ,
+    Freitext-Anschrift, Ansprechpartner, Notiz). Suche und Filter laufen
+    dann nicht über diese Felder.
+  - Unveröffentlichtes und private Daten sehen nur Gruppen mit dem neuen
+    Recht „Intern lesen“ (`horses.internal`, `contacts.internal`) oder mit
+    Bearbeiten, Löschen oder Veröffentlichen.
+  - `/admin/horses` zeigt Namensvorschläge und Filter für Züchter, Besitzer,
+    Halter und Deckstation nur noch mit `contacts.view`, ohne interne
+    Kontakt-Einsicht nur für veröffentlichte Kontakte. Bisher genügte
+    `horses.view`, und die Liste enthielt auch unveröffentlichte Personen.
+  - „Intern lesen“ kann der Gast-Gruppe nicht vergeben werden.
+
+  **Migration (`SCHEMA_VERSION` 26):** Jede Gruppe, die bisher „Lesen“ für
+  Pferde oder Kontakte hatte, bekommt einmalig „Intern lesen“ und behält so
+  ihre Sicht. Ausgenommen sind Administrator, Gast, die Standardgruppe der
+  Selbstregistrierung und die Zielgruppe des Addons mitglieder-konten
+  (`plugin_mitglieder_konten_gruppe`); das Migrationsprotokoll nennt sie.
+  **Bitte prüfen Sie danach unter „Gruppen & Berechtigungen“, welche Gruppen
+  das Recht behalten sollen** – besonders Gruppen, die „Lesen“ nur bekommen
+  hatten, damit angemeldete Mitglieder den Katalog sehen; das ist jetzt nicht
+  mehr nötig (siehe „Geändert“). Wer eine der ausgenommenen Gruppen für
+  vertraute Mitarbeiter nutzt, trägt „Intern lesen“ dort nach. Nach einem
+  Werksreset oder einem Restore ohne `schema_version` vergibt die Migration
+  nichts.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -243,6 +277,20 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Speichern oder Kopieren der Rechtematrix löschte still die Rechte nicht
+  geladener Addons** (Audit N46). Betroffen waren deaktivierte, inkompatible
+  und auf Freigabe wartende Addons, auch deren Aktionen an Kernmodulen. Die
+  Matrix ersetzt jetzt nur Rechte, die sie kennt; die übrigen bleiben
+  erhalten und stehen als „Nicht registrierte Rechte“ bei der Gruppe. Beim
+  Kopieren werden ruhende Rechte der Quelle nicht übertragen (die Seite nennt
+  ihre Zahl) und lösen auch keine Adresspflicht aus. Nicht-Lese-Rechte an der
+  Gast-Gruppe entfernt das Speichern weiterhin. Das Audit-Log nennt die
+  hinzugefügten und entfernten Rechte („+horses.publish, −contacts.edit“).
+  Ein doppelt gesendetes Recht führt nicht mehr zu „Speichern
+  fehlgeschlagen“.
+- **Angemeldete Konten ohne eigenes „Lesen“ sahen einen leeren Katalog** und
+  bekamen auf Pferde-, Kontakt- und Bildseiten den Fehler 404, obwohl Gäste
+  dieselben Seiten sahen (Audit N61).
 - **Mitgliedsstatus beim Sprung von v0.7 nicht übernehmbar** (Audit N78).
   Eine v0.7-Instanz konnte das Addon `mitgliedsstatus` nicht vor dem Update
   installieren. Danach fand das Addon die Spalte nicht mehr und schloss die
@@ -431,6 +479,28 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- **Öffentlich sehen Angemeldete mindestens, was die Gast-Gruppe sieht**
+  (Audit N61). Startseite, Katalog, Pferde- und Kontaktseiten und
+  Pferdefotos prüfen die Rechte der Gast-Gruppe als Untergrenze.
+  Mitgliedergruppen brauchen dafür kein „Lesen“ mehr. Wer über die Anmeldung
+  Inhalte ausblenden wollte, kann das nicht mehr; dafür ist die Gast-Gruppe
+  zu beschränken. Gruppenmitgliedschaft, Verwaltungsrechte, API-Schlüssel
+  und `hasPermission()` bleiben unverändert. Neu für Addons:
+  `hasPublicPermission()` (`BaseController` und `GroupMembership`) und
+  `hasInternalAccess()`.
+- **„Intern lesen“ ist ein reines Leserecht** und verlangt keine
+  E-Mail-Adresse (#348). Das gilt nur für `horses.internal` und
+  `contacts.internal`; eine gleichnamige Addon-Aktion gilt weiter als
+  schreibend.
+- **Reine „Erstellen“-Konten** sehen ihre eigenen, noch unveröffentlichten
+  Neuanlagen nicht mehr in den Verwaltungslisten.
+- Die Einstellungen der Selbstregistrierung markieren Standardgruppen mit
+  interner Einsicht oder Schreibrechten an Pferden oder Kontakten.
+- Der Addon-Filter `horse.search_ids` bekommt in der Verwaltungsliste für
+  Konten ohne interne Einsicht `$nurOeffentlich = true`. Die gemeinsame
+  Pferdesuche (`/admin/horses/search`) liefert diesen Konten nur
+  veröffentlichte Pferde – das betrifft auch die Pferdeauswahl der
+  Rechner-Addons.
 - **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
   offen bleiben („[UNVOLLSTÄNDIG]“). Deploy-Skripte, die nur 0 erwarten,
   sehen das als Fehlschlag.

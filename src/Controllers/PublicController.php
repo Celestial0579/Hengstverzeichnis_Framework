@@ -15,9 +15,14 @@ class PublicController extends BaseController {
         // Fetch some recent or featured horses for the homepage - nur veröffentlichte
         // (is_published), und nur wenn die Gast-Gruppe Pferde überhaupt sehen darf
         // (horses.view). Sichtbarkeit hängt bewusst NICHT mehr am Lebenszyklus-Status.
+        //
+        // Alle Prüfungen dieses Controllers laufen über hasPublicPermission()
+        // (Audit N61): Die Rechte der Gast-Gruppe sind für angemeldete Konten
+        // eine Untergrenze. Vorher sah ein Mitglied ohne eigenes `view` hier
+        // weniger als ein Gast.
         $db = Database::getInstance();
         $featuredHorses = [];
-        if ($this->hasPermission('horses', 'view')) {
+        if ($this->hasPublicPermission('horses', 'view')) {
             $stmt = $db->query("SELECT id, name, color, status, image_url FROM horses WHERE is_published = 1 AND deleted_at IS NULL ORDER BY id DESC LIMIT 3");
             $featuredHorses = $stmt->fetchAll();
         }
@@ -126,7 +131,8 @@ class PublicController extends BaseController {
         $joinSql = $sql->joinSql();
 
         // Gast-Gruppe ohne horses.view sieht keinerlei Pferde (leerer Katalog),
-        // sonst würde die Rechte-Entziehung wirkungslos bleiben.
+        // sonst würde die Rechte-Entziehung wirkungslos bleiben. Angemeldete
+        // Konten sehen mindestens dasselbe wie ein Gast (Audit N61).
         $horses = [];
         $totalHorses = 0;
         $totalPages = 1;
@@ -144,7 +150,7 @@ class PublicController extends BaseController {
         // rendert die volle Seite, und die braucht die Trefferzahl.
         $anhaengen = $isAjax && !empty($_GET['append']);
 
-        if ($this->hasPermission('horses', 'view')) {
+        if ($this->hasPublicPermission('horses', 'view')) {
             // Echte SQL-Pagination statt "alle Treffer laden" (#125).
             if ($anhaengen) {
                 $totalHorses = null;
@@ -373,9 +379,10 @@ class PublicController extends BaseController {
         }
 
         // Öffentliche Detailseite: nur veröffentlichte Pferde (is_published) und nur,
-        // wenn die Gast-Gruppe Pferde sehen darf (horses.view). Andernfalls wie ein
-        // nicht existierendes Pferd behandeln, um keine Rückschlüsse zu ermöglichen.
-        if (!$this->hasPermission('horses', 'view')) {
+        // wenn die Gast-Gruppe (bzw. eine eigene Gruppe, Audit N61) Pferde sehen
+        // darf (horses.view). Andernfalls wie ein nicht existierendes Pferd
+        // behandeln, um keine Rückschlüsse zu ermöglichen.
+        if (!$this->hasPublicPermission('horses', 'view')) {
             $this->renderNotFound(\App\I18n\Translator::t('horse.not_found'));
         }
 
@@ -423,7 +430,7 @@ class PublicController extends BaseController {
         // contactDetail() (#122). Das Rechte-Modul heißt seit #336 `contacts`
         // und deckt Personen wie Deckstationen ab; die frühere Trennung in
         // `persons` und `breeding_stations` ist mit den Tabellen entfallen.
-        if (!$this->hasPermission('contacts', 'view')) {
+        if (!$this->hasPublicPermission('contacts', 'view')) {
             // Vollständige Feldliste - die strukturierte Adresse (#256) muss hier
             // genauso mitgenullt werden wie das alte Freitextfeld, sonst wäre der
             // Schutz durch das Nachziehen des Schemas still ausgehebelt.
@@ -530,7 +537,7 @@ class PublicController extends BaseController {
         // behoben hat. Beide Verweise zeigen jetzt auf DIESELBE Route
         // (/kontakt?id=) unter DEMSELBEN Recht; einen davon ungeprueft zu
         // lassen, waere im selben Block sichtbar widerspruechlich.
-        $kontakteSichtbar = $this->hasPermission('contacts', 'view');
+        $kontakteSichtbar = $this->hasPublicPermission('contacts', 'view');
         $horsePersons = array_map(static function (array $hp) use ($kontakteSichtbar): array {
             if (!$kontakteSichtbar) {
                 $hp['person_name'] = null;
@@ -638,7 +645,7 @@ class PublicController extends BaseController {
             exit;
         }
 
-        if (!$this->hasPermission('contacts', 'view')) {
+        if (!$this->hasPublicPermission('contacts', 'view')) {
             $this->renderNotFound(\App\I18n\Translator::t('contact.not_found'));
         }
 
@@ -702,7 +709,7 @@ class PublicController extends BaseController {
         $stationHorses = [];
         $horsesGekuerzt = false;
         $stationHorsesGekuerzt = false;
-        if ($this->hasPermission('horses', 'view')) {
+        if ($this->hasPublicPermission('horses', 'view')) {
             // LIMIT auf beiden Abfragen (#372): Die Seite ist öffentlich und
             // von jeder Pferde-Detailseite aus verlinkt, wird also auch von
             // Crawlern durchlaufen. Ein Import-Platzhalterkontakt oder ein
@@ -818,7 +825,7 @@ class PublicController extends BaseController {
      */
     private function redirectLegacyContact(string $alterTyp, string $fehlerSchluessel): void {
         $id = $_GET['id'] ?? null;
-        if (!$id || !$this->hasPermission('contacts', 'view')) {
+        if (!$id || !$this->hasPublicPermission('contacts', 'view')) {
             $this->renderNotFound(\App\I18n\Translator::t($fehlerSchluessel));
         }
 

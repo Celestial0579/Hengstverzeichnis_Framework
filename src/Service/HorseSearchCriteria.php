@@ -66,7 +66,10 @@ final class HorseSearchCriteria {
     /** @var array<string, string> Aktive Filter (Schlüssel => Rohwert) für Links */
     private array $active = [];
 
-    private function __construct(private readonly bool $nurOeffentlich) {}
+    private function __construct(
+        private readonly bool $nurOeffentlich,
+        private readonly bool $kontakteSichtbar = true,
+    ) {}
 
     /**
      * Baut die Kriterien aus einer Anfrage-Parameterquelle (in der Regel $_GET).
@@ -78,9 +81,20 @@ final class HorseSearchCriteria {
      *                                   liegen in HorseSearchSql
      * @param int|null $publishedFilter  Nur im Admin: Veröffentlichungs-Filter
      *                                   der Liste (1/0), null = alle
+     * @param bool     $kontakteSichtbar Darf die Suche Kontakte berühren
+     *                                   (Züchter, Besitzer, Halter,
+     *                                   Deckstation, Personen im
+     *                                   Suchbegriff)? false = diese Filter
+     *                                   werden nicht gelesen, der Suchbegriff
+     *                                   läuft ohne Kontakte (Audit M13)
      */
-    public static function fromRequest(array $request, bool $nurOeffentlich, ?int $publishedFilter = null): self {
-        $criteria = new self($nurOeffentlich);
+    public static function fromRequest(
+        array $request,
+        bool $nurOeffentlich,
+        ?int $publishedFilter = null,
+        bool $kontakteSichtbar = true
+    ): self {
+        $criteria = new self($nurOeffentlich, $kontakteSichtbar);
         $criteria->build($request, $publishedFilter);
         return $criteria;
     }
@@ -177,19 +191,23 @@ final class HorseSearchCriteria {
         $qSex = $this->readEnum($request, 'q_sex', self::SEXES);
         $qBreed = $this->readString($request, 'q_breed');
         $qStatus = $this->readEnum($request, 'q_status', self::STATUSES);
-        $qBreeder = $this->readString($request, 'q_breeder');
-        $qOwner = $this->readString($request, 'q_owner');
-        $qStation = $this->readString($request, 'q_station');
+        // Kontaktfilter nur, wenn das Konto Kontakte sehen darf (Audit M13).
+        // Ungelesen landen sie weder in den Bedingungen noch in
+        // activeParams() und damit auch nicht in Blätter-Links.
+        $qBreeder = $this->kontakteSichtbar ? $this->readString($request, 'q_breeder') : '';
+        $qOwner = $this->kontakteSichtbar ? $this->readString($request, 'q_owner') : '';
+        $qStation = $this->kontakteSichtbar ? $this->readString($request, 'q_station') : '';
         $qSire = $this->readString($request, 'q_sire');
         $qDam = $this->readString($request, 'q_dam');
 
         if ($search !== '') {
-            // Derselbe Wert füllt alle 17 Platzhalter des Ausschnitts.
+            // Derselbe Wert füllt alle Platzhalter des Ausschnitts (17 bzw.
+            // ohne Kontakte 14).
             $like = '%' . $search . '%';
-            $this->activate(
-                HorseSearchCondition::FullText,
-                ...array_fill(0, HorseSearchCondition::FullText->placeholders(), $like)
-            );
+            $bedingung = $this->kontakteSichtbar
+                ? HorseSearchCondition::FullText
+                : HorseSearchCondition::FullTextOhneKontakte;
+            $this->activate($bedingung, ...array_fill(0, $bedingung->placeholders(), $like));
         }
 
         if ($qName !== '') {
@@ -253,7 +271,7 @@ final class HorseSearchCriteria {
         // --- Nachtrag #346: Felder, die es im Bestand laengst gibt, nach denen
         // sich aber niemand suchen liess. ---
 
-        $qKeeper = $this->readString($request, 'q_keeper');
+        $qKeeper = $this->kontakteSichtbar ? $this->readString($request, 'q_keeper') : '';
         if ($qKeeper !== '') {
             $this->activate(HorseSearchCondition::Keeper, '%' . $qKeeper . '%');
         }

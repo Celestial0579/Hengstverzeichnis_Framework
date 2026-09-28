@@ -193,11 +193,19 @@
                 <select id="registration_default_group" name="registration_default_group" class="form-control" style="max-width: 320px;">
                     <option value="0">— Keine Gruppe (keinerlei Rechte) —</option>
                     <?php foreach ($registrationGroups as $rGroup): ?>
+                        <?php $rGroupIntern = in_array((int)$rGroup['id'], $registrationGroupsIntern ?? [], true); ?>
                         <option value="<?= (int)$rGroup['id'] ?>" <?= (string)(int)$rGroup['id'] === ($settings['registration_default_group'] ?? '0') ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($rGroup['name']) ?>
+                            <?= htmlspecialchars($rGroup['name']) ?><?= $rGroupIntern ? ' ⚠ interne Einsicht' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
+                <?php if (!empty($registrationGroupsIntern)): ?>
+                    <small style="color: var(--danger-fg); display: block; margin-top: 0.3rem;">
+                        ⚠ Markierte Gruppen haben „Intern lesen“ oder Bearbeitungsrechte an Pferden oder Kontakten.
+                        Als Standard-Gruppe sähe jedes selbst registrierte Konto unveröffentlichte Datensätze
+                        und private Kontaktdaten (E-Mail, Telefon, Anschrift).
+                    </small>
+                <?php endif; ?>
                 <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                     Administrator und Öffentlich/Gäste sind nicht wählbar. Ohne Standard-Gruppe erhalten
                     neue Konten keinerlei Rechte (und wegen der Fail-safe-Regel eine 2FA-Pflicht) -

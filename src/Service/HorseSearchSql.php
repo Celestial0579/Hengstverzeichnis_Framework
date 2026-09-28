@@ -35,9 +35,11 @@ namespace App\Service;
  *   bloße Trefferzahl ein Existenz-Orakel für Namen, die der Betreiber
  *   bewusst depubliziert hat (typischer Fall: DSGVO-Widerspruch).
  *
- * - Im Admin (false) gilt das nicht: Wer die Verwaltung sieht, darf auch
- *   unveröffentlichte Züchter, Stationen und Elterntiere finden - sonst
- *   fände er ausgerechnet die Datensätze nicht, die er freigeben soll.
+ * - Im Admin (false) gilt das nicht: Wer die Verwaltung MIT INTERNER
+ *   EINSICHT sieht (horses.internal/edit/delete/publish, Audit M13), darf
+ *   auch unveröffentlichte Züchter, Stationen und Elterntiere finden - sonst
+ *   fände er ausgerechnet die Datensätze nicht, die er freigeben soll. Ohne
+ *   interne Einsicht nutzt auch die Verwaltungsliste true.
  */
 final class HorseSearchSql {
 
@@ -232,6 +234,29 @@ final class HorseSearchSql {
                     JOIN contacts ps ON ps.id = hps.contact_id AND ps.deleted_at IS NULL" . $this->personVisibility('ps') . "
                     WHERE hps.horse_id = h.id AND ps.name LIKE ?
                 ) OR
+                EXISTS (
+                    SELECT 1 FROM horse_registrations hreg
+                    WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?
+                )
+            )",
+
+            // Wie FullText, aber ohne Deckstation und Personen (Audit M13):
+            // für Konten ohne contacts.view. Nur Spalten des Pferds und
+            // seiner Eltern plus die weiteren Lebensnummern.
+            HorseSearchCondition::FullTextOhneKontakte => "(
+                h.name LIKE ? OR
+                h.ueln LIKE ? OR
+                h.foreign_ueln LIKE ? OR
+                h.sire_name LIKE ? OR
+                h.sire_ueln LIKE ? OR
+                h.dam_name LIKE ? OR
+                h.dam_ueln LIKE ? OR
+                sire.name LIKE ? OR
+                sire.ueln LIKE ? OR
+                sire.foreign_ueln LIKE ? OR
+                dam.name LIKE ? OR
+                dam.ueln LIKE ? OR
+                dam.foreign_ueln LIKE ? OR
                 EXISTS (
                     SELECT 1 FROM horse_registrations hreg
                     WHERE hreg.horse_id = h.id AND hreg.registration_number LIKE ?

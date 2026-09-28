@@ -86,7 +86,10 @@ Bearbeitungs- oder Veröffentlichungsrechte. Die Regel steht in
 Aktion erlaubt, die **nicht** in `READ_ONLY_ACTIONS` steht (auch auf
 Addon-Modulen), oder es Mitglied von `admin` ist. Lesend sind **zwei**
 Aktionen: `view` und `read` — letztere legt `FeatureRegistry` für jede
-Plugin-Zusatzfunktion an (`feature_<key>`/`read`). Eine Positivliste, keine
+Plugin-Zusatzfunktion an (`feature_<key>`/`read`). Dazu kommen zwei
+Kern-Lesepaare (`READ_ONLY_PAIRS`): `horses.internal` und
+`contacts.internal` („Intern lesen“, Audit M10/M13). Bewusst als Paare: Eine
+Addon-Aktion namens `internal` an einem anderen Modul bleibt schreibend. Eine Positivliste, keine
 Liste der Schreibaktionen: Eine unbekannte Plugin-Aktion muss als schreibend
 gelten, das verlangt höchstens eine Adresse zu viel — andersherum entstünde ein
 Konto mit Rechten und ohne Rückweg. `admin` braucht den Sonderfall, weil die Gruppe
@@ -365,12 +368,31 @@ fachlichen Bereiche (Pferde, Personen, Deckstationen) regelt
 Berechtigungsmatrix (`/admin/groups`) mit eingeschränkten Papierkorb-Rechten
 für Nicht-Admins (siehe [database.md](database.md#soft-delete--papierkorb)).
 
+**Lesen ist nicht Intern lesen** (Audit M10/M13). `view` an Pferden und
+Kontakten öffnet in der Verwaltung nur den veröffentlichten Bestand – ohne
+E-Mail, Telefon, Mobil, Straße, PLZ, Freitext-Anschrift, Ansprechpartner und
+Notiz, und Suche und Filter laufen dann nicht über diese Felder. Das gilt für
+`/admin/contacts`, `/admin/horses` (samt Farb-/Rassenauswahl und
+Kontaktvorschlägen), `/admin/horses/search` und die Bildauslieferung.
+Unveröffentlichtes und private Daten gibt nur die interne Einsicht
+(`hasInternalAccess()`: Admin, `internal`, `edit`, `delete` oder `publish`).
+`create` allein gehört bewusst nicht dazu. Die Gast-Gruppe kann `internal`
+nicht bekommen. Kontaktfilter und -vorschläge in `/admin/horses` verlangen
+zusätzlich `contacts.view`. Bekannte Restgrenze: Wer Pferde intern sieht und
+`contacts.view`, aber nicht `contacts.internal` hat, trifft mit den
+Personenfiltern weiter unveröffentlichte Kontakte, ohne ihre Namen
+vorgeschlagen zu bekommen.
+
 **Öffentliche Sichtbarkeit** ist die zweite Funktion desselben Systems
 (#121/#122/#151): Was Gäste sehen, steuern die Leseberechtigungen der
 Gast-Gruppe (`horses.view`, `breeding_stations.view` — per Seed vergeben,
 über die Matrix entziehbar) **in Kombination** mit dem
 `is_published`-Flag der Datensätze (Default: unveröffentlicht; setzen
-erfordert das `publish`-Recht). `PublicController` und `ApiController`
+erfordert das `publish`-Recht). Für angemeldete Konten sind die Leserechte
+der Gast-Gruppe eine **Untergrenze** (`hasPublicPermission()`, Audit N61):
+Öffentlich sieht niemand weniger als ein Gast – über die Gast-Rechte hinaus
+öffnet das nichts, und Verwaltungsprüfungen (`hasPermission()`) bleiben
+unberührt. `PublicController` und `ApiController`
 erzwingen beides durchgängig — bis hinein in verknüpfte Datensätze: Namen
 und Kontaktdaten unveröffentlichter Personen/Stationen erscheinen weder auf
 Detailseiten noch in Filterlisten, der öffentliche Pedigree-Baum zeigt

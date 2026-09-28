@@ -510,9 +510,11 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
             'csrf_token' => $this->currentCsrfToken($admin),
             'group_id' => (string)$publicGroupId,
             'permissions' => [
-                'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
+                // `internal` (Audit M10/M13) ist ein Leserecht, aber nicht für
+                // Gäste - auch das muss der Server verwerfen.
+                'horses' => ['view', 'internal', 'create', 'edit', 'delete', 'publish'],
                 // Seit #336 ein Modul statt zweier (persons/breeding_stations).
-                'contacts' => ['view', 'edit'],
+                'contacts' => ['view', 'internal', 'edit'],
                 'users' => ['view', 'manage'],
             ],
         ]);
@@ -604,6 +606,106 @@ class GroupPermissionEnforcementTest extends FunctionalTestCase {
             $pairs[] = [$match[1], $match[2]];
         }
         return $pairs;
+    }
+
+    /**
+     * Audit N46: Speichern und Kopieren der Matrix ersetzen nur registrierte
+     * Rechte. Die Rechte nicht geladener Addons - deaktiviert, inkompatibel,
+     * auf Freigabe wartend, auch Addon-Aktionen an Kernmodulen - verschwanden
+     * früher still. Dazu: ein doppelt gesendetes Paar ist kein
+     * "Speichern fehlgeschlagen" mehr, ruhende Rechte der Quelle lösen beim
+     * Kopieren keine falsche Adresspflicht aus, und das Audit-Log nennt den
+     * Diff.
+     */
+    public function testRechteNichtGeladenerAddonsUeberlebenSpeichernUndKopieren(): void {
+        $admin = $this->authenticatedClient();
+        $db = \App\Database::getInstance();
+        $unique = uniqid();
+        $einfuegen = $db->prepare('INSERT INTO group_permissions (group_id, module, action) VALUES (?, ?, ?)');
+        $ruhende = function (int $gruppe) use ($db): array {
+            $stmt = $db->prepare(
+                "SELECT CONCAT(module, '.', action) FROM group_permissions
+                 WHERE group_id = ? AND (module IN ('nicht_geladen', 'anderes_addon') OR action = 'nicht_registriert')
+                 ORDER BY 1"
+            );
+            $stmt->execute([$gruppe]);
+            return $stmt->fetchAll(\PDO::FETCH_COLUMN);
+        };
+
+        // Gruppe X mit zwei ruhenden Zeilen.
+        $x = $this->createGroupWithoutTwoFa($admin, "Ruhend X {$unique}");
+        $einfuegen->execute([$x, 'nicht_geladen', 'manage']);
+        $einfuegen->execute([$x, 'horses', 'nicht_registriert']);
+
+        // Speichern mit Duplikat.
+        $antwort = $admin->post('/admin/groups/permissions', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'group_id' => (string)$x,
+            'permissions' => ['horses' => ['view', 'view', 'edit']],
+        ]);
+        $this->assertSame("/admin/groups?group={$x}&success=permissions_updated", $antwort->location(), $antwort->body);
+        $this->assertSame(['horses.nicht_registriert', 'nicht_geladen.manage'], $ruhende($x));
+        $this->assertSame([['horses', 'view'], ['horses', 'edit']], $this->checkedPermissionPairs($admin, $x));
+
+        $audit = $db->query(
+            "SELECT details FROM audit_logs WHERE action = 'Berechtigungen aktualisiert' ORDER BY id DESC LIMIT 1"
+        )->fetchColumn();
+        $this->assertStringContainsString('+horses.edit', (string)$audit);
+        $this->assertStringContainsString('+horses.view', (string)$audit);
+
+        // Die Matrix zeigt die ruhenden Rechte an.
+        $seite = $admin->get('/admin/groups?group=' . $x)->body;
+        $this->assertStringContainsString('nicht_geladen.manage', $seite);
+        $this->assertStringContainsString('horses.nicht_registriert', $seite);
+
+        // Kopieren von Y nach X: X behält seine ruhenden Zeilen, bekommt die
+        // ruhende Zeile von Y nicht, die registrierten Paare entsprechen Y.
+        $y = $this->createGroupWithoutTwoFa($admin, "Ruhend Y {$unique}");
+        $einfuegen->execute([$y, 'anderes_addon', 'manage']);
+        $this->setGroupPermissions($admin, $y, ['contacts' => ['view']]);
+        $this->assertSame(['anderes_addon.manage'], $ruhende($y), 'Speichern darf die ruhende Zeile von Y nicht löschen');
+
+        $kopie = $admin->post('/admin/groups/copy-permissions', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'source_group_id' => (string)$y,
+            'target_group_id' => (string)$x,
+        ]);
+        $this->assertSame("/admin/groups?group={$x}&success=copied&ruhend=1", $kopie->location(), $kopie->body);
+        $this->assertSame(['horses.nicht_registriert', 'nicht_geladen.manage'], $ruhende($x));
+        $this->assertSame([['contacts', 'view']], $this->checkedPermissionPairs($admin, $x));
+
+        // Adressprüfung beim Kopieren: Die ruhende Schreibzeile der Quelle wird
+        // nicht übertragen und darf deshalb kein email_required auslösen.
+        $z = $this->createGroupWithoutTwoFa($admin, "Ruhend Z {$unique}");
+        $db->prepare("INSERT INTO users (username, email, password_hash) VALUES (?, NULL, 'x')")->execute(["ohneadresse{$unique}"]);
+        $ohneAdresse = (int)$db->lastInsertId();
+        $db->prepare('INSERT INTO user_groups (user_id, group_id) VALUES (?, ?)')->execute([$ohneAdresse, $z]);
+        $y2 = $this->createGroupWithoutTwoFa($admin, "Ruhend Y2 {$unique}");
+        $this->setGroupPermissions($admin, $y2, ['horses' => ['view']]);
+        $einfuegen->execute([$y2, 'anderes_addon', 'manage']);
+        try {
+            $kopie = $admin->post('/admin/groups/copy-permissions', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'source_group_id' => (string)$y2,
+                'target_group_id' => (string)$z,
+            ]);
+            $this->assertSame("/admin/groups?group={$z}&success=copied&ruhend=1", $kopie->location(), $kopie->body);
+        } finally {
+            $db->prepare('DELETE FROM users WHERE id = ?')->execute([$ohneAdresse]);
+        }
+
+        // Gast-Gruppe: ruhende Nicht-Lese-Zeilen werden beim Speichern
+        // entfernt (#218 gilt auch für den Altbestand), ruhende Leserechte
+        // bleiben.
+        $gast = $this->findBuiltinGroupId($admin, 'Gast');
+        $einfuegen->execute([$gast, 'nicht_geladen', 'manage']);
+        $einfuegen->execute([$gast, 'nicht_geladen', 'view']);
+        try {
+            $this->setGroupPermissions($admin, $gast, self::GUEST_DEFAULT_PERMISSIONS);
+            $this->assertSame(['nicht_geladen.view'], $ruhende($gast));
+        } finally {
+            $db->prepare("DELETE FROM group_permissions WHERE group_id = ? AND module = 'nicht_geladen'")->execute([$gast]);
+        }
     }
 
     public function testGroupMutationsRequireCsrfToken(): void {

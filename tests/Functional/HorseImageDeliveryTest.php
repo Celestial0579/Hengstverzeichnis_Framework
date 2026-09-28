@@ -250,7 +250,7 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
         $url = '/media/horse-image?id=' . $id;
 
         $groupId = $this->createCustomGroup($admin, "Bildleser {$unique}");
-        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view', 'internal']]);
         $email = "bildleser-{$unique}@example.com";
         $leser = $this->createAndLoginEditor($admin, "bildleser{$unique}", $email, [$groupId]);
 
@@ -290,7 +290,7 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
         $url = '/media/horse-image?id=' . $id;
 
         $groupId = $this->createCustomGroup($admin, "Bildleser PW {$unique}");
-        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view', 'internal']]);
         $email = "bildleser-pw-{$unique}@example.com";
         $leser = $this->createAndLoginEditor($admin, "bildleserpw{$unique}", $email, [$groupId]);
 
@@ -317,7 +317,7 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
         $url = '/media/horse-image?id=' . $this->seedHorseWithPhoto(false);
 
         $groupId = $this->createCustomGroup($admin, "Bildleser 404 {$unique}");
-        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view', 'internal']]);
         $email = "bildleser-404-{$unique}@example.com";
         $leser = $this->createAndLoginEditor($admin, "bildleser404{$unique}", $email, [$groupId]);
         $this->assertSame(200, $leser->get($url)->statusCode, 'Vorbedingung: gültige Sitzung sieht das Bild');

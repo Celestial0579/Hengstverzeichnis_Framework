@@ -367,7 +367,13 @@ schon, gibt es `persons.is_breeder` schon). Nie aus dem Rechtebestand selbst:
 Ein fehlendes Recht kann ein Admin bewusst entzogen haben, und ein Update darf
 es nicht zurückbringen. Stand 0 allein ist kein Beweis für einen Altstand,
 er entsteht auch bei einem Restore oder Settings-Import ohne
-`schema_version`. Künftige Seeds folgen demselben Muster.
+`schema_version`. Künftige Seeds folgen demselben Muster – so auch
+`migration_rechte_intern_lesen` (SCHEMA_VERSION 26, Audit M10/M13): Er gibt
+Gruppen mit `horses.view`/`contacts.view` einmalig das passende `internal`,
+nur für Stände 1–25 (bzw. 0 ohne Kontaktschema), und lässt admin, public,
+`registration_default_group` und `plugin_mitglieder_konten_gruppe` aus.
+Nach einem Werksreset (Stand 0, Kontaktschema steht, `group_permissions`
+bleibt) vermerkt er nur.
 
 **Sperre gegen parallele Läufe** (Audit N75). `run()` serialisiert sich über
 `GET_LOCK('hv_schema_' + MD5(Datenbankname))` und prüft den Stand nach Erhalt

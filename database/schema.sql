@@ -567,7 +567,13 @@ CREATE TABLE IF NOT EXISTS `addon_repos` (
 -- bewusst leer und nicht editierbar. `public` erhält per Seed unten
 -- Leseberechtigungen (horses.view, contacts.view) und ist über die
 -- Matrix editierbar - sie ist der Steuerungspunkt der öffentlichen
--- Sichtbarkeit (#121/#122).
+-- Sichtbarkeit (#121/#122). Für angemeldete Konten sind ihre Leserechte
+-- bei öffentlichen Prüfungen eine Untergrenze (hasPublicPermission(),
+-- Audit N61) - ein Mitglied sieht öffentlich nie weniger als ein Gast, ohne
+-- dadurch Mitglied der Gast-Gruppe zu werden. `view` öffnet an `horses` und
+-- `contacts` in der Verwaltung nur den veröffentlichten Bestand; Unveröffent-
+-- lichtes und private Kontaktdaten gibt `internal` ("Intern lesen") oder ein
+-- Bearbeitungsrecht (Audit M10/M13). Die Gast-Gruppe bekommt `internal` nie.
 CREATE TABLE IF NOT EXISTS `groups` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `slug` VARCHAR(50) NOT NULL UNIQUE,
@@ -604,7 +610,8 @@ CREATE TABLE IF NOT EXISTS `group_permissions` (
 
 -- Editor-GRUPPE (nicht: automatische Mitgliedschaft) behält bei einer frischen
 -- Installation vollen Verwaltungszugriff auf alle Inhaltsmodule - inklusive der
--- Standard-Aktionen 'view' (Lesen) und 'publish' (Veröffentlichen), siehe
+-- Standard-Aktionen 'view' (Lesen) und 'publish' (Veröffentlichen) sowie
+-- 'internal' (Intern lesen, Audit M10/M13), siehe
 -- App\Permission\PermissionRegistry::STANDARD_ACTIONS und docs/user-groups-plan.md.
 -- Wer tatsächlich Mitglied dieser Gruppe wird, entscheidet der Admin bewusst je
 -- Benutzer (siehe UserController).
@@ -612,11 +619,13 @@ INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
 SELECT `id`, `module`, `action` FROM `groups`
 CROSS JOIN (
     SELECT 'horses' AS `module`, 'view' AS `action` UNION ALL
+    SELECT 'horses', 'internal' UNION ALL
     SELECT 'horses', 'create' UNION ALL
     SELECT 'horses', 'edit' UNION ALL
     SELECT 'horses', 'delete' UNION ALL
     SELECT 'horses', 'publish' UNION ALL
     SELECT 'contacts', 'view' UNION ALL
+    SELECT 'contacts', 'internal' UNION ALL
     SELECT 'contacts', 'create' UNION ALL
     SELECT 'contacts', 'edit' UNION ALL
     SELECT 'contacts', 'delete' UNION ALL

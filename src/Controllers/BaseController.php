@@ -318,8 +318,10 @@ abstract class BaseController {
      * docs/user-groups-plan.md). Security-by-Design: Mitgliedschaft ist
      * ausschließlich explizit über `user_groups`. Jede Gruppe (auch `editor`)
      * ist eine ganz normale Gruppe: ein Benutzer ohne `user_groups`-Zeilen hat
-     * keinerlei Rechte, genau wie `public`. Neue Gruppen/Benutzer erben so
-     * standardmäßig nichts. Delegiert an App\Permission\GroupMembership (siehe
+     * keinerlei Verwaltungsrechte. Neue Gruppen/Benutzer erben so
+     * standardmäßig nichts. Einzige Ausnahme ist die ÖFFENTLICHE Sicht: Dort
+     * gelten die Leserechte der Gast-Gruppe als Untergrenze, siehe
+     * hasPublicPermission() (Audit N61). Delegiert an App\Permission\GroupMembership (siehe
      * dort), innerhalb eines Requests gecacht, da mehrere
      * hasPermission()-Aufrufe pro Seite üblich sind.
      *
@@ -359,6 +361,50 @@ abstract class BaseController {
             $this->userGroupIds(),
             $module,
             $action
+        );
+    }
+
+    /**
+     * Öffentliche Sichtprüfung (Audit N61): das eigene Recht ODER das der
+     * Gast-Gruppe `public`.
+     *
+     * Für jede Prüfung, die entscheidet, was im ÖFFENTLICHEN Teil sichtbar
+     * ist (Katalog, Pferde- und Kontaktseiten, Pferdefotos). Ein angemeldetes
+     * Konto sieht dort nie weniger als ein Gast - vorher sah ein Mitglied
+     * ohne eigenes `view` einen leeren Katalog, während Gäste alles sahen.
+     * Über die Gast-Rechte hinaus öffnet das nichts, und Unveröffentlichtes
+     * filtern die öffentlichen Abfragen weiterhin selbst.
+     *
+     * NICHT für den Verwaltungsbereich: Dort bleibt hasPermission() mit
+     * ausschließlich expliziter Mitgliedschaft der Maßstab.
+     */
+    protected function hasPublicPermission(string $module, string $action): bool {
+        if ($this->hasPermission($module, $action)) {
+            return true;
+        }
+        return $this->currentUserId() !== null
+            && \App\Permission\GroupMembership::guestHasPermission($module, $action);
+    }
+
+    /**
+     * Interne Einsicht in `horses` bzw. `contacts` (Audit M10/M13):
+     * unveröffentlichte Datensätze und private Kontaktdaten in der
+     * Verwaltung. Hat, wer Administrator ist oder eine der Aktionen aus
+     * PermissionRegistry::INTERNAL_ACCESS_ACTIONS besitzt (`internal`,
+     * `edit`, `delete`, `publish`). `view` allein reicht nicht mehr - es
+     * öffnet nur den veröffentlichten Bestand.
+     */
+    protected function hasInternalAccess(string $module): bool {
+        if ($this->currentUserId() === null) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+        return \App\Permission\GroupMembership::groupsHaveAnyPermission(
+            $this->userGroupIds(),
+            $module,
+            \App\Permission\PermissionRegistry::INTERNAL_ACCESS_ACTIONS
         );
     }
 

@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 25; // 25: settings.install_epoch für Bestandsinstallationen (Audit M24)
+    public const SCHEMA_VERSION = 26; // 26: Rechte-Seed "Intern lesen" für bisherige view-Gruppen (Audit M10/M13)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -3058,6 +3058,100 @@ final class SchemaMigrator {
             $pdo->prepare("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)")
                 ->execute([InstallEpoch::SETTING, bin2hex(random_bytes(16))]);
             return [];
+        });
+
+        // 4. "Intern lesen" (Audit M10/M13, SCHEMA_VERSION 26). Seitdem
+        // öffnet `view` an `horses`/`contacts` in der Verwaltung nur den
+        // veröffentlichten Bestand ohne private Kontaktdaten; mehr gibt die
+        // neue Aktion `internal` (siehe PermissionRegistry::
+        // INTERNAL_ACCESS_ACTIONS). Damit Bestandsgruppen ihre bisherige
+        // Sicht behalten, bekommt jede Gruppe mit horses.view bzw.
+        // contacts.view EINMALIG das passende `internal`.
+        //
+        // Ausgenommen - genau die Wege, auf denen Konten automatisch in einer
+        // Gruppe landen und die M10 beschreibt:
+        //  - admin (hat ohnehin alles) und public (darf nie mehr als `view`,
+        //    #218),
+        //  - die Standardgruppe der Selbstregistrierung
+        //    (settings.registration_default_group), unabhängig davon, ob die
+        //    Registrierung gerade aktiv ist,
+        //  - die Zielgruppe des Addons mitglieder-konten
+        //    (settings.plugin_mitglieder_konten_gruppe): massenhaft angelegte
+        //    Vereinskonten. Bewusst nur ein Settings-Lesen ohne Addon-API -
+        //    ohne das Addon fehlt der Wert und die Ausnahme ist wirkungslos.
+        //
+        // WER DEN SEED BEKOMMT, entscheidet der Stand VOR der Migration, nie
+        // der Rechtebestand (docs/database.md, "Rechte-Seeds laufen genau
+        // einmal"): 1-25 ist ein Bestand von vor der Trennung. Stand 0 nur
+        // ohne Kontaktschema (sehr alter Stand vor #213); mit Kontaktschema
+        // ist 0 ein frisches schema.sql (der Editor hat `internal` dort
+        // schon), ein Werksreset oder ein Restore ohne Stand - dann wird nur
+        // vermerkt, fail-closed. Ein einziges INSERT IGNORE, idempotent über
+        // den Primärschlüssel: Wirft es, bleibt der Marker aus und der
+        // nächste Lauf wiederholt den Schritt.
+        $dataStep('rechte_intern_lesen', function () use ($pdo, $tabelleExistiert, $vorherigeVersion, $kontaktschemaAktiv): ?array {
+            if (!$tabelleExistiert('group_permissions') || !$tabelleExistiert('groups')) {
+                return null; // Setup-Fall - nichts vermerken, später erneut.
+            }
+            $bestandVorDerTrennung = ($vorherigeVersion >= 1 && $vorherigeVersion < 26)
+                || ($vorherigeVersion === 0 && !$kontaktschemaAktiv);
+            if (!$bestandVorDerTrennung) {
+                return [];
+            }
+
+            $einstellung = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $einstellung->execute(['registration_default_group']);
+            $registrierung = (int)$einstellung->fetchColumn();
+            // Bekannter Auto-Zuweisungsweg des Addons mitglieder-konten
+            // (Konfiguration::S_GRUPPE) - lose Kopplung, siehe oben.
+            $einstellung->execute(['plugin_mitglieder_konten_gruppe']);
+            $vereinskonten = (int)$einstellung->fetchColumn();
+
+            $stmt = $pdo->prepare(
+                "INSERT IGNORE INTO group_permissions (group_id, module, action)
+                 SELECT p.group_id, p.module, 'internal'
+                 FROM group_permissions p
+                 JOIN `groups` g ON g.id = p.group_id
+                 WHERE p.module IN ('horses', 'contacts')
+                   AND p.action = 'view'
+                   AND g.slug NOT IN ('admin', 'public')
+                   AND g.id NOT IN (?, ?)"
+            );
+            $stmt->execute([$registrierung, $vereinskonten]);
+            $neu = $stmt->rowCount();
+
+            $meldungen = [];
+            if ($neu > 0) {
+                $meldungen[] = sprintf(
+                    'Rechtemodell (Audit M10/M13): %d Recht(e) "Intern lesen" (horses.internal/contacts.internal) '
+                    . 'an Gruppen mit bisherigem "Lesen" vergeben - bitte unter "Gruppen & Berechtigungen" prüfen, '
+                    . 'welche Gruppen es behalten sollen',
+                    $neu
+                );
+            }
+
+            $ausnahmen = array_values(array_filter([$registrierung, $vereinskonten], static fn(int $id): bool => $id > 0));
+            if ($ausnahmen !== []) {
+                $platzhalter = implode(',', array_fill(0, count($ausnahmen), '?'));
+                $namen = $pdo->prepare(
+                    "SELECT DISTINCT g.name FROM `groups` g
+                     JOIN group_permissions p ON p.group_id = g.id
+                     WHERE g.id IN ({$platzhalter}) AND p.module IN ('horses', 'contacts') AND p.action = 'view'
+                     ORDER BY g.name"
+                );
+                $namen->execute($ausnahmen);
+                $betroffen = $namen->fetchAll(PDO::FETCH_COLUMN);
+                if ($betroffen !== []) {
+                    $meldungen[] = sprintf(
+                        'Rechtemodell (Audit M10/M13): ohne "Intern lesen" geblieben, weil Konten dort automatisch '
+                        . 'landen (Selbstregistrierung bzw. mitglieder-konten): %s - sie sehen in der Verwaltung nur '
+                        . 'noch veröffentlichte Pferde und Kontakte ohne private Kontaktdaten',
+                        implode(', ', array_map('strval', $betroffen))
+                    );
+                }
+            }
+
+            return $meldungen;
         });
     }
 }

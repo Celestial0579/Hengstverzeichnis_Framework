@@ -238,8 +238,98 @@ class RechteSeedTest extends TestCase {
     }
 
     // ------------------------------------------------------------------
+    // Audit M10/M13: "Intern lesen" für bisherige view-Gruppen
+    // ------------------------------------------------------------------
+
+    /**
+     * Bestand von Schema 25: Jede Gruppe mit horses.view/contacts.view
+     * bekommt einmalig das passende `internal` - außer admin, public, der
+     * Standardgruppe der Selbstregistrierung und der Zielgruppe von
+     * mitglieder-konten. Danach bleibt ein Entzug entzogen.
+     */
+    public function testInternLesenWirdBestandsgruppenEinmalVergeben(): void {
+        $this->frischesSchema();
+        SchemaMigrator::run(self::$pdo);
+        $this->assertMarkerGesetzt('migration_rechte_intern_lesen');
+
+        // Stand vor der Trennung nachbauen.
+        self::$pdo->exec("DELETE FROM settings WHERE setting_key = 'migration_rechte_intern_lesen'");
+        self::$pdo->exec("DELETE FROM group_permissions WHERE action = 'internal'");
+        $mitglieder = $this->gruppe('mitglieder', [['horses', 'view'], ['contacts', 'view']]);
+        $registrierung = $this->gruppe('registrierung', [['contacts', 'view']]);
+        $vereinskonten = $this->gruppe('vereinskonten', [['horses', 'view']]);
+        $this->gruppe('ohne-lesen', [['horses', 'create']]);
+        $this->einstellungSetzen('registration_default_group', (string)$registrierung);
+        $this->einstellungSetzen('plugin_mitglieder_konten_gruppe', (string)$vereinskonten);
+        $this->setzeSchemaVersion(25);
+
+        $steps = SchemaMigrator::run(self::$pdo);
+
+        $this->assertContains(['horses', 'internal'], $this->rechte('mitglieder'));
+        $this->assertContains(['contacts', 'internal'], $this->rechte('mitglieder'));
+        $this->assertContains(['horses', 'internal'], $this->rechte('editor'));
+        $this->assertContains(['contacts', 'internal'], $this->rechte('editor'));
+        foreach (['registrierung', 'vereinskonten', 'public', 'admin', 'ohne-lesen'] as $slug) {
+            foreach ($this->rechte($slug) as [, $aktion]) {
+                $this->assertNotSame('internal', $aktion, "{$slug} darf kein internal bekommen");
+            }
+        }
+        $this->assertMarkerGesetzt('migration_rechte_intern_lesen');
+        $protokoll = implode("\n", $steps);
+        $this->assertStringContainsString('4 Recht(e) "Intern lesen"', $protokoll);
+        $this->assertStringContainsString('Registrierung', $protokoll);
+        $this->assertStringContainsString('Vereinskonten', $protokoll);
+
+        // Entzug bleibt entzogen.
+        self::$pdo->prepare("DELETE FROM group_permissions WHERE group_id = ? AND action = 'internal'")->execute([$mitglieder]);
+        $this->setzeSchemaVersion(25);
+        $steps = SchemaMigrator::run(self::$pdo);
+
+        $this->assertNotContains(['horses', 'internal'], $this->rechte('mitglieder'));
+        $this->assertNotContains(['contacts', 'internal'], $this->rechte('mitglieder'));
+        $this->assertStringNotContainsString('Intern lesen', implode("\n", $steps));
+    }
+
+    /**
+     * Stand 0 mit Kontaktschema - Werksreset (settings geleert,
+     * group_permissions bleibt) oder Restore ohne Stand: nur vermerken. Ein
+     * Admin könnte "Intern lesen" bewusst entzogen haben.
+     */
+    public function testInternLesenNachWerksresetNurVermerkt(): void {
+        $this->frischesSchema();
+        SchemaMigrator::run(self::$pdo);
+
+        $this->gruppe('mitglieder', [['horses', 'view'], ['contacts', 'view']]);
+        self::$pdo->exec("DELETE FROM settings");
+
+        $steps = SchemaMigrator::run(self::$pdo);
+
+        $this->assertNotContains(['horses', 'internal'], $this->rechte('mitglieder'));
+        $this->assertStringNotContainsString('Intern lesen', implode("\n", $steps));
+        $this->assertMarkerGesetzt('migration_rechte_intern_lesen');
+    }
+
+    // ------------------------------------------------------------------
     // Hilfen
     // ------------------------------------------------------------------
+
+    private function einstellungSetzen(string $key, string $wert): void {
+        self::$pdo->prepare(
+            "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+        )->execute([$key, $wert]);
+    }
+
+    /** @param list<array{0:string,1:string}> $rechte */
+    private function gruppe(string $slug, array $rechte): int {
+        self::$pdo->prepare("INSERT INTO `groups` (slug, name) VALUES (?, ?)")->execute([$slug, ucfirst($slug)]);
+        $id = (int)self::$pdo->lastInsertId();
+        $insert = self::$pdo->prepare("INSERT INTO group_permissions (group_id, module, action) VALUES (?, ?, ?)");
+        foreach ($rechte as [$modul, $aktion]) {
+            $insert->execute([$id, $modul, $aktion]);
+        }
+        return $id;
+    }
 
     /** @param string[] $steps */
     private function assertGastOhneKontaktseiteNachUpgrade(array $steps): void {

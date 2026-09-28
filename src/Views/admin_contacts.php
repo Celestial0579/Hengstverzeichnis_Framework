@@ -19,6 +19,13 @@
  * @var int $totalPages
  * @var int $totalCount
  * @var array{0:int,1:int,2:int,3:int} $mergeReport Umgehängt, verworfen, ergänzt, Stationsverweise
+ * @var bool $intern Interne Einsicht (contacts.internal oder Bearbeitungsrecht, Audit M10)
+ *
+ * OHNE INTERNE EINSICHT (Audit M10) liefert der Controller nur
+ * veröffentlichte Kontakte und nur die Spalten, die auch öffentlich immer
+ * sichtbar sind. Die Zellen für E-Mail, Telefon, Anschrift, Ansprechpartner,
+ * Notiz und Kontaktdaten-Freigabe werden dann gar nicht erst gerendert -
+ * nicht bloß leer, denn die Schlüssel fehlen in $k.
  */
 $canPublish = $canPublish ?? false;
 $publishedFilter = $publishedFilter ?? null;
@@ -27,8 +34,9 @@ $publishFormId = 'contactPublishForm';
 $filters = $filters ?? [];
 $hasActiveFilters = $hasActiveFilters ?? false;
 $mergeReport = $mergeReport ?? [0, 0, 0, 0];
+$intern = $intern ?? false;
 $resetHref = '/admin/contacts' . ($publishedFilter !== null ? '?published=' . (int)$publishedFilter : '');
-$spalten = $canPublish ? 9 : 8;
+$spalten = ($canPublish ? 9 : 8) - ($intern ? 0 : 1);
 ?>
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
@@ -102,7 +110,7 @@ $spalten = $canPublish ? 9 : 8;
             <div style="flex: 1; min-width: 240px;">
                 <label for="admin-contact-search" class="sr-only">Kontakte durchsuchen</label>
                 <input type="text" id="admin-contact-search" name="search" class="form-control" autocomplete="off"
-                       placeholder="🔍 Name, Ansprechpartner, Ort, PLZ, Land, E-Mail, Telefon, Notiz …"
+                       placeholder="<?= $intern ? '🔍 Name, Ansprechpartner, Ort, PLZ, Land, E-Mail, Telefon, Notiz …' : '🔍 Name, Ort, Land …' ?>"
                        value="<?= htmlspecialchars($filters['search'] ?? '') ?>">
             </div>
             <button type="submit" class="btn">Suchen</button>
@@ -121,19 +129,23 @@ $spalten = $canPublish ? 9 : 8;
                     <label for="admin-contact-q-name" style="font-size: 0.85rem; font-weight: bold;">Name</label>
                     <input type="text" id="admin-contact-q-name" name="q_name" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_name'] ?? '') ?>">
                 </div>
+                <?php if ($intern): ?>
                 <div class="form-group">
                     <?php // Kam von der Stationsliste: Bei einem Betrieb steht der gesuchte Name oft hier. ?>
                     <label for="admin-contact-q-contact" style="font-size: 0.85rem; font-weight: bold;">Ansprechpartner</label>
                     <input type="text" id="admin-contact-q-contact" name="q_contact" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_contact'] ?? '') ?>">
                 </div>
+                <?php endif; ?>
                 <div class="form-group">
                     <label for="admin-contact-q-city" style="font-size: 0.85rem; font-weight: bold;">Ort</label>
                     <input type="text" id="admin-contact-q-city" name="q_city" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_city'] ?? '') ?>">
                 </div>
+                <?php if ($intern): ?>
                 <div class="form-group">
                     <label for="admin-contact-q-plz" style="font-size: 0.85rem; font-weight: bold;">PLZ</label>
                     <input type="text" id="admin-contact-q-plz" name="q_postal_code" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_postal_code'] ?? '') ?>">
                 </div>
+                <?php endif; ?>
                 <div class="form-group">
                     <label for="admin-contact-q-state" style="font-size: 0.85rem; font-weight: bold;">Bundesland / Kanton</label>
                     <input type="text" id="admin-contact-q-state" name="q_state" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_state'] ?? '') ?>">
@@ -145,10 +157,12 @@ $spalten = $canPublish ? 9 : 8;
                         <?php foreach (($countries ?? []) as $countryOption): ?><option value="<?= htmlspecialchars((string)$countryOption) ?>"><?php endforeach; ?>
                     </datalist>
                 </div>
+                <?php if ($intern): ?>
                 <div class="form-group">
                     <label for="admin-contact-q-email" style="font-size: 0.85rem; font-weight: bold;">E-Mail</label>
                     <input type="text" id="admin-contact-q-email" name="q_email" class="form-control" style="padding: 0.5rem;" value="<?= htmlspecialchars($filters['q_email'] ?? '') ?>">
                 </div>
+                <?php endif; ?>
                 <div class="form-group">
                     <?php
                         // Herkunft aus contact_id_map: die beiden alten Listen als
@@ -163,6 +177,7 @@ $spalten = $canPublish ? 9 : 8;
                     </select>
                     <small style="color: var(--text-subtle); font-size: 0.75rem;">Nach v0.8 angelegte Kontakte tragen keine Herkunft.</small>
                 </div>
+                <?php if ($intern): ?>
                 <div class="form-group">
                     <?php
                         // Der Filter, den es vor v0.8 nicht geben musste: Die Freigabe
@@ -177,6 +192,7 @@ $spalten = $canPublish ? 9 : 8;
                         <option value="0" <?= ($filters['q_contact_public'] ?? '') === '0' ? 'selected' : '' ?>>intern</option>
                     </select>
                 </div>
+                <?php endif; ?>
                 <div class="form-group" style="display: flex; align-items: flex-end;">
                     <?php // contacts.is_breeder ist redaktionell gepflegt und NICHT aus
                           // horse_persons.role='breeder' abgeleitet - siehe schema.sql. ?>
@@ -192,6 +208,12 @@ $spalten = $canPublish ? 9 : 8;
         </details>
     </form>
 
+    <?php if (!$intern): ?>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 1rem;">
+            Angezeigt werden nur veröffentlichte Kontakte, ohne E-Mail, Telefon, Anschrift, Ansprechpartner und Notiz.
+            Private Kontaktdaten und unveröffentlichte Kontakte sehen nur Gruppen mit „Intern lesen“ oder einem Bearbeitungsrecht.
+        </p>
+    <?php endif; ?>
     <?php require __DIR__ . '/partials/publish_filter_bar.php'; ?>
     <?php if ($canPublish): require __DIR__ . '/partials/publish_bulk_bar.php'; endif; ?>
 
@@ -202,8 +224,8 @@ $spalten = $canPublish ? 9 : 8;
                     <?php if ($canPublish): ?><th style="padding: 0.5rem;"><input type="checkbox" onclick="togglePublishSelection(this)" title="Alle auswählen"></th><?php endif; ?>
                     <th style="padding: 0.5rem;">ID</th>
                     <th style="padding: 0.5rem;">Name</th>
-                    <th style="padding: 0.5rem;">Ansprechpartner</th>
-                    <th style="padding: 0.5rem;">Kontakt &amp; Ort</th>
+                    <?php if ($intern): ?><th style="padding: 0.5rem;">Ansprechpartner</th><?php endif; ?>
+                    <th style="padding: 0.5rem;"><?= $intern ? 'Kontakt &amp; Ort' : 'Ort' ?></th>
                     <th style="padding: 0.5rem;">Zuordnungen</th>
                     <th style="padding: 0.5rem;">Als Deckstation</th>
                     <th style="padding: 0.5rem;">Sichtbarkeit</th>
@@ -239,6 +261,7 @@ $spalten = $canPublish ? 9 : 8;
                                     <br><a href="<?= htmlspecialchars($website) ?>" target="_blank" rel="noopener noreferrer" style="font-size: 0.8rem; color: var(--primary-fg);">🌐 Website</a>
                                 <?php endif; ?>
                             </td>
+                            <?php if ($intern): ?>
                             <td style="padding: 0.5rem; font-size: 0.9rem;"><?= htmlspecialchars((string)($k['contact_person'] ?: '-')) ?></td>
                             <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
                                 <?php
@@ -264,6 +287,20 @@ $spalten = $canPublish ? 9 : 8;
                                 ?>
                                 <?= !empty($lines) ? nl2br(htmlspecialchars(implode("\n", $lines))) : '<em>Keine Angaben</em>' ?>
                             </td>
+                            <?php else: ?>
+                            <td style="padding: 0.5rem; font-size: 0.9rem; color: var(--text-muted);">
+                                <?php
+                                    // Ohne interne Einsicht nur Ort, Bundesland und Land -
+                                    // dieselben Angaben wie öffentlich immer (Audit M10).
+                                    $ortOeffentlich = implode(', ', array_filter([
+                                        (string)($k['city'] ?? ''),
+                                        (string)($k['state'] ?? ''),
+                                        (string)($k['country'] ?? ''),
+                                    ], static fn(string $teil): bool => $teil !== ''));
+                                ?>
+                                <?= $ortOeffentlich !== '' ? htmlspecialchars($ortOeffentlich) : '<em>Keine Angaben</em>' ?>
+                            </td>
+                            <?php endif; ?>
                             <td style="padding: 0.5rem;">
                                 <span style="background: var(--surface-muted); padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
                                     <?= (int)$k['horse_count'] ?> Zuordnungen
@@ -286,7 +323,7 @@ $spalten = $canPublish ? 9 : 8;
                                     // an einem einzigen Feld - sie gehört sichtbar in die
                                     // Liste, nicht nur ins Formular (#293).
                                 ?>
-                                <?php if (!empty($k['contact_public'])): ?>
+                                <?php if ($intern && !empty($k['contact_public'])): ?>
                                     <br><span style="font-size: 0.75rem; color: var(--text-muted);" title="E-Mail, Telefon, Mobil und Anschrift sind freigegeben">📇 Kontaktdaten öffentlich</span>
                                 <?php endif; ?>
                             </td>

@@ -43,11 +43,28 @@ class HorseController extends BaseController {
         // geht als gebundener Parameter in den Filterbaustein.
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
 
-        // Dieselbe Filterlogik wie der öffentliche Katalog, aber OHNE dessen
-        // Sichtbarkeitsgrenzen ($nurOeffentlich = false): Die Verwaltung muss
-        // gerade die unveröffentlichten Züchter, Stationen und Elterntiere
-        // finden können - das ist ihre Aufgabe. Gelöschte bleiben draußen, die
-        // stehen im Papierkorb.
+        // Zwei Fragen, zwei Rechte (Audit M13):
+        // - Interne Einsicht (horses.internal/edit/delete/publish): Nur dann
+        //   gilt die Liste OHNE die Sichtbarkeitsgrenzen des Katalogs.
+        //   `view` allein öffnet nur den veröffentlichten Bestand - bis dahin
+        //   sah jedes Konto mit horses.view, etwa aus der
+        //   Registrierungs-Standardgruppe, alles Unveröffentlichte.
+        // - contacts.view: Nur dann gibt es Filter und Vorschläge für
+        //   Züchter, Besitzer, Halter und Deckstation. Sonst wären die Liste
+        //   der Kontaktnamen und die Trefferzahl der Personenfilter ein
+        //   Zugang zu Kontakten, die das Konto nicht lesen darf.
+        $pferdeIntern = $this->hasInternalAccess('horses');
+        $kontakteSichtbar = $this->hasPermission('contacts', 'view');
+        if (!$pferdeIntern) {
+            $publishedFilter = null; // Es gibt ohnehin nur Veröffentlichtes.
+        }
+
+        // Dieselbe Filterlogik wie der öffentliche Katalog - mit interner
+        // Einsicht OHNE dessen Sichtbarkeitsgrenzen ($nurOeffentlich =
+        // false): Die Verwaltung muss gerade die unveröffentlichten Züchter,
+        // Stationen und Elterntiere finden können - das ist ihre Aufgabe.
+        // Ohne interne Einsicht gelten dieselben Grenzen wie im Katalog.
+        // Gelöschte bleiben draußen, die stehen im Papierkorb.
         //
         // Zwei Bausteine statt einem: HorseSearchSql erzeugt die Klausel und
         // bekommt die Anfrage nie zu sehen; HorseSearchCriteria liest die
@@ -61,8 +78,8 @@ class HorseController extends BaseController {
         // immer in Reichweite. Jetzt gibt es diese Reichweite nicht mehr, und
         // die Klausel unten besteht nachweislich nur aus Literalen des
         // Quelltexts.
-        $sql = new HorseSearchSql(false);
-        $criteria = HorseSearchCriteria::fromRequest($_GET, false, $publishedFilter);
+        $sql = new HorseSearchSql(!$pferdeIntern);
+        $criteria = HorseSearchCriteria::fromRequest($_GET, !$pferdeIntern, $publishedFilter, $kontakteSichtbar);
         $criteria->applyTo($sql);
 
         $whereSql = $sql->whereSql();
@@ -98,10 +115,12 @@ class HorseController extends BaseController {
         $stmt->execute();
         $horses = $stmt->fetchAll();
 
-        // Auswahllisten der Detailfilter. Anders als im Katalog ohne
-        // is_published-Einschränkung - siehe oben.
-        $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        // Auswahllisten der Detailfilter. Mit interner Einsicht ohne
+        // is_published-Einschränkung, sonst wie im Katalog - eine Farbe, die
+        // nur ein unveröffentlichtes Pferd trägt, verriete es (Audit M13).
+        $nurVeroeffentlicht = $pferdeIntern ? '' : ' AND is_published = 1';
+        $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL{$nurVeroeffentlicht} ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL{$nurVeroeffentlicht} ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
         // Namensvorschläge für die Filterfelder "Person" und "Deckstation".
         // Seit #336 speisen sich BEIDE aus derselben Abfrage: Personen und
         // Deckstationen stehen in einer Tabelle, und welcher Kontakt für ein
@@ -110,7 +129,15 @@ class HorseController extends BaseController {
         // mehr die Tabelle. Die beiden Filterfelder bleiben trotzdem getrennt:
         // Sie fragen Verschiedenes ab (wer / wo), nur die Vorschlagsliste ist
         // dieselbe.
-        $contactNames = $db->query("SELECT DISTINCT name FROM contacts WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        //
+        // Nur mit contacts.view, und ohne interne Kontakt-Einsicht nur
+        // veröffentlichte Kontakte (Audit M13). Bis dahin genügte
+        // horses.view, und die Liste enthielt jeden Kontaktnamen.
+        $contactNames = [];
+        if ($kontakteSichtbar) {
+            $nurOeffentlicheKontakte = $this->hasInternalAccess('contacts') ? '' : ' AND is_published = 1';
+            $contactNames = $db->query("SELECT DISTINCT name FROM contacts WHERE deleted_at IS NULL{$nurOeffentlicheKontakte} ORDER BY name ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        }
 
         $this->render('admin_horses', [
             'title' => 'Pferde verwalten',
@@ -125,6 +152,8 @@ class HorseController extends BaseController {
             // Zwei Schlüssel, eine Quelle (#336) - siehe oben.
             'stations' => $contactNames,
             'persons' => $contactNames,
+            'kontakteSichtbar' => $kontakteSichtbar,
+            'pferdeIntern' => $pferdeIntern,
             'page' => $page,
             'totalPages' => $totalPages,
             'totalCount' => $totalHorses,

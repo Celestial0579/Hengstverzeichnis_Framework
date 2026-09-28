@@ -419,8 +419,8 @@ abstract class FunctionalTestCase extends TestCase {
     ];
 
     protected const EDITOR_DEFAULT_PERMISSIONS = [
-        'horses' => ['view', 'create', 'edit', 'delete', 'publish'],
-        'contacts' => ['view', 'create', 'edit', 'delete', 'publish'],
+        'horses' => ['view', 'internal', 'create', 'edit', 'delete', 'publish'],
+        'contacts' => ['view', 'internal', 'create', 'edit', 'delete', 'publish'],
     ];
 
     /**

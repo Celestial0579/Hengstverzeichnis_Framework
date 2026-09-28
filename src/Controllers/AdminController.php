@@ -122,6 +122,23 @@ class AdminController extends BaseController {
         exit;
     }
 
+    /**
+     * IDs der Gruppen, die an `horses` oder `contacts` eine Aktion aus
+     * PermissionRegistry::INTERNAL_ACCESS_ACTIONS besitzen.
+     *
+     * @return array<int, int>
+     */
+    private static function gruppenMitInternerEinsicht(): array {
+        $aktionen = \App\Permission\PermissionRegistry::INTERNAL_ACCESS_ACTIONS;
+        $platzhalter = implode(',', array_fill(0, count($aktionen), '?'));
+        $stmt = Database::getInstance()->prepare(
+            "SELECT DISTINCT group_id FROM group_permissions
+             WHERE module IN ('horses', 'contacts') AND action IN ({$platzhalter})"
+        );
+        $stmt->execute($aktionen);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function systemSettings(): void {
         $this->requireAdmin();
 
@@ -141,6 +158,11 @@ class AdminController extends BaseController {
             'registrationGroups' => Database::getInstance()
                 ->query("SELECT id, name FROM `groups` WHERE slug NOT IN ('admin', 'public') ORDER BY name ASC")
                 ->fetchAll(),
+            // Gruppen mit interner Einsicht in Pferde oder Kontakte (Audit
+            // M10/M13) - als Standardgruppe der Selbstregistrierung gäben sie
+            // jedem, der sich registriert, Unveröffentlichtes und private
+            // Kontaktdaten. Die Auswahl markiert sie.
+            'registrationGroupsIntern' => self::gruppenMitInternerEinsicht(),
         ]);
     }
 

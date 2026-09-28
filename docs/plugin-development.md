@@ -260,7 +260,7 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `contact.after_save` | Action | Nach Anlegen oder Ändern eines Kontakts (#347) | `function(int $contactId, array $postData, bool $isNew): void` |
 | `contact.deleted` | Action | Beim Verschieben eines Kontakts in den Papierkorb (#347) | `function(int $contactId, array $contact): void` — feuert beim Verschieben, nicht erst beim endgültigen Löschen; der Fremdschlüssel-CASCADE greift dort noch nicht (Lage wie `horse.trashed`) |
 | `horse.publish_blockers` | Filter | Nach dem Speichern eines Pferds, bevor das Veröffentlichungs-Häkchen gilt (#335) | `function(array $gruende, int $horseId, array $horse): array` — jeder zurückgegebene String ist ein Einwand und verhindert **nur** die Veröffentlichung, nicht das Speichern. Läuft **nach** dem Speichern gegen den persistierten Stand, denn die Zuordnungen in `horse_persons` entstehen erst nach dem INSERT. Startwert ist die leere Liste: Ein abgestürztes Addon darf keine Veröffentlichung blockieren, sonst könnte niemand den Grund beheben. Beim **De**publizieren greift der Filter ausdrücklich nicht |
-| `horse.search_ids` | Filter | Beim Aufbau der Pferdesuche, öffentlich wie im Adminbereich (#346) | `function(?array $ids, array $request, bool $nurOeffentlich): ?array` — eine **Liste von Pferde-IDs**, auf die eingeschränkt wird, ausdrücklich **kein** SQL-Ausschnitt: Die Suchklassen beruhen darauf, dass kein Anfragewert je in einen SQL-String gerät. `null` = „ich habe nichts beizutragen"; ein **leeres Array** = „keine Treffer". Beides auf dasselbe abzubilden hieße, dass ein Addon „nichts passt" nicht sagen kann. **Setze ein LIMIT**: Die Liste wird als `h.id IN (…)` gebunden und wandert damit in jede Katalog- und Adminabfrage; eine ungedeckelte Liste über den halben Bestand kostet bei jedem Nachladeschritt erneut. Der Kern deckelt erst bei 60.000 Kennungen, und das nur, weil MySQL nicht mehr Werte binden kann (#371) |
+| `horse.search_ids` | Filter | Beim Aufbau der Pferdesuche, öffentlich wie im Adminbereich (#346) | `function(?array $ids, array $request, bool $nurOeffentlich): ?array` — eine **Liste von Pferde-IDs**, auf die eingeschränkt wird, ausdrücklich **kein** SQL-Ausschnitt: Die Suchklassen beruhen darauf, dass kein Anfragewert je in einen SQL-String gerät. `null` = „ich habe nichts beizutragen"; ein **leeres Array** = „keine Treffer". Beides auf dasselbe abzubilden hieße, dass ein Addon „nichts passt" nicht sagen kann. **Setze ein LIMIT**: Die Liste wird als `h.id IN (…)` gebunden und wandert damit in jede Katalog- und Adminabfrage; eine ungedeckelte Liste über den halben Bestand kostet bei jedem Nachladeschritt erneut. Der Kern deckelt erst bei 60.000 Kennungen, und das nur, weil MySQL nicht mehr Werte binden kann (#371). `$nurOeffentlich = true` heißt „Sichtbarkeitsgrenzen des Katalogs“ – seit Audit M13 auch in der Verwaltungsliste `/admin/horses` für Konten ohne interne Einsicht (`horses.internal`, `edit`, `delete` oder `publish`) |
 | `home.sections_top` · `home.sections_bottom` | Filter | Beim Rendern der Startseite, über bzw. unter der Pferdeliste (#356) | `function(array $sections, array $featuredHorses): array` — jedes Element ist ein fertiger HTML-String und wird **unescaped** ausgegeben. Zwei Punkte statt eines: Was etwas bewirbt, gehört nach oben; was Zusatzinformationen nachreicht, darunter |
 | `person.detail_sections` · `station.detail_sections` · `person.edit_sections` · `station.edit_sections` · `person.after_save` · `station.after_save` · `person.deleted` · `station.deleted` | — | **ENTFALLEN mit v0.9.0** | Diese Aliasse feuerten in der 0.8-Linie zusätzlich zu ihren `contact.*`-Gegenstücken, damit ein Addon aus der 0.7-Linie unverändert weiterlief. Sie feuern **nicht mehr**. Wer noch an ihnen hängt, wird nicht mehr gerufen und muss auf `contact.*` umstellen — die Argumente sind dieselben. Der Grund, sie nicht dauerhaft zu führen: Seit `persons` und `breeding_stations` eine Tabelle sind (#336), bekäme ein Addon, das beide Paare registriert hat, denselben Datensatz zweimal |
 | `captcha.providers` | Filter | Beim Aufbau der Anbieterauswahl in den Systemeinstellungen und bei jeder Prüfung | `function(array $providers): array` — Slug => Anzeigename. Der eingebaute Anbieter `builtin` ist immer enthalten und lässt sich **nicht** überschreiben |
@@ -708,8 +708,23 @@ ebenso als Checkboxen unter `/admin/groups`. Möchte das Plugin eine eigene
 Beschriftung, kann es `view`/`publish` mit eigenem `label` registrieren (greift
 nur, wenn es das zuerst tut - "wer zuerst registriert, gewinnt", siehe unten).
 Die **Durchsetzung** bleibt Aufgabe des Plugins: Öffentliche Ausgaben über die
-Gast-Gruppe (`public`) mit `hasPermission('<modul>','view')` gaten, das
-Veröffentlichen eigener Inhalte mit `hasPermission('<modul>','publish')`. Für
+Gast-Gruppe (`public`) gaten – ab dieser Kernversion mit
+`$this->hasPublicPermission('<modul>','view')` (in Hooks ohne Controller
+`\App\Permission\GroupMembership::hasPublicPermission($userId, '<modul>', 'view')`).
+Damit sehen angemeldete Mitglieder mindestens, was Gäste sehen (Audit N61);
+mit `hasPermission()` sähe ein Mitglied ohne eigenes `view` weniger als ein
+Gast. Das Veröffentlichen eigener Inhalte bleibt bei
+`hasPermission('<modul>','publish')`.
+
+**Interne Einsicht in Kernbestände** (Audit M10/M13): `horses.view` bzw.
+`contacts.view` heißt im Verwaltungsbereich nur „veröffentlichter Bestand,
+ohne private Kontaktdaten“. Wer als Addon unveröffentlichte Pferde oder
+private Kontaktdaten zeigt oder verarbeitet (Rechner, Verwaltungsabschnitte),
+prüft zusätzlich `$this->hasInternalAccess('horses')` bzw.
+`GroupMembership::hasInternalAccess($userId, 'contacts')` (Admin, `internal`,
+`edit`, `delete` oder `publish`). `horses.internal`/`contacts.internal`
+zählen für die Adresspflicht als Leserecht; eine eigene Aktion `internal`
+an einem Addon-Modul nicht. Für
 öffentliche Ableitungen/Berechnungen auf Basis von Pferdedaten immer den
 `publishedOnly`-Modus nutzen (`PedigreeBuilder::build(..., true)`), damit keine
 unveröffentlichten Daten durchsickern.
@@ -823,7 +838,10 @@ if ($userId !== null && \App\Permission\GroupMembership::hasPermission($userId, 
 ```
 
 `GroupMembership::isAdmin()`, `groupIds()` und `hasPermission()` liefern für
-gelöschte oder deaktivierte Konten ohnehin keine Rechte mehr.
+gelöschte oder deaktivierte Konten ohnehin keine Rechte mehr. Für die
+öffentliche Sicht gibt es `GroupMembership::hasPublicPermission($userId, …)`
+(Gast-Rechte als Untergrenze), für Unveröffentlichtes
+`GroupMembership::hasInternalAccess($userId, $modul)`.
 
 Ein Werksreset (Admin → System-Einstellungen bzw. `php database/reset.php`)
 leert alle Tabellen mit dem Präfix `plugin_`

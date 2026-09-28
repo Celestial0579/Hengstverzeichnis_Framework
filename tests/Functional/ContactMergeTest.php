@@ -56,7 +56,7 @@ class ContactMergeTest extends FunctionalTestCase {
         // nur "erfolgreich" - sie sind der einzige Hinweis darauf, ob die
         // Paarrichtung stimmte (siehe ContactController::merge()).
         $this->assertSame(
-            '/admin/contacts?success=merged&merged_moved=2&merged_dropped=0&merged_filled=3&merged_stations=0',
+            '/admin/contacts?success=merged&merged_moved=2&merged_dropped=0&merged_filled=3&merged_stations=0&merged_withheld=0',
             $response->location(),
             "Zusammenführen fehlgeschlagen: {$response->body}"
         );
@@ -156,7 +156,7 @@ class ContactMergeTest extends FunctionalTestCase {
         ]);
         // Zwei Stationsverweise: die Zuordnungszeile und das Pferd selbst.
         $this->assertSame(
-            '/admin/contacts?success=merged&merged_moved=1&merged_dropped=0&merged_filled=0&merged_stations=2',
+            '/admin/contacts?success=merged&merged_moved=1&merged_dropped=0&merged_filled=0&merged_stations=2&merged_withheld=0',
             $response->location(),
             "Zusammenführen fehlgeschlagen: {$response->body}"
         );
@@ -292,7 +292,7 @@ class ContactMergeTest extends FunctionalTestCase {
         // eigene Aussage und werden umgehängt, die dritte ist ein echtes
         // Doppel und darf entfallen.
         $this->assertSame(
-            '/admin/contacts?success=merged&merged_moved=2&merged_dropped=1&merged_filled=0&merged_stations=0',
+            '/admin/contacts?success=merged&merged_moved=2&merged_dropped=1&merged_filled=0&merged_stations=0&merged_withheld=0',
             $response->location(),
             "Zusammenführen fehlgeschlagen: {$response->body}"
         );
@@ -338,11 +338,14 @@ class ContactMergeTest extends FunctionalTestCase {
         ]);
 
         $mergePage = $admin->get('/admin/contacts/merge?id=' . $quelleId);
-        $admin->post('/admin/contacts/merge', [
+        $response = $admin->post('/admin/contacts/merge', [
             'csrf_token' => $mergePage->formField('csrf_token') ?? '',
             'source_id' => (string)$quelleId,
             'target_id' => (string)$zielId,
         ]);
+        // Das Ziel ist nicht freigegeben - hier wird nichts zurückgehalten
+        // (Audit M9 greift nur in der Gegenrichtung).
+        $this->assertStringEndsWith('&merged_withheld=0', (string)$response->location());
 
         $stmt = $db->prepare("SELECT phone, contact_public FROM contacts WHERE id = ?");
         $stmt->execute([$zielId]);
@@ -491,6 +494,246 @@ class ContactMergeTest extends FunctionalTestCase {
         $this->assertSame(403, $response->statusCode, "Erwartet wurde 403, Body: {$response->body}");
 
         $this->assertUnveraendert($db, $quelleId, $pferdId);
+    }
+
+    /**
+     * Audit M9: Zeigt der behaltene Kontakt seine Kontaktdaten öffentlich und
+     * hatte der aufgegebene dafür keine Freigabe, dürfen dessen zustellbare
+     * Felder NICHT in die leeren Felder des Ziels wandern. Sie stünden sonst
+     * ohne Einwilligung auf /kontakt und auf jeder Pferdeseite, die das Ziel
+     * als Deckstation nennt - die Vorschau hatte das Gegenteil zugesichert.
+     *
+     * Die immer öffentlichen Felder (city) und das nie öffentliche
+     * contact_info werden weiter aufgefüllt; die Freigabe des Ziels bleibt.
+     */
+    public function testPrivateContactDataIsNotFilledIntoAReleasedTarget(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        $zielId = $this->kontakt($admin, "Freigegeben Ziel {$unique}", [
+            'contact_public' => '1',
+            'is_published' => '1',
+        ]);
+        $quelleId = $this->kontakt($admin, "Privat Quelle {$unique}", [
+            'is_published' => '1',
+            'phone' => '0171 999x',
+            'email' => "privat-{$unique}@example.com",
+            'street' => "Geheimweg {$unique}",
+            'mobile' => '0172 888x',
+            'city' => 'Spechbach',
+            'contact_info' => "Notiz {$unique}",
+        ]);
+        // Ein Pferd, das die Quelle als Deckstation nennt - nach dem
+        // Zusammenführen nennt es das Ziel, und seine öffentliche Seite zeigt
+        // die zustellbaren Felder des Ziels (bs.contact_public).
+        $pferdId = $this->pferd($admin, "Freigabepferd {$unique}", $zielId, 'owner', $quelleId);
+        $db->prepare("UPDATE horses SET is_published = 1 WHERE id = ?")->execute([$pferdId]);
+
+        // Vorschau: Die fehlende Freigabe der Quelle und die Freigabe des
+        // Ziels stehen da, bevor jemand klickt.
+        $mergePage = $admin->get('/admin/contacts/merge?id=' . $quelleId . '&q=' . urlencode("Freigegeben Ziel {$unique}"));
+        $this->assertSame(200, $mergePage->statusCode);
+        $this->assertStringContainsString('Kontaktdaten intern', $mergePage->body);
+        $this->assertStringContainsString('sie stünden sonst ohne Einwilligung im Netz', $mergePage->body);
+        $optionen = $this->zielOptionen($mergePage->body);
+        $this->assertCount(1, $optionen);
+        $this->assertStringContainsString('Kontaktdaten öffentlich', $optionen[0]);
+
+        $response = $admin->post('/admin/contacts/merge', [
+            'csrf_token' => $mergePage->formField('csrf_token') ?? '',
+            'source_id' => (string)$quelleId,
+            'target_id' => (string)$zielId,
+        ]);
+        // Ergänzt: city und contact_info. Zurückgehalten: phone, email,
+        // street, mobile. Zwei Stationsverweise: Zuordnungszeile und Pferd.
+        $this->assertSame(
+            '/admin/contacts?success=merged&merged_moved=0&merged_dropped=0&merged_filled=2&merged_stations=2&merged_withheld=4',
+            $response->location(),
+            "Zusammenführen fehlgeschlagen: {$response->body}"
+        );
+
+        $stmt = $db->prepare("SELECT phone, email, street, mobile, city, contact_info, contact_public FROM contacts WHERE id = ?");
+        $stmt->execute([$zielId]);
+        $ziel = $stmt->fetch();
+        $this->assertNull($ziel['phone'], 'Die Telefonnummer der Quelle darf nicht ins freigegebene Ziel wandern');
+        $this->assertNull($ziel['email']);
+        $this->assertNull($ziel['street']);
+        $this->assertNull($ziel['mobile']);
+        $this->assertSame('Spechbach', $ziel['city'], 'Immer öffentliche Felder werden weiter ergänzt');
+        $this->assertSame("Notiz {$unique}", $ziel['contact_info'], 'contact_info ist nie öffentlich und wird ergänzt');
+        $this->assertSame(1, (int)$ziel['contact_public'], 'Die Freigabe des Ziels darf nicht still zurückgenommen werden');
+
+        // Gast: weder auf der Kontaktseite noch auf der Pferdeseite.
+        $gast = $this->newClient();
+        $kontaktSeite = $gast->get('/kontakt?id=' . $zielId);
+        $this->assertSame(200, $kontaktSeite->statusCode);
+        $this->assertStringNotContainsString('0171 999x', $kontaktSeite->body);
+        $this->assertStringNotContainsString("privat-{$unique}@example.com", $kontaktSeite->body);
+        $this->assertStringNotContainsString("Geheimweg {$unique}", $kontaktSeite->body);
+        $pferdSeite = $gast->get('/horse?id=' . $pferdId);
+        $this->assertSame(200, $pferdSeite->statusCode);
+        $this->assertStringContainsString("Freigegeben Ziel {$unique}", $pferdSeite->body, 'Vorbedingung: Die Pferdeseite nennt das Ziel als Deckstation');
+        $this->assertStringNotContainsString('0171 999x', $pferdSeite->body);
+        $this->assertStringNotContainsString("privat-{$unique}@example.com", $pferdSeite->body);
+
+        // Die Meldung nennt die Zurückhaltung und wo die Angaben jetzt liegen.
+        $liste = $admin->get((string)$response->location());
+        $this->assertStringContainsString('NICHT ergänzt', $liste->body);
+        $this->assertStringContainsString('bis dieser geleert wird', $liste->body);
+
+        // Audit-Log: Feldnamen ja, Werte nie.
+        $stmt = $db->prepare("SELECT details FROM audit_logs WHERE action = 'Kontakte zusammengeführt' AND details LIKE ?");
+        $stmt->execute(['Quelle ID ' . $quelleId . ' (%']);
+        $details = (string)$stmt->fetchColumn();
+        $this->assertStringContainsString('4 Feld(er) ohne Freigabe nicht ergänzt', $details);
+        $this->assertStringContainsString('phone', $details);
+        $this->assertStringNotContainsString('0171 999x', $details, 'Das Audit-Log darf die zurückgehaltenen Werte nicht enthalten');
+        $this->assertStringNotContainsString("privat-{$unique}", $details);
+    }
+
+    /** Beide freigegeben: Die Einwilligung liegt für beide vor, es wird ergänzt. */
+    public function testReleasedSourceMayFillAReleasedTarget(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        $zielId = $this->kontakt($admin, "Frei Ziel {$unique}", ['contact_public' => '1']);
+        $quelleId = $this->kontakt($admin, "Frei Quelle {$unique}", ['contact_public' => '1', 'phone' => '0621 444x']);
+
+        $mergePage = $admin->get('/admin/contacts/merge?id=' . $quelleId);
+        $this->assertStringContainsString('Kontaktdaten öffentlich freigegeben', $mergePage->body);
+        $this->assertStringNotContainsString('sie stünden sonst ohne Einwilligung im Netz', $mergePage->body);
+        $response = $admin->post('/admin/contacts/merge', [
+            'csrf_token' => $mergePage->formField('csrf_token') ?? '',
+            'source_id' => (string)$quelleId,
+            'target_id' => (string)$zielId,
+        ]);
+        $this->assertSame(
+            '/admin/contacts?success=merged&merged_moved=0&merged_dropped=0&merged_filled=1&merged_stations=0&merged_withheld=0',
+            $response->location(),
+            "Zusammenführen fehlgeschlagen: {$response->body}"
+        );
+
+        $stmt = $db->prepare("SELECT phone FROM contacts WHERE id = ?");
+        $stmt->execute([$zielId]);
+        $this->assertSame('0621 444x', $stmt->fetchColumn());
+    }
+
+    /**
+     * Beide privat: Wie bisher wird aufgefüllt. Schützt gegen eine zu breite
+     * Regel - veröffentlicht wird hier nichts, also gibt es nichts
+     * zurückzuhalten.
+     */
+    public function testPrivateTargetStillReceivesPrivateData(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        $zielId = $this->kontakt($admin, "Intern Ziel {$unique}", ['is_published' => '1']);
+        $quelleId = $this->kontakt($admin, "Intern Quelle {$unique}", [
+            'phone' => '0621 555x',
+            'email' => "intern-{$unique}@example.com",
+        ]);
+
+        $mergePage = $admin->get('/admin/contacts/merge?id=' . $quelleId);
+        $response = $admin->post('/admin/contacts/merge', [
+            'csrf_token' => $mergePage->formField('csrf_token') ?? '',
+            'source_id' => (string)$quelleId,
+            'target_id' => (string)$zielId,
+        ]);
+        $this->assertSame(
+            '/admin/contacts?success=merged&merged_moved=0&merged_dropped=0&merged_filled=2&merged_stations=0&merged_withheld=0',
+            $response->location(),
+            "Zusammenführen fehlgeschlagen: {$response->body}"
+        );
+
+        $stmt = $db->prepare("SELECT phone, email, contact_public FROM contacts WHERE id = ?");
+        $stmt->execute([$zielId]);
+        $ziel = $stmt->fetch();
+        $this->assertSame('0621 555x', $ziel['phone']);
+        $this->assertSame("intern-{$unique}@example.com", $ziel['email']);
+        $this->assertSame(0, (int)$ziel['contact_public']);
+    }
+
+    /**
+     * Audit M33: Die alten Kennungen (/person?id=, /station?id=) ziehen beim
+     * Zusammenführen mit um. Blieben sie an der Quelle, lieferten die alten
+     * Adressen sofort 404 (die Auflösung verlangt einen Kontakt außerhalb des
+     * Papierkorbs), und beim Leeren des Papierkorbs nähme der FK-CASCADE die
+     * Zuordnung ganz mit.
+     */
+    public function testLegacyIdsFollowTheMergeAndSurviveEmptyingTheTrash(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        $zielId = $this->kontakt($admin, "Alt Ziel {$unique}", ['is_published' => '1']);
+        $quelleId = $this->kontakt($admin, "Alt Quelle {$unique}", ['is_published' => '1']);
+
+        // Freie Alt-Kennungen oberhalb des Bestands, Muster wie
+        // ContactLegacyRedirectTest::seedContactWithLegacyId().
+        $alteIds = [];
+        foreach (['person', 'station'] as $typ) {
+            $stmt = $db->prepare("SELECT COALESCE(MAX(old_id), 0) + 1 FROM contact_id_map WHERE old_type = ?");
+            $stmt->execute([$typ]);
+            $alteIds[$typ] = (int)$stmt->fetchColumn();
+            $db->prepare("INSERT INTO contact_id_map (old_type, old_id, contact_id) VALUES (?, ?, ?)")
+               ->execute([$typ, $alteIds[$typ], $quelleId]);
+        }
+
+        try {
+            $mergePage = $admin->get('/admin/contacts/merge?id=' . $quelleId);
+            $this->assertStringContainsString('Alte Adressen dieses Datensatzes', $mergePage->body);
+            $response = $admin->post('/admin/contacts/merge', [
+                'csrf_token' => $mergePage->formField('csrf_token') ?? '',
+                'source_id' => (string)$quelleId,
+                'target_id' => (string)$zielId,
+            ]);
+            $this->assertStringStartsWith('/admin/contacts?success=merged', (string)$response->location(), $response->body);
+
+            $stmt = $db->prepare("SELECT contact_id FROM contact_id_map WHERE old_type = ? AND old_id = ?");
+            foreach ($alteIds as $typ => $alteId) {
+                $stmt->execute([$typ, $alteId]);
+                $this->assertSame($zielId, (int)$stmt->fetchColumn(), "Die alte {$typ}-Kennung muss auf das Ziel zeigen");
+            }
+            $this->assertLegacyRedirects($alteIds, $zielId);
+
+            $stmt = $db->prepare("SELECT details FROM audit_logs WHERE action = 'Kontakte zusammengeführt' AND details LIKE ?");
+            $stmt->execute(['Quelle ID ' . $quelleId . ' (%']);
+            $this->assertStringContainsString('2 alte Kennung(en) umgehängt', (string)$stmt->fetchColumn());
+
+            // Endgültig löschen: Die Zuordnung hängt nicht mehr an der Quelle,
+            // der CASCADE trifft sie also nicht.
+            $trash = $admin->post('/admin/trash/permanent-delete', [
+                'csrf_token' => $mergePage->formField('csrf_token') ?? '',
+                'type' => 'contact',
+                'id' => (string)$quelleId,
+            ]);
+            $this->assertSame('/admin/trash?success=purged', $trash->location(), $trash->body);
+            $stmt = $db->prepare("SELECT COUNT(*) FROM contacts WHERE id = ?");
+            $stmt->execute([$quelleId]);
+            $this->assertSame(0, (int)$stmt->fetchColumn(), 'Vorbedingung: Die Quelle ist endgültig gelöscht');
+
+            $stmt = $db->prepare("SELECT COUNT(*) FROM contact_id_map WHERE contact_id = ?");
+            $stmt->execute([$zielId]);
+            $this->assertSame(2, (int)$stmt->fetchColumn(), 'Die Zuordnung muss das Leeren des Papierkorbs überstehen');
+            $this->assertLegacyRedirects($alteIds, $zielId);
+        } finally {
+            $weg = $db->prepare("DELETE FROM contact_id_map WHERE old_type = ? AND old_id = ?");
+            foreach ($alteIds as $typ => $alteId) {
+                $weg->execute([$typ, $alteId]);
+            }
+        }
+    }
+
+    /** @param array<string, int> $alteIds */
+    private function assertLegacyRedirects(array $alteIds, int $zielId): void {
+        foreach ($alteIds as $typ => $alteId) {
+            $antwort = $this->newClient()->get("/{$typ}?id={$alteId}");
+            $this->assertSame(301, $antwort->statusCode, "/{$typ}?id={$alteId} muss dauerhaft weiterleiten");
+            $this->assertSame('/kontakt?id=' . $zielId, $antwort->location());
+        }
     }
 
     // ---- Helfer --------------------------------------------------------

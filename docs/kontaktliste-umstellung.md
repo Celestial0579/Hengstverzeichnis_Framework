@@ -36,6 +36,13 @@ Deshalb gilt ab v0.8 für **alle** Kontakte die strengere Regel:
 * Nur bei `contact_public = 1`: `email`, `phone`, `mobile`, `street`,
   `house_number`, `postal_code`, `address`, `contact_person`
 * Nie öffentlich: `contact_info`
+* Die Liste der freigabepflichtigen Felder steht an einer Stelle:
+  `ContactController::RELEASE_GATED_FIELDS`. `PublicController::contactDetail()`
+  und das Zusammenführen benutzen sie.
+* Zusammenführen: Die zustellbaren Felder wandern nur, wenn das Ziel nicht
+  freigegeben ist oder auch die Quelle freigegeben war (Audit M9). Sonst
+  bleiben sie am aufgegebenen Datensatz, die Freigabe des Ziels bleibt
+  unverändert, und die Erfolgsmeldung nennt die Zahl.
 * **Kein `SELECT *` auf `contacts` in einem öffentlichen Pfad.** Was gar nicht
   erst ankommt, kann der nächste nicht versehentlich ausgeben — das ist die
   Lehre aus #293, und sie darf beim Zusammenlegen nicht verlorengehen.
@@ -59,6 +66,12 @@ Adressen stehen in Suchmaschinen. Findet sich keine Abbildung, wird 404
 geliefert — nicht auf den Katalog umgeleitet, sonst sieht eine tote Kennung
 aus wie ein Treffer.
 
+Beim Zusammenführen zweier Kontakte zieht `contact_id_map` mit auf den
+behaltenen Kontakt um (Audit M33). Die alten Adressen des aufgegebenen
+Datensatzes leiten danach auf den behaltenen weiter, auch nachdem der
+Papierkorb geleert wurde. Wird der aufgegebene Datensatz wiederhergestellt,
+bleiben die Kennungen beim behaltenen.
+
 Die alten Admin-Routen (`/admin/persons`, `/admin/breeding-stations`) leiten
 ebenfalls dauerhaft um.
 
@@ -66,6 +79,12 @@ ebenfalls dauerhaft um.
 
 Neu: `contact.detail_sections`, `contact.edit_sections`, `contact.after_save`,
 `contact.deleted`.
+
+Seit Audit M33 kommt `contact.merged` dazu: Er feuert nach dem Commit des
+Zusammenführens mit `(int $sourceId, int $targetId, array $source, array
+$target)`, danach `contact.deleted` für den aufgegebenen Datensatz. Addons
+übertragen dort eigene Daten auf den behaltenen Kontakt; Einzelheiten in
+`docs/plugin-development.md`.
 
 Die alten Namen `person.*` und `station.*` wurden in der 0.8-Linie
 **zusätzlich** ausgelöst, mit denselben Argumenten — ein Addon, das sie

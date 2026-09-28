@@ -10,6 +10,27 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Zusammenführen von Kontakten konnte private Kontaktdaten veröffentlichen**
+  (Audit M9). War der behaltene Kontakt für die Veröffentlichung seiner
+  Kontaktdaten freigegeben, der aufgegebene aber nicht, wanderten
+  Ansprechpartner, Anschrift, E-Mail und Telefonnummern des aufgegebenen
+  Datensatzes in die leeren Felder. Damit standen sie ohne Einwilligung auf
+  der öffentlichen Kontaktseite und auf den Pferdeseiten, auf denen der
+  Kontakt als Deckstation genannt ist. Die Vorschau hatte das Gegenteil
+  zugesichert.
+
+  In dieser Konstellation werden diese Felder jetzt nicht mehr ergänzt. Die
+  Freigabe des behaltenen Kontakts bleibt unverändert. Die Erfolgsmeldung
+  nennt, wie viele Angaben zurückgehalten wurden; sie bleiben bis zum Leeren
+  des Papierkorbs am aufgegebenen Datensatz. Die Vorschau zeigt, ob der
+  aufgegebene Datensatz freigegeben ist, und die Zielauswahl, welche Kontakte
+  ihre Kontaktdaten öffentlich zeigen. Das Audit-Log nennt nur die
+  Feldnamen, keine Werte. Die Liste der freigabepflichtigen Felder steht
+  jetzt an einer Stelle (`ContactController::RELEASE_GATED_FIELDS`); die
+  öffentliche Kontaktseite benutzt sie mit. Der Redirect nach dem
+  Zusammenführen trägt zusätzlich `merged_withheld` – das betrifft nur
+  Skripte oder Tests, die die Adresse exakt vergleichen.
+
 - **Passwort-Reset-Links ließen sich über den Host-Header umlenken** (Audit
   M6). Ohne gesetzte Stamm-URL, `APP_URL` oder `TRUSTED_HOSTS` bildete eine
   frisch eingerichtete Instanz die Links in Reset-, Verifizierungs- und
@@ -300,6 +321,26 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Zusammenführen ließ alte Adressen und Addon-Daten zurück** (Audit M33).
+  Die Zuordnung alter Personen- und Stationskennungen (`contact_id_map`)
+  blieb am aufgegebenen Kontakt hängen. `/person?id=` und `/station?id=`
+  lieferten deshalb sofort „nicht gefunden“, und beim Leeren des Papierkorbs
+  verschwand die Zuordnung ganz. Sie zieht jetzt in derselben Transaktion
+  auf den behaltenen Kontakt um; die Vorschau kündigt das an, und das
+  Audit-Log nennt die Zahl. Wird der aufgegebene Datensatz aus dem
+  Papierkorb geholt, bleiben die Kennungen beim behaltenen. Außerdem werden
+  Quelle und Ziel während des Zusammenführens gesperrt: Zwei gleichzeitige
+  Vorgänge in Gegenrichtung können nicht mehr beide Datensätze in den
+  Papierkorb legen, der zweite endet mit „ungültige Auswahl“.
+
+  **Hinweis für Betreiber:** Vor diesem Update zusammengeführte Kontakte
+  werden nicht nachträglich repariert. Liegt der aufgegebene Datensatz noch
+  im Papierkorb, lassen sich seine alten Kennungen vor dem Leeren von Hand
+  umhängen:
+  `UPDATE contact_id_map SET contact_id = <Ziel> WHERE contact_id = <Quelle>`.
+  Die beiden Kennungen stehen im Audit-Log unter „Kontakte
+  zusammengeführt“.
+
 - **Speichern oder Kopieren der Rechtematrix löschte still die Rechte nicht
   geladener Addons** (Audit N46). Betroffen waren deaktivierte, inkompatible
   und auf Freigabe wartende Addons, auch deren Aktionen an Kernmodulen. Die
@@ -540,6 +581,17 @@ Breaking Changes sind jederzeit möglich).
   Gast behandelt.
 
 ### Geändert
+
+- **Neuer Hook `contact.merged` für Addons** (Audit M33). Er feuert nach dem
+  erfolgreichen Zusammenführen, nach dem Commit, mit
+  `(int $sourceId, int $targetId, array $source, array $target)` – die
+  Quelle im Stand davor, das Ziel im Stand danach. Addons übertragen dort
+  eigene Daten auf den behaltenen Kontakt, etwa das Opt-out gegen
+  Kontaktanfragen, das bisher am aufgegebenen Datensatz verloren ging. Beim
+  Zusammenführen feuert jetzt außerdem `contact.deleted` für den
+  aufgegebenen Datensatz, direkt nach `contact.merged`. Wer auf
+  `contact.deleted` hört, wird also auch dann gerufen. Siehe
+  `docs/plugin-development.md`.
 
 - **Öffentlich sehen Angemeldete mindestens, was die Gast-Gruppe sieht**
   (Audit N61). Startseite, Katalog, Pferde- und Kontaktseiten und

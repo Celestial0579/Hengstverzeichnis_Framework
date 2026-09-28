@@ -401,7 +401,9 @@ class PublicController extends BaseController {
         // eine Geschäftsadresse war vollständig öffentlich, weil sie in einer
         // eigenen Tabelle ohne PII stand. Nach der Zusammenlegung gibt es diese
         // Trennung nicht mehr, und die strengere Regel gilt für alle Kontakte.
-        // bs.contact_info steht bewusst nirgends in dieser Liste.
+        // bs.contact_info steht bewusst nirgends in dieser Liste. Maßgeblich
+        // für die Aufteilung ist ContactController::RELEASE_GATED_FIELDS;
+        // jedes Feld dort, das diese Seite zeigt, braucht hier sein CASE.
         $db = Database::getInstance();
         $stmt = $db->prepare("
             SELECT h.*, bs.name as station_name,
@@ -630,6 +632,7 @@ class PublicController extends BaseController {
      *                     is_breeder, contact_public
      *   nur bei Freigabe  email, phone, mobile, street, house_number,
      *                     postal_code, address, contact_person
+     *                     (ContactController::RELEASE_GATED_FIELDS)
      *   nie öffentlich    contact_info
      *
      * Bewusst so herum statt "holen und in der View verstecken": Was gar
@@ -674,7 +677,12 @@ class PublicController extends BaseController {
             // einen Betrieb war sie dort immer sichtbar, und die Migration
             // übernimmt dessen Bestandswert für contact_public, damit die
             // Zusammenlegung nichts wegnimmt, was vorher da war.
-            $spalten .= ', email, phone, mobile, street, house_number, postal_code, address, contact_person';
+            //
+            // Die Liste der freigabepflichtigen Felder steht nur an EINER
+            // Stelle, ContactController::RELEASE_GATED_FIELDS - auch das
+            // Zusammenführen hält sich daran (Audit M9). Eine feste Aufzählung
+            // im Code, kein Eingabewert.
+            $spalten .= ', ' . implode(', ', ContactController::RELEASE_GATED_FIELDS);
         }
         $stmt = $db->prepare(
             "SELECT {$spalten}

@@ -18,7 +18,7 @@
  * @var int $page
  * @var int $totalPages
  * @var int $totalCount
- * @var array{0:int,1:int,2:int,3:int} $mergeReport Umgehängt, verworfen, ergänzt, Stationsverweise
+ * @var array{0:int,1:int,2:int,3:int,4:int} $mergeReport Umgehängt, verworfen, ergänzt, Stationsverweise, ohne Freigabe zurückgehalten
  * @var bool $intern Interne Einsicht (contacts.internal oder Bearbeitungsrecht, Audit M10)
  *
  * OHNE INTERNE EINSICHT (Audit M10) liefert der Controller nur
@@ -33,7 +33,7 @@ $publishBase = '/admin/contacts';
 $publishFormId = 'contactPublishForm';
 $filters = $filters ?? [];
 $hasActiveFilters = $hasActiveFilters ?? false;
-$mergeReport = $mergeReport ?? [0, 0, 0, 0];
+$mergeReport = $mergeReport ?? [0, 0, 0, 0, 0];
 $intern = $intern ?? false;
 $resetHref = '/admin/contacts' . ($publishedFilter !== null ? '?published=' . (int)$publishedFilter : '');
 $spalten = ($canPublish ? 9 : 8) - ($intern ? 0 : 1);
@@ -55,10 +55,10 @@ $spalten = ($canPublish ? 9 : 8) - ($intern ? 0 : 1);
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?php if (($_GET['success'] ?? '') === 'merged'): ?>
                 <?php
-                    // Die vier Zahlen kommen als geprüfte Ganzzahlen aus
+                    // Die fünf Zahlen kommen als geprüfte Ganzzahlen aus
                     // ContactController::index() (requestInt), nicht aus $_GET -
                     // eine View liest hier grundsätzlich keine Anfrage.
-                    [$mUmgehaengt, $mVerworfen, $mErgaenzt, $mStationen] = $mergeReport;
+                    [$mUmgehaengt, $mVerworfen, $mErgaenzt, $mStationen, $mZurueckgehalten] = $mergeReport;
                 ?>
                 Zusammengeführt:
                 <?= $mUmgehaengt ?> Zuordnung<?= $mUmgehaengt === 1 ? '' : 'en' ?> umgehängt,
@@ -67,7 +67,22 @@ $spalten = ($canPublish ? 9 : 8) - ($intern ? 0 : 1);
                 aufgegebenen Datensatz ergänzt<?php if ($mStationen > 0): ?>,
                 <?= $mStationen ?> Verweis<?= $mStationen === 1 ? '' : 'e' ?> auf den Kontakt
                 als Deckstation umgehängt<?php endif; ?>.
-                <?php if ($mErgaenzt >= 3): ?>
+                <?php if ($mZurueckgehalten > 0): ?>
+                    <?php
+                        // Audit M9: Das Ziel zeigt seine Kontaktdaten öffentlich,
+                        // die Quelle hatte dafür keine Freigabe. Die Angaben sind
+                        // nicht weg, sondern liegen noch am aufgegebenen Datensatz -
+                        // bis der Papierkorb geleert wird.
+                    ?>
+                    <br><strong><?= $mZurueckgehalten ?> Kontaktangabe<?= $mZurueckgehalten === 1 ? '' : 'n' ?>
+                    des aufgegebenen Datensatzes (Ansprechpartner, Anschrift, E-Mail, Telefon)
+                    <?= $mZurueckgehalten === 1 ? 'wurde' : 'wurden' ?> NICHT ergänzt:</strong>
+                    Der behaltene Kontakt zeigt seine Kontaktdaten öffentlich, der aufgegebene
+                    hatte dafür keine Freigabe. Die Angaben liegen mit dem aufgegebenen Datensatz
+                    im <a href="/admin/trash">Papierkorb</a>, bis dieser geleert wird. Wer sie
+                    übernehmen will, klärt vorher die Einwilligung und trägt sie von Hand ein.
+                <?php endif; ?>
+                <?php if ($mErgaenzt + $mZurueckgehalten >= 3): ?>
                     <br><strong>Zur Kontrolle:</strong> Der aufgegebene Datensatz war deutlich
                     reichhaltiger als der behaltene. Das ist meist ein Zeichen dafür, dass die
                     beiden vertauscht waren - der behaltene trägt dann den falschen Namen.

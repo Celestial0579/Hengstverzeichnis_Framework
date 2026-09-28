@@ -287,6 +287,7 @@ class ContactController extends BaseController {
                 self::requestInt('merged_dropped', 0, 0),
                 self::requestInt('merged_filled', 0, 0),
                 self::requestInt('merged_stations', 0, 0),
+                self::requestInt('merged_withheld', 0, 0),
             ],
             'canCreate' => $this->hasPermission('contacts', 'create'),
             'canEdit' => $this->hasPermission('contacts', 'edit'),
@@ -366,6 +367,29 @@ class ContactController extends BaseController {
         'contact_person', 'contact_info', 'street', 'house_number', 'postal_code',
         'city', 'state', 'country', 'address', 'email', 'phone', 'mobile',
         'website',
+    ];
+
+    /**
+     * Die zustellbaren Felder eines Kontakts: Öffentlich sind sie NUR bei
+     * `contact_public = 1` (docs/kontaktliste-umstellung.md, Abschnitt
+     * „Datenschutz-Grenze“). Immer öffentlich sind dagegen name, city, state,
+     * country und website; `contact_info` ist nie öffentlich.
+     *
+     * Die Liste steht NUR hier. PublicController::contactDetail() wählt damit
+     * seine Spalten, merge() hält damit Angaben zurück (Audit M9). Zwei
+     * Listen, die auseinanderlaufen, sind genau die Bauart des Fehlers, den
+     * diese Konstante schließt: Das Zusammenführen kannte die Grenze nicht
+     * und schrieb private Angaben in einen freigegebenen Datensatz.
+     * PublicController::horseDetail() nennt dieselben Felder als
+     * CASE-Ausdrücke (ohne mobile, das die Pferdeseite nicht zeigt) und
+     * verweist hierher.
+     *
+     * Öffentlich statt privat, weil der PublicController sie mitbenutzt; der
+     * Wert ist eine feste Aufzählung im Code, nie ein Eingabewert.
+     */
+    public const RELEASE_GATED_FIELDS = [
+        'contact_person', 'street', 'house_number', 'postal_code', 'address',
+        'email', 'phone', 'mobile',
     ];
 
     /**
@@ -652,12 +676,22 @@ class ContactController extends BaseController {
      * Dass hier alle Textfelder stehen, ist Absicht - `contact_person` und
      * `address` kamen mit den Stationen dazu und wuerden sonst beim Aufgeben
      * eines Stationsdatensatzes verschwinden.
+     *
+     * Eine Ausnahme regelt merge() (Audit M9): Ist das Ziel fuer die
+     * Veroeffentlichung seiner Kontaktdaten freigegeben, die Quelle aber
+     * nicht, bleiben die RELEASE_GATED_FIELDS der Quelle draussen. Sie
+     * stuenden sonst ohne Einwilligung im Netz.
      */
     private const MERGE_FILL_FIELDS = self::CONTACT_FIELDS;
 
     /**
      * Vorschau: zeigt Quelle, moegliche Ziele und die betroffenen Zuordnungen,
      * bevor irgendetwas passiert (#297).
+     *
+     * Dazu die Freigabe der Kontaktdaten von Quelle und Kandidaten (Audit M9):
+     * Ob Ansprechpartner, Anschrift, E-Mail und Telefon ergaenzt werden, haengt
+     * davon ab - und das soll vor dem Klick dastehen. Ebenso die Zahl der
+     * alten Kennungen aus contact_id_map, die mit umziehen (Audit M33).
      */
     public function mergeForm(): void {
         $this->requirePermission('contacts', 'edit');
@@ -719,7 +753,7 @@ class ContactController extends BaseController {
             array_push($werte, $like, $like, $like, $like);
         }
         $stmt = $db->prepare(
-            "SELECT id, name, contact_person, city, postal_code FROM contacts
+            "SELECT id, name, contact_person, city, postal_code, contact_public FROM contacts
              WHERE " . implode(' AND ', $bedingungen) . "
              ORDER BY name ASC LIMIT " . (self::MERGE_CANDIDATE_LIMIT + 1)
         );
@@ -730,9 +764,17 @@ class ContactController extends BaseController {
             array_pop($candidates);
         }
 
+        // Alte Kennungen (/person?id=, /station?id=), die auf diesen Datensatz
+        // zeigen. Sie ziehen beim Zusammenfuehren mit um (Audit M33); die
+        // Vorschau sagt es, damit niemand die Weiterleitung fuer verloren haelt.
+        $stmt = $db->prepare("SELECT COUNT(*) FROM contact_id_map WHERE contact_id = ?");
+        $stmt->execute([$id]);
+        $legacyIds = (int)$stmt->fetchColumn();
+
         $this->render('admin_contact_merge', [
             'title' => 'Kontakte zusammenführen',
             'source' => $source,
+            'legacyIds' => $legacyIds,
             'assignments' => $assignments,
             'stationUses' => $stationUses,
             'candidates' => $candidates,
@@ -760,6 +802,23 @@ class ContactController extends BaseController {
      * Der wandert mit - sonst zeigten Pferde nach dem Zusammenfuehren auf einen
      * Datensatz im Papierkorb, und beim Leeren waere die Stationsangabe weg
      * (horses.breeding_station_id) bzw. auf NULL gesetzt (station_contact_id).
+     *
+     * Audit M9: Beim Auffuellen (Schritt 5) bleiben die zustellbaren Felder
+     * (RELEASE_GATED_FIELDS) der Quelle draussen, wenn das Ziel seine
+     * Kontaktdaten oeffentlich zeigt und die Quelle keine Freigabe hatte.
+     * Wie viele es waren, nennen Redirect (merged_withheld) und Audit-Log,
+     * dieses nur mit Feldnamen.
+     *
+     * Audit M33: Schritt 6 haengt die alten Kennungen (contact_id_map) auf das
+     * Ziel um. Nach dem Commit feuern `contact.merged` und danach
+     * `contact.deleted` fuer die Quelle, damit Addons ihre eigenen Daten
+     * nachziehen koennen.
+     *
+     * Quelle und Ziel werden INNERHALB der Transaktion unter Sperre gelesen
+     * (SELECT ... FOR UPDATE): Die geprüfte Freigabe gilt so auch noch beim
+     * Schreiben, und von zwei gleichzeitigen Vorgaengen in Gegenrichtung
+     * findet der zweite seine Quelle oder sein Ziel bereits im Papierkorb und
+     * endet mit merge_invalid, statt beide Datensaetze wegzulegen.
      */
     public function merge(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -779,19 +838,34 @@ class ContactController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL");
-        $stmt->execute([$sourceId]);
-        $source = $stmt->fetch();
-        $stmt->execute([$targetId]);
-        $target = $stmt->fetch();
-
-        if (!$source || !$target) {
-            header("Location: /admin/contacts?error=merge_invalid");
-            exit;
-        }
 
         $db->beginTransaction();
         try {
+            // 0. Quelle und Ziel unter Sperre laden (Audit M9/M33). Innerhalb
+            //    des try-Blocks, damit ein Deadlock oder Lock-Timeout ueber den
+            //    catch unten in merge_failed endet statt in einem 500.
+            //    ORDER BY id legt die Sperrreihenfolge fest: Zwei Vorgaenge
+            //    ueber dasselbe Paar sperren in derselben Reihenfolge und
+            //    warten aufeinander, statt sich zu verklemmen.
+            $stmt = $db->prepare(
+                "SELECT * FROM contacts WHERE id IN (?, ?) AND deleted_at IS NULL ORDER BY id FOR UPDATE"
+            );
+            $stmt->execute([$sourceId, $targetId]);
+            $source = null;
+            $target = null;
+            foreach ($stmt->fetchAll() as $zeile) {
+                if ((int)$zeile['id'] === $sourceId) {
+                    $source = $zeile;
+                } elseif ((int)$zeile['id'] === $targetId) {
+                    $target = $zeile;
+                }
+            }
+            if ($source === null || $target === null) {
+                $db->rollBack();
+                header("Location: /admin/contacts?error=merge_invalid");
+                exit;
+            }
+
             // 1. Zuordnungen umhaengen - aber keine exakten Doppel erzeugen.
             //    Gleiches Pferd, gleiche Rolle, gleicher Zeitraum UND gleiche
             //    Fachangaben sind dieselbe Aussage; alles andere ist echte
@@ -861,11 +935,34 @@ class ContactController extends BaseController {
             $stationen += $stmt->rowCount();
 
             // 5. Leere Felder des Ziels aus der Quelle auffuellen, nie ueberschreiben.
+            //
+            //    Ausnahme (Audit M9), das Gegenstueck zur contact_public-Regel
+            //    weiter unten: Zeigt das Ziel seine Kontaktdaten oeffentlich
+            //    und hatte die Quelle dafuer keine Freigabe, bleiben die
+            //    zustellbaren Felder der Quelle draussen. Die Freigabe gilt
+            //    dem Datensatz, dem sie erteilt wurde - in einem
+            //    freigegebenen Ziel stuenden Telefon und Anschrift der Quelle
+            //    sonst ohne Einwilligung auf /kontakt und auf jeder
+            //    Pferdeseite, die das Ziel als Deckstation nennt.
+            //
+            //    Massgeblich ist bewusst contact_public, nicht is_published:
+            //    Ein freigegebenes, noch unveroeffentlichtes Ziel gaebe die
+            //    Daten sonst beim spaeteren Veroeffentlichen preis. Die
+            //    Freigabe des Ziels wird auch NICHT zurueckgenommen - das waere
+            //    eine stille Depublikation. city, state, country, website und
+            //    contact_info werden weiter aufgefuellt: Die ersten vier sind
+            //    immer oeffentlich, contact_info nie.
+            $freigabeSperre = !empty($target['contact_public']) && empty($source['contact_public']);
             $fill = [];
+            $zurueckgehalten = [];
             foreach (self::MERGE_FILL_FIELDS as $feld) {
                 $zielWert = trim((string)($target[$feld] ?? ''));
                 $quellWert = trim((string)($source[$feld] ?? ''));
                 if ($zielWert === '' && $quellWert !== '') {
+                    if ($freigabeSperre && in_array($feld, self::RELEASE_GATED_FIELDS, true)) {
+                        $zurueckgehalten[] = $feld;
+                        continue;
+                    }
                     $fill[$feld] = $quellWert;
                 }
             }
@@ -885,16 +982,35 @@ class ContactController extends BaseController {
                 $stmt->execute([...array_values($fill), $targetId]);
             }
 
-            // 6. Erst JETZT die Quelle in den Papierkorb.
+            // 6. Die alten Kennungen (/person?id=, /station?id=) ziehen mit um
+            //    (#336, Audit M33). contact_id_map bleibt laut schema.sql
+            //    dauerhaft - fuer nachziehende Addons, die alte Verweise
+            //    umrechnen, und fuer den 301 der alten Adressen. Bliebe sie an
+            //    der Quelle, lieferte redirectLegacyContact() sofort 404 (es
+            //    joint auf deleted_at IS NULL), und beim Leeren des
+            //    Papierkorbs naehme der FK-CASCADE die Zeilen mit.
+            //    Kollisionen gibt es nicht, der Primaerschluessel ist
+            //    (old_type, old_id); Ketten A -> B -> C laufen mit. Wird die
+            //    Quelle aus dem Papierkorb zurueckgeholt, bleiben die
+            //    Kennungen beim Ziel - wie die umgehaengten Zuordnungen auch.
+            $stmt = $db->prepare("UPDATE contact_id_map SET contact_id = ? WHERE contact_id = ?");
+            $stmt->execute([$targetId, $sourceId]);
+            $kennungen = $stmt->rowCount();
+
+            // 7. Erst JETZT die Quelle in den Papierkorb.
             $db->prepare("UPDATE contacts SET deleted_at = NOW() WHERE id = ?")->execute([$sourceId]);
 
             $db->commit();
         } catch (\Throwable $e) {
-            $db->rollBack();
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
             header("Location: /admin/contacts?error=merge_failed");
             exit;
         }
 
+        // Nur Feldnamen und Zahlen, niemals Werte: Das Audit-Log ist fuer
+        // mehr Leute lesbar als die zurueckgehaltenen Angaben selbst.
         \App\Service\AuditLogger::log(
             "Kontakte zusammengeführt",
             "contacts",
@@ -902,7 +1018,28 @@ class ContactController extends BaseController {
             . "{$umgehaengt} Zuordnung(en) umgehängt, {$verworfen} doppelte verworfen, "
             . "{$stationen} Deckstations-Verweis(e) umgehängt, "
             . count($fill) . " Feld(er) ergänzt"
+            . ($zurueckgehalten !== []
+                ? ", " . count($zurueckgehalten) . " Feld(er) ohne Freigabe nicht ergänzt ("
+                    . implode(', ', $zurueckgehalten) . ")"
+                : "")
+            . ", {$kennungen} alte Kennung(en) umgehängt"
         );
+
+        // Addons nachziehen lassen (Audit M33): contact.merged mit der Quelle
+        // VOR dem Zusammenfuehren (unter Sperre gelesen, wie bei delete()) und
+        // dem Ziel DANACH, anschliessend contact.deleted fuer die Quelle -
+        // ein Addon ohne merged-Handler verhaelt sich damit wie beim
+        // manuellen Loeschen, der sichere Rueckfall.
+        //
+        // Bewusst NACH dem Commit: Addons sehen den festgeschriebenen Stand,
+        // und DDL oder ein impliziter Commit im Addon koennen keine offene
+        // Transaktion zerstoeren. HookManager::doAction() faengt Throwables je
+        // Callback ab - ein Addon-Fehler rollt den Merge also nicht zurueck.
+        $stmt = $db->prepare("SELECT * FROM contacts WHERE id = ?");
+        $stmt->execute([$targetId]);
+        $zielNachher = $stmt->fetch() ?: $target;
+        $this->hooks()->doAction('contact.merged', $sourceId, $targetId, $source, $zielNachher);
+        $this->hooks()->doAction('contact.deleted', $sourceId, $source);
 
         // Die Zahlen wandern mit in die Liste, nicht nur ins Audit-Log. Der
         // Fall, gegen den das hilft: Wer die Paarrichtung verdreht, verliert
@@ -916,7 +1053,8 @@ class ContactController extends BaseController {
             . "&merged_moved=" . $umgehaengt
             . "&merged_dropped=" . $verworfen
             . "&merged_filled=" . count($fill)
-            . "&merged_stations=" . $stationen);
+            . "&merged_stations=" . $stationen
+            . "&merged_withheld=" . count($zurueckgehalten));
         exit;
     }
 

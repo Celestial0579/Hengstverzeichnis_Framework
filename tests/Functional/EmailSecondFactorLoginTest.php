@@ -712,4 +712,146 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
             'Die Ablehnung muss serverseitig greifen, nicht nur in der Oberflaeche.'
         );
     }
+
+    // ---- Audit M32: befördertes Mailcode-Konto läuft nicht mehr im Kreis ----
+
+    /** Nimmt das Konto per DB in die Gruppe `admin` auf. */
+    private function zumAdminBefoerdern(string $username): void {
+        $db = \App\Database::getInstance();
+        $gruppe = (int)$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
+        $this->assertGreaterThan(0, $gruppe);
+        $db->prepare("INSERT IGNORE INTO user_groups (user_id, group_id) VALUES (?, ?)")
+            ->execute([$this->userIdVon($username), $gruppe]);
+    }
+
+    /** Passwort in einem neuen Client; endet vor der Mailcode-Seite. */
+    private function nurPasswort(string $username, string $passwort, ?\Tests\Support\HttpClient $client = null): \Tests\Support\HttpClient {
+        $client ??= $this->newClient();
+        $login = $client->post('/login', [
+            'csrf_token' => $client->get('/login')->formField('csrf_token') ?? '',
+            'kennung' => $username,
+            'password' => $passwort,
+        ]);
+        $this->assertStringStartsWith('/login/2fa/email', (string)$login->location(), "Body: {$login->body}");
+        return $client;
+    }
+
+    /** Ein Code, der zum Secret gerade NICHT passt. */
+    private static function falscherCode(string $secret): string {
+        $gueltig = [];
+        $jetzt = (int)floor(time() / 30);
+        for ($i = -2; $i <= 2; $i++) {
+            $gueltig[] = \App\Security\Totp::getCode($secret, $jetzt + $i);
+        }
+        for ($kandidat = 100000; ; $kandidat++) {
+            if (!in_array((string)$kandidat, $gueltig, true)) {
+                return (string)$kandidat;
+            }
+        }
+    }
+
+    /**
+     * Die Einrichtung nach bestandenem zweitem Faktor bis zum Ende - erst ein
+     * falscher Code (der Hinweis muss stehen bleiben), dann der richtige.
+     */
+    private function totpEinrichtungDurchlaufen(\Tests\Support\HttpClient $client): void {
+        $setup = $client->get('/2fa/setup');
+        $this->assertSame(200, $setup->statusCode, 'Vorher: Umleitung zurück auf die Faktorseite. Location: ' . $setup->location());
+        $this->assertStringContainsString('Administratorrechte', $setup->body);
+        $secret = self::extractTotpSecret($setup);
+        $this->assertNotNull($secret);
+
+        $falsch = $client->post('/2fa/enable', [
+            'csrf_token' => $setup->formField('csrf_token') ?? '',
+            'confirm_backup' => '1',
+            'totp_code' => self::falscherCode($secret),
+        ]);
+        $this->assertSame(200, $falsch->statusCode);
+        $this->assertStringContainsString('Ungültiger 6-stelliger Code', $falsch->body);
+        $this->assertStringContainsString('Administratorrechte', $falsch->body, 'Der Grund muss auch nach einem falschen Code stehen bleiben.');
+
+        $fertig = $client->post('/2fa/enable', [
+            'csrf_token' => $setup->formField('csrf_token') ?? '',
+            'confirm_backup' => '1',
+            'totp_code' => \App\Security\Totp::getCode($secret),
+        ]);
+        $this->assertSame('/admin?2fa=enabled', $fertig->location(), "Body: {$fertig->body}");
+        $this->assertSame(200, $client->get('/admin')->statusCode);
+    }
+
+    public function testZumAdminBefoerdertesMailcodeKontoRichtetTotpEin(): void {
+        [$client, $username, , $passwort] = $this->angemeldetesKonto(uniqid());
+        $this->mailcodeEinschalten($client, $username, $passwort);
+        $this->zumAdminBefoerdern($username);
+
+        $neu = $this->nurPasswort($username, $passwort);
+        $this->codeUnterschieben($username, EmailSecondFactor::PURPOSE_LOGIN);
+        $code = $neu->post('/login/2fa/email', [
+            'csrf_token' => $neu->get('/login/2fa/email')->formField('csrf_token') ?? '',
+            'code' => self::TESTCODE,
+        ]);
+        $this->assertSame('/2fa/setup?grund=starker_faktor', $code->location(), "Body: {$code->body}");
+
+        $this->totpEinrichtungDurchlaufen($neu);
+    }
+
+    public function testBackupCodeWegFuehrtEbenfallsZurEinrichtung(): void {
+        [$client, $username, , $passwort] = $this->angemeldetesKonto(uniqid());
+        $this->mailcodeEinschalten($client, $username, $passwort);
+        $this->zumAdminBefoerdern($username);
+
+        $backup = 'ABCDEF0123456789';
+        \App\Database::getInstance()->prepare("UPDATE users SET backup_codes = ? WHERE username = ?")
+            ->execute([json_encode([password_hash($backup, PASSWORD_DEFAULT)]), $username]);
+
+        $neu = $this->nurPasswort($username, $passwort);
+        $antwort = $neu->post('/2fa/backup', [
+            'csrf_token' => $neu->get('/2fa/backup')->formField('csrf_token') ?? '',
+            'backup_code' => 'ABCDEF01-23456789',
+        ]);
+        $this->assertSame('/2fa/setup?grund=starker_faktor', $antwort->location(), "Body: {$antwort->body}");
+
+        $this->totpEinrichtungDurchlaufen($neu);
+    }
+
+    /**
+     * Die Marke gilt nur für das Konto, das den Faktor bestanden hat - und
+     * eine Pending-Sitzung OHNE bestandenen Faktor kommt weiterhin nicht an
+     * die Einrichtung (Gegenprobe).
+     */
+    public function testMarkeGiltNichtFuerEinAnderesKonto(): void {
+        [$clientA, $a, , $passwortA] = $this->angemeldetesKonto(uniqid());
+        $this->mailcodeEinschalten($clientA, $a, $passwortA);
+        $this->zumAdminBefoerdern($a);
+        [$clientB, $b, , $passwortB] = $this->angemeldetesKonto(uniqid());
+        $this->mailcodeEinschalten($clientB, $b, $passwortB);
+
+        $client = $this->nurPasswort($a, $passwortA);
+        $this->codeUnterschieben($a, EmailSecondFactor::PURPOSE_LOGIN);
+        $code = $client->post('/login/2fa/email', [
+            'csrf_token' => $client->get('/login/2fa/email')->formField('csrf_token') ?? '',
+            'code' => self::TESTCODE,
+        ]);
+        $this->assertSame('/2fa/setup?grund=starker_faktor', $code->location());
+        $setupA = $client->get('/2fa/setup');
+        $this->assertSame(200, $setupA->statusCode);
+
+        // Im selben Client jetzt B - nur mit Passwort.
+        $this->nurPasswort($b, $passwortB, $client);
+
+        $setupB = $client->get('/2fa/setup');
+        $this->assertSame('/login/2fa/email', $setupB->location(), 'B hat keinen zweiten Faktor bestanden.');
+        $this->assertNull(self::extractTotpSecret($setupB));
+
+        $enable = $client->post('/2fa/enable', [
+            'csrf_token' => $setupA->formField('csrf_token') ?? '',
+            'confirm_backup' => '1',
+            'totp_code' => '123456',
+        ]);
+        $this->assertSame('/login/2fa/email', $enable->location());
+
+        $stmt = \App\Database::getInstance()->prepare("SELECT totp_enabled FROM users WHERE username = ?");
+        $stmt->execute([$b]);
+        $this->assertSame(0, (int)$stmt->fetchColumn());
+    }
 }

@@ -394,16 +394,20 @@ class Mailer {
     public function sendEmailVerification(string $userEmail, string $verificationToken): bool {
         $siteName = $this->siteName();
         $verifyUrl = $this->getBaseUrl() . "verify-email?token={$verificationToken}";
+        // Fristen aus EmailVerification, damit Mail und Verhalten nicht
+        // auseinanderlaufen (Audit N54).
+        $stunden = EmailVerification::TTL_HOURS;
+        $tage = EmailVerification::MAX_UNVERIFIED_DAYS;
 
         $subject = "E-Mail-Adresse bestätigen - {$siteName}";
         $html = "
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
                 <h2 style='color: #2a52be;'>E-Mail-Adresse bestätigen</h2>
                 <p>Sie haben sich bei <strong>{$siteName}</strong> registriert.</p>
-                <p>Klicken Sie auf den folgenden Link, um Ihre E-Mail-Adresse zu bestätigen und Ihr Konto zu aktivieren. Der Link ist <strong>48 Stunden</strong> lang gültig:</p>
+                <p>Klicken Sie auf den folgenden Link, um Ihre E-Mail-Adresse zu bestätigen und Ihr Konto zu aktivieren. Der Link ist <strong>{$stunden} Stunden</strong> lang gültig. Ist er abgelaufen, erhalten Sie bei der Anmeldung mit Ihrem Passwort automatisch einen neuen.</p>
                 <p style='margin: 25px 0;'><a href='{$verifyUrl}' style='background: #2a52be; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;'>E-Mail-Adresse bestätigen</a></p>
                 <p style='font-size: 0.85rem; color: #666;'>Falls der Button nicht funktioniert, kopieren Sie diesen Link in Ihren Browser:<br><a href='{$verifyUrl}'>{$verifyUrl}</a></p>
-                <p style='color: #888; font-size: 0.85rem; margin-top: 20px;'>Falls Sie sich nicht registriert haben, können Sie diese E-Mail ignorieren - das Konto bleibt ohne Bestätigung dauerhaft inaktiv.</p>
+                <p style='color: #888; font-size: 0.85rem; margin-top: 20px;'>Falls Sie sich nicht registriert haben, können Sie diese E-Mail ignorieren - ohne Bestätigung wird das Konto nach spätestens {$tage} Tagen automatisch gelöscht.</p>
             </div>
         ";
 

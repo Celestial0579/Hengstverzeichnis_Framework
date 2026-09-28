@@ -52,8 +52,12 @@ class PasskeyController extends BaseController {
         $userId = (int)$_SESSION['user_id'];
         $benutzername = (string)($_SESSION['username'] ?? 'Konto');
 
+        $json = $this->zeremonieOptionen(
+            static fn(): string => Passkeys::registrierungsOptionen($userId, $benutzername, $benutzername)
+        );
+
         header('Content-Type: application/json; charset=utf-8');
-        echo Passkeys::registrierungsOptionen($userId, $benutzername, $benutzername);
+        echo $json;
         exit;
     }
 
@@ -162,9 +166,33 @@ class PasskeyController extends BaseController {
             $this->jsonFehler('Bitte melden Sie sich zuerst mit Ihrem Passwort an.', 403);
         }
 
+        $json = $this->zeremonieOptionen(static fn(): string => Passkeys::anmeldeOptionen((int)$userId));
+
         header('Content-Type: application/json; charset=utf-8');
-        echo Passkeys::anmeldeOptionen((int)$userId);
+        echo $json;
         exit;
+    }
+
+    /**
+     * Optionen einer Zeremonie erzeugen - oder verständlich scheitern.
+     *
+     * Ohne diesen Rahmen endete jeder Fehler beim Erzeugen (etwa keine
+     * bestimmbare RP-ID, Audit M36) in einem HTTP 500 ohne Text, und
+     * public/js/passkeys.js konnte nichts anzeigen. Den Grund bekommt die
+     * Verwaltung im Audit-Log, der Benutzer eine Meldung.
+     *
+     * @param callable(): string $erzeugen
+     */
+    private function zeremonieOptionen(callable $erzeugen): string {
+        try {
+            return $erzeugen();
+        } catch (\Throwable $e) {
+            AuditLogger::log('Passkey-Zeremonie nicht startbar', 'security', $e->getMessage());
+            $this->jsonFehler(
+                'Passkeys sind auf dieser Installation derzeit nicht nutzbar. Bitte wenden Sie sich an die Verwaltung.',
+                503
+            );
+        }
     }
 
     /**

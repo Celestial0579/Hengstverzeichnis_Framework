@@ -82,6 +82,63 @@ class Totp {
     }
 
     /**
+     * Hat der gespeicherte Wert das Format eines UNVERSCHLÜSSELTEN Secrets?
+     *
+     * Genau das Format von generateSecret(): Base32-Großbuchstaben, 16 bis 64
+     * Zeichen. Ein Chiffretext aus Crypto::encrypt() ist Base64 und mindestens
+     * 60 Zeichen lang - dass er zufällig nur aus diesen 32 Zeichen besteht,
+     * hat eine Wahrscheinlichkeit von etwa 2^-60 (Audit N8).
+     */
+    public static function istKlartextSecret(string $wert): bool {
+        return preg_match('/^[A-Z2-7]{16,64}$/', $wert) === 1;
+    }
+
+    /**
+     * Das nutzbare Secret zu einem gespeicherten users.totp_secret - oder
+     * null, wenn es keins gibt.
+     *
+     * FAIL-CLOSED (Audit N8). Bis hierher galt: Lässt sich der Wert nicht
+     * entschlüsseln, wird der Rohwert selbst zum Secret. Nach einem Wechsel
+     * des APP_KEY war das der Base64-Chiffretext - und den kennt jeder, der
+     * einen Datenbank-Dump hat. Der Rückfall auf den Rohwert gilt deshalb nur
+     * noch für echten Base32-Klartext (Altbestand aus der Zeit vor der
+     * Verschlüsselung, Restore alter Dumps); wer den in der Datenbank sieht,
+     * kennt das Secret ohnehin. Der Migrationsschritt
+     * totp_klartext_verschluesseln verschlüsselt solche Zeilen, der Rückfall
+     * soll im nächsten Minor-Release entfallen.
+     *
+     * Ein fehlender APP_KEY wirft wie bisher (Crypto::getKey()).
+     */
+    public static function entschluesseleSecret(string $gespeichert): ?string {
+        $klartext = Crypto::decrypt($gespeichert);
+        if ($klartext !== null) {
+            return $klartext;
+        }
+        return self::istKlartextSecret($gespeichert) ? $gespeichert : null;
+    }
+
+    /**
+     * Wie entschluesseleSecret(), vermerkt ein nicht lesbares Secret aber im
+     * Audit-Log. Die EINE Lesestelle für users.totp_secret im Anmeldeweg,
+     * beim Step-up und im Profil - drei Kopien des Rückfalls waren genau die
+     * Drift, aus der Audit N8 entstand.
+     */
+    public static function secretAusSpeicher(string $gespeichert, int $userId): ?string {
+        $secret = self::entschluesseleSecret($gespeichert);
+        if ($secret === null) {
+            \App\Service\AuditLogger::log(
+                'TOTP-Secret nicht lesbar',
+                'security',
+                "Benutzer-ID {$userId}: Das gespeicherte Secret lässt sich mit dem aktuellen APP_KEY nicht "
+                . 'entschlüsseln (APP_KEY gewechselt oder verloren?). Anmeldung nur per Backup-Code; bitte die '
+                . '2FA des Kontos zurücksetzen.',
+                $userId
+            );
+        }
+        return $secret;
+    }
+
+    /**
      * Generates otpauth:// URL for QR code scanners
      */
     public static function getOtpAuthUrl(string $label, string $issuer, string $secret): string {

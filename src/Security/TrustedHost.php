@@ -58,6 +58,27 @@ class TrustedHost {
     }
 
     /**
+     * Wie resolve(), aber nur der Hostname: ohne Port, ohne die eckigen
+     * Klammern eines IPv6-Literals, in Kleinbuchstaben - '' wie dort, wenn
+     * kein geprüfter Host vorliegt.
+     *
+     * Für Stellen, die eine Domain brauchen und keine Adresse, etwa die
+     * RP-ID der Passkeys (Audit M36). Ein `explode(':', …)` an der
+     * Aufrufstelle zerlegte IPv6-Literale falsch.
+     */
+    public static function resolveHostname(): string {
+        $host = self::resolve();
+        if ($host === '') {
+            return '';
+        }
+        $host = self::stripPort($host);
+        if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
+            $host = substr($host, 1, -1);
+        }
+        return strtolower($host);
+    }
+
+    /**
      * Hostname (RFC-952/1123-Zeichensatz), IPv4-Literal oder IPv6-Literal in
      * eckigen Klammern - jeweils mit optionalem :Port.
      */

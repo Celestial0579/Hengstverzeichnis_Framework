@@ -89,6 +89,21 @@ Breaking Changes sind jederzeit möglich).
   überholten „dev-only“-Hinweise in `.github/dependabot.yml`, `tests.yml` und
   `docs/development.md` sind korrigiert.
 
+- **TOTP-Secret fail-closed** (Audit N8). Ließ sich ein gespeichertes
+  TOTP-Secret nicht entschlüsseln, etwa nach einem Wechsel des `APP_KEY`,
+  wurde bisher still der Chiffretext als Secret verwendet. Wer einen
+  Datenbank-Dump besaß, konnte daraus gültige Codes berechnen. Jetzt wird die
+  Prüfung abgelehnt (Anmeldung, Step-up, Neuerzeugung der Backup-Codes) und
+  im Audit-Log als „TOTP-Secret nicht lesbar“ vermerkt; das Update-Protokoll
+  nennt die Zahl betroffener Konten. Betroffene melden sich per Backup-Code
+  an, die Verwaltung setzt ihre 2FA zurück. Unverschlüsselte Altbestände im
+  Base32-Format gelten bis zum nächsten Minor-Release weiter und werden beim
+  Update verschlüsselt.
+- **Fremdregistrierungen blockieren Adressen nicht mehr dauerhaft** (Audit
+  N54). Wer ein Konto auf eine fremde E-Mail-Adresse registriert, kann sie
+  nur noch bis zur automatischen Bereinigung belegen. Ein Passwort-Reset
+  durch den Inhaber des Postfachs übernimmt das Konto.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -202,6 +217,37 @@ Breaking Changes sind jederzeit möglich).
     mitgliedsstatus) werden vorab erkannt, statt die Datenbank in einem nicht
     fortsetzbaren Zwischenzustand zu hinterlassen.
 
+- **Passkey als einziger zweiter Faktor führte in eine Sackgasse** (Audit
+  N42). Nach dem Passwort landeten solche Konten auf der Mailcode-Seite und
+  bekamen einen Code für einen gar nicht aktivierten Faktor, der dann
+  abgelehnt wurde. Die Anmeldung nutzt jetzt die zentrale Faktorweiche:
+  Passkey vor Authentikator-App vor Mailcode. Einen Mailcode gibt es nur noch,
+  wenn er der gewählte Faktor des Kontos ist.
+- **Passkeys stürzten ohne gesetzte Basis-URL ab (HTTP 500)** (Audit M36).
+  Registrierung und Anmeldung riefen eine nicht vorhandene Methode auf, und
+  dahinter bekam der WebAuthn-Serializer die Signaturalgorithmen statt der
+  Attestation-Formate – keine Zeremonie ließ sich überhaupt starten. Ohne
+  `base_url`/`APP_URL` gilt jetzt der geprüfte Host der Anfrage. Ist keiner
+  bestimmbar, kommt eine verständliche Meldung (HTTP 503), und das Audit-Log
+  nennt den Grund. **Hinweis:** Wird `base_url` später auf einen anderen
+  Hostnamen gesetzt, sind so registrierte Passkeys nicht mehr nutzbar.
+- **Endlosschleife beim Login von Administratoren ohne Authentikator-App**
+  (Audit M32). Betroffen waren Konten mit Mailcode oder Passkey, die
+  Administrator wurden, und Admins, die ihre eigene 2FA zurücksetzten und
+  einen Passkey behielten. Die Anmeldung sprang dauerhaft zwischen Faktorseite
+  und `/2fa/setup` hin und her. Nach bestandenem zweitem Faktor führt sie
+  jetzt wie vorgesehen durch die Einrichtung der App; der Hinweis auf der
+  Seite bleibt auch nach einem falschen Code stehen.
+- **„Abbrechen“ auf der Passkey-Seite zeigte „Seite nicht gefunden“** (Audit
+  N86). Der Knopf meldet jetzt per POST mit CSRF-Token ab und führt zurück zur
+  Anmeldung.
+- **Abgelaufener Bestätigungslink der Selbstregistrierung war eine
+  Sackgasse** (Audit N54). Wer sich mit korrektem Passwort anmeldet, bekommt
+  automatisch einen aktuellen Link, höchstens dreimal am Tag. Ein
+  Passwort-Reset per Mail-Link bestätigt die Adresse ebenfalls. Der Rat
+  „registrieren Sie sich erneut“ entfällt aus den Meldungen – er scheiterte
+  an der belegten Adresse.
+
 ### Geändert
 
 - **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
@@ -219,6 +265,35 @@ Breaking Changes sind jederzeit möglich).
   `SchemaMigrator::run()` haben je einen optionalen Parameter und bleiben
   rückwärtskompatibel. Ausnahmen aus Datenschritten tragen jetzt das Präfix
   „Datenschritt <key>: “.
+
+- **Konten mit Passkey werden bei der Anmeldung zuerst zum Passkey
+  geleitet**, auch wenn zusätzlich Authentikator-App oder Mailcode aktiv sind
+  (Audit N42). Die anderen Verfahren bleiben auf der Seite als Ausweichweg
+  erreichbar; den Mailcode gibt es dort auf Knopfdruck. Über eine ungesicherte
+  Verbindung, auf der Passkeys nicht funktionieren, geht es direkt zum
+  nächsten Verfahren.
+- **„Abbrechen“ im laufenden Anmeldevorgang** führt auf `/login` statt auf
+  die Startseite; das Audit-Log vermerkt „Anmeldevorgang abgebrochen“.
+- **Neue tägliche Cron-Aufgabe `users.purge_unverified`** (Audit N54):
+  Unbestätigte, selbstregistrierte Konten werden spätestens 9 Tage nach der
+  Registrierung endgültig gelöscht; Benutzername und E-Mail-Adresse sind
+  danach wieder frei. Admin-Gruppenmitglieder sind ausgenommen. Voraussetzung
+  ist ein eingerichteter Cron. War ein solches Konto im Addon
+  mitglieder-konten verknüpft, verschwindet die Verknüpfung mit (ON DELETE
+  CASCADE). Die Bestätigungsmail nennt die Frist.
+- **Schema-Version 24** (Audit N8): `users.totp_secret` wird auf älteren
+  Installationen auf die Breite aus `schema.sql` (`VARCHAR(255)`) erweitert,
+  und alte, unverschlüsselt gespeicherte TOTP-Secrets werden beim Update
+  verschlüsselt. Ohne `APP_KEY` bleibt dieser Schritt offen
+  (`migrate.php` endet dann mit Exit-Code 2).
+- Die Texte `auth.email_not_verified` und `register.verification_invalid`
+  (de/en) nennen den automatischen Neuversand. Neue Sprachschlüssel gibt es
+  nicht; die Sprach-Addons sollten die beiden Werte nachziehen.
+- Für Addon- und Werkzeugautoren: neu und additiv sind
+  `TrustedHost::resolveHostname()`, `Totp::istKlartextSecret()`,
+  `Totp::entschluesseleSecret()`, `Totp::secretAusSpeicher()` und
+  `App\Service\EmailVerification`. `AuthController::nachErstemFaktor()` ist
+  öffentlich, aber `@internal` (prüft kein Passwort).
 
 ## [0.9.0] – 2026-08-27
 

@@ -5,6 +5,7 @@
  * @var string $otpAuthUrl
  * @var array $backupCodes
  * @var string|null $error
+ * @var bool|null $grundStarkerFaktor Admin ohne TOTP nach bestandenem zweitem Faktor (Audit M32)
  */
 ?>
 <div class="card" style="max-width: 650px; margin: 2rem auto;">
@@ -17,13 +18,16 @@
     </p>
 
     <?php // Kommt jemand hierher, weil sein Konto Administrator geworden ist,
-          // waehrend sein einziger Faktor der Mailcode war (#354), gehoert der
-          // Grund auf die Seite - sonst sieht die Aufforderung willkuerlich aus. ?>
-    <?php if (($_GET['grund'] ?? '') === 'starker_faktor'): ?>
+          // waehrend sein einziger Faktor der Mailcode oder ein Passkey war
+          // (#354, Audit M32), gehoert der Grund auf die Seite - sonst sieht
+          // die Aufforderung willkuerlich aus. Der Controller liefert ihn
+          // zusaetzlich zum Parameter: Beim erneuten Anzeigen nach einem
+          // falschen Code (POST /2fa/enable) fehlt `grund` in der URL. ?>
+    <?php if (($_GET['grund'] ?? '') === 'starker_faktor' || !empty($grundStarkerFaktor)): ?>
         <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
-            Ihr Konto hat Administratorrechte. Dafür genügt der Einmalcode per E-Mail nicht &ndash;
-            wer Zugriff auf das Postfach hat, hätte damit auch den zweiten Faktor. Bitte richten Sie
-            zusätzlich eine Authentikator-App ein.
+            Ihr Konto hat Administratorrechte. Dafür ist eine Authentikator-App vorgeschrieben &ndash;
+            zusammen mit den Backup-Codes ist sie der Rückweg, wenn der bisherige Faktor ausfällt.
+            Nach der Einrichtung ist die Anmeldung abgeschlossen.
         </div>
     <?php endif; ?>
 

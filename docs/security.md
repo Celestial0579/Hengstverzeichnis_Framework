@@ -98,7 +98,24 @@ beschriftet und mit Schranken:
   Wird ein Konto *später* Administrator, verlangt die Anmeldung nach dem
   bestandenen zweiten Faktor zusätzlich die Einrichtung von TOTP
   (`AuthController::afterSecondFactor()`) — nicht davor, sonst führte der Weg
-  am Faktor vorbei.
+  am Faktor vorbei. Dasselbe gilt für einen Admin, dessen einziger Faktor ein
+  Passkey ist (etwa nach dem Zurücksetzen der eigenen 2FA): App und
+  Backup-Codes sind der Rückweg, wenn das Gerät verloren geht.
+  **Ablauf (Audit M32):** `afterSecondFactor()` setzt die Session-Marke
+  `zweiter_faktor_bestanden` (`user_id`, Zeitpunkt) und leitet auf
+  `/2fa/setup?grund=starker_faktor`. Die Marke öffnet `/2fa/setup` und
+  `/2fa/enable` ohne angemeldete Sitzung und ohne Step-up — aber nur für
+  genau dieses Konto, nur solange `pending_2fa_user_id` noch darauf zeigt und
+  höchstens 10 Minuten (`TWOFA_REAUTH_TTL`). Passwort plus vorhandener Faktor
+  in genau diesem Login ist derselbe Nachweis, den `/2fa/reauth` verlangt.
+  Bis dahin verlangte die Einrichtung eine angemeldete Sitzung, die es im
+  Anmeldeweg nie gibt — die Anmeldung sprang endlos zwischen Faktorseite und
+  `/2fa/setup`. Eine neue Anmeldung, der fertige Login
+  (`LoginSession::establish()`) und die erfolgreiche Einrichtung räumen die
+  Marke weg. Läuft sie auf der Einrichtungsseite ab, führt `/2fa/enable`
+  zurück zur Faktorseite; nach dem erneuten Faktor gibt es eine frische Marke
+  (auf der Mailcode-Seite dafür „Code erneut senden“ drücken — der GET
+  verschickt nichts).
 - **Gespeichert wird nur der Abdruck** (`password_hash`, nicht SHA-256 —
   gerade *weil* der Code nur sechs Stellen hat), mit Ablaufzeitpunkt und
   Versuchszähler. Nach `MAX_ATTEMPTS` ist der Code **verbraucht**, nicht nur
@@ -306,8 +323,21 @@ SHA-256 abgeleitet. **Rotation von `APP_KEY` macht bestehende verschlüsselte
 Werte unlesbar** – siehe README, Abschnitt „Priorität & Rotation“.
 
 TOTP-Secrets (`users.totp_secret`) werden ebenfalls über `Crypto::encrypt()`
-verschlüsselt abgelegt (mit Fallback auf unverschlüsseltes Lesen für
-Altbestände, falls vor Einführung der Verschlüsselung angelegt). Backup-Codes
+verschlüsselt abgelegt. **Gelesen wird fail-closed** (Audit N8,
+`Totp::secretAusSpeicher()`, die eine Lesestelle für Anmeldung, Step-up und
+Backup-Code-Neuerzeugung): Es gilt nur, was sich entschlüsseln lässt, oder
+ein gespeicherter Wert im Base32-Klartextformat von `generateSecret()`
+(`/^[A-Z2-7]{16,64}$/`, Altbestand von vor der Verschlüsselung). Bis dahin
+wurde bei jedem Entschlüsselungsfehler der Rohwert selbst zum Secret — nach
+einem Wechsel des `APP_KEY` also der Chiffretext, aus dem jeder mit einem
+Datenbank-Dump gültige Codes berechnen konnte. Jetzt wird die Prüfung
+abgelehnt, zählt als Fehlversuch und landet als „TOTP-Secret nicht lesbar“ im
+Audit-Log; Betroffene melden sich per Backup-Code an, die Verwaltung setzt
+ihre 2FA zurück. SCHEMA_VERSION 24 verschlüsselt vorhandenen Klartext
+(`migration_totp_klartext_verschluesseln`) und nennt im Update-Protokoll die
+Konten mit nicht lesbarem Secret. Der Klartext-Rückfall bleibt als
+Sicherheitsnetz (Restore alter Dumps) bis zum nächsten Minor-Release und
+entfällt dann. Backup-Codes
 (`users.backup_codes`) werden dagegen **gehasht** (`password_hash()`, wie
 Passwörter) und beim Verbrauch aus dem Array entfernt – sie sind also
 Single-Use und selbst bei DB-Zugriff nicht im Klartext einsehbar.
@@ -515,6 +545,26 @@ nur aktiv, wenn der Admin sie in den Systemeinstellungen einschaltet
   Einmal-Token (48 h gültig, `users.email_verification_token`); solange er
   gesetzt ist, blockiert der Login. Admin-angelegte Konten erhalten nie
   einen Token.
+- **Kein Sackgassen-Link, keine Dauerbelegung** (Audit N54,
+  `App\Service\EmailVerification`). Wer sich mit korrektem Passwort an einem
+  unbestätigten Konto anmeldet, bekommt automatisch einen aktuellen Link —
+  höchstens dreimal in 24 Stunden (RateLimiter-Typ `verify_resend`), und nur
+  nach der Passwortprüfung, also weder Orakel noch Mail-Bombing für Dritte.
+  Ein noch gültiger Link wird wiederverwendet. Ein Passwort-Reset per
+  Mail-Link bestätigt die Adresse ebenfalls: Er beweist die Kontrolle über das
+  Postfach genauso. Unbestätigte Konten löscht die tägliche Cron-Aufgabe
+  `users.purge_unverified` **9 Tage nach der Registrierung** endgültig
+  (harter DELETE, nur so werden Benutzername und Adresse wieder frei;
+  Admin-Gruppenmitglieder ausgenommen, höchstens 500 je Lauf). Die Frist
+  läuft ab `created_at`, und kein neuer Link gilt darüber hinaus — hinge sie
+  am Ablauf des Links, verlängerte jeder Neuversand sie, und wer eine fremde
+  Adresse belegt (er kennt ja das Passwort), hielte sie mit gelegentlichen
+  Anmeldungen für immer. Voraussetzung ist ein eingerichteter Cron.
+  **Restrisiko:** Die Bestätigung läuft per GET. Ein Link-Scanner im Postfach
+  eines Opfers, auf dessen Adresse jemand anderes registriert hat, kann das
+  fremde Konto aktivieren; der Neuversand erhöht die Zahl solcher Mails leicht
+  (höchstens drei am Tag). Eine Bestätigung per POST ist als Folgepaket
+  vorgemerkt.
 - **Rate-Limiting pro Client-IP** (5 Versuche/Stunde, RateLimiter-Typ
   `registration`), reservierte Benutzernamen sind gesperrt.
 - **Minimale Rechte:** Neue Konten landen ausschließlich in der vom Admin
@@ -613,8 +663,18 @@ sich auf einer nachgebauten Seite nicht verwenden.
 
 **Die RP-ID kommt nie aus der Anfrage.** Sie ist die Bindung zwischen Passkey
 und Domain; käme sie aus `HTTP_HOST`, bestimmte der Aufrufer selbst, wofür
-sein Schlüssel gilt. Vorrang hat die konfigurierte `base_url`, danach der über
-`App\Security\TrustedHost` geprüfte Host — und in beiden Fällen ohne Port.
+sein Schlüssel gilt. Vorrang hat die konfigurierte `base_url` (bzw.
+`APP_URL`), danach der über `App\Security\TrustedHost::resolveHostname()`
+geprüfte Host — und in beiden Fällen ohne Port. Empfohlen sind `base_url`
+bzw. `TRUSTED_HOSTS`. Bis Audit M36 rief der Rückfall eine nicht vorhandene
+Methode auf, und ohne `base_url`/`APP_URL` (Auslieferungszustand) endete jede
+Zeremonie mit HTTP 500. Ist kein Host bestimmbar, antworten die
+Optionen-Endpunkte jetzt mit HTTP 503 und einer Meldung; der Grund steht im
+Audit-Log („Passkey-Zeremonie nicht startbar“).
+**Wichtig:** Wird `base_url` später auf einen **anderen Hostnamen** gesetzt
+(etwa `www.` statt der Apex-Domain), sind vorher registrierte Passkeys an die
+alte RP-ID gebunden und nicht mehr nutzbar. Betroffene brauchen dann einen
+anderen Faktor oder eine Zurücksetzung.
 
 **Die Challenge steht nie im Formular.** Sie wird serverseitig erzeugt und in
 der Sitzung abgelegt. Über das Formular zurückgereicht prüfte die Zeremonie
@@ -632,6 +692,21 @@ an dieser Stelle wäre eine Anmeldung als fremde Person.
 Interesse daran, Authenticator-Modelle vorzuschreiben, und eine halbherzige
 Attestation-Prüfung ist schlechter als gar keine: Sie behauptet Sicherheit,
 die sie nicht liefert.
+
+**Anmeldeweg (Audit N42).** Nach dem Passwort entscheidet die zentrale
+Faktorweiche `AuthController::nachErstemFaktor()` (öffentlich, aber
+`@internal`: prüft kein Passwort, nie als Route) über `faktorPfad()`: Passkey
+vor Authentikator-App vor Mailcode. Ein Konto mit Passkey landet also auch
+dann zuerst auf `/login/passkey`, wenn es zusätzlich TOTP oder Mailcode hat;
+die anderen Verfahren stehen dort als Ausweichweg (der Mailcode per
+POST-Knopf, weil der GET auf `/login/2fa/email` nichts verschickt). Auf einer
+Verbindung, auf der Passkeys nicht funktionieren (HTTP außerhalb von
+localhost), geht es direkt zum nächsten Verfahren; ist der Passkey der
+einzige Faktor, bleibt es bei seiner Seite mit Hinweis. Ein Mailcode entsteht
+nur noch, wenn er der gewählte Faktor ist — bis dahin bekam jedes Konto ohne
+TOTP einen, auch eines, dessen einziger Faktor ein Passkey war, und landete
+in einer Sackgasse. „Abbrechen“ auf der Passkey-Seite meldet per POST mit
+CSRF-Token ab (Audit N86) und führt zurück zu `/login`.
 
 **Wiederherstellung.** Geht das Gerät verloren, hilft ein zweiter Passkey, die
 Authentikator-App oder das Zurücksetzen durch die Verwaltung. Der letzte

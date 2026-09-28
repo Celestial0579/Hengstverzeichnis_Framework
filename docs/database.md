@@ -207,7 +207,15 @@ Benutzer ohne Gruppe. `backup_codes` enthält ausschließlich
 `password_hash()`-Hashes der Einmal-Codes, nie Klartext. Weitere Spalten:
 `session_version` (invalidiert bestehende Sessions bei Passwortänderung),
 `last_totp_timeslice` (TOTP-Replay-Schutz),
-`email_verification_token`/`-_expires_at` (Selfservice-Registrierung).
+`email_verification_token`/`-_expires_at` (Selfservice-Registrierung; ein
+unbestätigtes Konto löscht die Cron-Aufgabe `users.purge_unverified` 9 Tage
+nach `created_at`, Audit N54).
+`totp_secret` ist `VARCHAR(255)` und hält den AES-256-GCM-Chiffretext aus
+`Crypto::encrypt()` (Base64, 60 Zeichen bei 16 Zeichen Klartext, 76 bei 32).
+Ältere Migrationen legten die Spalte mit `VARCHAR(64)` an; SCHEMA_VERSION 24
+gleicht sie an `schema.sql` an und verschlüsselt danach verbliebene
+Klartext-Secrets (Datenschritt `totp_klartext_verschluesseln`, Audit N8 –
+ohne `APP_KEY` bleibt er offen).
 `must_change_password` erzwingt eine Passwortänderung beim nächsten Login
 (z. B. nach Admin-initiiertem Reset). `deleted_at` für Soft-Delete,
 `deactivated_at`/`deactivated_reason`/`unprotected_since` für die Sperre und

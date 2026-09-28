@@ -38,7 +38,11 @@ class LoginSession {
         // BaseController::checkAuth()).
         $_SESSION['session_version'] = (int)($userRow['session_version'] ?? 1);
 
-        unset($_SESSION['pending_2fa_user_id']);
+        // Mit dem Anmeldevorgang endet auch die Marke "zweiter Faktor in
+        // diesem Login bestanden" (Audit M32, AuthController::
+        // afterSecondFactor()) - eine fertige Sitzung braucht sie nicht, und
+        // übrig bleiben soll sie nirgends.
+        unset($_SESSION['pending_2fa_user_id'], $_SESSION['zweiter_faktor_bestanden']);
         session_regenerate_id(true);
 
         AuditLogger::log("Benutzer eingeloggt", "auth", "Erfolgreich angemeldet", $userId, $username);

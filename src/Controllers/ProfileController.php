@@ -249,11 +249,13 @@ class ProfileController extends BaseController {
         if (in_array(SecondFactors::TOTP, $faktoren, true)) {
             $code = trim((string)($_POST['totp_code'] ?? ''));
 
-            // Crypto::decrypt() liefert bei alten, unverschlüsselten Secrets null -
-            // der Rückfall auf den Rohwert muss mitkopiert werden, sonst lehnt die
-            // Prüfung Bestandskonten grundlos ab.
-            $secret = \App\Security\Crypto::decrypt((string)$konto['totp_secret']) ?? (string)$konto['totp_secret'];
-            $slice = Totp::verifyCodeReturnSlice($secret, $code, $konto['last_totp_timeslice'] === null ? null : (int)$konto['last_totp_timeslice']);
+            // Dieselbe Lesestelle wie im Anmeldeweg (Audit N8): Alter
+            // Base32-Klartext gilt weiter, ein nicht lesbares Secret besteht
+            // nie - bis hierher wurde dann der Chiffretext selbst zum Secret.
+            $secret = Totp::secretAusSpeicher((string)($konto['totp_secret'] ?? ''), $userId);
+            $slice = $secret === null
+                ? null
+                : Totp::verifyCodeReturnSlice($secret, $code, $konto['last_totp_timeslice'] === null ? null : (int)$konto['last_totp_timeslice']);
 
             if ($slice === null) {
                 RateLimiter::recordAttempt((string)$userId, 'profile_backup');

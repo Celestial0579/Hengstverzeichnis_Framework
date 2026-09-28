@@ -14,6 +14,10 @@ use App\Database;
  * Implementierung, damit Session-Härtung (User-Agent-Fingerprint,
  * session_regenerate_id, session_version für #113, must_change_password-
  * Handling) nie zwischen den Login-Wegen auseinanderläuft.
+ *
+ * Seit Audit N9 kommt der SSO-Login nicht mehr direkt hierher, sondern wie
+ * der lokale über die Faktorweiche AuthController::nachErstemFaktor(). Im
+ * Audit-Log ist er an der Marke `anmeldeweg` erkennbar.
  */
 class LoginSession {
 
@@ -27,6 +31,15 @@ class LoginSession {
         $userRow = $stmt->fetch();
 
         $mustChange = (int)($userRow['must_change_password'] ?? 0);
+
+        // Anmeldeweg für das Audit-Log (Audit N9). Die Marke setzt die
+        // Faktorweiche (AuthController::nachErstemFaktor()) für SSO-Logins;
+        // sie zählt nur für GENAU dieses Konto und wird in jedem Fall
+        // verbraucht - ein liegengebliebener SSO-Versuch darf keinen späteren
+        // Login eines anderen Kontos falsch etikettieren.
+        $weg = $_SESSION['anmeldeweg'] ?? null;
+        unset($_SESSION['anmeldeweg']);
+        $detail = self::auditDetail(is_array($weg) ? $weg : null, $userId);
         $username = $userRow['username'] ?? 'Unbekannt';
 
         $_SESSION['user_id'] = $userId;
@@ -45,7 +58,7 @@ class LoginSession {
         unset($_SESSION['pending_2fa_user_id'], $_SESSION['zweiter_faktor_bestanden']);
         session_regenerate_id(true);
 
-        AuditLogger::log("Benutzer eingeloggt", "auth", "Erfolgreich angemeldet", $userId, $username);
+        AuditLogger::log("Benutzer eingeloggt", "auth", $detail, $userId, $username);
 
         if ($mustChange === 1) {
             $_SESSION['must_change_password'] = 1;
@@ -56,5 +69,31 @@ class LoginSession {
         unset($_SESSION['must_change_password']);
         header("Location: " . $redirectSuccess);
         exit;
+    }
+
+    /**
+     * Detailtext des Eintrags "Benutzer eingeloggt".
+     *
+     * @param array<string, mixed>|null $weg
+     */
+    private static function auditDetail(?array $weg, int $userId): string {
+        if ($weg === null || ($weg['art'] ?? '') !== 'sso' || (int)($weg['user_id'] ?? 0) !== $userId) {
+            return 'Erfolgreich angemeldet';
+        }
+
+        $idpMfa = (string)($weg['idp_mfa'] ?? '');
+        $faktor = match (true) {
+            $idpMfa !== '' => "beim IdP nachgewiesen ({$idpMfa})",
+            !empty($weg['lokaler_faktor']) => 'lokal verlangt',
+            default => 'nicht verlangt',
+        };
+
+        return sprintf(
+            'Erfolgreich angemeldet per SSO (%s, iss=%s, sub=%s; zweiter Faktor: %s)',
+            (string)($weg['provider'] ?? ''),
+            (string)($weg['iss'] ?? ''),
+            (string)($weg['sub'] ?? ''),
+            $faktor
+        );
     }
 }

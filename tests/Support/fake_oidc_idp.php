@@ -24,6 +24,16 @@
 // unverifiziertes oder soft-gelöschtes Konto, siehe #216) unterschiedliche
 // Identitäten gegen DIESELBE IdP-Instanz durchspielen - ohne je Testfall
 // einen eigenen Server mit anderem FAKE_OIDC_EMAIL starten zu müssen.
+//
+// Beliebige Claims (Audit M19, N9): Ein Code der Form
+// "claims:<base64url-JSON>" legt das JSON-Objekt über die Standardclaims;
+// ein Wert null ENTFERNT den Schlüssel. So lassen sich fehlende, leere oder
+// unbestätigte Adressen und amr/acr-Nachweise durchspielen.
+//
+// Jedes Token trägt standardmäßig `email_verified: true` und
+// `sub: fake-<sha1(email)>` - auch bei der "email:"-Konvention. Ohne das
+// würden seit Audit M19 alle Tokens im generischen Modus abgewiesen, und die
+// Abweisungstests aus #216 blieben aus dem FALSCHEN Grund grün.
 
 declare(strict_types=1);
 
@@ -66,14 +76,35 @@ if ($path === '/application/o/token/' && ($_SERVER['REQUEST_METHOD'] ?? '') === 
     $code = (string)$_POST['code'];
     $tokenEmail = str_starts_with($code, 'email:') ? substr($code, strlen('email:')) : $email;
 
-    $header = $b64url(json_encode(['alg' => 'none', 'typ' => 'JWT']));
-    $payload = $b64url(json_encode([
+    $claims = [
         'iss' => $issuer,
         'aud' => $clientId,
         'exp' => time() + 300,
         'iat' => time(),
+        'sub' => 'fake-' . sha1($tokenEmail),
         'email' => $tokenEmail,
-    ]));
+        'email_verified' => true,
+    ];
+    if (str_starts_with($code, 'claims:')) {
+        $roh = substr($code, strlen('claims:'));
+        $extra = json_decode((string)base64_decode(strtr($roh, '-_', '+/')), true);
+        if (!is_array($extra)) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'invalid_grant']);
+            return true;
+        }
+        foreach ($extra as $name => $wert) {
+            if ($wert === null) {
+                unset($claims[$name]);
+            } else {
+                $claims[$name] = $wert;
+            }
+        }
+    }
+
+    $header = $b64url(json_encode(['alg' => 'none', 'typ' => 'JWT']));
+    $payload = $b64url(json_encode($claims));
 
     header('Content-Type: application/json');
     echo json_encode([

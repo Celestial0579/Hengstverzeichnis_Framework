@@ -1022,8 +1022,27 @@ def run():
                 sp.wait_for_timeout(800)
                 sp.locator('input[name="password"] >> visible=true').fill(os.environ.get("SSO_PW", ""))
                 sp.get_by_role("button", name=btnre).first.click()
-                # zurück in der App (Authentik leitet nach erfolgreichem Login zum Callback)
-                sp.wait_for_url(re.compile(r"/admin|sso=entra"), timeout=30000)
+                # zurück in der App (Authentik leitet nach erfolgreichem Login zum Callback).
+                # Seit Audit N9 verlangt die App danach den lokalen zweiten Faktor
+                # (außer mit OIDC_TRUST_IDP_MFA und amr/acr-Nachweis). Seit Audit M19
+                # muss Authentik email_verified=true liefern - ab 2025.10 nur mit
+                # eigenem Scope-Mapping, sonst endet der Callback mit
+                # "keine verwendbare E-Mail-Adresse" (siehe docs/security.md).
+                sp.wait_for_url(re.compile(r"/admin|sso=entra|/login/2fa|/login/passkey|/auth/entra/callback"), timeout=30000)
+                if "/auth/entra/callback" in sp.url:
+                    raise RuntimeError("Callback abgewiesen (email_verified-Mapping des IdP prüfen?)")
+                if "/login/passkey" in sp.url:
+                    # Kein virtueller Authenticator in diesem Kontext: auf TOTP ausweichen.
+                    sp.goto(BASE + "/login/2fa", wait_until="domcontentloaded", timeout=30000)
+                if "/login/2fa" in sp.url:
+                    try:
+                        secret = open(os.path.join(OUT, "totp_secret.txt")).read().strip()
+                    except Exception:
+                        raise RuntimeError("lokaler zweiter Faktor verlangt, TOTP-Secret des Admins fehlt (Setup-Phase)")
+                    log("  SSO: lokaler zweiter Faktor verlangt (Audit N9), TOTP wird eingegeben")
+                    sp.fill('[name="totp_code"]', totp(secret))
+                    sp.locator('form:has([name="totp_code"]) button[type="submit"]').first.click()
+                    sp.wait_for_url(re.compile(r"/admin"), timeout=30000)
                 counter[0]+=1; n=f"{counter[0]:03d}"
                 sp.screenshot(path=os.path.join(OUT, f"{n}-sso-nach-login.png"), full_page=True, timeout=15000)
                 ok = "/admin" in sp.url or "sso=entra" in sp.url

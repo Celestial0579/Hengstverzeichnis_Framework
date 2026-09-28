@@ -181,6 +181,27 @@ Breaking Changes sind jederzeit möglich).
   senken. Backup-Codes, TOTP-Zeitschlitze (Anmeldung und Step-up) und
   Mailcodes werden jetzt per Vergleich mit dem gelesenen Stand verbraucht.
 
+- **SSO: kein Ausweichen mehr auf `preferred_username` im generischen
+  OIDC-Modus** (Audit M19). Lieferte der Identity-Provider keinen oder einen
+  leeren `email`-Claim, meldete der SSO-Login bisher das lokale Konto an,
+  dessen Adresse im `preferred_username` stand – auch wenn der Provider
+  ausdrücklich `email_verified=false` meldete. Bei Keycloak und Authentik ist
+  dieser Wert der frei wählbare oder änderbare Benutzername: Ein beliebiger
+  IdP-Benutzer ohne hinterlegte Adresse konnte sich so als lokaler
+  Administrator anmelden. Im generischen Modus zählt jetzt nur noch ein
+  `email`-Claim mit `email_verified: true`. Ein ausdrückliches
+  `email_verified=false` (auch JSON-null) führt in beiden Modi immer zur
+  Ablehnung. Der Rückfall auf den UPN bleibt nur im ENTRA-Modus, weil dort
+  der Tenant die Namen vergibt.
+- **SSO-Anmeldungen umgingen lokale zweite Faktoren** (Audit N9). Nach dem
+  SSO-Login entstand die Sitzung ohne Prüfung von TOTP, Passkey oder
+  Mailcode; auch die 2FA-Pflicht für Administratoren und die der Gruppen
+  griffen nicht, obwohl die Gruppenverwaltung sie zusagte. SSO-Logins
+  durchlaufen jetzt dieselbe Faktorweiche wie der Passwort-Login und räumen
+  eine bestehende Anmeldung einer anderen Identität in derselben Sitzung
+  ab. Im Audit-Log sind sie gekennzeichnet (Provider, `iss`, `sub`, Art des
+  zweiten Faktors).
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -463,6 +484,29 @@ Breaking Changes sind jederzeit möglich).
   `LogicException` aus. Neu ist `App\Security\OneTimeProofs`.
 - Neuer Übersetzungsschlüssel `auth.login_captcha_required` – die
   Sprach-Addons brauchen ihn ab diesem Stand.
+
+- **SSO, generischer OIDC-Modus: `email_verified: true` ist Pflicht**
+  (Audit M19). Fehlt der Claim oder steht er auf `false`, wird die Anmeldung
+  abgewiesen; der Grund steht im Audit-Log („SSO-Login abgewiesen“, ohne
+  Adresse). Authentik sendet ab 2025.10 standardmäßig
+  `email_verified: false` und braucht dann ein eigenes Scope-Mapping, siehe
+  [docs/security.md](docs/security.md). Im ENTRA-Modus ändert sich nur der
+  Fall „keine Adresse, aber `email_verified=false`“.
+- **Lokale 2FA gilt auch nach SSO** (Audit N9). Konten mit lokalem zweiten
+  Faktor werden nach dem Login beim Identity-Provider zusätzlich danach
+  gefragt. Administratoren, Mitglieder von Gruppen mit 2FA-Pflicht und
+  Konten ohne Gruppe, die noch keinen Faktor haben, richten beim ersten
+  SSO-Login TOTP ein. Nach einem lokalen Faktor ist das Ziel `/admin` statt
+  `/admin?sso=entra`.
+- **Neue Einstellung `OIDC_TRUST_IDP_MFA`** (Standard: aus; auch als
+  `oidc_trust_idp_mfa` in `db_config.php`). Ist sie gesetzt, entfällt der
+  lokale zweite Faktor nach SSO, sofern das ID-Token MFA nachweist: über
+  `amr` (Werte in `OIDC_MFA_AMR_VALUES`, Standard `mfa`; `pwd` zählt nie)
+  oder über `acr` (Werte in `OIDC_MFA_ACR_VALUES`, Standard leer). Gilt im
+  generischen und im ENTRA-Modus. Entra liefert `amr` im ID-Token nur als
+  konfigurierten optionalen Claim.
+- Der Audit-Eintrag „Benutzer eingeloggt“ trägt bei SSO den Zusatz
+  „per SSO (…)“; die Aktion selbst bleibt gleich.
 
 ## [0.9.0] – 2026-08-27
 

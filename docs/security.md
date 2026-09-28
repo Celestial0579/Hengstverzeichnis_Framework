@@ -647,25 +647,75 @@ Routen `/auth/entra*` nicht erreichbar und der Login-Button erscheint nicht.
   issuer-geprüften Discovery-Dokument, im ENTRA-Modus von der festen
   Microsoft-URL. Genau deshalb ist die `https://`-Pflicht der Discovery
   Teil des Sicherheitsmodells, nicht Kosmetik.
-- **2FA:** Die lokale TOTP-Pflicht gilt für SSO-Logins nicht zusätzlich —
-  der Identity-Provider bringt eigene MFA-Richtlinien mit. Die
-  Session-Härtung (`App\Service\LoginSession`) ist identisch zum lokalen
-  Login, inkl. Session-Invalidierung bei Passwortänderung (#113).
-- **`email_verified` wird ausgewertet.** Die E-Mail-Adresse ist der einzige
-  Anknüpfungspunkt an das lokale Konto. Sagt der Provider ausdrücklich, dass
-  sie ihm nicht nachgewiesen wurde, wird der Claim verworfen — bei einem IdP
-  mit Selbstregistrierung (Keycloak, Authentik) genügte es sonst, sich dort
-  mit der Adresse eines Administrators anzulegen. Ein **fehlender** Claim
-  bleibt akzeptiert: Entra ID sendet ihn für Geschäftskonten nicht, und dort
-  vergibt ohnehin nur der Tenant-Administrator Adressen.
-  - **Restrisiko `preferred_username`:** Fehlt der `email`-Claim ganz, gilt
-    ersatzweise `preferred_username` (bei Entra der UPN). OIDC Core 5.7 nennt
-    ihn weder eindeutig noch unveränderlich; er bleibt nur deshalb, weil
-    Entra die E-Mail als optionalen Claim ausliefert und ein Entfernen
-    bestehende Installationen aussperren würde. Ein vorhandener, aber
-    unbestätigter `email`-Claim weicht **nicht** mehr auf ihn aus. Wer einen
-    IdP mit Selbstregistrierung betreibt, sollte den `email`-Claim samt
-    `email_verified` ausliefern lassen.
+- **Lokaler zweiter Faktor auch nach SSO (Audit N9).** Der Callback führt
+  über dieselbe Faktorweiche wie der Passwort-Login
+  (`AuthController::nachErstemFaktor()`): Konten mit TOTP, Passkey oder
+  Mailcode werden danach gefragt; Administratoren, Mitglieder von Gruppen
+  mit 2FA-Pflicht (#84) und Konten ohne Gruppe richten beim ersten
+  SSO-Login TOTP ein (die Einrichtung ist im laufenden Login ohne Passwort
+  erreichbar, reine SSO-Nutzer werden nicht ausgesperrt). Bis dahin baute
+  der Callback die Sitzung direkt auf — die in der Gruppenverwaltung
+  zugesagte 2FA-Pflicht galt für SSO nicht. Eine bestehende Anmeldung einer
+  anderen Identität in derselben Sitzung wird beim SSO-Login verworfen.
+  Nach einem lokalen Faktor ist das Ziel `/admin` statt `/admin?sso=entra`.
+  - **`OIDC_TRUST_IDP_MFA`** (Standard aus, Umgebungsvariable oder
+    `db_config.php`-Schlüssel `oidc_trust_idp_mfa`): Der lokale Faktor
+    entfällt nur, wenn das ID-Token eine MFA beim IdP **nachweist**
+    (fail-closed). Nachweis über `amr` — Werte in `OIDC_MFA_AMR_VALUES`,
+    kommagetrennt, Standard `mfa`; `pwd` zählt nie — oder über `acr` —
+    Werte in `OIDC_MFA_ACR_VALUES`, Standard leer. Dann entfallen auch die
+    Admin-TOTP-Pflicht und die Gruppen-Pflicht. Fehlt der Nachweis, wird der
+    lokale Faktor verlangt und „SSO: IdP-MFA nicht nachgewiesen“
+    protokolliert. Gilt im generischen und im ENTRA-Modus.
+  - **Provider-Hinweise:** Entra ID schreibt `amr` ins v2-ID-Token nur als
+    konfigurierten optionalen Claim (App-Registrierung → Token-Konfiguration,
+    `amr` für das ID-Token); `mfa` steht dort nur nach erfolgter MFA.
+    Keycloak braucht einen „Authentication Method Reference (AMR)“-Mapper;
+    Keycloaks `acr` `1`/`0` sagen je nach Konfiguration nichts über MFA aus
+    und gehören nicht in `OIDC_MFA_ACR_VALUES`. Authentik liefert `amr` nur
+    über ein eigenes Scope-Mapping.
+  - **Audit-Kennzeichnung:** „Benutzer eingeloggt“ trägt bei SSO den Zusatz
+    „per SSO (Provider, iss=…, sub=…; zweiter Faktor: beim IdP
+    nachgewiesen (…) | lokal verlangt | nicht verlangt)“. Die Session-Marke
+    `anmeldeweg` dafür ist an die Konto-ID gebunden und wird bei jedem neuen
+    Login verworfen — ein abgebrochener SSO-Versuch etikettiert keinen
+    späteren Passwort-Login.
+  - Die Session-Härtung (`App\Service\LoginSession`) ist identisch zum
+    lokalen Login, inkl. Session-Invalidierung bei Passwortänderung (#113).
+- **E-Mail-Zuordnung je Modus (Audit M19, `OidcIdToken::extractEmail()`).**
+  Die Adresse ist der einzige Anknüpfungspunkt an das lokale Konto — was
+  hier herauskommt, entscheidet, welches Konto angemeldet wird.
+
+  | Claims | Generischer Modus | ENTRA-Modus |
+  |---|---|---|
+  | `email` + `email_verified: true` | Adresse | Adresse |
+  | `email`, `email_verified` fehlt | **abgewiesen** | Adresse |
+  | `email_verified` false / `"false"` / 0 / JSON-null / kein Wahrheitswert | abgewiesen | abgewiesen |
+  | `email` fehlt oder leer, `preferred_username` wie eine Adresse | **abgewiesen** | UPN (`preferred_username`), sofern `email_verified` nicht ausdrücklich falsch ist |
+  | `email` kein Text (Array, Zahl) | abgewiesen | abgewiesen |
+
+  Bis Audit M19 prüfte die Anmeldung `email_verified` nur neben einer nicht
+  leeren Adresse. Ein IdP-Konto ohne Adresse (Keycloak sendet dann
+  `email_verified=false` und kein `email`, Authentik `email=""`) mit dem
+  frei wählbaren Benutzernamen `admin@verein.de` wurde als lokaler
+  Administrator angemeldet. `preferred_username` ist nach OIDC Core 5.7
+  weder eindeutig noch unveränderlich; im generischen Modus gibt es keinen
+  Rückfall mehr darauf. Im ENTRA-Modus bleibt der UPN-Rückfall, weil der
+  Tenant Adressen und UPNs vergibt und Entra `email` nur als optionalen
+  Claim liefert. Abweisungen stehen als „SSO-Login abgewiesen“ mit dem
+  Grund (Form der Claims und Modus, nie eine Adresse) im Audit-Log; die
+  Meldung an den Benutzer bleibt „keine verwendbare E-Mail-Adresse“.
+  - **Betreiberhinweise:** Authentik sendet ab 2025.10 standardmäßig
+    `email_verified: false` — ein eigenes Scope-Mapping mit `true` nur
+    dann, wenn Adressen dort wirklich geprüft oder ausschließlich von der
+    Verwaltung gepflegt werden. Authentik vor 2025.10 meldet immer `true`:
+    Selbstregistrierung ohne Mail-Bestätigung abschalten oder aktualisieren.
+    Keycloak: „Email verified“ am Benutzer pflegen.
+  - **Restrisiko ENTRA:** `email` und UPN sind veränderlich; Microsoft rät,
+    sie nicht zur Autorisierung zu verwenden. Für Gastkonten härtet der
+    optionale Claim `xms_edov` (Domain-Besitz der Adresse geprüft). Eine
+    dauerhafte Verknüpfung über (`iss`, `sub`) ist als eigenes Folgepaket
+    vorgemerkt (Entscheidung D12).
 - **Redirect-URI** beim Provider: `<Stamm-URL>/auth/entra/callback` — der
   Pfad heißt aus Kompatibilität zu bestehenden Entra-App-Registrierungen
   für alle Provider gleich.
@@ -682,7 +732,12 @@ OIDC_PROVIDER_LABEL=Authentik
 ```
 
 Der SSO-Benutzer braucht beim Provider dieselbe E-Mail-Adresse wie sein
-bestehendes lokales Konto (kein Auto-Provisioning, unverändert).
+bestehendes lokales Konto (kein Auto-Provisioning, unverändert), und der
+Provider muss sie als bestätigt ausweisen (`email_verified: true`, siehe
+Betreiberhinweise oben — bei Authentik ab 2025.10 ein eigenes
+Scope-Mapping). Lokale 2FA-Pflichten gelten auch nach SSO: Administratoren
+und Mitglieder von Gruppen mit 2FA-Pflicht richten beim ersten SSO-Login
+TOTP ein, sofern nicht `OIDC_TRUST_IDP_MFA` mit MFA-Nachweis greift.
 
 ## Selfservice-Registrierung (#83, `src/Controllers/RegistrationController.php`)
 
@@ -843,9 +898,11 @@ Interesse daran, Authenticator-Modelle vorzuschreiben, und eine halbherzige
 Attestation-Prüfung ist schlechter als gar keine: Sie behauptet Sicherheit,
 die sie nicht liefert.
 
-**Anmeldeweg (Audit N42).** Nach dem Passwort entscheidet die zentrale
-Faktorweiche `AuthController::nachErstemFaktor()` (öffentlich, aber
-`@internal`: prüft kein Passwort, nie als Route) über `faktorPfad()`: Passkey
+**Anmeldeweg (Audit N42).** Nach dem Passwort — und seit Audit N9 ebenso
+nach dem SSO-Callback — entscheidet die zentrale Faktorweiche
+`AuthController::nachErstemFaktor()` (öffentlich, aber `@internal`: prüft
+keinen ersten Faktor, nie als Route; die Faktoren lädt sie selbst) über
+`faktorPfad()`: Passkey
 vor Authentikator-App vor Mailcode. Ein Konto mit Passkey landet also auch
 dann zuerst auf `/login/passkey`, wenn es zusätzlich TOTP oder Mailcode hat;
 die anderen Verfahren stehen dort als Ausweichweg (der Mailcode per

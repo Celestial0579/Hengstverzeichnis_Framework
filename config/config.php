@@ -118,6 +118,16 @@ define('OIDC_CLIENT_ID', getenv('OIDC_CLIENT_ID') !== false ? getenv('OIDC_CLIEN
 define('OIDC_CLIENT_SECRET', getenv('OIDC_CLIENT_SECRET') !== false ? getenv('OIDC_CLIENT_SECRET') : ($dbConfig['oidc_client_secret'] ?? ''));
 define('OIDC_PROVIDER_LABEL', getenv('OIDC_PROVIDER_LABEL') !== false ? getenv('OIDC_PROVIDER_LABEL') : ($dbConfig['oidc_provider_label'] ?? ''));
 
+// Lokaler zweiter Faktor nach SSO (Audit N9, siehe EntraSsoController und
+// docs/security.md): Standard ist, dass SSO-Logins dieselbe Faktorweiche
+// durchlaufen wie der Passwort-Login. OIDC_TRUST_IDP_MFA=1 lässt den lokalen
+// Faktor nur entfallen, wenn das ID-Token MFA nachweist - über `amr`
+// (Werte in OIDC_MFA_AMR_VALUES, kommagetrennt, Standard `mfa`) oder `acr`
+// (OIDC_MFA_ACR_VALUES, Standard leer). Gilt in beiden SSO-Modi.
+define('OIDC_TRUST_IDP_MFA', getenv('OIDC_TRUST_IDP_MFA') !== false ? getenv('OIDC_TRUST_IDP_MFA') : ($dbConfig['oidc_trust_idp_mfa'] ?? ''));
+define('OIDC_MFA_AMR_VALUES', getenv('OIDC_MFA_AMR_VALUES') !== false ? getenv('OIDC_MFA_AMR_VALUES') : ($dbConfig['oidc_mfa_amr_values'] ?? ''));
+define('OIDC_MFA_ACR_VALUES', getenv('OIDC_MFA_ACR_VALUES') !== false ? getenv('OIDC_MFA_ACR_VALUES') : ($dbConfig['oidc_mfa_acr_values'] ?? ''));
+
 // Application Base URL (dynamic resolution based on HTTP request or environment)
 // isHttps() berücksichtigt X-Forwarded-Proto nur hinter einem via TRUSTED_PROXIES
 // als vertrauenswürdig gelisteten Reverse Proxy. Der Host-Fallback nutzt den

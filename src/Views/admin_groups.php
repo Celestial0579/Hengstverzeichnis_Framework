@@ -242,7 +242,7 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
 
             <?php if ($selected['slug'] === 'admin'): ?>
                 <p style="color: var(--text-muted); font-size: 0.85rem;">✅ Hat systemseitig fest immer alle Berechtigungen - keine Konfiguration nötig oder möglich.</p>
-                <p style="color: var(--text-muted); font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar.</p>
+                <p style="color: var(--text-muted); font-size: 0.85rem;">🔐 2FA-Pflicht: für Administratoren <strong>immer verpflichtend</strong> und nicht abschaltbar.<?php if (\App\Controllers\EntraSsoController::isConfigured() && \App\Controllers\EntraSsoController::vertraueIdpMfa()): ?> Ausnahme SSO: Weist das ID-Token eine MFA beim Identity-Provider nach (OIDC_TRUST_IDP_MFA), entfällt der lokale Faktor.<?php endif; ?></p>
             <?php elseif ($isGuest): ?>
                 <p style="color: var(--text-muted); font-size: 0.85rem;">👥 Gilt automatisch für nicht angemeldete Besucher. Diese Gruppe kann ausschließlich <strong>Lese-Rechte</strong> erhalten - sie steuern die öffentliche Sichtbarkeit der einzelnen Bereiche. Alle übrigen Aktionen sind für Gäste dauerhaft gesperrt (deshalb deaktiviert) und werden auch serverseitig verworfen; ebenso steht das Kopieren fremder Berechtigungen für diese Gruppe nicht zur Verfügung. Hintergrund: Einzelne Routen - insbesondere von Plugins - prüfen Rechte direkt, eine Verwaltungs-Berechtigung der Gast-Gruppe würde sie für jeden anonymen Besucher öffnen.</p>
             <?php else: ?>
@@ -260,7 +260,11 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                     <small style="color: var(--text-muted); flex-basis: 100%;">
                         Greift beim nächsten Login (kein Bestandsschutz). Ein Benutzer muss 2FA einrichten,
                         sobald mindestens eine seiner Gruppen sie verlangt; bereits aktivierte 2FA bleibt
-                        unabhängig davon immer aktiv.
+                        unabhängig davon immer aktiv. Das gilt auch für Anmeldungen per SSO.
+                        <?php if (\App\Controllers\EntraSsoController::isConfigured() && \App\Controllers\EntraSsoController::vertraueIdpMfa()): ?>
+                            Ausnahme: Weist das ID-Token eine MFA beim Identity-Provider nach
+                            (OIDC_TRUST_IDP_MFA), entfällt der lokale Faktor nach SSO.
+                        <?php endif; ?>
                     </small>
                 </form>
             <?php endif; ?>

@@ -43,10 +43,23 @@ use App\Security\OidcIdToken;
  *   Im generischen Modus wird der beim Redirect per Discovery ermittelte
  *   token_endpoint in der Session festgehalten und im Callback verwendet -
  *   ein Discovery-Aufruf pro Login-Versuch, kein Cache.
- * - Die lokale TOTP-2FA wird für SSO-Logins nicht zusätzlich verlangt -
- *   der Identity-Provider bringt eigene MFA-Richtlinien mit (siehe Issue
- *   #42); die Session-Härtung (App\Service\LoginSession) ist identisch zum
- *   lokalen Login.
+ * - E-Mail-Zuordnung je Modus (Audit M19, siehe
+ *   OidcIdToken::extractEmail()): Im generischen Modus zählt nur ein
+ *   `email`-Claim mit `email_verified: true`; im ENTRA-Modus ist ein
+ *   fehlender `email_verified` zulässig und der UPN (`preferred_username`)
+ *   bleibt Rückfall. Ein ausdrückliches `email_verified=false` lehnt in
+ *   beiden Modi ab. Abweisungen stehen mit Grund (ohne Adresse) im
+ *   Audit-Log.
+ * - Lokale Faktoren und 2FA-Pflichten gelten auch für SSO (Audit N9): Der
+ *   Callback führt über dieselbe Faktorweiche wie der Passwort-Login
+ *   (AuthController::nachErstemFaktor()) - TOTP, Passkey, Mailcode, die
+ *   Admin-Pflicht und die Gruppen-Pflicht (#84). Einzige Ausnahme, in
+ *   beiden Modi: OIDC_TRUST_IDP_MFA ist gesetzt UND das ID-Token weist MFA
+ *   über `amr`/`acr` nach (OIDC_MFA_AMR_VALUES, OIDC_MFA_ACR_VALUES). Die
+ *   bis dahin geltende Delegation an die MFA des IdP (#42) war nur eine
+ *   Annahme - die Oberfläche versprach 2FA-Pflichten, die SSO übersprang.
+ *   Die Session-Härtung (App\Service\LoginSession) ist identisch zum
+ *   lokalen Login; SSO-Logins sind dort im Audit-Log gekennzeichnet.
  */
 class EntraSsoController extends BaseController {
 
@@ -92,6 +105,44 @@ class EntraSsoController extends BaseController {
 
     private static function clientSecret(): string {
         return self::isGenericMode() ? self::config('OIDC_CLIENT_SECRET') : self::config('ENTRA_CLIENT_SECRET');
+    }
+
+    /**
+     * OIDC_TRUST_IDP_MFA (Audit N9, Standard aus): Der lokale zweite Faktor
+     * entfällt nach SSO, WENN das ID-Token eine MFA beim IdP nachweist.
+     */
+    public static function vertraueIdpMfa(): bool {
+        return filter_var(self::config('OIDC_TRUST_IDP_MFA'), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * Kommagetrennte Werteliste aus der Konfiguration; ist die Variable gar
+     * nicht gesetzt, gilt $standard. Eine ausdrücklich leere Liste bleibt leer.
+     *
+     * @param array<int, string> $standard
+     * @return array<int, string>
+     */
+    private static function werteListe(string $name, array $standard): array {
+        $gesetzt = defined($name) ? (string)constant($name) !== '' : getenv($name) !== false;
+        if (!$gesetzt) {
+            return $standard;
+        }
+        return array_values(array_filter(array_map('trim', explode(',', self::config($name))), static fn(string $w): bool => $w !== ''));
+    }
+
+    /**
+     * Fundstelle des MFA-Nachweises im ID-Token oder null - null auch immer
+     * dann, wenn der Schalter aus ist.
+     */
+    private static function idpMfaNachweis(array $claims): ?string {
+        if (!self::vertraueIdpMfa()) {
+            return null;
+        }
+        return OidcIdToken::mfaNachweis(
+            $claims,
+            self::werteListe('OIDC_MFA_AMR_VALUES', ['mfa']),
+            self::werteListe('OIDC_MFA_ACR_VALUES', [])
+        );
     }
 
     private static function config(string $name): string {
@@ -204,8 +255,10 @@ class EntraSsoController extends BaseController {
             return; // failLogin beendet den Request, return nur für die statische Analyse
         }
 
-        $email = OidcIdToken::extractEmail($claims);
+        $entraModus = !self::isGenericMode();
+        $email = OidcIdToken::extractEmail($claims, $entraModus);
         if ($email === null) {
+            \App\Service\AuditLogger::log('SSO-Login abgewiesen', 'auth', OidcIdToken::ablehnungsgrund($claims, $entraModus));
             $this->failLogin(\App\I18n\Translator::t('auth.sso_no_email', ['provider' => $providerLabel]));
         }
 
@@ -223,7 +276,25 @@ class EntraSsoController extends BaseController {
             $this->failLogin(\App\I18n\Translator::t('auth.email_not_verified'));
         }
 
-        \App\Service\LoginSession::establish((int)$user['id'], '/admin?sso=entra');
+        // Wie beim Passwort-Login entscheidet die zentrale Faktorweiche, ob
+        // und welcher lokale zweite Faktor noch folgt (Audit N9).
+        $idpMfa = self::idpMfaNachweis($claims);
+        if (self::vertraueIdpMfa() && $idpMfa === null) {
+            \App\Service\AuditLogger::log(
+                'SSO: IdP-MFA nicht nachgewiesen',
+                'auth',
+                'OIDC_TRUST_IDP_MFA ist gesetzt, das ID-Token weist aber keine MFA nach (amr/acr) - lokaler Faktor wird verlangt',
+                (int)$user['id']
+            );
+        }
+
+        (new AuthController())->nachErstemFaktor((int)$user['id'], '/admin?sso=entra', [
+            'art' => 'sso',
+            'provider' => $providerLabel,
+            'iss' => mb_substr(is_string($claims['iss'] ?? null) ? $claims['iss'] : '', 0, 255),
+            'sub' => mb_substr(is_scalar($claims['sub'] ?? null) ? (string)$claims['sub'] : '', 0, 255),
+            'idp_mfa' => $idpMfa,
+        ]);
     }
 
     /**

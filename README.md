@@ -110,6 +110,7 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `TRUSTED_HOSTS`  | –  | – (Host-Header wird akzeptiert) | Kommagetrennte Liste erlaubter Hostnamen; schützt in Mail-Links vor Host-Header-Injection |
 | `OIDC_ISSUER_URL` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | – | – (SSO deaktiviert) | Aktivieren zusammen den generischen OIDC-Login (Authentik, Keycloak, …) per Discovery; `OIDC_PROVIDER_LABEL` benennt den Login-Button. Siehe [docs/security.md](docs/security.md) |
 | `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_CLIENT_SECRET` | – | – (SSO deaktiviert) | Microsoft-Kurzform des SSO-Logins (feste Entra-Endpunkte, ohne Discovery); `OIDC_*` hat bei vollständiger Konfiguration Vorrang |
+| `OIDC_TRUST_IDP_MFA` / `OIDC_MFA_AMR_VALUES` / `OIDC_MFA_ACR_VALUES` | – | aus / `mfa` / leer | SSO-Logins verlangen wie der Passwort-Login den lokalen zweiten Faktor bzw. dessen Einrichtung. `OIDC_TRUST_IDP_MFA=1` lässt ihn nur entfallen, wenn das ID-Token MFA über `amr` oder `acr` (kommagetrennte Werte) nachweist; gilt in beiden SSO-Modi. Siehe [docs/security.md](docs/security.md) |
 
 Neuen `APP_KEY` generieren:
 ```bash

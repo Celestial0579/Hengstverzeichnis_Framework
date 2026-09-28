@@ -208,9 +208,9 @@ class AuthController extends BaseController {
             \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
 
             // Wohin es nach dem Passwort geht, entscheidet die zentrale
-            // Faktorweiche (Audit N42) - dieselbe, die auch /2fa/setup und
-            // später der SSO-Weg benutzen.
-            $this->nachErstemFaktor($user);
+            // Faktorweiche (Audit N42) - dieselbe, die auch der SSO-Weg
+            // benutzt (Audit N9).
+            $this->nachErstemFaktor((int)$user['id']);
         }
 
         // Fehlschlag: Alle Buchungen bleiben stehen - sie SIND die
@@ -420,24 +420,28 @@ class AuthController extends BaseController {
     public const PFAD_MAILCODE = '/login/2fa/email';
 
     /**
-     * Die zentrale Faktorweiche nach bestandenem ersten Faktor (Audit N42).
+     * Die zentrale Faktorweiche nach bestandenem ersten Faktor (Audit N42, N9).
      *
-     * @internal Prüft KEIN Passwort und darf nie als Route registriert
-     * werden. Öffentlich nur, damit andere erste Faktoren (SSO) dieselbe
-     * Weiche benutzen statt einer Kopie - bis hierher prüfte loginSubmit()
-     * nur auf TOTP und schickte jedes andere Konto zum Mailcode, auch eines,
-     * dessen einziger Faktor ein Passkey war. Das Ergebnis war ein Code für
-     * einen gar nicht aktivierten Faktor und eine Sackgasse.
+     * @internal Prüft KEINEN ersten Faktor und darf nie als Route registriert
+     * werden. Aufrufen darf sie nur, wer den ersten Faktor für GENAU dieses
+     * Konto gerade selbst geprüft hat: loginSubmit() (Passwort) und
+     * EntraSsoController::callback() (ID-Token des IdP). Öffentlich nur,
+     * damit SSO dieselbe Weiche benutzt statt einer Kopie - bis Audit N9 baute
+     * der SSO-Callback die Sitzung direkt auf, an TOTP, Passkey, Mailcode und
+     * jeder 2FA-Pflicht vorbei.
      *
-     * $konto braucht id, totp_enabled, email_2fa_enabled und email;
-     * SecondFactors::fromRow() holt die Passkeys über die id. Beendet den
-     * Request.
+     * Die Faktoren lädt die Weiche SELBST über aktivesKonto(). Ein Aufrufer,
+     * der eine Spalte im SELECT vergäße, bekäme von SecondFactors::fromRow()
+     * still eine leere Liste - und damit einen Weg am Faktor vorbei.
      *
-     * @param array<string, mixed> $konto
+     * $anmeldeweg beschreibt einen SSO-Login ({art:'sso', provider, iss, sub,
+     * idp_mfa}); LoginSession kennzeichnet damit den Audit-Eintrag.
+     * `idp_mfa` steuert den Ablauf nur als Parameter hier und wird nie aus
+     * der Session zurückgelesen. Beendet den Request.
+     *
+     * @param array{art?: string, provider?: string, iss?: string, sub?: string, idp_mfa?: ?string}|null $anmeldeweg
      */
-    public function nachErstemFaktor(array $konto, string $ziel = '/admin'): void {
-        $userId = (int)$konto['id'];
-
+    public function nachErstemFaktor(int $userId, string $ziel = '/admin', ?array $anmeldeweg = null): void {
         // Ein neuer Login löst jede bestehende Anmeldung dieser Sitzung ab.
         // Ohne das laufen zwei Identitäten nebeneinander: die alte in
         // `user_id`, die neue in `pending_2fa_user_id` - und alles, was
@@ -445,12 +449,38 @@ class AuthController extends BaseController {
         // einen für das Konto der anderen verwenden.
         $this->discardExistingSessionState();
 
+        $konto = $this->aktivesKonto($userId);
+        if ($konto === null) {
+            header('Location: /login');
+            exit;
+        }
+
+        // Die Marke ist an das Konto gebunden: LoginSession verbraucht sie nur
+        // für genau diese user_id, und discardExistingSessionState() räumt sie
+        // bei jedem neuen Login weg. Ein abgebrochener SSO-Versuch etikettiert
+        // so keinen späteren Passwort-Login.
+        if ($anmeldeweg !== null) {
+            $_SESSION['anmeldeweg'] = ['user_id' => $userId] + $anmeldeweg + ['lokaler_faktor' => false];
+        }
+
+        // Nur mit ausdrücklichem Betreiberschalter und Nachweis im ID-Token
+        // (OIDC_TRUST_IDP_MFA, siehe EntraSsoController::idpMfaNachweis()):
+        // Der Betreiber hat die MFA des IdP für gleichwertig erklärt, damit
+        // entfallen hier bewusst auch die Admin-TOTP-Hürde und
+        // userRequires2fa(). Der Wert kommt nur als Parameter aus dem
+        // Callback, nie aus der Session.
+        if ($anmeldeweg !== null && !empty($anmeldeweg['idp_mfa'])) {
+            $this->completeLogin($userId, $ziel);
+            exit;
+        }
+
         // Welche zweiten Faktoren hat das Konto? Die Frage beantwortet
         // ausschliesslich SecondFactors (#354), wohin sie fuehren
         // ausschliesslich faktorPfad().
         $faktoren = SecondFactors::fromRow($konto);
         if ($faktoren !== []) {
             $_SESSION['pending_2fa_user_id'] = $userId;
+            $this->lokalerFaktorVerlangt();
             $pfad = self::faktorPfad($faktoren);
 
             if ($pfad === self::PFAD_MAILCODE) {
@@ -473,11 +503,20 @@ class AuthController extends BaseController {
         // automatisch beim nächsten Login.
         if ($this->userRequires2fa($userId)) {
             $_SESSION['pending_2fa_user_id'] = $userId;
+            $this->lokalerFaktorVerlangt();
             header("Location: /2fa/setup");
             exit;
         }
 
         $this->completeLogin($userId, $ziel);
+        exit;
+    }
+
+    /** Hält in der SSO-Marke fest, dass ein lokaler Faktor verlangt wurde. */
+    private function lokalerFaktorVerlangt(): void {
+        if (isset($_SESSION['anmeldeweg']) && is_array($_SESSION['anmeldeweg'])) {
+            $_SESSION['anmeldeweg']['lokaler_faktor'] = true;
+        }
     }
 
     /**
@@ -580,6 +619,7 @@ class AuthController extends BaseController {
             $_SESSION['session_version'],
             $_SESSION['pending_2fa_user_id'],
             $_SESSION['zweiter_faktor_bestanden'],
+            $_SESSION['anmeldeweg'],
             $_SESSION['twofa_reauth'],
             $_SESSION['passkey_stepup'],
             $_SESSION['passkey_registrierung'],

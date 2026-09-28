@@ -35,9 +35,17 @@ trait DsgvoFormHelper {
         'sechs' => 6, 'sieben' => 7, 'acht' => 8, 'neun' => 9,
     ];
 
-    /** Liest den ausgeschriebenen Aufgabentext aus dem gerenderten Formular. */
-    protected function captchaQuestion(HttpResponse $page): string {
-        preg_match('/<label for="captcha">.*?<strong>([^<]+)<\/strong>/su', $page->body, $matches);
+    /**
+     * Liest den ausgeschriebenen Aufgabentext aus dem gerenderten Formular.
+     *
+     * Seit den Aufgaben je Formular-Kontext (Audit N3) heisst das Feld
+     * `captcha-<kontext>` (ohne Kontext weiter `captcha`). Mit `$context`
+     * wird genau die Aufgabe dieses Formulars gelesen - wichtig, sobald eine
+     * Seite mehrere geschützte Formulare trägt.
+     */
+    protected function captchaQuestion(HttpResponse $page, ?string $context = null): string {
+        $id = $context === null ? 'captcha(?:-[a-z0-9_-]+)?' : preg_quote('captcha-' . $context, '/');
+        preg_match('/<label for="' . $id . '">.*?<strong>([^<]+)<\/strong>/su', $page->body, $matches);
         $this->assertNotEmpty(
             $matches,
             "Konnte die CAPTCHA-Aufgabe nicht aus dem Formular lesen, Body: {$page->body}"
@@ -47,8 +55,8 @@ trait DsgvoFormHelper {
     }
 
     /** Löst die Aufgabe über die Bedeutung der Zahlwörter. */
-    protected function solveCaptcha(HttpResponse $page): int {
-        $question = $this->captchaQuestion($page);
+    protected function solveCaptcha(HttpResponse $page, ?string $context = null): int {
+        $question = $this->captchaQuestion($page, $context);
         $parts = preg_split('/\s+/u', $question);
         $this->assertCount(3, $parts, "Unerwarteter CAPTCHA-Aufgabentext: {$question}");
 

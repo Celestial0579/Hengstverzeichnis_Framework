@@ -37,7 +37,7 @@ class CaptchaProviderTest extends TestCase {
 
     /** Beantwortet die im gerenderten Fragment gestellte Aufgabe korrekt. */
     private function solve(): string {
-        return (string)($_SESSION['captcha_challenge']['answer'] ?? -999);
+        return (string)($_SESSION['captcha_challenges']['dsgvo']['answer'] ?? -999);
     }
 
     public function testBuiltinIsTheDefaultAndAlwaysOffered(): void {
@@ -83,7 +83,7 @@ class CaptchaProviderTest extends TestCase {
         $html = Captcha::renderField($settings, 'dsgvo');
         $this->assertStringContainsString('name="captcha"', $html, 'Ohne Addon rendert der Kern seine eigene Aufgabe.');
 
-        $_SESSION['captcha_challenge']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
+        $_SESSION['captcha_challenges']['dsgvo']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
         $this->assertSame(Captcha::OK, Captcha::verify($settings, 'dsgvo', ['captcha' => $this->solve()]));
     }
 
@@ -101,7 +101,7 @@ class CaptchaProviderTest extends TestCase {
         $html = Captcha::renderField($settings, 'dsgvo');
         $this->assertStringContainsString('name="captcha"', $html);
 
-        $_SESSION['captcha_challenge']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
+        $_SESSION['captcha_challenges']['dsgvo']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
         $this->assertSame(
             Captcha::WRONG,
             Captcha::verify($settings, 'dsgvo', ['captcha' => '999']),
@@ -109,7 +109,7 @@ class CaptchaProviderTest extends TestCase {
         );
 
         $html = Captcha::renderField($settings, 'dsgvo');
-        $_SESSION['captcha_challenge']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
+        $_SESSION['captcha_challenges']['dsgvo']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
         $this->assertSame(
             Captcha::OK,
             Captcha::verify($settings, 'dsgvo', ['captcha' => $this->solve()]),
@@ -132,5 +132,54 @@ class CaptchaProviderTest extends TestCase {
             Captcha::verify($settings, 'dsgvo', ['captcha' => '5']),
             'Nur die vier definierten Urteile zählen; alles andere gilt als "nicht geantwortet".'
         );
+    }
+
+    /**
+     * Audit N3: Das Urteil eines Addons entwertet die offene Kern-Aufgabe
+     * NUR des eigenen Formulars (und die ohne Kontext) - nicht die eines
+     * anderen Formulars derselben Seite, das den eingebauten Anbieter nutzt.
+     */
+    public function testAddonVerdictClearsOnlyItsOwnContext(): void {
+        $hooks = PluginManager::getInstance()->getHooks();
+        $hooks->addFilter('captcha.providers', fn(array $p) => $p + ['turnstile' => 'Cloudflare Turnstile']);
+        $hooks->addFilter('captcha.render', fn(string $html, string $provider) => $provider === 'turnstile' ? '<div data-turnstile="1"></div>' : $html);
+        $hooks->addFilter('captcha.verify', fn(?string $v, string $provider) => $provider === 'turnstile' ? Captcha::OK : $v);
+
+        // DSGVO mit eingebautem Anbieter, Registrierung mit dem Addon.
+        $settings = [\App\Security\CaptchaContext::settingKey('register') => 'turnstile'];
+        Captcha::renderField($settings, 'dsgvo');
+        Captcha::issue('register');
+        Captcha::issue();
+        $this->assertStringContainsString('data-turnstile="1"', Captcha::renderField($settings, 'register'));
+
+        $this->assertSame(Captcha::OK, Captcha::verify($settings, 'register', []));
+        $this->assertArrayNotHasKey('register', $_SESSION['captcha_challenges']);
+        $this->assertArrayNotHasKey('captcha_challenge', $_SESSION, 'Eine ohne Kontext gestellte Rückfall-Aufgabe bleibt nicht liegen.');
+
+        $_SESSION['captcha_challenges']['dsgvo']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
+        $this->assertSame(Captcha::OK, Captcha::verify($settings, 'dsgvo', ['captcha' => $this->solve()]));
+    }
+
+    /**
+     * Ein Addon, das seine Rückfall-Aufgabe noch ohne Kontext stellt
+     * (`Captcha::issue()`), und dann bei der Prüfung abstürzt: Der Kern prüft
+     * mit Kontext und findet die Aufgabe im gemeinsamen Platz. Ohne diesen
+     * Übergang wäre der Rückfall nach dem Kern-Update nicht mehr lösbar.
+     */
+    public function testLegacyFallbackChallengeOfAnAddonStillVerifiesAfterACrash(): void {
+        $hooks = PluginManager::getInstance()->getHooks();
+        $hooks->addFilter('captcha.providers', fn(array $p) => $p + ['altcha' => 'ALTCHA']);
+        $hooks->addFilter('captcha.render', function (string $html, string $provider): string {
+            Captcha::issue();
+            return '<div data-altcha="1"></div>';
+        });
+        $hooks->addFilter('captcha.verify', fn() => throw new \RuntimeException('Addon kaputt'));
+
+        $settings = ['captcha_provider' => 'altcha'];
+        Captcha::renderField($settings, 'dsgvo');
+        $_SESSION['captcha_challenge']['issued_at'] -= Captcha::MIN_SOLVE_SECONDS + 1;
+        $answer = (string)$_SESSION['captcha_challenge']['answer'];
+
+        $this->assertSame(Captcha::OK, Captcha::verify($settings, 'dsgvo', ['captcha' => $answer]));
     }
 }

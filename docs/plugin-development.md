@@ -397,6 +397,47 @@ Ein **nicht angemeldeter** Kontext schaltet den Schutz nicht ab, sondern
 erzwingt den eingebauten und wird protokolliert: Ein Tippfehler im
 Kontextnamen macht ein Formular höchstens strenger, nie ungeschützter.
 
+**Den Kontext überall mitgeben (Audit N3).** Die eingebaute Rechenaufgabe
+liegt je Kontext in einem eigenen Platz der Sitzung. Nur so bleiben zwei
+Formulare auf derselben Seite (etwa Deckanfrage und Verkaufsbörse auf einer
+Hengstseite) unabhängig lösbar. Ein Addon gibt deshalb an JEDER Stelle
+denselben Kontext an:
+
+```php
+// Rendern und Prüfen - beide reichen den Kontext selbst weiter.
+$html  .= Captcha::renderField($settings, 'deckanfrage');
+$urteil = Captcha::verify($settings, 'deckanfrage', $_POST);
+
+// Nach dem Honeypot oder einem stillen Abbruch nur die eigene Aufgabe verwerfen.
+Captcha::clear('deckanfrage');
+```
+
+Ein **Anbieter-Addon**, das die Rechenaufgabe des Kerns als Rückfall mit
+ausgibt, stellt und prüft sie mit dem `$context` aus `captcha.render` bzw.
+`captcha.verify`:
+
+```php
+$frage  = Captcha::issue($context);                        // in captcha.render
+$urteil = Captcha::verifyBuiltin($input['captcha'] ?? null, $context); // in captcha.verify
+```
+
+Auch eine eigene Aufgabe des Addons gehört je Kontext in die Sitzung, und
+die DOM-IDs des Fragments brauchen den Kontext im Namen. Sonst kollidieren
+zwei Widgets auf einer Seite genauso.
+
+Ohne Kontext (`issue()`, `verifyBuiltin($input)`, `clear()`) gilt weiter der
+alte gemeinsame Platz. Bestehende Addons laufen damit unverändert, teilen
+sich aber einen Platz mit allen anderen Formularen ohne Kontext. Findet der
+Kern beim Prüfen mit Kontext dort keine Aufgabe, nimmt er die aus dem
+gemeinsamen Platz. So bleibt die ohne Kontext gestellte Rückfall-Aufgabe
+eines älteren Anbieter-Addons lösbar, auch wenn dessen Prüfung abstürzt und
+der Kern übernimmt. Je Sitzung bleiben höchstens `Captcha::MAX_CONTEXTS`
+(10) Kontext-Aufgaben offen.
+
+Das eingebaute Feld heißt immer `captcha`, seine ID ist `captcha-<kontext>`.
+Tests, die die Aufgabe aus dem HTML lesen, suchen also
+`<label for="captcha-deckanfrage">` statt `<label for="captcha">`.
+
 Das gerenderte Fragment wird **in das bestehende Formular** eingesetzt. Ein
 Addon kann keine vorgeschaltete Prüfseite und keinen zweiten Schritt erzwingen -
 und sollte das auch nicht wollen: Der Besucher füllt ein Formular aus und

@@ -915,7 +915,7 @@ class PublicController extends BaseController {
         // beantwortet - der Bot erfährt so nicht, dass er erkannt wurde -,
         // aber ohne Speicherung und ohne Benachrichtigungs-E-Mail.
         if (\App\Security\Captcha::honeypotTripped($_POST)) {
-            \App\Security\Captcha::clear();
+            \App\Security\Captcha::clear('dsgvo');
             header("Location: /dsgvo?success=1");
             exit;
         }

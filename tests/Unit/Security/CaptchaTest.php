@@ -17,8 +17,11 @@ use PHPUnit\Framework\TestCase;
  */
 class CaptchaTest extends TestCase {
 
-    /** Interner Session-Schlüssel von App\Security\Captcha. */
+    /** Interner Session-Schlüssel von App\Security\Captcha (Platz ohne Kontext). */
     private const SESSION_KEY = 'captcha_challenge';
+
+    /** Interner Session-Schlüssel der Plätze je Kontext (Audit N3). */
+    private const SESSION_KEY_CONTEXTS = 'captcha_challenges';
 
     /** @var array<string, int> Zahlwörter der Fallback-Locale 'de' */
     private const NUMBER_WORDS = [
@@ -188,5 +191,195 @@ class CaptchaTest extends TestCase {
         // Manipulierte Requests (website[]=x) dürfen den Honeypot nicht über
         // einen Typfehler aushebeln.
         $this->assertTrue(Captcha::honeypotTripped([Captcha::HONEYPOT_FIELD => ['x']]));
+    }
+
+    // --- Aufgaben je Formular-Kontext (Audit N3) ---------------------------
+
+    private function contextAnswer(string $context): int {
+        return (int)$_SESSION[self::SESSION_KEY_CONTEXTS][$context]['answer'];
+    }
+
+    private function ageContextChallenge(string $context, int $secondsAgo): void {
+        $_SESSION[self::SESSION_KEY_CONTEXTS][$context]['issued_at'] = time() - $secondsAgo;
+    }
+
+    /**
+     * Der Befund selbst: Zwei Formulare auf einer Seite (Deckanfrage und
+     * Verkaufsbörse auf einer Hengstseite) werden nacheinander gerendert. Das
+     * zuerst gerenderte muss danach trotzdem lösbar sein - vorher überschrieb
+     * das zweite dessen Aufgabe, und es scheiterte immer.
+     */
+    public function testTwoContextsInOneSessionAreSolvedIndependently(): void {
+        Captcha::issue('deckanfrage');
+        Captcha::issue('verkaufsboerse');
+        $first = $this->contextAnswer('deckanfrage');
+        $second = $this->contextAnswer('verkaufsboerse');
+        $this->ageContextChallenge('deckanfrage', 10);
+        $this->ageContextChallenge('verkaufsboerse', 10);
+
+        // Bewusst in umgekehrter Reihenfolge der Ausgabe geprüft.
+        $this->assertSame(Captcha::OK, Captcha::verifyBuiltin((string)$first, 'deckanfrage'));
+        $this->assertSame(Captcha::OK, Captcha::verifyBuiltin((string)$second, 'verkaufsboerse'));
+
+        // Single-Use gilt je Kontext weiter.
+        $this->assertSame(Captcha::EXPIRED, Captcha::verifyBuiltin((string)$first, 'deckanfrage'));
+        $this->assertSame(Captcha::EXPIRED, Captcha::verifyBuiltin((string)$second, 'verkaufsboerse'));
+    }
+
+    /** Eine falsche Antwort in einem Formular entwertet nicht die Aufgabe des anderen. */
+    public function testWrongAnswerInOneContextLeavesTheOtherIntact(): void {
+        Captcha::issue('deckanfrage');
+        Captcha::issue('verkaufsboerse');
+        $this->ageContextChallenge('deckanfrage', 10);
+        $this->ageContextChallenge('verkaufsboerse', 10);
+
+        $this->assertSame(
+            Captcha::WRONG,
+            Captcha::verifyBuiltin((string)($this->contextAnswer('verkaufsboerse') + 1), 'verkaufsboerse')
+        );
+        $this->assertSame(
+            Captcha::OK,
+            Captcha::verifyBuiltin((string)$this->contextAnswer('deckanfrage'), 'deckanfrage')
+        );
+    }
+
+    /** Die Antwort des einen Formulars gilt nicht für das andere. */
+    public function testAnswerOfOneContextDoesNotSolveAnother(): void {
+        Captcha::issue('deckanfrage');
+        // Solange neu stellen, bis sich die Lösungen unterscheiden - begrenzt,
+        // damit ein kaputter Platz den Test scheitern und nicht hängen lässt.
+        for ($i = 0; $i < 200; $i++) {
+            Captcha::issue('verkaufsboerse');
+            if ($this->contextAnswer('verkaufsboerse') !== $this->contextAnswer('deckanfrage')) {
+                break;
+            }
+        }
+        $this->assertNotSame($this->contextAnswer('deckanfrage'), $this->contextAnswer('verkaufsboerse'));
+        $this->ageContextChallenge('verkaufsboerse', 10);
+
+        $this->assertSame(
+            Captcha::WRONG,
+            Captcha::verifyBuiltin((string)$this->contextAnswer('deckanfrage'), 'verkaufsboerse')
+        );
+    }
+
+    /**
+     * Ohne Kontext bleibt alles beim Alten: der bisherige gemeinsame Platz,
+     * unabhängig von den Kontext-Plätzen.
+     */
+    public function testWithoutContextTheLegacySlotIsUsed(): void {
+        Captcha::issue();
+        $this->assertArrayHasKey(self::SESSION_KEY, $_SESSION);
+        $this->assertArrayNotHasKey(self::SESSION_KEY_CONTEXTS, $_SESSION);
+
+        Captcha::issue('dsgvo');
+        $legacy = $this->currentAnswer();
+        $this->ageChallenge(10);
+        $this->ageContextChallenge('dsgvo', 10);
+
+        $this->assertSame(Captcha::OK, Captcha::verifyBuiltin((string)$legacy));
+        $this->assertArrayNotHasKey(self::SESSION_KEY, $_SESSION);
+        $this->assertArrayHasKey('dsgvo', $_SESSION[self::SESSION_KEY_CONTEXTS], 'Der Kontext-Platz bleibt unberührt.');
+    }
+
+    /**
+     * Übergang: Liegt für den Kontext keine eigene Aufgabe vor, gilt der
+     * gemeinsame Platz - für Sitzungen, deren Formular vor dem Update
+     * ausgeliefert wurde, und für Anbieter-Addons, die die Rückfall-Aufgabe
+     * noch ohne Kontext stellen.
+     */
+    public function testContextWithoutOwnChallengeFallsBackToTheLegacySlot(): void {
+        Captcha::issue();
+        $answer = $this->currentAnswer();
+        $this->ageChallenge(10);
+
+        $this->assertSame(Captcha::OK, Captcha::verifyBuiltin((string)$answer, 'dsgvo'));
+        $this->assertArrayNotHasKey(self::SESSION_KEY, $_SESSION);
+    }
+
+    public function testClearWithContextRemovesOnlyThatContext(): void {
+        Captcha::issue();
+        Captcha::issue('deckanfrage');
+        Captcha::issue('verkaufsboerse');
+
+        Captcha::clear('deckanfrage');
+
+        $this->assertArrayNotHasKey('deckanfrage', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayHasKey('verkaufsboerse', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayHasKey(self::SESSION_KEY, $_SESSION);
+
+        Captcha::clear();
+        $this->assertArrayNotHasKey(self::SESSION_KEY, $_SESSION);
+        $this->assertArrayHasKey('verkaufsboerse', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+    }
+
+    /** Die Sitzung wächst nicht unbegrenzt, auch bei vielen Kontextnamen. */
+    public function testNumberOfOpenContextsIsBounded(): void {
+        for ($i = 0; $i < Captcha::MAX_CONTEXTS + 5; $i++) {
+            Captcha::issue('formular-' . $i);
+        }
+
+        $this->assertCount(Captcha::MAX_CONTEXTS, $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        // Die ältesten fallen weg, die zuletzt ausgegebenen bleiben.
+        $this->assertArrayNotHasKey('formular-0', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayNotHasKey('formular-4', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayHasKey('formular-5', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayHasKey('formular-' . (Captcha::MAX_CONTEXTS + 4), $_SESSION[self::SESSION_KEY_CONTEXTS]);
+    }
+
+    /** Erneutes Ausgeben zählt als jüngste Aufgabe - ein aktives Formular fällt nicht heraus. */
+    public function testReissuingAContextMovesItToTheEndOfTheQueue(): void {
+        Captcha::issue('deckanfrage');
+        for ($i = 0; $i < Captcha::MAX_CONTEXTS - 1; $i++) {
+            Captcha::issue('formular-' . $i);
+        }
+        Captcha::issue('deckanfrage');
+        Captcha::issue('noch-eines');
+
+        $this->assertArrayHasKey('deckanfrage', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayNotHasKey('formular-0', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+    }
+
+    public function testExpiredContextChallengesArePrunedOnIssue(): void {
+        Captcha::issue('alt');
+        $this->ageContextChallenge('alt', Captcha::TTL_SECONDS + 1);
+
+        Captcha::issue('neu');
+
+        $this->assertArrayNotHasKey('alt', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayHasKey('neu', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+    }
+
+    /** Kontextnamen werden auf [a-z0-9_-] bereinigt - sie landen in Session und HTML-ID. */
+    public function testContextNameIsSanitisedForTheSlot(): void {
+        Captcha::issue('Deck"Anfrage<x>');
+
+        $this->assertSame(['deckanfragex'], array_keys($_SESSION[self::SESSION_KEY_CONTEXTS]));
+    }
+
+    public function testRenderedFieldCarriesContextId(): void {
+        $html = Captcha::renderField([], 'register');
+
+        $this->assertStringContainsString('<label for="captcha-register">', $html);
+        $this->assertStringContainsString('id="captcha-register" name="captcha"', $html);
+        $this->assertArrayHasKey('register', $_SESSION[self::SESSION_KEY_CONTEXTS]);
+        $this->assertArrayNotHasKey(self::SESSION_KEY, $_SESSION);
+    }
+
+    /** Das Ende-zu-Ende-Szenario über renderField() und verify(). */
+    public function testTwoRenderedFormsVerifyIndependently(): void {
+        Captcha::renderField([], 'dsgvo');
+        Captcha::renderField([], 'register');
+        $this->ageContextChallenge('dsgvo', 10);
+        $this->ageContextChallenge('register', 10);
+
+        $this->assertSame(
+            Captcha::OK,
+            Captcha::verify([], 'dsgvo', ['captcha' => (string)$this->contextAnswer('dsgvo')])
+        );
+        $this->assertSame(
+            Captcha::OK,
+            Captcha::verify([], 'register', ['captcha' => (string)$this->contextAnswer('register')])
+        );
     }
 }

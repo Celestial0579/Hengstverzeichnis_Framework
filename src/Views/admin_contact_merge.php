@@ -14,6 +14,7 @@
  * @var string $search
  * @var bool $truncated
  * @var int $candidateLimit
+ * @var int $legacyIds  Alte Kennungen (contact_id_map), die mit umziehen
  */
 $roleLabels = [
     'breeder' => 'Züchter',
@@ -21,6 +22,8 @@ $roleLabels = [
     'keeper' => 'Halter',
 ];
 $stationUses = $stationUses ?? [];
+$legacyIds = $legacyIds ?? 0;
+$quelleFrei = !empty($source['contact_public']);
 ?>
 <div class="card" style="max-width: 760px;">
     <h2><?= htmlspecialchars($title) ?></h2>
@@ -44,7 +47,14 @@ $stationUses = $stationUses ?? [];
             <span style="color: var(--text-muted);">· <?= htmlspecialchars(implode(' ', $ort)) ?></span>
         <?php endif; ?>
         <span style="color: var(--text-muted);">· ID <?= (int)$source['id'] ?></span>
+        <span style="color: var(--text-muted);">· <?= $quelleFrei ? 'Kontaktdaten öffentlich freigegeben' : 'Kontaktdaten intern' ?></span>
     </div>
+    <?php if ($legacyIds > 0): ?>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: -0.6rem;">
+            Alte Adressen dieses Datensatzes (/person?id=, /station?id=) leiten danach
+            auf den behaltenen Kontakt weiter.
+        </p>
+    <?php endif; ?>
 
     <h3 style="font-size: 1rem;">Betroffene Zuordnungen (<?= count($assignments) ?>)</h3>
     <?php if ($assignments === []): ?>
@@ -116,7 +126,7 @@ $stationUses = $stationUses ?? [];
                 <?php foreach ($candidates as $c): ?>
                     <?php $cOrt = array_filter([$c['postal_code'] ?? '', $c['city'] ?? '']); ?>
                     <option value="<?= (int)$c['id'] ?>">
-                        <?= htmlspecialchars((string)$c['name']) ?><?= !empty($c['contact_person']) ? ' (' . htmlspecialchars((string)$c['contact_person']) . ')' : '' ?><?= $cOrt !== [] ? ' — ' . htmlspecialchars(implode(' ', $cOrt)) : '' ?> (ID <?= (int)$c['id'] ?>)
+                        <?= htmlspecialchars((string)$c['name']) ?><?= !empty($c['contact_person']) ? ' (' . htmlspecialchars((string)$c['contact_person']) . ')' : '' ?><?= $cOrt !== [] ? ' — ' . htmlspecialchars(implode(' ', $cOrt)) : '' ?> (ID <?= (int)$c['id'] ?>)<?= !empty($c['contact_public']) ? ' · Kontaktdaten öffentlich' : '' ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -125,6 +135,11 @@ $stationUses = $stationUses ?? [];
                 ergänzt. Bereits gefüllte Felder bleiben unverändert. Die Freigabe der
                 Kontaktdaten wird <strong>nicht</strong> übernommen — sie gilt dem Datensatz,
                 dem sie erteilt wurde.
+                <?php if (!$quelleFrei): ?>
+                    Umgekehrt gilt dasselbe: Zeigt der behaltene Kontakt seine Kontaktdaten
+                    öffentlich, dieser hier aber nicht, werden Ansprechpartner, Anschrift, E-Mail
+                    und Telefonnummern nicht ergänzt – sie stünden sonst ohne Einwilligung im Netz.
+                <?php endif; ?>
                 <?php if ($truncated): ?>
                     <br><strong>Die Liste ist auf <?= (int)$candidateLimit ?> Einträge gekürzt</strong> —
                     es gibt weitere Treffer. Bitte oben suchen, um den gewünschten Kontakt einzugrenzen.

@@ -235,6 +235,10 @@ CREATE TABLE IF NOT EXISTS `contacts` (
 -- Zweiter Zweck: die öffentlichen Adressen /station?id= und /person?id=
 -- stehen in Suchmaschinen und werden über diese Tabelle dauerhaft auf
 -- /kontakt?id= weitergeleitet.
+--
+-- Beim Zusammenführen zweier Kontakte hängt ContactController::merge() die
+-- Zeilen des aufgegebenen Datensatzes auf den behaltenen um (Audit M33) -
+-- sonst nähme der CASCADE sie beim Leeren des Papierkorbs mit.
 CREATE TABLE IF NOT EXISTS `contact_id_map` (
     -- 'person' oder 'station' - die Tabelle, aus der die alte Kennung stammt.
     `old_type` ENUM('person', 'station') NOT NULL,

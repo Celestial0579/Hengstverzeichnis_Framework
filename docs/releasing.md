@@ -101,7 +101,10 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
    sie auf dem neuen Kern nicht mehr — und die automatische Addon-Phase eines
    Kern-Updates verweigert, solange es keinen passenden Release-Tag gibt
    (#212, #290).
-3. Tag pushen (`vX.Y.Z`) auf `main`:
+3. Tag pushen (`vX.Y.Z`) auf `main`. **Das Format ist strikt:** `vX.Y.Z`
+   für ein stabiles Release, `vX.Y.Z-suffix` (z. B. `v0.10.0-beta.1`) für
+   eine Vorabversion. Andere Schreibweisen (`v1`, `v0.11rc1`) baut der
+   Workflow zwar, sie bekommen aber nie `latest`:
    ```bash
    git tag v0.2.0
    git push github v0.2.0
@@ -112,18 +115,21 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
      falls etwas fehlschlägt.
    - Docker-Image aus dem [Dockerfile](../Dockerfile), gepusht nach
      `ghcr.io/celestial0579/hengstverzeichnis_framework`. Getaggt wird immer
-     mit `<version>`; **`latest` bekommt nur eine Version OHNE Suffix**
-     (`type=raw,value=latest,enable=...` in `release.yml`). Eine Vorabversion
-     verschiebt `latest` also nicht.
+     mit `<version>`; **`latest` bekommt nur die höchste streng stabile
+     Version** (N37): Der Version-Step in `release.yml` berechnet `is_latest`
+     und vergleicht das Tag dazu mit dem höchsten Tag der Form `vX.Y.Z` aus
+     `git tag`. Eine Vorabversion verschiebt `latest` also nicht, ein
+     Backport-Patch einer älteren Linie ebenso wenig. Dieselbe Entscheidung
+     steuert `make_latest`, also die Kennzeichnung „Latest release“ auf
+     GitHub. Bleibt `latest` stehen, nennt der Lauf den Grund als
+     `::notice::`.
 
-     **Beim nächsten Release ohne Suffix ist das zu kontrollieren** (#409):
-     Zwischen `7f67477` (05.08.) und v0.9.0-beta.6 fehlte diese Bedingung, und
-     fünf Vorabversionen haben `latest` in dieser Zeit mitgenommen. `latest`
-     zeigt seither auf **v0.9.0-beta.5**. Bewusst nicht zurückgehängt: Ein
-     Rückhängen auf v0.8.0 wäre für Installationen mit Watchtower ein
-     Downgrade, und `SCHEMA_VERSION` lässt sich nicht zurückrollen — der
-     schlechtere Schaden. Der Zustand korrigiert sich mit dem ersten Release
-     ohne Suffix von selbst. Nach diesem Release also einmal nachsehen:
+     Nach jedem Release ohne Suffix einmal nachsehen, dass `latest` und der
+     Versions-Tag denselben Digest haben. Hintergrund ist #409: Zwischen
+     `7f67477` und v0.9.0-beta.6 fehlte die Bedingung, und fünf
+     Vorabversionen haben `latest` mitgenommen; das erste Release ohne Suffix
+     korrigiert das von selbst. Ist #409 noch offen, nach der Kontrolle
+     schließen:
 
      ```bash
      docker buildx imagetools inspect \
@@ -131,9 +137,6 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
      docker buildx imagetools inspect \
        ghcr.io/celestial0579/hengstverzeichnis_framework:<version>
      ```
-
-     Zeigt `latest` danach auf den neuen Digest, ist #409 erledigt und das
-     Issue kann geschlossen werden.
 
      **Der zweite Aufruf gehört dazu, nicht nur der erste.** Aus der am
      22.08. zurückgenommenen Freigabe blieb in GHCR ein Image-Tag `0.9.0`
@@ -156,6 +159,39 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
    **ohne Beschreibung** – dann Titel/Text im Nachgang manuell aus dem
    CHANGELOG-Abschnitt ergänzen (wie bei den bisherigen Releases, siehe
    [Release-Historie](../../../releases)).
+
+## Backport-Releases und erneute Läufe
+
+Ein Patch für eine ältere Linie (etwa `v0.8.2`, während `v0.9.0` aktuell ist)
+ist ein normales Release: Tag auf dem Backport-Stand setzen und pushen. Das
+Image erscheint unter `:0.8.2`, `:latest` und „Latest release“ bleiben auf
+der höchsten Version. Das ist Absicht: Ein Zurückhängen von `latest` spielte
+Watchtower-Installationen älteren Code ein, gegen ein bereits migriertes
+Schema - und `SCHEMA_VERSION` lässt sich nicht zurückrollen.
+
+Grenzen, die bewusst nur dokumentiert und nicht technisch geschlossen sind:
+
+- **Tags aus der Zeit vor dieser Regel nicht erneut laufen lassen.** Ein
+  erneuter Lauf (auch „Re-run“ in der Actions-Oberfläche) nimmt die
+  Workflow-Fassung des Tags mit, und die setzte `latest` noch für jede
+  Version ohne `-`.
+- **Keine zwei Versions-Tags kurz nacheinander pushen.** Der Workflow hat
+  keine `concurrency`-Gruppe. Kennt der Lauf eines älteren Tags das neuere
+  beim Checkout noch nicht, hält er sich für die höchste Version und setzt
+  `latest`; beim Docker-Push gewinnt dann der Lauf, der zuletzt fertig wird.
+  Erst den einen Lauf abwarten, dann das nächste Tag pushen.
+
+Zeigt `latest` doch einmal auf die falsche Version, lässt es sich ohne neuen
+Build zurücksetzen (Rechte auf das Paket vorausgesetzt):
+
+```bash
+docker buildx imagetools create \
+  -t ghcr.io/celestial0579/hengstverzeichnis_framework:latest \
+  ghcr.io/celestial0579/hengstverzeichnis_framework:<höchste-version>
+```
+
+Die GitHub-Kennzeichnung „Latest release“ korrigiert man in der
+Release-Ansicht („Set as the latest release“).
 
 ## Einmalig: GHCR-Sichtbarkeit
 

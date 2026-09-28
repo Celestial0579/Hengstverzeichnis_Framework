@@ -7,9 +7,12 @@ kein npm. `vendor/` liegt dem Release bei; wer entwickelt, holt es mit
 `composer install`. Ansonsten gilt weiter –
 das Framework läuft mit reinem PHP 8.5 + PDO MySQL-Erweiterung. Für lokale
 Entwicklung entweder Docker (empfohlen) oder ein klassischer lokaler
-PHP/MySQL-Stack. Composer wird ausschließlich **dev-only** für die
-PHPUnit-Testsuite benötigt (siehe [Tests](#tests) unten) – für Betrieb/
-Deployment der App selbst weiterhin nicht erforderlich.
+PHP/MySQL-Stack. Composer selbst braucht nur, wer entwickelt (Laufzeit-
+Bibliothek nach `vendor/` holen, PHPUnit-Testsuite, siehe [Tests](#tests)
+unten) – für Betrieb/Deployment der App ist es nicht erforderlich, weil
+`vendor/` dem Release beiliegt. `composer.json` ist damit aber **nicht mehr
+dev-only**: Updates unter `require` landen im Passkey-Anmeldepfad jeder
+Installation (siehe [Dependabot-Auto-Merge](#dependabot-auto-merge-audit-n5)).
 
 ## Schnellstart mit Docker
 
@@ -82,9 +85,9 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 
 ## Tests
 
-PHPUnit-Testsuite unter [`tests/`](../tests) (dev-only Composer-Abhängigkeit,
-siehe [`composer.json`](../composer.json) – betrifft nicht die
-Anwendungs-Runtime). Läuft bei jedem Push/PR gegen `main`
+PHPUnit-Testsuite unter [`tests/`](../tests) (PHPUnit steht unter
+`require-dev` in [`composer.json`](../composer.json) und wird nicht
+ausgeliefert; die Laufzeitbibliothek unter `require` dagegen schon). Läuft bei jedem Push/PR gegen `main`
 automatisch über [`.github/workflows/tests.yml`](../.github/workflows/tests.yml),
 siehe [Issue #54](../../../issues/54). Die Suite ist streng konfiguriert:
 `phpunit.xml` setzt `failOnDeprecation`/`failOnNotice`/`failOnWarning` —
@@ -176,6 +179,34 @@ verursacht hat.
   [`security/`](../security), siehe [security.md](security.md)),
   `scorecard.yml` und `dependabot-auto-merge.yml`. Quelle für die
   öffentlichen `latest`-Artefakte, siehe [releasing.md](releasing.md).
+
+### Dependabot-Auto-Merge (Audit N5)
+
+[`dependabot-auto-merge.yml`](../.github/workflows/dependabot-auto-merge.yml)
+aktiviert Auto-Merge nur per Allowlist, im Zweifel bleibt der PR liegen
+(fail-closed):
+
+| Update | Auto-Merge |
+|---|---|
+| Major (`version-update:semver-major`), gleich welches Ökosystem | nein |
+| `github_actions`, `docker` (Patch, Minor, Digest) | ja |
+| `composer`, alle Abhängigkeiten `direct:development` **und** Laufzeitteil (`.packages`) von `composer.lock` unverändert | ja |
+| `composer` mit Laufzeitpaket (`require`), indirekte Abhängigkeit oder geändertem `.packages` | nein |
+| jedes andere oder unbekannte Ökosystem | nein |
+
+Warum so eng: Seit #353 liefert der Kern `web-auth/webauthn-lib` samt rund 30
+Folgepaketen als `vendor/` aus, im Anmeldepfad. Der Lock-Vergleich fängt den
+Fall ab, dass ein `require-dev`-Bump ein gemeinsam genutztes Laufzeitpaket
+mitzieht; `updated-dependencies-json` nennt nur das Zielpaket. Der Grund für
+„nein“ steht als `::notice::` im Lauf.
+
+Kurz-Checkliste für einen manuell zu mergenden Laufzeit-PR:
+
+- Changelog/Release-Notes des Pakets lesen, bei Sicherheitsfixes das Advisory.
+- Diff von `composer.lock` ansehen: Welche Pakete in `packages` ändern sich
+  außer dem genannten?
+- Grüne Pflicht-Checks abwarten (Unit, Integration, Functional mit
+  Passkey-Tests), dann per Squash mergen.
 
 ## Responsives Verhalten (#345)
 

@@ -318,6 +318,38 @@ class HorseSearchSqlSafetyTest extends TestCase {
      * Ohne diese Prüfung liefe die Suche weiter und gäbe stumm falsche
      * Treffer aus.
      */
+    /**
+     * Ohne contacts.view (Audit M13) werden die Kontaktfilter nicht einmal
+     * gelesen, und der Suchbegriff läuft ohne Deckstation und Personen -
+     * sonst wären Trefferzahl und Blätter-Links ein Zugang zu Kontaktnamen,
+     * die das Konto nicht lesen darf.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith([true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false])]
+    public function testOhneKontakteBleibenKontaktfilterUngelesen(bool $nurOeffentlich): void {
+        $sql = new HorseSearchSql($nurOeffentlich);
+        $criteria = HorseSearchCriteria::fromRequest(
+            ['search' => 'x', 'q_breeder' => 'x', 'q_owner' => 'x', 'q_keeper' => 'x', 'q_station' => 'x'],
+            $nurOeffentlich,
+            null,
+            false
+        );
+        $criteria->applyTo($sql); // wirft nicht
+
+        $this->assertSame(['search' => 'x'], $criteria->activeParams());
+        $this->assertCount(14, $criteria->params());
+        $this->assertStringNotContainsString('contacts', $sql->whereSql());
+        $this->assertStringNotContainsString('breeding_station', $sql->whereSql());
+        $this->assertStringNotContainsString('horse_persons', $sql->whereSql());
+
+        // Gegenprobe: mit Kontakten greifen alle fünf.
+        $mit = HorseSearchCriteria::fromRequest(
+            ['search' => 'x', 'q_breeder' => 'x', 'q_owner' => 'x', 'q_keeper' => 'x', 'q_station' => 'x'],
+            $nurOeffentlich
+        );
+        $this->assertCount(5, $mit->activeParams());
+    }
+
     public function testPlaceholdersWithoutMatchingParametersAreRefused(): void {
         $sqlBau = new HorseSearchSql(false);
         $sqlBau->add(HorseSearchCondition::Name);

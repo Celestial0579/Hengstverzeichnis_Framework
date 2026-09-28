@@ -13,13 +13,20 @@ use App\Database;
  * denselben Vorgang. Wo sie sich unterschieden, gewinnt hier bewusst die
  * strengere Fassung; die Abweichungen sind an Ort und Stelle begruendet.
  *
- * Der Datenschutz-Teil des Umbaus betrifft die OEFFENTLICHEN Pfade
- * (PublicController), nicht diesen Controller: Wer hier ist, ist angemeldet
- * und hat 'contacts.view'. Die Verwaltung sieht deshalb weiterhin den ganzen
- * Datensatz - auch contact_info, das oeffentlich nie erscheinen darf (siehe
- * docs/kontaktliste-umstellung.md). Das Verbot von "SELECT *" gilt fuer den
- * oeffentlichen Bereich, wo ein zu breites SELECT die naechste Ausgabe
- * versehentlich mit PII fuellt - das ist die Lehre aus #293.
+ * ZWEI SICHTEN IN DER VERWALTUNG (Audit M10). 'contacts.view' allein zeigt
+ * nur den veroeffentlichten Bestand und nur die Spalten, die auch
+ * oeffentlich immer sichtbar sind - keine E-Mail, kein Telefon, keine
+ * Anschrift, kein Ansprechpartner, keine Notiz. Den ganzen Datensatz (auch
+ * contact_info, das oeffentlich nie erscheinen darf, siehe
+ * docs/kontaktliste-umstellung.md) und die unveroeffentlichten Kontakte
+ * sieht nur, wer interne Einsicht hat: 'contacts.internal' oder ein
+ * Bearbeitungsrecht (BaseController::hasInternalAccess()). Bis dahin genuegte
+ * 'contacts.view', und das hatte etwa jedes Konto der
+ * Registrierungs-Standardgruppe.
+ *
+ * Ohne interne Einsicht gilt deshalb auch hier das Verbot von "SELECT *"
+ * (Lehre aus #293): Was die Abfrage nicht liefert, kann die View nicht
+ * ausgeben.
  */
 class ContactController extends BaseController {
 
@@ -55,6 +62,14 @@ class ContactController extends BaseController {
         'q_contact_public', 'q_origin',
     ];
 
+    /**
+     * Filter über private Kontaktdaten - nur mit interner Einsicht (Audit
+     * M10). Ohne sie werden sie weder ausgewertet noch in Links übernommen.
+     *
+     * @var array<int, string>
+     */
+    private const PRIVATE_FILTER_KEYS = ['q_contact', 'q_postal_code', 'q_email', 'q_contact_public'];
+
     public function index(): void {
         $this->requirePermission('contacts', 'view');
 
@@ -63,13 +78,28 @@ class ContactController extends BaseController {
         // wird als "alle" behandelt.
         $publishedFilter = self::normalizePublishedFilter($_GET['published'] ?? null);
 
-        // Die Verwaltung sieht unveröffentlichte Kontakte - anders als der
-        // öffentliche Bereich, wo genau das ein Existenz-Orakel wäre (#121/#151).
-        // Gelöschte bleiben auch hier draußen, die stehen im Papierkorb.
+        // Interne Einsicht (Audit M10): Nur damit sieht die Verwaltung
+        // unveröffentlichte Kontakte und private Kontaktdaten - anders als der
+        // öffentliche Bereich, wo genau das ein Existenz-Orakel wäre
+        // (#121/#151). Gelöschte bleiben auch hier draußen, die stehen im
+        // Papierkorb.
+        $intern = $this->hasInternalAccess('contacts');
         $filters = self::readListFilters(self::FILTER_KEYS);
 
         $where = ['c.deleted_at IS NULL'];
         $params = [];
+
+        if (!$intern) {
+            $where[] = 'c.is_published = 1';
+            $publishedFilter = null;
+            // Filter über private Felder werden weder ausgewertet noch in
+            // Links weitergetragen. q_contact_public wäre sonst ein Orakel für
+            // die Freigabe, q_email/q_contact/q_postal_code eines für die
+            // Werte selbst.
+            foreach (self::PRIVATE_FILTER_KEYS as $privat) {
+                unset($filters[$privat]);
+            }
+        }
 
         if ($publishedFilter !== null) {
             $where[] = 'c.is_published = ?';
@@ -82,7 +112,14 @@ class ContactController extends BaseController {
         // das oft der einzige Ort, an dem eine Telefonnummer oder ein Hinweis
         // steht; im öffentlichen Bereich wird beides nie durchsucht.
         $search = $filters['search'] ?? '';
-        if ($search !== '') {
+        if ($search !== '' && !$intern) {
+            // Ohne interne Einsicht nur über die Felder, die auch die Liste
+            // zeigt - sonst fände eine Suche nach einer Telefonnummer den
+            // Kontakt, und die Trefferliste verriete sie.
+            $like = '%' . $search . '%';
+            $where[] = "(c.name LIKE ? OR c.city LIKE ? OR c.state LIKE ? OR c.country LIKE ?)";
+            array_push($params, $like, $like, $like, $like);
+        } elseif ($search !== '') {
             $like = '%' . $search . '%';
             $where[] = "(
                 c.name LIKE ? OR
@@ -137,7 +174,7 @@ class ContactController extends BaseController {
         // Datensatz - dann muss die Redaktion auch nachsehen können, für wen
         // er gesetzt ist. Ohne diesen Filter bliebe die Frage "wessen Telefon
         // steht öffentlich im Netz?" nur über die Datenbank beantwortbar.
-        $contactPublicFilter = self::normalizePublishedFilter($filters['q_contact_public'] ?? null);
+        $contactPublicFilter = $intern ? self::normalizePublishedFilter($filters['q_contact_public'] ?? null) : null;
         if ($contactPublicFilter !== null) {
             $where[] = 'c.contact_public = ?';
             $params[] = $contactPublicFilter;
@@ -189,16 +226,27 @@ class ContactController extends BaseController {
         // Stationsliste zeigte nur die zweite, die alte Personenliste nur die
         // erste - beide wegzulassen hieße, der jeweiligen Hälfte des Bestands
         // ihre Kennzahl zu nehmen.
+        //
+        // Ohne interne Einsicht (Audit M10): feste Spaltenliste - dieselbe wie
+        // für "immer öffentlich" auf der Kontaktseite (PublicController::
+        // contactDetail) - und beide Zahlen nur über veröffentlichte Pferde,
+        // sonst verriete die Zahl, dass es unveröffentlichte gibt. Nur
+        // Literale; $intern wählt zwischen ihnen.
+        $spalten = $intern
+            ? 'c.*'
+            : 'c.id, c.name, c.city, c.state, c.country, c.website, c.is_breeder, c.is_published';
+        $nurVeroeffentlicht = $intern ? '' : ' AND h.is_published = 1';
+        $nurVeroeffentlichtStation = $intern ? '' : ' AND hs.is_published = 1';
         $stmt = $db->prepare("
-            SELECT c.*, (
+            SELECT {$spalten}, (
                 SELECT COUNT(*)
                 FROM horse_persons hp
-                JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL
+                JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL{$nurVeroeffentlicht}
                 WHERE hp.contact_id = c.id
             ) AS horse_count, (
                 SELECT COUNT(*)
                 FROM horses hs
-                WHERE hs.breeding_station_id = c.id AND hs.deleted_at IS NULL
+                WHERE hs.breeding_station_id = c.id AND hs.deleted_at IS NULL{$nurVeroeffentlichtStation}
             ) AS station_horse_count
             FROM contacts c
             WHERE {$whereSql}
@@ -214,11 +262,13 @@ class ContactController extends BaseController {
         $stmt->execute();
         $contacts = $stmt->fetchAll();
 
-        $countries = $db->query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL AND country != '' AND deleted_at IS NULL ORDER BY country ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        $nurVeroeffentlichteKontakte = $intern ? '' : ' AND is_published = 1';
+        $countries = $db->query("SELECT DISTINCT country FROM contacts WHERE country IS NOT NULL AND country != '' AND deleted_at IS NULL{$nurVeroeffentlichteKontakte} ORDER BY country ASC")->fetchAll(\PDO::FETCH_COLUMN);
 
         $this->render('admin_contacts', [
             'title' => 'Kontakte verwalten',
             'contacts' => $contacts,
+            'intern' => $intern,
             'publishedFilter' => $publishedFilter,
             'filters' => $filters,
             'hasActiveFilters' => $filters !== [],

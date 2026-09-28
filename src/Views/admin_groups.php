@@ -14,7 +14,11 @@
  * @var int $totalGroups Anzahl Gruppen NACH Anwendung der Suche (Basis der Pagination)
  * @var int $totalGroupsUnfiltered Anzahl aller Gruppen ohne Suchfilter
  * @var string $search Aktueller Suchbegriff (Name/Beschreibung)
+ * @var array<int, list<string>> $ruhendeRechte [group_id => ["modul.aktion", ...]] - Rechte nicht geladener Addons (Audit N46)
+ * @var int $ruhendNichtKopiert Beim letzten Kopieren nicht übertragene ruhende Rechte der Quelle
  */
+$ruhendeRechte = $ruhendeRechte ?? [];
+$ruhendNichtKopiert = $ruhendNichtKopiert ?? 0;
 
 $errorMessages = [
     'name_required' => 'Bitte einen Namen für die neue Gruppe angeben.',
@@ -101,6 +105,14 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
             oder von Plugins registrierte Verwaltungsaktionen) sind für sie gesperrt und
             werden auch serverseitig verworfen, da einzelne Routen (insbesondere von
             Plugins) ihre Rechte direkt prüfen.
+        </p>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+            <strong>Lesen</strong> öffnet bei Pferden und Kontakten die Verwaltungsliste des
+            veröffentlichten Bestands, ohne private Kontaktdaten. <strong>Intern lesen</strong>
+            zeigt zusätzlich Unveröffentlichtes und private Kontaktdaten (E-Mail, Telefon,
+            Anschrift, Ansprechpartner, Notiz). Bearbeiten, Löschen und Veröffentlichen schließen
+            „Intern lesen“ ein. Für den öffentlichen Teil braucht keine Mitgliedergruppe mehr
+            „Lesen“: Angemeldete Konten sehen dort immer mindestens das, was die Gast-Gruppe sieht.
         </p>
 
         <form action="/admin/groups" method="GET" style="display: flex; align-items: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem;">
@@ -295,6 +307,33 @@ function summarizeGroupPermissions(array $group, array $permissions, int $totalC
                     </div>
                     <button type="submit" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;">Kopieren</button>
                 </form>
+            <?php endif; ?>
+
+            <?php if ($ruhendNichtKopiert > 0 && ($_GET['success'] ?? '') === 'copied'): ?>
+                <div style="background-color: var(--surface-muted); padding: 0.6rem 1rem; border-radius: 4px; margin-bottom: 1rem; font-size: 0.9rem;">
+                    <?= (int)$ruhendNichtKopiert ?> Recht(e) der Quell-Gruppe gehören zu nicht geladenen Addons und
+                    wurden nicht übertragen.
+                </div>
+            <?php endif; ?>
+
+            <?php $ruhendeDerGruppe = $ruhendeRechte[(int)$selected['id']] ?? []; ?>
+            <?php if ($ruhendeDerGruppe !== [] && !$isProtected): ?>
+                <?php
+                    // Audit N46: Rechte, die der Katalog in diesem Request nicht
+                    // kennt, bleiben beim Speichern erhalten. Hier werden sie
+                    // wenigstens sichtbar - sonst stünden sie unbemerkt in der
+                    // Datenbank und wirkten beim erneuten Laden des Addons.
+                ?>
+                <div id="ruhende-rechte" style="border: 1px dashed var(--border-color); border-radius: 6px; padding: 0.7rem 1rem; margin-bottom: 1.2rem; font-size: 0.9rem;">
+                    <strong>Nicht registrierte Rechte</strong>
+                    (deaktivierte, inkompatible, auf Freigabe wartende oder entfernte Addons) &ndash;
+                    bleiben beim Speichern erhalten<?= $isGuest ? ', außer Nicht-Lese-Rechten der Gast-Gruppe' : '' ?>:
+                    <ul style="margin: 0.4rem 0 0 1.2rem;">
+                        <?php foreach ($ruhendeDerGruppe as $ruhend): ?>
+                            <li><code><?= htmlspecialchars($ruhend) ?></code></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
             <?php endif; ?>
 
             <form action="/admin/groups/permissions" method="POST">

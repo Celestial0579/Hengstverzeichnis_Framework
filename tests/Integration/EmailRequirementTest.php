@@ -152,6 +152,30 @@ class EmailRequirementTest extends TestCase {
         ]));
     }
 
+    /**
+     * "Intern lesen" an Pferden und Kontakten (Audit M10/M13) ist reines
+     * Lesen - sonst machte der Seed jede Nur-Lese-Gruppe (#348)
+     * adresspflichtig. Aber nur als diese zwei PAARE: Eine Addon-Aktion, die
+     * zufaellig `internal` heisst, bleibt schreibend. SQL- und PHP-Pfad.
+     */
+    public function testInternLesenIstNurAlsKernpaarEinLeserecht(): void {
+        $this->assertFalse(EmailRequirement::pairsRequireEmail([
+            ['module' => 'contacts', 'action' => 'internal'],
+            ['module' => 'horses', 'action' => 'internal'],
+            ['module' => 'horses', 'action' => 'view'],
+        ]));
+        $this->assertTrue(EmailRequirement::pairsRequireEmail([
+            ['module' => 'irgendein_addon', 'action' => 'internal'],
+        ]), 'Die Positivliste bleibt streng: addon.internal gilt als schreibend.');
+
+        $internLeser = $this->eigeneGruppe('intern-leser', [['horses', 'view'], ['contacts', 'internal'], ['horses', 'internal']]);
+        $addonIntern = $this->eigeneGruppe('addon-intern', [['irgendein_addon', 'internal']]);
+        $pflicht = EmailRequirement::groupIdsRequiringEmail(self::$db);
+
+        $this->assertNotContains($internLeser, $pflicht);
+        $this->assertContains($addonIntern, $pflicht);
+    }
+
     public function testEineGruppeOhneJedesRechtVerlangtKeineAdresse(): void {
         $leer = $this->eigeneGruppe('leer', []);
 

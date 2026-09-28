@@ -346,7 +346,12 @@ Löschen/Veröffentlichen) plus ein fest verdrahteter Admin-Sonderfall.
   `user_groups` – einzig nicht angemeldete Besucher werden automatisch der
   Gast-Gruppe `public` zugeordnet (`GroupMembership::groupIds(null)`), denn
   ohne diese Zuordnung wäre die öffentliche Sichtbarkeit nicht über die
-  Matrix steuerbar. Jede neu angelegte Gruppe startet ohne Rechte.
+  Matrix steuerbar. Für angemeldete Konten gelten die Leserechte der
+  Gast-Gruppe bei **öffentlichen** Prüfungen als Untergrenze
+  (`hasPublicPermission()`, Audit N61): Ein Mitglied sieht öffentlich nie
+  weniger als ein Gast, ohne dadurch Mitglied der Gast-Gruppe zu werden –
+  `groupIds()`, `hasPermission()` und API-Schlüssel bleiben explizit. Jede
+  neu angelegte Gruppe startet ohne Rechte.
   `App\Permission\GroupMembership` bündelt "Gruppen-IDs eines Benutzers" und
   "ist Mitglied von `admin`" als einzige Quelle für beide Fragen (genutzt
   sowohl von `BaseController` als auch von Stellen ohne Controller-Instanz).
@@ -357,8 +362,8 @@ Löschen/Veröffentlichen) plus ein fest verdrahteter Admin-Sonderfall.
   `GroupController::NON_ASSIGNABLE_SLUGS` (nur `public`). Verwaltung unter
   `/admin/groups` bzw. Gruppenzuordnung im Benutzer-Formular.
 - `App\Permission\PermissionRegistry`: Katalog der verfügbaren Module/
-  Aktionen – fester Kern-Anteil (`horses` inkl. `publish`, `persons`,
-  `breeding_stations`) plus zur Laufzeit von aktivierten Plugins
+  Aktionen – fester Kern-Anteil (`horses` und `contacts` mit `view`,
+  `internal`, `create`, `edit`, `delete`, `publish`; `stats`) plus zur Laufzeit von aktivierten Plugins
   registrierte Ergänzungen (`registerAction()`, #56-Integration, "wer
   zuerst registriert, gewinnt" gegen Überschreiben). Bewusst als PHP-Array,
   keine DB-Katalogtabelle.
@@ -367,6 +372,23 @@ Löschen/Veröffentlichen) plus ein fest verdrahteter Admin-Sonderfall.
   `isAdmin()`/`GroupMembership::isAdmin()`. Eingesetzt in
   `HorseController`/`ContactController` anstelle
   eines reinen `checkAuth()`.
+- **Lesen und Intern lesen** (Audit M10/M13): `view` an `horses`/`contacts`
+  öffnet in der Verwaltung nur den veröffentlichten Bestand ohne private
+  Kontaktdaten. Unveröffentlichtes und E-Mail, Telefon, Anschrift,
+  Ansprechpartner und Notiz zeigt nur `BaseController::hasInternalAccess()`
+  (bzw. `GroupMembership::hasInternalAccess()`): Admin oder eine Aktion aus
+  `PermissionRegistry::INTERNAL_ACCESS_ACTIONS` (`internal`, `edit`,
+  `delete`, `publish`). `/admin/horses` nutzt ohne interne Einsicht die
+  Sichtbarkeitsgrenzen des Katalogs (`HorseSearchSql(true)`) und ohne
+  `contacts.view` keine Kontaktfilter (`HorseSearchCriteria::fromRequest(…,
+  $kontakteSichtbar)`, Suchbegriff als `FullTextOhneKontakte`).
+- `BaseController::hasPublicPermission()`: öffentliche Sichtprüfung
+  (eigenes Recht oder das der Gast-Gruppe, nur `GUEST_ALLOWED_ACTIONS`). Alle
+  Prüfungen in `PublicController` und die Bildauslieferung für
+  veröffentlichte Pferde nutzen sie.
+- Die Rechtematrix ersetzt beim Speichern und Kopieren nur registrierte
+  Paare (Audit N46); Rechte nicht geladener Addons bleiben als „ruhend“
+  stehen und werden bei der Gruppe angezeigt.
 - Benutzerverwaltung, Gruppenverwaltung selbst, DSGVO, System-/Mail-
   Einstellungen, Papierkorb-Vollzugriff und Plugin-Aktivierung bleiben
   bewusst weiterhin ausschließlich admin-only (`requireAdmin()`, geprüft über

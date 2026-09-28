@@ -140,13 +140,44 @@ class HorseSearchEndpointTest extends FunctionalTestCase {
         $this->assertStringNotContainsString('Geheimpferd', $antwort->body);
     }
 
-    private function seedHorse(string $name, string $ueln, int $jahr, string $sex, string $farbe): int {
+    /**
+     * Audit M13: Der Zugang bleibt horses.view (Vertrag mit den Addons, #341),
+     * aber Unveröffentlichtes findet nur, wer interne Einsicht hat - `internal`
+     * oder ein Bearbeitungsrecht. Vorher lieferte der Endpunkt jedem Inhaber
+     * von horses.view die Namen unveröffentlichter Pferde.
+     */
+    public function testNurLeserFindenNurVeroeffentlichte(): void {
+        $kennung = 'Nurleser' . substr(uniqid(), -6);
+        $this->seedHorse("{$kennung} Offen", 'DE-TEST-7', 2016, 'mare', 'braun');
+        $this->seedHorse("{$kennung} Intern", 'DE-TEST-8', 2016, 'mare', 'braun', false);
+        $admin = $this->authenticatedClient();
+        $konto = $this->angemeldetOhneFaktor($admin, 'suchleser');
+        $gruppe = (int)Database::getInstance()
+            ->query('SELECT group_id FROM user_groups WHERE user_id = ' . (int)$konto['id'])->fetchColumn();
+
+        $namen = function () use ($konto, $kennung): array {
+            $antwort = $konto['client']->get(self::PFAD . '?q=' . urlencode($kennung));
+            $this->assertSame(200, $antwort->statusCode);
+            return array_column(json_decode($antwort->body, true), 'label');
+        };
+
+        $this->setGroupPermissions($admin, $gruppe, ['horses' => ['view']]);
+        $this->assertSame(["{$kennung} Offen (DE-TEST-7, 2016)"], $namen(), 'Nur-Leser: nur Veröffentlichtes');
+
+        $this->setGroupPermissions($admin, $gruppe, ['horses' => ['view', 'internal']]);
+        $this->assertCount(2, $namen(), 'Intern lesen: auch Unveröffentlichtes');
+
+        $this->setGroupPermissions($admin, $gruppe, ['horses' => ['view', 'edit']]);
+        $this->assertCount(2, $namen(), 'Bearbeiten schließt Intern lesen ein');
+    }
+
+    private function seedHorse(string $name, string $ueln, int $jahr, string $sex, string $farbe, bool $veroeffentlicht = true): int {
         $db = Database::getInstance();
         $stmt = $db->prepare(
             'INSERT INTO horses (name, ueln, birth_year, sex, color, status, is_published)
-             VALUES (?, ?, ?, ?, ?, ?, 1)'
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$name, $ueln, $jahr, $sex, $farbe, 'active']);
+        $stmt->execute([$name, $ueln, $jahr, $sex, $farbe, 'active', $veroeffentlicht ? 1 : 0]);
         $id = (int)$db->lastInsertId();
         $this->angelegt[] = $id;
         return $id;

@@ -133,6 +133,92 @@ final class GroupMembership {
     }
 
     /**
+     * Hat die Gast-Gruppe `public` dieses Recht? (Audit N61)
+     *
+     * Nur Aktionen aus PermissionRegistry::GUEST_ALLOWED_ACTIONS zählen - eine
+     * Schreibzeile, die vor #218 an die Gast-Gruppe geriet, öffnet hier
+     * nichts. Fehlt die Gruppe oder scheitert die Abfrage: false.
+     */
+    public static function guestHasPermission(string $module, string $action): bool {
+        if (!in_array($action, PermissionRegistry::GUEST_ALLOWED_ACTIONS, true)) {
+            return false;
+        }
+        $guestId = self::guestGroupId();
+        if ($guestId === null) {
+            return false;
+        }
+        return self::groupsHavePermission([$guestId], $module, $action);
+    }
+
+    /**
+     * Öffentliche Sichtprüfung für einen BELIEBIGEN Benutzer (Audit N61): das
+     * eigene Recht ODER das der Gast-Gruppe.
+     *
+     * WARUM. Die Gast-Gruppe steuert, was nicht angemeldete Besucher im
+     * öffentlichen Teil sehen. Angemeldete Konten gehören ihr nicht an
+     * (groupIds()); prüfte eine öffentliche Seite hasPermission(), sah ein
+     * angemeldetes Mitglied ohne eigenes `view` WENIGER als ein Gast - einen
+     * leeren Katalog und 404 auf Pferde- und Kontaktseiten. Die Rechte der
+     * Gast-Gruppe gelten deshalb bei öffentlichen Prüfungen als Untergrenze.
+     *
+     * Die Mitgliedschaft bleibt explizit: hasPermission(), groupIds() und
+     * API-Schlüssel sind unverändert - die Untergrenze gilt nur, wo ein
+     * Aufrufer ausdrücklich die ÖFFENTLICHE Sicht prüft. Sie öffnet nichts
+     * Unveröffentlichtes; jede öffentliche Abfrage filtert selbst auf
+     * is_published. Für Addon-Hooks ohne Controller-Instanz; in Controllern
+     * BaseController::hasPublicPermission().
+     */
+    public static function hasPublicPermission(?int $userId, string $module, string $action): bool {
+        if (self::hasPermission($userId, $module, $action)) {
+            return true;
+        }
+        return $userId !== null && $userId > 0 && self::guestHasPermission($module, $action);
+    }
+
+    /**
+     * Interne Einsicht in ein Modul (Audit M10/M13): Administrator oder eine
+     * der Aktionen aus PermissionRegistry::INTERNAL_ACCESS_ACTIONS. Gäste nie.
+     * Für Stellen ohne Controller-Instanz; in Controllern
+     * BaseController::hasInternalAccess().
+     */
+    public static function hasInternalAccess(?int $userId, string $module): bool {
+        if (!$userId) {
+            return false;
+        }
+        if (self::isAdmin($userId)) {
+            return true;
+        }
+        return self::groupsHaveAnyPermission(self::groupIds($userId), $module, PermissionRegistry::INTERNAL_ACCESS_ACTIONS);
+    }
+
+    /**
+     * Hat eine der Gruppen IRGENDEINE der Aktionen am Modul? Eine Abfrage,
+     * fail-closed wie groupsHavePermission().
+     *
+     * @param array<int, int> $groupIds
+     * @param array<int, string> $actions
+     */
+    public static function groupsHaveAnyPermission(array $groupIds, string $module, array $actions): bool {
+        if (empty($groupIds) || empty($actions)) {
+            return false;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $gruppen = implode(',', array_fill(0, count($groupIds), '?'));
+            $aktionen = implode(',', array_fill(0, count($actions), '?'));
+            $stmt = $db->prepare(
+                "SELECT COUNT(*) FROM group_permissions
+                 WHERE module = ? AND action IN ({$aktionen}) AND group_id IN ({$gruppen})"
+            );
+            $stmt->execute(array_merge([$module], array_values($actions), array_values($groupIds)));
+            return (int)$stmt->fetchColumn() > 0;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Prüft, ob eine der übergebenen Gruppen die Berechtigung Modul × Aktion
      * besitzt. Gemeinsame Abfrage für hasPermission() (beliebiger Benutzer) und
      * BaseController::hasPermission() (Session-Benutzer mit Request-Cache),

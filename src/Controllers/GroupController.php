@@ -86,8 +86,16 @@ class GroupController extends BaseController {
      * Administrator" auf die Gast-Gruppe). Wird in updatePermissions() UND
      * copyPermissions() über restrictForGuest() durchgesetzt; die View
      * (admin_groups.php) spiegelt dieselbe Regel nur zusätzlich wider.
+     *
+     * Alias - die kanonische Quelle ist PermissionRegistry::
+     * GUEST_ALLOWED_ACTIONS, die auch GroupMembership::guestHasPermission()
+     * nutzt (Audit N61). Damit sperrt die Regel auch `internal` (Audit
+     * M10/M13) für die Gast-Gruppe, ohne eigene Zeile.
      */
-    public const GUEST_ALLOWED_ACTIONS = ['view'];
+    public const GUEST_ALLOWED_ACTIONS = PermissionRegistry::GUEST_ALLOWED_ACTIONS;
+
+    /** Höchstlänge des Rechte-Diffs im Audit-Log (Audit N46). */
+    private const AUDIT_DIFF_MAX = 1000;
 
     public function __construct() {
         parent::__construct();
@@ -99,10 +107,19 @@ class GroupController extends BaseController {
         $db = Database::getInstance();
         $groups = $db->query("SELECT * FROM `groups` ORDER BY is_builtin DESC, name ASC")->fetchAll();
 
+        // Registrierte Rechte für Matrix und "X von Y" - ruhende (Addon nicht
+        // geladen, Audit N46) getrennt davon, sonst könnte X größer als Y
+        // werden. Ruhende Zeilen bleiben beim Speichern erhalten und stehen
+        // in der View in einem eigenen Kasten.
         $permissions = [];
-        $rows = $db->query("SELECT group_id, module, action FROM group_permissions")->fetchAll();
+        $ruhendeRechte = [];
+        $rows = $db->query("SELECT group_id, module, action FROM group_permissions ORDER BY module, action")->fetchAll();
         foreach ($rows as $row) {
-            $permissions[(int)$row['group_id']][$row['module']][$row['action']] = true;
+            if (PermissionRegistry::isValid((string)$row['module'], (string)$row['action'])) {
+                $permissions[(int)$row['group_id']][$row['module']][$row['action']] = true;
+            } else {
+                $ruhendeRechte[(int)$row['group_id']][] = $row['module'] . '.' . $row['action'];
+            }
         }
 
         // Aktuell zur Bearbeitung ausgewählte Gruppe (Dropdown, siehe admin_groups.php) -
@@ -146,6 +163,10 @@ class GroupController extends BaseController {
             'search' => $search,
             'totalGroupsUnfiltered' => count($groups),
             'permissions' => $permissions,
+            'ruhendeRechte' => $ruhendeRechte,
+            // Beim Kopieren nicht übertragene ruhende Rechte der Quelle
+            // (Audit N46), geprüft statt roh aus der Anfrage.
+            'ruhendNichtKopiert' => self::requestInt('ruhend', 0, 0),
             'modules' => PermissionRegistry::modules(),
             'selectedGroupId' => $selectedGroupId,
             'totalPermissionCount' => PermissionRegistry::countAll(),
@@ -248,7 +269,7 @@ class GroupController extends BaseController {
         // Für die Gast-Gruppe werden Nicht-Lese-Aktionen serverseitig verworfen -
         // die deaktivierten Checkboxen der View reichen nicht, eine manipulierte
         // Anfrage darf `public` keine Schreibrechte unterschieben (#218).
-        $pairs = $this->restrictForGuest($group, $this->flattenSelectedPermissions($selected));
+        $pairs = $this->restrictForGuest($group, $this->nurRegistrierte($this->flattenSelectedPermissions($selected)));
 
         // Adresspflicht nach Rechten (#348): Bekommt eine Gruppe ein
         // Bearbeitungs- oder Veroeffentlichungsrecht, haben es auf einen
@@ -259,9 +280,13 @@ class GroupController extends BaseController {
             exit;
         }
 
-        $this->replacePermissions($db, $groupId, $pairs);
+        $diff = $this->replacePermissions($db, $groupId, $pairs, (string)$group['slug']);
 
-        AuditLogger::log("Berechtigungen aktualisiert", "groups", "Gruppe: {$group['name']}");
+        AuditLogger::log(
+            "Berechtigungen aktualisiert",
+            "groups",
+            self::kuerzen("Gruppe: {$group['name']}; " . self::diffText($diff))
+        );
 
         header("Location: /admin/groups?group={$groupId}&success=permissions_updated");
         exit;
@@ -349,12 +374,20 @@ class GroupController extends BaseController {
             exit;
         }
 
+        $ruhendNichtKopiert = 0;
         if ($source['slug'] === 'admin') {
             $pairs = PermissionRegistry::allPairs();
         } else {
             $stmt = $db->prepare("SELECT module, action FROM group_permissions WHERE group_id = ?");
             $stmt->execute([$sourceGroupId]);
-            $pairs = $stmt->fetchAll();
+            $quelle = $stmt->fetchAll();
+            // ZUERST auf registrierte Paare filtern (Audit N46): Ruhende Rechte
+            // der Quelle (Addon nicht geladen) werden nicht übertragen - die
+            // Matrix ersetzt nur, was sie anzeigen und prüfen kann. Und sie
+            // dürfen die Adressprüfung unten nicht auslösen, obwohl sie gar
+            // nicht übertragen werden.
+            $pairs = $this->nurRegistrierte($quelle);
+            $ruhendNichtKopiert = count($quelle) - count($pairs);
         }
 
         // Auch beim Kopieren gilt die Gast-Beschränkung: "von Administrator auf
@@ -370,15 +403,19 @@ class GroupController extends BaseController {
             exit;
         }
 
-        $this->replacePermissions($db, $targetGroupId, $zuUebernehmen);
+        $diff = $this->replacePermissions($db, $targetGroupId, $zuUebernehmen, (string)$target['slug']);
 
         AuditLogger::log(
             "Berechtigungen kopiert",
             "groups",
-            "Von '{$source['name']}' nach '{$target['name']}'"
+            self::kuerzen(
+                "Von '{$source['name']}' nach '{$target['name']}'; " . self::diffText($diff)
+                . ($ruhendNichtKopiert > 0 ? "; {$ruhendNichtKopiert} ruhende(s) Recht(e) der Quelle nicht übertragen" : '')
+            )
         );
 
-        header("Location: /admin/groups?group={$targetGroupId}&success=copied");
+        $ruhendHinweis = $ruhendNichtKopiert > 0 ? "&ruhend={$ruhendNichtKopiert}" : '';
+        header("Location: /admin/groups?group={$targetGroupId}&success=copied{$ruhendHinweis}");
         exit;
     }
 
@@ -457,22 +494,83 @@ class GroupController extends BaseController {
     }
 
     /**
-     * Ersetzt die komplette group_permissions-Menge einer Gruppe durch $pairs
-     * (nur gültige Modul/Aktion-Kombinationen aus PermissionRegistry werden übernommen).
+     * Nur Paare, die der Katalog in diesem Request kennt (Audit N46).
      *
      * @param array<int, array{module:string, action:string}> $pairs
+     * @return array<int, array{module:string, action:string}>
      */
-    private function replacePermissions(PDO $db, int $groupId, array $pairs): void {
+    private function nurRegistrierte(array $pairs): array {
+        return array_values(array_filter(
+            $pairs,
+            fn(array $p): bool => PermissionRegistry::isValid((string)$p['module'], (string)$p['action'])
+        ));
+    }
+
+    /**
+     * Ersetzt die REGISTRIERTEN Rechte einer Gruppe durch $pairs und liefert,
+     * was sich geändert hat (Audit N46).
+     *
+     * WARUM NICHT MEHR "ALLES LÖSCHEN, NEU SCHREIBEN". Der Katalog kennt nur
+     * die Rechte geladener Addons. Früher löschte das Speichern der Matrix
+     * alle Zeilen der Gruppe und schrieb nur zurück, was der Katalog in
+     * diesem Request kannte - die Rechte deaktivierter, inkompatibler oder
+     * auf Freigabe wartender Addons verschwanden still, auch deren Aktionen
+     * an Kernmodulen. Jetzt ersetzt die Matrix nur, was sie anzeigen und
+     * prüfen kann; ruhende Zeilen bleiben stehen und wirken wieder, sobald
+     * das Addon geladen ist.
+     *
+     * Ausnahme Gast-Gruppe: Ruhende Zeilen mit einer Aktion außerhalb von
+     * GUEST_ALLOWED_ACTIONS werden mitgelöscht - #218 gilt auch für den
+     * Altbestand.
+     *
+     * Doppelt gesendete Paare werden zusammengefasst; früher endeten sie an
+     * einer Schlüsselverletzung als "Speichern fehlgeschlagen".
+     *
+     * @param array<int, array{module:string, action:string}> $pairs
+     * @return array{hinzu: list<string>, weg: list<string>} jeweils "modul.aktion"
+     */
+    private function replacePermissions(PDO $db, int $groupId, array $pairs, string $slug): array {
+        $neu = [];
+        foreach ($pairs as $pair) {
+            $module = (string)$pair['module'];
+            $action = (string)$pair['action'];
+            if (PermissionRegistry::isValid($module, $action)) {
+                $neu[$module . '.' . $action] = [$module, $action];
+            }
+        }
+
         $db->beginTransaction();
         try {
-            $stmt = $db->prepare("DELETE FROM group_permissions WHERE group_id = ?");
+            $stmt = $db->prepare("SELECT module, action FROM group_permissions WHERE group_id = ? FOR UPDATE");
             $stmt->execute([$groupId]);
+            $bestand = [];
+            foreach ($stmt->fetchAll() as $row) {
+                $bestand[$row['module'] . '.' . $row['action']] = [(string)$row['module'], (string)$row['action']];
+            }
 
-            $insertStmt = $db->prepare("INSERT INTO group_permissions (group_id, module, action) VALUES (?, ?, ?)");
-            foreach ($pairs as $pair) {
-                if (PermissionRegistry::isValid($pair['module'], $pair['action'])) {
-                    $insertStmt->execute([$groupId, $pair['module'], $pair['action']]);
+            $loeschen = $db->prepare("DELETE FROM group_permissions WHERE group_id = ? AND module = ? AND action = ?");
+            $weg = [];
+            foreach ($bestand as $schluessel => [$module, $action]) {
+                $registriert = PermissionRegistry::isValid($module, $action);
+                $gastAltlast = $slug === 'public' && !in_array($action, self::GUEST_ALLOWED_ACTIONS, true);
+                if (!$registriert && !$gastAltlast) {
+                    continue; // ruhend - bleibt stehen
                 }
+                if (isset($neu[$schluessel]) && !$gastAltlast) {
+                    continue; // bleibt, wie es ist
+                }
+                $loeschen->execute([$groupId, $module, $action]);
+                $weg[] = $schluessel;
+            }
+
+            $einfuegen = $db->prepare("INSERT INTO group_permissions (group_id, module, action) VALUES (?, ?, ?)");
+            $hinzu = [];
+            foreach ($neu as $schluessel => [$module, $action]) {
+                if (isset($bestand[$schluessel])) {
+                    continue;
+                }
+                $einfuegen->execute([$groupId, $module, $action]);
+                $hinzu[] = $schluessel;
             }
 
             $db->commit();
@@ -481,5 +579,34 @@ class GroupController extends BaseController {
             header("Location: /admin/groups?error=save_failed");
             exit;
         }
+
+        return ['hinzu' => $hinzu, 'weg' => $weg];
+    }
+
+    /**
+     * "+horses.publish, −contacts.edit" - oder "keine Änderung".
+     *
+     * @param array{hinzu: list<string>, weg: list<string>} $diff
+     */
+    private static function diffText(array $diff): string {
+        $teile = array_merge(
+            array_map(static fn(string $r): string => '+' . $r, $diff['hinzu']),
+            array_map(static fn(string $r): string => '−' . $r, $diff['weg'])
+        );
+        return $teile === [] ? 'keine Änderung' : implode(', ', $teile);
+    }
+
+    /** Kürzt einen Audit-Text auf AUDIT_DIFF_MAX Zeichen, mit Zahl der weggelassenen Einträge. */
+    private static function kuerzen(string $text): string {
+        if (mb_strlen($text) <= self::AUDIT_DIFF_MAX) {
+            return $text;
+        }
+        $kopf = mb_substr($text, 0, self::AUDIT_DIFF_MAX - 30);
+        $letztesKomma = mb_strrpos($kopf, ', ');
+        if ($letztesKomma !== false) {
+            $kopf = mb_substr($kopf, 0, $letztesKomma);
+        }
+        $weitere = substr_count(mb_substr($text, mb_strlen($kopf)), ', ');
+        return $kopf . " … (+{$weitere} weitere)";
     }
 }

@@ -46,9 +46,15 @@ final class PermissionRegistry {
      * @var array<string, array{label:string, actions:array<string,string>}>
      */
     private const CORE_MODULES = [
+        // `view` und `internal` trennen zwei Dinge, die bis Audit M10/M13
+        // an EINEM Recht hingen: "den veröffentlichten Bestand in der
+        // Verwaltung sehen" und "Unveröffentlichtes und private
+        // Kontaktdaten sehen". Siehe INTERNAL_ACCESS_ACTIONS.
         'horses' => [
             'label' => 'Pferde',
             'actions' => [
+                'view' => 'Lesen (Verwaltungsliste veröffentlichter Pferde)',
+                'internal' => 'Intern lesen (auch unveröffentlichte Pferde)',
                 'create' => 'Erstellen',
                 'edit' => 'Bearbeiten',
                 'delete' => 'Löschen',
@@ -67,6 +73,8 @@ final class PermissionRegistry {
         'contacts' => [
             'label' => 'Kontakte',
             'actions' => [
+                'view' => 'Lesen (Verwaltungsliste, ohne private Kontaktdaten)',
+                'internal' => 'Intern lesen (unveröffentlichte Kontakte, E-Mail, Telefon, Anschrift, Notiz)',
                 'create' => 'Erstellen',
                 'edit' => 'Bearbeiten',
                 'delete' => 'Löschen',
@@ -97,6 +105,10 @@ final class PermissionRegistry {
      *
      * - `view`: steuert, ob eine Gruppe einen Bereich überhaupt sehen darf
      *   (Backend-Listen sowie - über die Gast-Gruppe - öffentliche Seiten).
+     *   Bei `horses` und `contacts` öffnet es in der Verwaltung nur den
+     *   veröffentlichten Bestand; mehr gibt `internal` (Audit M10/M13).
+     *   Öffentlich gelten die Rechte der Gast-Gruppe für angemeldete Konten
+     *   als Untergrenze (BaseController::hasPublicPermission(), Audit N61).
      * - `publish`: steuert, ob ein Benutzer Inhalte des Bereichs veröffentlichen
      *   darf (unabhängig vom Lebenszyklus-Status, siehe horses.is_published).
      *
@@ -109,6 +121,35 @@ final class PermissionRegistry {
         'view' => 'Lesen (Bereich anzeigen)',
         'publish' => 'Veröffentlichen',
     ];
+
+    /**
+     * Aktionen, die die Gast-Gruppe `public` höchstens erhalten darf (#218) -
+     * die kanonische Quelle; GroupController::GUEST_ALLOWED_ACTIONS ist ein
+     * Alias. Genutzt auch von GroupMembership::guestHasPermission() als
+     * Tiefenverteidigung gegen Altzeilen: Eine Schreibzeile, die vor #218 an
+     * die Gast-Gruppe geriet, gilt dort nie als öffentliches Recht.
+     *
+     * @var array<int, string>
+     */
+    public const GUEST_ALLOWED_ACTIONS = ['view'];
+
+    /**
+     * Aktionen, die die INTERNE Einsicht in ein Modul öffnen (Audit M10/M13):
+     * unveröffentlichte Datensätze und - bei Kontakten - E-Mail, Telefon,
+     * Anschrift, Ansprechpartner und Notiz.
+     *
+     * `internal` ist das reine Leserecht dafür. Wer bearbeiten, löschen oder
+     * veröffentlichen darf, muss das Unveröffentlichte ohnehin sehen - sonst
+     * fände er nicht, was er freigeben soll. `create` gehört bewusst NICHT
+     * dazu (geringste Rechte): Ein reines Erstellen-Konto sieht seine
+     * eigenen, noch unveröffentlichten Neuanlagen nicht in der Liste.
+     *
+     * Ausgewertet von BaseController::hasInternalAccess() und
+     * GroupMembership::hasInternalAccess().
+     *
+     * @var array<int, string>
+     */
+    public const INTERNAL_ACCESS_ACTIONS = ['internal', 'edit', 'delete', 'publish'];
 
     /**
      * Kern-Module + zur Laufzeit von Plugins registrierte Ergänzungen.

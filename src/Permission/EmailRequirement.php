@@ -35,7 +35,8 @@ final class EmailRequirement {
     /**
      * Die Aktionen, die als reines Lesen gelten.
      *
-     * ZWEI, NICHT EINE. Der Kern kennt neben `view` eine zweite Leseaktion:
+     * ZWEI, NICHT EINE (plus zwei Kern-Lesepaare, siehe READ_ONLY_PAIRS).
+     * Der Kern kennt neben `view` eine zweite Leseaktion:
      * `App\Permission\FeatureRegistry` legt fuer jede Plugin-Zusatzfunktion
      * automatisch `feature_<key>`/`read` an, und `FeatureGate::isVisible()`
      * wertet sie ausdruecklich als Leseberechtigung. Wer nur `view` kennt,
@@ -52,6 +53,20 @@ final class EmailRequirement {
      */
     public const READ_ONLY_ACTIONS = ['view', 'read'];
 
+    /**
+     * Dazu zwei Kern-Lesepaare (Audit M10/M13): `internal` an `horses` und
+     * `contacts` ist reines Lesen - unveröffentlichte Datensätze und private
+     * Kontaktdaten sehen, nichts ändern. Ohne diese Paare machte "Intern
+     * lesen" jede Nur-Lese-Gruppe (#348) adresspflichtig.
+     *
+     * Bewusst als PAARE und nicht als weitere Aktion in READ_ONLY_ACTIONS:
+     * Die Positivliste bleibt streng. Eine Addon-Aktion, die zufällig
+     * `internal` heißt, gilt an ihrem eigenen Modul weiter als schreibend.
+     *
+     * @var array<int, array{0: string, 1: string}>
+     */
+    public const READ_ONLY_PAIRS = [['horses', 'internal'], ['contacts', 'internal']];
+
     private function __construct() {}
 
     /**
@@ -61,13 +76,15 @@ final class EmailRequirement {
      */
     public static function groupIdsRequiringEmail(PDO $db): array {
         $platzhalter = implode(',', array_fill(0, count(self::READ_ONLY_ACTIONS), '?'));
+        $paare = implode(',', array_fill(0, count(self::READ_ONLY_PAIRS), '(?, ?)'));
         $stmt = $db->prepare(
             "SELECT DISTINCT g.id
              FROM `groups` g
-             LEFT JOIN group_permissions p ON p.group_id = g.id AND p.action NOT IN ({$platzhalter})
+             LEFT JOIN group_permissions p ON p.group_id = g.id
+                 AND NOT (p.action IN ({$platzhalter}) OR (p.module, p.action) IN ({$paare}))
              WHERE g.slug = 'admin' OR p.group_id IS NOT NULL"
         );
-        $stmt->execute(self::READ_ONLY_ACTIONS);
+        $stmt->execute(array_merge(self::READ_ONLY_ACTIONS, array_merge(...self::READ_ONLY_PAIRS)));
 
         return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
     }
@@ -149,10 +166,18 @@ final class EmailRequirement {
      */
     public static function pairsRequireEmail(array $pairs): bool {
         foreach ($pairs as $paar) {
-            if (!in_array((string)($paar['action'] ?? ''), self::READ_ONLY_ACTIONS, true)) {
+            if (!self::istLesepaar((string)($paar['module'] ?? ''), (string)($paar['action'] ?? ''))) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Gilt dieses Modul/Aktion-Paar als reines Lesen? Dieselbe Regel wie im SQL oben. */
+    private static function istLesepaar(string $module, string $action): bool {
+        if (in_array($action, self::READ_ONLY_ACTIONS, true)) {
+            return true;
+        }
+        return in_array([$module, $action], self::READ_ONLY_PAIRS, true);
     }
 }

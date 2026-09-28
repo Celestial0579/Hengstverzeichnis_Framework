@@ -133,13 +133,18 @@ class MediaController extends BaseController {
             session_write_close();
         }
 
-        // Sichtbarkeit wie auf der Detailseite: Ein unveröffentlichtes Pferd ist
-        // für Gäste nicht vorhanden - sein Foto also auch nicht. Angemeldete
-        // Benutzer mit horses.view sehen es (Verwaltungslisten, Bearbeitungsform).
-        if (!$this->hasPermission('horses', 'view')) {
-            $this->sendStatus(404);
-        }
-        if (empty($horse['is_published']) && !$angemeldet) {
+        // Sichtbarkeit wie auf der Detailseite und in der Verwaltungsliste:
+        // - Veröffentlicht: wer das Pferd öffentlich sehen darf - die
+        //   Gast-Rechte sind für Angemeldete eine Untergrenze (Audit N61).
+        // - Unveröffentlicht: nur angemeldete Konten mit interner Einsicht
+        //   (horses.internal/edit/delete/publish, Audit M13). Bis dahin
+        //   genügte horses.view, und damit jedes Konto der
+        //   Registrierungs-Standardgruppe.
+        if (!empty($horse['is_published'])) {
+            if (!$this->hasPublicPermission('horses', 'view')) {
+                $this->sendStatus(404);
+            }
+        } elseif (!$angemeldet || !$this->hasInternalAccess('horses')) {
             $this->sendStatus(404);
         }
 
@@ -164,7 +169,7 @@ class MediaController extends BaseController {
      *
      * Wortgleich dieselben Sichtbarkeitsregeln, und das ist der Punkt: Das
      * Addon `galerie` brachte eine ZWEITE Ausliefer-Route mit, und jede
-     * Regel - gueltige Sitzung, horses.view, is_published, Referer,
+     * Regel - gueltige Sitzung, horses.view bzw. interne Einsicht, is_published, Referer,
      * Cache-Kopfzeilen - musste dort ein zweites Mal richtig sein. Der Kern
      * hat davon jetzt genau eine; sie unterscheidet sich nur darin, WO die
      * Datei steht.
@@ -197,10 +202,12 @@ class MediaController extends BaseController {
             session_write_close();
         }
 
-        if (!$this->hasPermission('horses', 'view')) {
-            $this->sendStatus(404);
-        }
-        if (empty($medium['is_published']) && !$angemeldet) {
+        // Dieselbe Regel wie in horseImage() (Audit N61, M13).
+        if (!empty($medium['is_published'])) {
+            if (!$this->hasPublicPermission('horses', 'view')) {
+                $this->sendStatus(404);
+            }
+        } elseif (!$angemeldet || !$this->hasInternalAccess('horses')) {
             $this->sendStatus(404);
         }
 

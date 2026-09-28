@@ -193,10 +193,16 @@ class Database {
 
     private static function ensureSchemaUpToDate(PDO $pdo): void {
         try {
-            Service\SchemaMigrator::run($pdo);
+            // Gedrosselt (Audit N76): Nach einem offenen oder gescheiterten
+            // Lauf versucht es der implizite Weg erst nach
+            // SchemaMigrator::WIEDERHOLEN_NACH erneut, und ein solcher
+            // Wiederholungslauf wartet nicht auf die Migrationssperre.
+            // Explizite Aufrufer (database/migrate.php) laufen ungedrosselt.
+            Service\SchemaMigrator::run($pdo, true);
         } catch (\Throwable $e) {
             // Kein harter Fehler: Die App bleibt mit dem vorhandenen Schema
-            // lauffähig, die Migration wird beim nächsten Verbindungsaufbau wiederholt.
+            // lauffähig. Der Fehler steht in settings.schema_migration_status
+            // (Admin-Dashboard), der nächste Versuch folgt gedrosselt.
         }
     }
 }

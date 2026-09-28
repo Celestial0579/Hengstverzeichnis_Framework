@@ -60,21 +60,37 @@ final class Maintenance {
      * müssen, WER die Sperre WARUM gesetzt hat. Auf der öffentlichen
      * Hinweisseite erscheint der Grund bewusst NICHT (könnte Interna wie
      * Backup-Namen oder Werkzeug-Details preisgeben).
+     *
+     * $migrationSperren (Audit N39, Rückweg #336): Der Marker trägt dann
+     * KEINE Prozesskennung - er verfällt also nie über isStale() - und das
+     * Flag migration_gesperrt, das SchemaMigrator::run() respektiert. Der
+     * Rückweg setzt die Datenbank auf den Stand vor #336 zurück; ohne
+     * Sperre machte der nächste Request das sofort wieder rückgängig. Eine
+     * Sperre in settings wäre die Alternative gewesen - aber die alte
+     * Version, die danach eingespielt wird, kennt sie nicht, könnte sie also
+     * nie aufheben, und ein späteres erneutes Update bliebe still blockiert.
+     * Einen Marker ohne pid respektieren auch v0.7.1/v0.7.2. Aufgehoben wird
+     * er von Hand (Datei löschen) bzw. über disable().
      */
-    public static function enable(string $grund): void {
+    public static function enable(string $grund, bool $migrationSperren = false): void {
         $lockFile = self::lockFile();
         $dir = dirname($lockFile);
         if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
             throw new \RuntimeException("Wartungsmodus: Verzeichnis {$dir} kann nicht angelegt werden.");
         }
 
-        $payload = json_encode([
+        $nutzlast = [
             'grund' => $grund,
             'seit' => date('c'),
             // Die Kennung des setzenden Prozesses ist der einzige belastbare
             // Hinweis darauf, ob noch jemand am Werk ist - siehe isStale().
-            'pid' => getmypid(),
-        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            // Ohne sie (Migrationssperre) verfällt der Marker nie.
+            'pid' => $migrationSperren ? null : getmypid(),
+        ];
+        if ($migrationSperren) {
+            $nutzlast['migration_gesperrt'] = true;
+        }
+        $payload = json_encode($nutzlast, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
         // LOCK_EX gegen zwei gleichzeitig schreibende Prozesse - der Inhalt
         // ist rein informativ, aber eine halb geschriebene Datei soll info()
@@ -107,7 +123,7 @@ final class Maintenance {
      * aktiviert den Wartungsmodus genauso - isActive() prüft nur die
      * Existenz, nie den Inhalt.
      *
-     * @return array{grund: string, seit: string, pid: ?int}|null
+     * @return array{grund: string, seit: string, pid: ?int, migration_gesperrt: bool}|null
      */
     public static function info(): ?array {
         if (!self::isActive()) {
@@ -125,7 +141,18 @@ final class Maintenance {
             'grund' => (string)$data['grund'],
             'seit' => (string)$data['seit'],
             'pid' => isset($data['pid']) && is_int($data['pid']) ? $data['pid'] : null,
+            'migration_gesperrt' => ($data['migration_gesperrt'] ?? false) === true,
         ];
+    }
+
+    /**
+     * Sperrt der aktive Marker die Schema-Migration (Rückweg #336, siehe
+     * enable())? Ein von Hand angelegter oder gewöhnlicher Marker tut das
+     * nicht.
+     */
+    public static function sperrtMigration(): bool {
+        $info = self::info();
+        return $info !== null && $info['migration_gesperrt'];
     }
 
     /**

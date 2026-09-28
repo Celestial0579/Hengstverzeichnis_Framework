@@ -385,7 +385,7 @@ vorgeschlagen zu bekommen.
 
 **Öffentliche Sichtbarkeit** ist die zweite Funktion desselben Systems
 (#121/#122/#151): Was Gäste sehen, steuern die Leseberechtigungen der
-Gast-Gruppe (`horses.view`, `breeding_stations.view` — per Seed vergeben,
+Gast-Gruppe (`horses.view`, `contacts.view` — per Seed vergeben,
 über die Matrix entziehbar) **in Kombination** mit dem
 `is_published`-Flag der Datensätze (Default: unveröffentlicht; setzen
 erfordert das `publish`-Recht). Für angemeldete Konten sind die Leserechte
@@ -399,6 +399,22 @@ Detailseiten noch in Filterlisten, der öffentliche Pedigree-Baum zeigt
 unveröffentlichte Vorfahren nur als Platzhalter, und die an Plugins
 übergebenen Hook-Daten sind bereits gefiltert (siehe
 [plugin-development.md](plugin-development.md)).
+
+`contacts.view` gilt dabei auf **jeder** öffentlichen Fläche gleich
+(`PublicController::kontakteSichtbar()`, Audit M18/N11): Fehlt es, stehen
+Namen von Züchtern, Besitzern, Haltern und Deckstationen weder auf der
+Pferdeseite (samt Ort, Bundesland, Land und Website der Person) noch auf
+den Katalogkarten, beim Nachladen oder in den Vorschlagslisten, und die
+Kontaktfilter des Katalogs (Züchter, Besitzer, Halter, Deckstation, Personen
+und Station im Suchbegriff) treffen nichts — fail-closed, damit die
+Trefferzahl kein Namens-Orakel wird; ein vorgefilterter Aufruf zeigt einen
+Hinweis. Technisch ist das die Kontaktsperre in `HorseSearchSql`: Jeder
+`contacts`-JOIN bekommt `AND 0 = 1`, sodass auch künftige Kontaktfelder gar
+nicht erst ankommen. Freitext-Stationen ohne Datensatz sind keine Kontakte
+und bleiben. Die Auswahllisten des Katalogs (Farbe, Rasse, Kontakte) gibt es
+nur mit `horses.view`, Farbe und Rasse nur aus veröffentlichten Pferden
+(Audit N12). `/api/horses` gibt die Kontaktnamen nur mit `contacts.view` des
+Schlüssels aus (Audit N7, siehe [api.md](api.md)).
 
 **API-Schlüssel** (`src/Security/ApiKey.php`, [api.md](api.md)) sind eine
 eigene, session-unabhängige Auth-Fläche: max. 5 GÜLTIGE je Benutzer

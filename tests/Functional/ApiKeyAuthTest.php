@@ -372,6 +372,98 @@ class ApiKeyAuthTest extends FunctionalTestCase {
     }
 
     /**
+     * Kontaktnamen folgen contacts.view DES SCHLÜSSELS (Audit N7) - beim
+     * Besitzer UND im Scope, dieselbe Regel wie im Katalog. Bis dahin galt
+     * der Name als "für jeden Kontakt öffentlich", und ein Schlüssel mit dem
+     * Scope "Pferde -> Lesen" lieferte Züchter, Besitzer und Deckstation.
+     */
+    public function testContactNamesFollowContactsViewOfTheKey(): void {
+        $admin = $this->authenticatedClient();
+        $u = uniqid();
+        $db = Database::getInstance();
+
+        $kontakt = $db->prepare('INSERT INTO contacts (name, is_published) VALUES (?, 1)');
+        $namen = ['station' => "API Sperrstation {$u}", 'zuechter' => "API Sperrzuechter {$u}", 'besitzer' => "API Sperrbesitzer {$u}"];
+        $ids = [];
+        foreach ($namen as $rolle => $name) {
+            $kontakt->execute([$name]);
+            $ids[$rolle] = (int)$db->lastInsertId();
+        }
+        $marke = "APIKS{$u}";
+        $uelnH = 'DE0KS' . substr($u, -8) . 'H';
+        $pferd = $db->prepare(
+            "INSERT INTO horses (name, ueln, status, is_published, breeding_station_id, breeding_station) VALUES (?, ?, 'active', 1, ?, ?)"
+        );
+        $pferd->execute(["{$marke} Hengst", $uelnH, $ids['station'], $namen['station']]);
+        $h = (int)$db->lastInsertId();
+        $pferd->execute(["{$marke} Freitext", null, null, "API Freihof {$u}"]);
+        $f = (int)$db->lastInsertId();
+        $rolle = $db->prepare('INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, ?)');
+        $rolle->execute([$h, $ids['zuechter'], 'breeder']);
+        $rolle->execute([$h, $ids['besitzer'], 'owner']);
+
+        $groupId = $this->createOwnGroup($admin, 'API Kontaktnamen ' . $u);
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view'], 'contacts' => ['view']]);
+        $user = $this->createAndLoginEditor($admin, "apikontakt{$u}", "api-kontakt-{$u}@example.com", [$groupId]);
+        $client = $this->newClient();
+
+        $abruf = function (string $token) use ($client, $marke): array {
+            $antwort = $client->get('/api/horses?search=' . urlencode($marke), $this->bearer($token));
+            $this->assertSame(200, $antwort->statusCode);
+            $daten = json_decode($antwort->body, true);
+            $this->assertSame(2, $daten['meta']['total']);
+            $jeName = [];
+            foreach ($daten['data'] as $zeile) {
+                $jeName[$zeile['name']] = $zeile;
+            }
+            return [$jeName, $antwort->body];
+        };
+
+        try {
+            // (a) Scope mit beiden Rechten: Namen da.
+            $breit = $this->createApiKey($user, "Kontakte breit {$u}", ['horses.view', 'contacts.view']);
+            [$mit] = $abruf($breit);
+            $this->assertSame($namen['zuechter'], $mit["{$marke} Hengst"]['breeder']);
+            $this->assertSame($namen['besitzer'], $mit["{$marke} Hengst"]['owner']);
+            $this->assertSame($namen['station'], $mit["{$marke} Hengst"]['breeding_station']);
+
+            // (b) Scope nur horses.view: Namen null, Feldmenge gleich,
+            //     Freitext-Station bleibt.
+            $eng = $this->createApiKey($user, "Kontakte eng {$u}", ['horses.view']);
+            [$ohne, $rumpf] = $abruf($eng);
+            $hengst = $ohne["{$marke} Hengst"];
+            $this->assertNull($hengst['breeder']);
+            $this->assertNull($hengst['owner']);
+            $this->assertNull($hengst['breeding_station'], 'Auch die Namenskopie in horses.breeding_station fällt weg');
+            $this->assertSame(array_keys($mit["{$marke} Hengst"]), array_keys($hengst), 'Die Feldmenge bleibt gleich');
+            foreach ($namen as $name) {
+                $this->assertStringNotContainsString($name, $rumpf);
+            }
+            $this->assertSame("API Freihof {$u}", $ohne["{$marke} Freitext"]['breeding_station'], 'Freitext ist kein Kontakt');
+
+            $einzeln = $client->get('/api/horses/show?ueln=' . urlencode($uelnH), $this->bearer($eng));
+            $this->assertSame(200, $einzeln->statusCode);
+            $this->assertNull(json_decode($einzeln->body, true)['data']['breeder']);
+            foreach ($namen as $name) {
+                $this->assertStringNotContainsString($name, $einzeln->body);
+            }
+
+            // (c) Schlüssel ohne Scope ("alle meine Rechte"): folgt live dem
+            //     Besitzer.
+            $alle = $this->createApiKey($user, "Kontakte alle {$u}");
+            [$vorher] = $abruf($alle);
+            $this->assertSame($namen['zuechter'], $vorher["{$marke} Hengst"]['breeder']);
+            $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+            [$nachher] = $abruf($alle);
+            $this->assertNull($nachher["{$marke} Hengst"]['breeder'], 'Verliert der Besitzer contacts.view, fallen die Namen sofort weg');
+            $this->assertNull($nachher["{$marke} Hengst"]['breeding_station']);
+        } finally {
+            $db->prepare('DELETE FROM horses WHERE id IN (?, ?)')->execute([$h, $f]);
+            $db->prepare('DELETE FROM contacts WHERE id IN (?, ?, ?)')->execute(array_values($ids));
+        }
+    }
+
+    /**
      * Live-Cap: ein bereits ausgegebener Schlüssel verliert ein Recht in dem
      * Moment, in dem sein Besitzer es verliert - es wird nichts eingefroren,
      * was zum Zeitpunkt der Ausstellung galt.

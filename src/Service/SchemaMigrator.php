@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 26; // 26: Rechte-Seed "Intern lesen" für bisherige view-Gruppen (Audit M10/M13)
+    public const SCHEMA_VERSION = 27; // 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -1306,8 +1306,10 @@ final class SchemaMigrator {
         // color/breed ... WHERE deleted_at IS NULL lief mangels Index als Full
         // Table Scan mit temporärer Tabelle + Filesort über die größte Tabelle.
         // Mit (color|breed, deleted_at) werden daraus Index-Only-Scans.
-        $addIndex('horses', 'idx_horses_color', '`color`, `deleted_at`');
-        $addIndex('horses', 'idx_horses_breed', '`breed`, `deleted_at`');
+        // Seit Audit N12 mit is_published als dritter Spalte (siehe Schritt
+        // "katalog_farbe_rasse_veroeffentlicht" für den Bestand).
+        $addIndex('horses', 'idx_horses_color', '`color`, `deleted_at`, `is_published`');
+        $addIndex('horses', 'idx_horses_breed', '`breed`, `deleted_at`, `is_published`');
 
         // 24. Billiger Verzeichnis-Stempel je Plugin (#224, siehe
         // PluginManager::computeDirStamp()): max(filemtime), Dateianzahl und
@@ -3152,6 +3154,56 @@ final class SchemaMigrator {
             }
 
             return $meldungen;
+        });
+
+        // 5. Farb- und Rassenliste des Katalogs (Audit N12, SCHEMA_VERSION
+        // 27). Die öffentliche Liste zählt seitdem nur veröffentlichte
+        // Pferde - vorher verriet ein Wert, den nur ein zurückgehaltenes
+        // Pferd trägt, dessen Existenz. Mit den bisherigen Indizes (color|
+        // breed, deleted_at) war sie damit kein reiner Indexzugriff mehr
+        // (#221): Gemessen auf 50.000 Pferden 0,35 ms vorher, 95,6 ms mit
+        // is_published und alten Indizes, 0,50 ms mit erweitertem Index
+        // ("Using index for group-by"). Die Verwaltungsliste ohne
+        // is_published nutzt weiter das Präfix (0,44 ms).
+        //
+        // $addIndex prüft nur den NAMEN. Deshalb hier über die Spalten, und
+        // EIN atomares ALTER je Index statt CREATE/DROP/RENAME wie bei 412:
+        // Es gibt keinen Zwischenzustand ohne Index und nach einem Abbruch
+        // keinen liegengebliebenen Hilfsindex, an dem der nächste Lauf mit
+        // "Duplicate key name" scheiterte. InnoDB baut den Index online
+        // (INPLACE) neu, ohne die Tabelle umzukopieren.
+        //
+        // null, wenn nichts zu tun ist (frisches schema.sql, Legacy-Lauf mit
+        // Schritt 23, zweiter Lauf): kein Marker, der Schritt prüft beim
+        // nächsten Versionssprung erneut - ein billiges SHOW INDEX. Fehlt ein
+        // Index ganz, legt ihn Schritt 23 an; dieser Schritt fasst nur
+        // vorhandene, zu schmale an.
+        $dataStep('katalog_farbe_rasse_veroeffentlicht', function () use ($pdo, $tabelleExistiert, $spalteExistiert): ?array {
+            if (!$tabelleExistiert('horses') || !$spalteExistiert('horses', 'is_published')) {
+                return null;
+            }
+            // Feste Literale, keine Anfragewerte.
+            $ziele = [
+                'idx_horses_color' => ['color', 'deleted_at', 'is_published'],
+                'idx_horses_breed' => ['breed', 'deleted_at', 'is_published'],
+            ];
+            $meldungen = [];
+            foreach ($ziele as $name => $spalten) {
+                $zeilen = $pdo->query("SHOW INDEX FROM `horses` WHERE Key_name = '{$name}'")
+                    ->fetchAll(PDO::FETCH_ASSOC);
+                if ($zeilen === []) {
+                    continue;
+                }
+                usort($zeilen, static fn($a, $b) => (int)$a['Seq_in_index'] <=> (int)$b['Seq_in_index']);
+                $vorhanden = array_map(static fn($z) => (string)$z['Column_name'], $zeilen);
+                if ($vorhanden === $spalten) {
+                    continue;
+                }
+                $liste = implode(', ', array_map(static fn(string $s): string => "`{$s}`", $spalten));
+                $pdo->exec("ALTER TABLE `horses` DROP INDEX `{$name}`, ADD INDEX `{$name}` ({$liste})");
+                $meldungen[] = "Index horses.{$name} um is_published erweitert (Audit N12)";
+            }
+            return $meldungen === [] ? null : $meldungen;
         });
     }
 }

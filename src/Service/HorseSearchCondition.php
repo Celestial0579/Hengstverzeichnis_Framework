@@ -118,8 +118,9 @@ enum HorseSearchCondition {
      * Die Zahl hängt NICHT davon ab, ob öffentlich oder in der Verwaltung
      * gesucht wird: Die beiden Fassungen von HorseSearchSql::stationMatchSql()
      * binden beide genau zwei Werte, und die Sichtbarkeitszusätze für Personen
-     * kommen ganz ohne Platzhalter aus. Genau deshalb darf die Zahl hier
-     * stehen, ohne den Kontext zu kennen.
+     * kommen ganz ohne Platzhalter aus - ebenso die Kontaktsperre ("AND
+     * 0 = 1" ohne contacts.view, Audit M18/N7). Genau deshalb darf die Zahl
+     * hier stehen, ohne den Kontext zu kennen.
      */
     public function placeholdersFor(HorseSearchSql $sql): int {
         // Der Addon-Filter ist der einzige Fall mit variabler Laenge (#371):

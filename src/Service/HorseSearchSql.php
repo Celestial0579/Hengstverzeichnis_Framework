@@ -26,8 +26,8 @@ namespace App\Service;
  * die Analyse folgt der Trennung auch, weil der Bauplan im Aufrufer
  * unabhängig von $_GET entsteht.
  *
- * DER UNTERSCHIED ZWISCHEN DEN BEIDEN KONTEXTEN steckt weiterhin in einem
- * einzigen Schalter, $nurOeffentlich:
+ * DER UNTERSCHIED ZWISCHEN DEN KONTEXTEN steckt in zwei Schaltern. Der
+ * erste, $nurOeffentlich, trennt Katalog und Verwaltung:
  *
  * - Öffentlich (true) werden verknüpfte Personen, Deckstationen und
  *   Elterntiere überall zusätzlich auf is_published = 1 eingeschränkt. Das
@@ -40,6 +40,20 @@ namespace App\Service;
  *   auch unveröffentlichte Züchter, Stationen und Elterntiere finden - sonst
  *   fände er ausgerechnet die Datensätze nicht, die er freigeben soll. Ohne
  *   interne Einsicht nutzt auch die Verwaltungsliste true.
+ *
+ * Der zweite, $kontakteSichtbar (Standard true), ist die KONTAKTSPERRE für
+ * Leser ohne contacts.view (Audit M18/N7): Jeder JOIN und jedes EXISTS auf
+ * `contacts` bekommt dann zusätzlich "AND 0 = 1". Damit kommen alle
+ * Kontaktspalten als NULL an (Namen auf Karten, in personNamesSql() und
+ * personAggregateJoin(), die Stationskopie über die CASE-Unterdrückung in
+ * horses.breeding_station), und kein Kontaktfilter trifft mehr - weder
+ * Züchter, Besitzer, Halter und Deckstation noch der Personen- und
+ * Stationsteil des Suchbegriffs. Das ist fail-closed: Ein Filter, der
+ * nichts trifft, ist kein Namens-Orakel. Die Sperre sitzt im SQL statt in
+ * einem nachträglichen Nullen in PHP, weil sie so auch jedes künftige
+ * Kontaktfeld erfasst (Lehre aus #293). Sie kommt ohne Platzhalter aus;
+ * placeholders() bleibt kontextunabhängig. Der Standardwert lässt das SQL
+ * aller bisherigen Aufrufer bytegleich.
  */
 final class HorseSearchSql {
 
@@ -57,10 +71,15 @@ final class HorseSearchSql {
     private array $conditions = [];
 
     /**
-     * @param bool $nurOeffentlich Sichtbarkeitsgrenzen des öffentlichen
-     *                             Katalogs anwenden (#121/#122/#151)
+     * @param bool $nurOeffentlich   Sichtbarkeitsgrenzen des öffentlichen
+     *                               Katalogs anwenden (#121/#122/#151)
+     * @param bool $kontakteSichtbar false = Kontaktsperre, siehe
+     *                               Klassenkommentar (Audit M18/N7)
      */
-    public function __construct(private readonly bool $nurOeffentlich) {
+    public function __construct(
+        private readonly bool $nurOeffentlich,
+        private readonly bool $kontakteSichtbar = true,
+    ) {
         // Zwei Bedingungen gelten immer und hängen an nichts, was in der
         // Anfrage stehen könnte - sie werden deshalb hier gesetzt und nicht
         // von der lesenden Seite angemeldet. Die Reihenfolge zählt: Sie
@@ -74,6 +93,11 @@ final class HorseSearchSql {
     /** Gilt für diesen Bauplan die öffentliche Sichtbarkeitsgrenze? */
     public function nurOeffentlich(): bool {
         return $this->nurOeffentlich;
+    }
+
+    /** Darf dieser Bauplan Kontakte berühren, oder gilt die Kontaktsperre? */
+    public function kontakteSichtbar(): bool {
+        return $this->kontakteSichtbar;
     }
 
     /**
@@ -132,12 +156,15 @@ final class HorseSearchSql {
      * Der Alias `bs` bleibt trotz der Zusammenführung auf `contacts` (#336):
      * Er benennt hier die ROLLE "Deckstation dieses Pferdes", nicht die
      * Tabelle - und genau die gibt es weiterhin (horses.breeding_station_id).
+     *
+     * Die Kontaktsperre trifft nur bs; sire und dam sind Pferde, keine
+     * Kontakte.
      */
     public function joinSql(): string {
         $sichtbar = $this->nurOeffentlich ? ' AND %s.is_published = 1' : '';
         return "
             FROM horses h
-            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL" . sprintf($sichtbar, 'bs') . "
+            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL" . sprintf($sichtbar, 'bs') . $this->kontaktSperre() . "
             LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL" . sprintf($sichtbar, 'sire') . "
             LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL" . sprintf($sichtbar, 'dam') . "
         ";
@@ -360,10 +387,22 @@ final class HorseSearchSql {
 
     /**
      * Sichtbarkeitszusatz für verknüpfte Personen. Öffentlich zwingend
-     * (#121), im Admin bewusst nicht - siehe Klassenkommentar.
+     * (#121), im Admin bewusst nicht - siehe Klassenkommentar. Davor steht
+     * die Kontaktsperre; beide kommen ohne Platzhalter aus.
      */
     private function personVisibility(string $alias): string {
-        return $this->nurOeffentlich ? " AND {$alias}.is_published = 1" : '';
+        return $this->kontaktSperre() . ($this->nurOeffentlich ? " AND {$alias}.is_published = 1" : '');
+    }
+
+    /**
+     * Ohne contacts.view trifft kein JOIN und kein EXISTS auf `contacts`
+     * etwas (Audit M18/N7). Ein konstant falscher Zusatz statt einer
+     * weggelassenen Bedingung: Die Platzhalter bleiben stehen, die
+     * Parameterliste passt weiterhin, und der Optimierer erkennt "0 = 1"
+     * als unmögliche Bedingung.
+     */
+    private function kontaktSperre(): string {
+        return $this->kontakteSichtbar ? '' : ' AND 0 = 1';
     }
 
     /**
@@ -383,9 +422,14 @@ final class HorseSearchSql {
      * ODER-Verkettung ohne äußere Klammern - innerhalb der großen
      * ODER-Kette des allgemeinen Suchbegriffs stünde sie sonst überflüssig
      * da; die eigenständige Verwendung klammert selbst.
+     *
+     * Unter der Kontaktsperre gilt die eingeschränkte Fassung auch im
+     * Admin: bs ist dann leer, und die Kopie des Stationsnamens in
+     * horses.breeding_station darf den gesperrten Namen nicht über den
+     * Umweg wieder treffbar machen. Echter Freitext trifft weiter.
      */
     private function stationMatchSql(): string {
-        return $this->nurOeffentlich
+        return ($this->nurOeffentlich || !$this->kontakteSichtbar)
             ? "bs.name LIKE ? OR (h.breeding_station_id IS NULL AND h.breeding_station LIKE ?)"
             : "bs.name LIKE ? OR h.breeding_station LIKE ?";
     }

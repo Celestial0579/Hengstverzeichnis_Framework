@@ -123,6 +123,7 @@ class ApiController extends JsonApiController {
         // über multiplizierende JOINs - ein Pferd mit mehreren Besitzern erzeugt
         // so genau EINEN API-Datensatz - und nur veröffentlichte Kontakte (#121).
         $limitSql = $limit !== null ? "LIMIT ? OFFSET ?" : "";
+        $bau = new \App\Service\HorseSearchSql(true, $this->apiCan('contacts', 'view'));
 
         // Denormalisierte Kopie des Stationsnamens unterdrücken, wenn die Station
         // öffentlich nicht sichtbar ist: der bs-JOIN unten ist auf is_published = 1 AND
@@ -136,7 +137,22 @@ class ApiController extends JsonApiController {
         // Tabellen persons und breeding_stations sind zusammengeführt. Die
         // AUSGEGEBENE Feldmenge bleibt dabei exakt dieselbe: aus einem Kontakt
         // wird ausschließlich `name` gelesen (station_name, breeder_name,
-        // owner_name), und der Name ist für jeden Kontakt öffentlich.
+        // owner_name).
+        //
+        // Der Name folgt contacts.view DES SCHLÜSSELS - beim Besitzer UND im
+        // Scope, dieselbe Regel wie im Katalog (Audit N7/M18, #336). Bis
+        // dahin galt er als "für jeden Kontakt öffentlich", und ein Schlüssel
+        // mit dem Scope "Pferde -> Lesen" lieferte die Namen von Züchtern,
+        // Besitzern und Deckstationen, die weder sein Besitzer noch sein
+        // Scope lesen durfte. Ohne das Recht greift die Kontaktsperre aus
+        // HorseSearchSql: Die Namen kommen als NULL an, die Feldmenge bleibt
+        // gleich, und reiner Freitext einer Deckstation ohne Datensatz bleibt
+        // erhalten. Die JOINs stammen deshalb aus HorseSearchSql statt aus
+        // einer eigenen Kopie - im öffentlichen Modus sind es genau die, die
+        // hier vorher standen, und eine Sichtbarkeitsregel mit zwei Fassungen
+        // läuft irgendwann auseinander. Die übrigen Bedingungen des Bauplans
+        // bleiben ungenutzt; die API behält ihren eigenen Filtersatz
+        // (buildFilters() referenziert nur h.* und horse_registrations).
         //
         // Deshalb steht hier auch keine contact_public-Prüfung: Sie regelt die
         // zustellbaren Angaben (E-Mail, Telefon, Anschrift), und von denen
@@ -157,18 +173,8 @@ class ApiController extends JsonApiController {
                 dam.name AS linked_dam_name, dam.ueln AS linked_dam_ueln,
                 h.dam_name AS unlinked_dam_name, h.dam_ueln AS unlinked_dam_ueln,
                 hpx.breeder_name, hpx.owner_name
-            FROM horses h
-            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
-            LEFT JOIN horses sire ON h.sire_id = sire.id AND sire.deleted_at IS NULL AND sire.is_published = 1
-            LEFT JOIN horses dam ON h.dam_id = dam.id AND dam.deleted_at IS NULL AND dam.is_published = 1
-            LEFT JOIN (
-                SELECT hp.horse_id,
-                       GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'breeder' THEN p.name END SEPARATOR ', ') AS breeder_name,
-                       GROUP_CONCAT(DISTINCT CASE WHEN hp.role = 'owner' THEN p.name END SEPARATOR ', ') AS owner_name
-                FROM horse_persons hp
-                JOIN contacts p ON p.id = hp.contact_id AND p.deleted_at IS NULL AND p.is_published = 1
-                GROUP BY hp.horse_id
-            ) hpx ON hpx.horse_id = h.id
+            {$bau->joinSql()}
+            {$bau->personAggregateJoin()}
             WHERE {$whereSql}
             ORDER BY h.name ASC
             {$limitSql}

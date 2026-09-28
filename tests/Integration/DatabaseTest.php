@@ -251,8 +251,11 @@ class DatabaseTest extends TestCase {
         // Katalog-Filter-Indizes (#221) und die neuen Spalten für den
         // Plugin-Verzeichnis-Stempel (#224) bzw. die API-Schlüssel-Kopplung
         // an session_version (#217)
-        $this->assertIndexExists($pdo, 'horses', 'idx_horses_color');
-        $this->assertIndexExists($pdo, 'horses', 'idx_horses_breed');
+        // Seit Audit N12 (SCHEMA_VERSION 27) mit is_published: Die
+        // öffentliche Farb-/Rassenliste zählt nur veröffentlichte Pferde und
+        // bleibt nur so ein reiner Indexzugriff.
+        $this->assertIndexColumns($pdo, 'horses', 'idx_horses_color', ['color', 'deleted_at', 'is_published']);
+        $this->assertIndexColumns($pdo, 'horses', 'idx_horses_breed', ['breed', 'deleted_at', 'is_published']);
 
         /* Indexlage der Katalog-Vorschlagslisten (#412, SCHEMA_VERSION 20).
            Die Spalten werden mitgeprüft, nicht nur der Name: Der Index

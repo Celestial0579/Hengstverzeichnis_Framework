@@ -306,6 +306,49 @@ Breaking Changes sind jederzeit möglich).
   Werksreset oder einem Restore ohne `schema_version` vergibt die Migration
   nichts.
 
+- **Der Katalog beachtet das Gast-Recht „Kontakte → Lesen“** (Audit M18).
+  Wer der Gast-Gruppe `contacts.view` entzog, blendete Züchter, Besitzer und
+  Deckstationen zwar auf der Pferdeseite aus. `/katalog` zeigte sie aber
+  weiter: auf jeder Karte, beim Nachladen, in den Vorschlagslisten der Filter
+  (sogar ohne `horses.view`) und über die Kontaktfilter als Namens-Orakel.
+  Ohne das Recht bleiben die Namen jetzt auf Karten und beim Nachladen leer.
+  Die Vorschlagslisten und die Felder Züchter/Besitzer entfallen, und die
+  Filter Züchter, Besitzer, Halter und Deckstation sowie der Kontaktteil der
+  allgemeinen Suche treffen nichts mehr; Freitext-Stationen ohne Datensatz
+  treffen weiter. **Eingebettete Kataloge mit einem solchen Vorfilter zeigen
+  dann „Keine Treffer“ samt Hinweis.** Katalog, Pferdeseite und Kontaktseite
+  prüfen das Recht jetzt an einer Stelle
+  (`PublicController::kontakteSichtbar()`).
+
+- **JSON-API: Kontaktnamen nur noch mit `contacts.view`** (Audit N7).
+  `breeder`, `owner` und `breeding_station` sind `null`, wenn dem Schlüssel
+  „Kontakte → Lesen“ fehlt, beim Besitzer oder im Scope. Die Feldmenge
+  bleibt gleich, und der reine Freitext einer Deckstation ohne Verknüpfung
+  bleibt erhalten. **Eine Anbindung, deren Schlüssel nur „Pferde → Lesen“
+  trägt, bekommt die Namen nicht mehr.** Dafür einen neuen Schlüssel mit
+  beiden Rechten ausstellen; `/api-keys` weist darauf hin.
+
+- **Pferdeseite: Ort und Website ausgeblendeter Kontakte** (Audit N11). Ohne
+  `contacts.view` verschwand zwar der Name einer Person. Ort, Bundesland,
+  Land und der Link auf ihre Website standen aber weiter da, sobald die Zeile
+  zusätzlich eine Freitext-Deckstation oder ein Herkunftsland trug. Die
+  Angaben erreichen jetzt weder die Seite noch den Hook
+  `horse.detail_sections`; dort sind ohne das Recht auch `contact_id` und
+  `station_contact_id` `null`.
+
+- **Die Farb- und Rassenliste verrät keine unveröffentlichten Pferde mehr**
+  (Audit N12). Die Auswahllisten des Katalogs enthielten Werte aller Pferde,
+  auch der zurückgehaltenen, und wurden sogar ohne `horses.view` geladen. Sie
+  enthalten jetzt nur Werte veröffentlichter Pferde und entfallen ohne das
+  Recht.
+
+  **Migration (`SCHEMA_VERSION` 27):** Die Indizes `idx_horses_color` und
+  `idx_horses_breed` bekommen `is_published` als dritte Spalte, damit die
+  Liste ein reiner Indexzugriff bleibt (#221; gemessen auf 50.000 Pferden:
+  95,6 ms ohne, 0,5 ms mit erweitertem Index). Das Update baut die beiden
+  Indizes einmalig online neu auf, je Index mit einem einzigen
+  `ALTER TABLE`.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte

@@ -86,6 +86,7 @@ return [
     'catalog.search_placeholder' => 'Volltextsuche (Pferd, UELN, Züchter, Besitzer, Deckstation, Vater, Mutter)...',
     'catalog.search_button' => 'Suchen',
     'catalog.reset_filters' => 'Filter zurücksetzen',
+    'catalog.contact_filter_unavailable' => 'Die Suche nach Züchter, Besitzer, Halter oder Deckstation ist hier nicht verfügbar.',
     'catalog.advanced_filters' => '⚙️ Erweiterte Attribute-Filter (Pferd, Züchter, Deckstation, Abstammung)',
     'catalog.horse_name' => 'Pferdename',
     'catalog.horse_name_placeholder' => 'z. B. Storm',

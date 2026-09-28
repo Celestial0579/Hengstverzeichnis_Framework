@@ -176,6 +176,13 @@ class SchemaMigratorTest extends TestCase {
         $this->assertContains('Tabelle audit_logs angelegt', $steps);
         $this->assertContains('Spalte users.totp_secret ergänzt', $steps);
         $this->assertContains('Index horses.idx_horses_color angelegt', $steps);
+        // Schritt 23 legt den Index gleich in voller Breite an (Audit N12);
+        // der Erweiterungsschritt hat danach nichts mehr zu tun.
+        $this->assertNotContains('Index horses.idx_horses_color um is_published erweitert (Audit N12)', $steps);
+        $this->assertSame(
+            ['color', 'deleted_at', 'is_published'],
+            array_column(self::$pdo->query("SHOW INDEX FROM `horses` WHERE Key_name = 'idx_horses_color'")->fetchAll(PDO::FETCH_ASSOC), 'Column_name')
+        );
         $this->assertContains("Spalte horses.is_published ergänzt (Bestand mit status='active' als veröffentlicht übernommen)", $steps);
         $this->assertContains('Spalte horses.birth_year von YEAR auf SMALLINT UNSIGNED umgestellt', $steps);
         $this->assertContains("Status-Split: horses.status-Bestand 'deceased' nach is_deceased/death_year überführt, Enum bereinigt", $steps);
@@ -369,6 +376,57 @@ class SchemaMigratorTest extends TestCase {
 
         // Die Installationsepoche (Audit M24) legt der Lauf still an.
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string)self::einstellung('install_epoch'));
+    }
+
+    /**
+     * Die Indizes der Farb- und Rassenliste werden im Bestand um
+     * is_published erweitert (Audit N12) - per atomarem ALTER je Index und
+     * nur, wo sie noch schmal sind.
+     */
+    #[Depends('testRunOnCurrentSchemaOnlyPersistsVersion')]
+    public function testFarbUndRassenindexWirdErweitert(): void {
+        $spalten = function (string $name): array {
+            $zeilen = self::$pdo->query("SHOW INDEX FROM `horses` WHERE Key_name = '{$name}'")->fetchAll(PDO::FETCH_ASSOC);
+            usort($zeilen, static fn($a, $b) => (int)$a['Seq_in_index'] <=> (int)$b['Seq_in_index']);
+            return array_map(static fn($z) => (string)$z['Column_name'], $zeilen);
+        };
+        $schmal = function (string $name, string $spalte): void {
+            self::$pdo->exec("ALTER TABLE `horses` DROP INDEX `{$name}`, ADD INDEX `{$name}` (`{$spalte}`, `deleted_at`)");
+        };
+        $zurueck = function (): void {
+            self::$pdo->exec("DELETE FROM `settings` WHERE `setting_key` = 'migration_katalog_farbe_rasse_veroeffentlicht'");
+            self::$pdo->exec("UPDATE `settings` SET `setting_value` = '26' WHERE `setting_key` = 'schema_version'");
+        };
+
+        // Beide schmal, wie in jedem Bestand vor SCHEMA_VERSION 27.
+        $schmal('idx_horses_color', 'color');
+        $schmal('idx_horses_breed', 'breed');
+        $zurueck();
+
+        $schritte = SchemaMigrator::run(self::$pdo);
+
+        $this->assertContains('Index horses.idx_horses_color um is_published erweitert (Audit N12)', $schritte);
+        $this->assertContains('Index horses.idx_horses_breed um is_published erweitert (Audit N12)', $schritte);
+        $this->assertSame(['color', 'deleted_at', 'is_published'], $spalten('idx_horses_color'));
+        $this->assertSame(['breed', 'deleted_at', 'is_published'], $spalten('idx_horses_breed'));
+        $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo));
+
+        // Zweiter Voll-Lauf: nichts mehr zu tun, keine Meldung.
+        $zurueck();
+        $schritte = SchemaMigrator::run(self::$pdo);
+        $this->assertSame(
+            [sprintf('settings.schema_version auf %d gesetzt (vorher 26)', SchemaMigrator::SCHEMA_VERSION)],
+            $schritte
+        );
+
+        // Nur einer schmal: Nur dieser wird angefasst.
+        $schmal('idx_horses_breed', 'breed');
+        $zurueck();
+        $schritte = SchemaMigrator::run(self::$pdo);
+        $this->assertContains('Index horses.idx_horses_breed um is_published erweitert (Audit N12)', $schritte);
+        $this->assertNotContains('Index horses.idx_horses_color um is_published erweitert (Audit N12)', $schritte);
+        $this->assertSame(['breed', 'deleted_at', 'is_published'], $spalten('idx_horses_breed'));
+        $this->assertSame(['color', 'deleted_at', 'is_published'], $spalten('idx_horses_color'));
     }
 
     private static function einstellung(string $schluessel): ?string {

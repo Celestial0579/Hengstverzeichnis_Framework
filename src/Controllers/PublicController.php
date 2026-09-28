@@ -104,8 +104,49 @@ class PublicController extends BaseController {
         return $horses;
     }
 
+    /**
+     * Darf der Besucher auf öffentlichen Seiten Kontakte sehen - Namen von
+     * Züchtern, Besitzern, Haltern und Deckstationen samt Ort und Website?
+     *
+     * EINE Stelle für diese Frage (Audit M18). Katalog, Pferdeseite,
+     * Kontaktseite und die Legacy-Umleitung hängen am selben Recht (#336);
+     * eine Fläche, die es nicht prüft, hebelt die Entziehung für alle
+     * anderen aus. Bis dahin prüften es nur Pferde- und Kontaktseite, und
+     * /katalog zeigte die Namen weiter auf jeder Karte, in den
+     * Vorschlagslisten und über die Kontaktfilter.
+     *
+     * hasPublicPermission(): Die Rechte der Gast-Gruppe sind für angemeldete
+     * Konten eine Untergrenze (Audit N61).
+     */
+    private function kontakteSichtbar(): bool {
+        return $this->hasPublicPermission('contacts', 'view');
+    }
+
+    /**
+     * Die Kontaktfilter des Katalogs. Ohne contacts.view bleiben sie aktiv,
+     * treffen aber nichts (Kontaktsperre in HorseSearchSql) - siehe
+     * catalog().
+     */
+    private const KONTAKTFILTER = ['q_breeder', 'q_owner', 'q_keeper', 'q_station'];
+
+    /**
+     * Die Felder einer Zuordnungszeile der Pferdeseite, die aus einem
+     * Kontakt stammen oder ihn benennen - ohne contacts.view alle null
+     * (Audit N11). station_contact_id folgt gesondert, siehe horseDetail().
+     */
+    private const ZUORDNUNG_KONTAKTFELDER = [
+        'person_name', 'contact_id', 'city', 'state', 'country', 'website',
+        'station_name', 'station_id',
+    ];
+
     public function catalog(): void {
         $db = Database::getInstance();
+
+        // Zwei Rechte, je EINMAL bestimmt (Audit M18/N12): horses.view
+        // entscheidet über Karten UND alle Auswahllisten, contacts.view über
+        // jeden Kontaktbezug darin.
+        $pferdeSichtbar = $this->hasPublicPermission('horses', 'view');
+        $kontakteSichtbar = $this->kontakteSichtbar();
 
         // Suchlogik gemeinsam mit der Pferdeverwaltung, aufgeteilt in zwei
         // Bausteine: HorseSearchSql erzeugt Klausel und JOINs und bekommt die
@@ -122,7 +163,19 @@ class PublicController extends BaseController {
         // aufrecht: verknuepfte Personen, Stationen und Elterntiere zaehlen nur
         // veroeffentlicht, sonst waere der Filter ein Existenz-Orakel
         // (#121/#122/#151). Der Admin bekommt dieselben Bausteine mit false.
-        $sql = new \App\Service\HorseSearchSql(true);
+        //
+        // Ohne contacts.view gilt zusätzlich die Kontaktsperre (Audit M18):
+        // Jeder contacts-JOIN trifft nichts. Karten, Nachladen, Trefferzahl
+        // und das Payload von catalog.card_sections tragen dann keine
+        // Kontaktnamen, und die Kontaktfilter (Züchter, Besitzer, Halter,
+        // Deckstation, Personen und Station im Suchbegriff) liefern nichts -
+        // FAIL-CLOSED statt ignoriert. Ignorierte Filter zeigten einem
+        // vorgefilterten Aufruf (etwa einer Einbettung mit q_breeder)
+        // unbemerkt den ganzen Bestand; die Kriterien lesen die Filter
+        // deshalb hier bewusst weiter (anders als die Verwaltung, die sie
+        // ohne das Recht gar nicht anbietet, Audit M13). Freitext-Stationen
+        // ohne Datensatz sind keine Kontakte und treffen weiter.
+        $sql = new \App\Service\HorseSearchSql(true, $kontakteSichtbar);
         $criteria = \App\Service\HorseSearchCriteria::fromRequest($_GET, true);
         $criteria->applyTo($sql);
 
@@ -150,7 +203,7 @@ class PublicController extends BaseController {
         // rendert die volle Seite, und die braucht die Trefferzahl.
         $anhaengen = $isAjax && !empty($_GET['append']);
 
-        if ($this->hasPublicPermission('horses', 'view')) {
+        if ($pferdeSichtbar) {
             // Echte SQL-Pagination statt "alle Treffer laden" (#125).
             if ($anhaengen) {
                 $totalHorses = null;
@@ -170,6 +223,8 @@ class PublicController extends BaseController {
             // is_published = 1 AND deleted_at IS NULL eingeschränkt, "bs.id IS NULL"
             // heißt dort also exakt: nicht öffentlich sichtbar. Freitext ohne
             // Stations-Datensatz hat keine breeding_station_id und bleibt (#151/#122).
+            // Unter der Kontaktsperre ist bs immer leer - die Kopie fällt
+            // damit ohne eigenes Zutun mit weg (Audit M18).
             $cardsSql = "
                 SELECT
                     h.id, h.name, h.ueln, h.foreign_ueln, h.birth_year, h.birth_date, h.birth_date_precision, h.color, h.status, h.is_deceased, h.death_year, h.image_url,
@@ -294,8 +349,21 @@ class PublicController extends BaseController {
         // DISTINCT-Scans (u. a. über die gesamte horses-Tabelle) bei jedem
         // Debounce-Tastendruck der Live-Suche mit und wurden komplett
         // weggeworfen. Nur der volle Seiten-Render braucht sie.
-        $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
-        $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        //
+        // Farbe und Rasse NUR aus veröffentlichten Pferden und nur mit
+        // horses.view (Audit N12). Beide Felder sind Freitext; ein Wert, den
+        // nur ein zurückgehaltenes Pferd trägt, verriete dessen Existenz -
+        // dasselbe Orakel, das #121/#122 für Personen und Stationen
+        // schließen. Die Verwaltung (HorseController::index) lädt dieselben
+        // Listen mit interner Einsicht weiter ohne diese Grenze.
+        // Die Indizes idx_horses_color/idx_horses_breed tragen is_published
+        // mit (SCHEMA_VERSION 27), damit die Liste ein reiner Indexzugriff
+        // bleibt (#221).
+        $colors = $breeds = $stations = $persons = [];
+        if ($pferdeSichtbar) {
+            $colors = $db->query("SELECT DISTINCT color FROM horses WHERE color IS NOT NULL AND color != '' AND deleted_at IS NULL AND is_published = 1 ORDER BY color ASC")->fetchAll(\PDO::FETCH_COLUMN);
+            $breeds = $db->query("SELECT DISTINCT breed FROM horses WHERE breed IS NOT NULL AND breed != '' AND deleted_at IS NULL AND is_published = 1 ORDER BY breed ASC")->fetchAll(\PDO::FETCH_COLUMN);
+        }
         // Nur veröffentlichte Kontakte als öffentliche Filteroptionen anbieten
         // (is_published), konsistent mit der Sichtbarkeit im übrigen öffentlichen Bereich.
         //
@@ -334,21 +402,40 @@ class PublicController extends BaseController {
         // DSGVO-Widerspruch), muss sein Name sofort verschwinden, nicht nach
         // Ablauf einer Frist. tests/Functional/CatalogFilterOptionsTest.php
         // sichert genau das zu.
-        $stations = $db->query("
-            SELECT DISTINCT c.name
-            FROM contacts c
-            JOIN horses h ON h.breeding_station_id = c.id AND h.deleted_at IS NULL AND h.is_published = 1
-            WHERE c.deleted_at IS NULL AND c.is_published = 1
-            ORDER BY c.name ASC
-        ")->fetchAll(\PDO::FETCH_COLUMN);
-        $persons = $db->query("
-            SELECT DISTINCT c.name
-            FROM contacts c
-            JOIN horse_persons hp ON hp.contact_id = c.id
-            JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
-            WHERE c.deleted_at IS NULL AND c.is_published = 1
-            ORDER BY c.name ASC
-        ")->fetchAll(\PDO::FETCH_COLUMN);
+        //
+        // Nur mit horses.view UND contacts.view (Audit M18): Bis dahin liefen
+        // beide Abfragen ohne jede Rechteprüfung, und die Namen standen im
+        // Quelltext, selbst wenn der Katalog leer war.
+        if ($pferdeSichtbar && $kontakteSichtbar) {
+            $stations = $db->query("
+                SELECT DISTINCT c.name
+                FROM contacts c
+                JOIN horses h ON h.breeding_station_id = c.id AND h.deleted_at IS NULL AND h.is_published = 1
+                WHERE c.deleted_at IS NULL AND c.is_published = 1
+                ORDER BY c.name ASC
+            ")->fetchAll(\PDO::FETCH_COLUMN);
+            $persons = $db->query("
+                SELECT DISTINCT c.name
+                FROM contacts c
+                JOIN horse_persons hp ON hp.contact_id = c.id
+                JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
+                WHERE c.deleted_at IS NULL AND c.is_published = 1
+                ORDER BY c.name ASC
+            ")->fetchAll(\PDO::FETCH_COLUMN);
+        }
+
+        // Ein vorgefilterter Aufruf ohne contacts.view (etwa eine Einbettung
+        // mit q_breeder) stünde sonst ohne sichtbares Filterfeld bei "Keine
+        // Treffer", und der Besucher sähe keinen Grund dafür.
+        $kontaktfilterGesperrt = false;
+        if (!$kontakteSichtbar) {
+            foreach (self::KONTAKTFILTER as $schluessel) {
+                if (is_string($_GET[$schluessel] ?? null) && trim($_GET[$schluessel]) !== '') {
+                    $kontaktfilterGesperrt = true;
+                    break;
+                }
+            }
+        }
 
         // Minimal-Layout (#260): Das Issue nennt genau diesen fehlenden Schalter.
         // Er wirkt NUR auf die Darstellung; die Frame-Sperre lockert sich davon
@@ -365,6 +452,8 @@ class PublicController extends BaseController {
             'breeds' => $breeds,
             'stations' => $stations,
             'persons' => $persons,
+            'kontakteSichtbar' => $kontakteSichtbar,
+            'kontaktfilterGesperrt' => $kontaktfilterGesperrt,
             'cardSections' => $cardSections,
             'catalogPagination' => $catalogPagination,
             'embed' => $embed,
@@ -404,6 +493,14 @@ class PublicController extends BaseController {
         // bs.contact_info steht bewusst nirgends in dieser Liste. Maßgeblich
         // für die Aufteilung ist ContactController::RELEASE_GATED_FIELDS;
         // jedes Feld dort, das diese Seite zeigt, braucht hier sein CASE.
+        //
+        // Ohne contacts.view trifft der bs-JOIN gar nichts (Kontaktsperre,
+        // dieselbe Regel wie HorseSearchSql, Audit M18/N11): Die Stationsfelder
+        // kommen dann schon als NULL an, auch künftig ergänzte. Der
+        // Null-Block weiter unten bleibt als zweite Linie stehen.
+        $kontakteSichtbar = $this->kontakteSichtbar();
+        $kontaktSperre = $kontakteSichtbar ? '' : ' AND 0 = 1';
+
         $db = Database::getInstance();
         $stmt = $db->prepare("
             SELECT h.*, bs.name as station_name,
@@ -417,7 +514,7 @@ class PublicController extends BaseController {
                    CASE WHEN bs.contact_public = 1 THEN bs.email END as station_email,
                    bs.website as station_website
             FROM horses h
-            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
+            LEFT JOIN contacts bs ON h.breeding_station_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1{$kontaktSperre}
             WHERE h.id = ? AND h.deleted_at IS NULL AND h.is_published = 1
         ");
         $stmt->execute([$id]);
@@ -432,7 +529,7 @@ class PublicController extends BaseController {
         // contactDetail() (#122). Das Rechte-Modul heißt seit #336 `contacts`
         // und deckt Personen wie Deckstationen ab; die frühere Trennung in
         // `persons` und `breeding_stations` ist mit den Tabellen entfallen.
-        if (!$this->hasPublicPermission('contacts', 'view')) {
+        if (!$kontakteSichtbar) {
             // Vollständige Feldliste - die strukturierte Adresse (#256) muss hier
             // genauso mitgenullt werden wie das alte Freitextfeld, sonst wäre der
             // Schutz durch das Nachziehen des Schemas still ausgehebelt.
@@ -497,8 +594,8 @@ class PublicController extends BaseController {
         $stmt = $db->prepare("
             SELECT hp.*, p.name as person_name, p.city, p.state, p.country, p.website, bs.name as station_name, bs.id as station_id
             FROM horse_persons hp
-            LEFT JOIN contacts p ON hp.contact_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1
-            LEFT JOIN contacts bs ON hp.station_contact_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1
+            LEFT JOIN contacts p ON hp.contact_id = p.id AND p.deleted_at IS NULL AND p.is_published = 1{$kontaktSperre}
+            LEFT JOIN contacts bs ON hp.station_contact_id = bs.id AND bs.deleted_at IS NULL AND bs.is_published = 1{$kontaktSperre}
             WHERE hp.horse_id = ?
             ORDER BY hp.from_year ASC, hp.id ASC
         ");
@@ -539,16 +636,30 @@ class PublicController extends BaseController {
         // behoben hat. Beide Verweise zeigen jetzt auf DIESELBE Route
         // (/kontakt?id=) unter DEMSELBEN Recht; einen davon ungeprueft zu
         // lassen, waere im selben Block sichtbar widerspruechlich.
-        $kontakteSichtbar = $this->hasPublicPermission('contacts', 'view');
+        //
+        // Ort, Bundesland, Land und Website gehören zur Person und fallen mit
+        // ihr (Audit N11). Bis dahin nullte dieser Block nur Name und
+        // Kennungen; trug die Zeile zusätzlich eine Freitext-Station oder ein
+        // Herkunftsland, blieb sie stehen - und mit ihr Wohnort und Website
+        // der ausgeblendeten Person, auf der Seite wie im Hook
+        // horse.detail_sections. Die Kontaktsperre in der Abfrage oben
+        // liefert sie schon als NULL; die Feldliste hier ist die zweite
+        // Linie. contact_id und station_contact_id sind Rohspalten aus hp.*
+        // und müssen hier genullt werden.
         $horsePersons = array_map(static function (array $hp) use ($kontakteSichtbar): array {
             if (!$kontakteSichtbar) {
-                $hp['person_name'] = null;
-                $hp['contact_id'] = null;
-                $hp['station_name'] = null;
-                $hp['station_id'] = null;
+                foreach (self::ZUORDNUNG_KONTAKTFELDER as $feld) {
+                    $hp[$feld] = null;
+                }
             }
             if (!empty($hp['station_contact_id']) && empty($hp['station_name'])) {
                 $hp['breeding_station_text'] = null;
+            }
+            // Erst NACH der Freitext-Regel: Die braucht station_contact_id
+            // noch, um die Namenskopie zu erkennen. Danach trägt das
+            // Hook-Payload keine Kontaktkennung mehr, wie bei contact_id.
+            if (!$kontakteSichtbar) {
+                $hp['station_contact_id'] = null;
             }
             return $hp;
         }, $horsePersons);
@@ -648,7 +759,7 @@ class PublicController extends BaseController {
             exit;
         }
 
-        if (!$this->hasPublicPermission('contacts', 'view')) {
+        if (!$this->kontakteSichtbar()) {
             $this->renderNotFound(\App\I18n\Translator::t('contact.not_found'));
         }
 
@@ -833,7 +944,7 @@ class PublicController extends BaseController {
      */
     private function redirectLegacyContact(string $alterTyp, string $fehlerSchluessel): void {
         $id = $_GET['id'] ?? null;
-        if (!$id || !$this->hasPublicPermission('contacts', 'view')) {
+        if (!$id || !$this->kontakteSichtbar()) {
             $this->renderNotFound(\App\I18n\Translator::t($fehlerSchluessel));
         }
 

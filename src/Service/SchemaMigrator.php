@@ -1670,7 +1670,7 @@ final class SchemaMigrator {
         // was eine ganze Fehlerklasse erspart. Stationen bekommen neue IDs
         // oberhalb des Personenbestands; /station?id= läuft über contact_id_map
         // als dauerhafte Weiterleitung.
-        $dataStep('336_contacts_uebernahme', function (callable $vermerke) use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('336_contacts_uebernahme', function (callable $vermerke) use ($pdo, $tabelleExistiert, $spalteExistiert): ?array {
             // JE TABELLE EINZELN prüfen, nicht als Paar.
             //
             // Die beiden Alttabellen kamen zwar praktisch immer zusammen vor -
@@ -1790,6 +1790,37 @@ final class SchemaMigrator {
                 $anzPersonen,
                 count($stationen)
             );
+
+            // Mitgliedsstatus (Audit N78). Die Kopie oben nimmt
+            // persons.membership_status bewusst NICHT mit - `contacts` führt
+            // das Feld nicht mehr (#349/#395), die Angabe gehört dem Addon
+            // `mitgliedsstatus`. Beim Sprung aus v0.7 bleiben die Werte in
+            // persons_pre_contacts stehen (31f benennt nur um), und das Addon
+            // ab 1.1.0 übernimmt sie von dort. Hier nur die Meldung, damit der
+            // Betreiber es an der Konsole erfährt - keine Datenänderung. Zählt
+            // nach derselben Leerraum-Regel wie Addon und Dashboard-Hinweis
+            // (App\Service\MitgliedsstatusAltbestand). Nach dem Commit: darf
+            // den Schritt nicht mehr scheitern lassen.
+            if ($hatPersonen) {
+                try {
+                    if ($spalteExistiert('persons', 'membership_status')) {
+                        $mitStatus = (int)$pdo->query(
+                            "SELECT COUNT(*) FROM persons
+                             WHERE membership_status IS NOT NULL
+                               AND " . MitgliedsstatusAltbestand::normiert('membership_status') . " <> ''"
+                        )->fetchColumn();
+                        if ($mitStatus > 0) {
+                            $meldungen[] = sprintf(
+                                'Kontaktliste (#336): %d Person(en) führen einen Mitgliedsstatus - er bleibt in '
+                                . 'persons_pre_contacts; Addon mitgliedsstatus ≥ 1.1.0 übernimmt ihn',
+                                $mitStatus
+                            );
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // Nur eine Meldung - der Wert selbst bleibt ohnehin stehen.
+                }
+            }
 
             // Namensgleichheiten NICHT automatisch zusammenführen.
             //
@@ -2188,15 +2219,26 @@ final class SchemaMigrator {
         // dem alten Namen kann kein Code sie mehr versehentlich lesen, die Daten
         // sind aber noch da.
         //
-        // ENTFERNT WERDEN SIE IN v0.10, NICHT IN v0.9.0. Die ursprüngliche
-        // Zusage lautete auf 0.9.0 und wurde bei der Freigabe bewusst
-        // verschoben: Mit den Tabellen stirbt `database/rollback-336.php`, der
-        // einzige Rückweg aus der Kontakt-Zusammenlegung. Die 0.9.0 ist die
-        // erste suffixfreie Fassung, die diese Umstellung an Bestände
-        // ausliefert — genau der Zeitpunkt, zu dem der Rückweg am ehesten
-        // gebraucht wird. Ihn im selben Release zu kappen wäre die falsche
-        // Reihenfolge. Wer den Termin erneut verschiebt, ändert BEIDE Stellen:
-        // diesen Kommentar und die Meldung an den Betreiber weiter unten.
+        // SIE BLEIBEN BIS AUF WEITERES. Ursprünglich lautete die Zusage auf
+        // 0.9.0, dann auf v0.10: Mit den Tabellen stirbt
+        // `database/rollback-336.php`, der einzige Rückweg aus der
+        // Kontakt-Zusammenlegung, und die 0.9.0 ist die erste suffixfreie
+        // Fassung, die diese Umstellung an Bestände ausliefert.
+        //
+        // VERBINDLICH FÜR JEDE KÜNFTIGE BEREINIGUNG (Audit N78, abgestimmt mit
+        // M23/fw-dsgvo): `persons_pre_contacts` ist beim direkten Sprung aus
+        // v0.7 die EINZIGE Quelle des Mitgliedsstatus - `contacts` hatte die
+        // Spalte nie, das Addon `mitgliedsstatus` ab 1.1.0 übernimmt von dort.
+        //  - Ein Entfernen der Alttabellen darf NICHT laufen, solange
+        //    App\Service\MitgliedsstatusAltbestand::offen() > 0 ist. Das
+        //    braucht einen eigenen dataStep (mit SCHEMA_VERSION-Bump), der
+        //    sich bis dahin offen meldet.
+        //  - Eine Pseudonymisierung (M23) muss `persons_pre_contacts.id` und
+        //    `membership_status` bis dahin stehen lassen.
+        //  - DSGVO-Löschung und -Anonymisierung je Kontakt müssen dagegen
+        //    `membership_status` dieser ID mit NULLen (siehe den Kommentar in
+        //    GdprController::anonymizePerson()).
+        // Wer das ändert, ändert auch die Meldung an den Betreiber weiter unten.
         $dataStep('336_altbestand_stilllegen', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert, $spalteExistiert, $dropForeignKey): ?array {
             if (!$tabelleExistiert('persons') && !$tabelleExistiert('breeding_stations')) {
                 return null;
@@ -2233,7 +2275,7 @@ final class SchemaMigrator {
                 if ($tabelleExistiert($alt) && !$tabelleExistiert($neu)) {
                     $dropForeignKey($alt, 'id');
                     $pdo->exec("RENAME TABLE `{$alt}` TO `{$neu}`");
-                    $meldungen[] = "Tabelle {$alt} nach {$neu} umbenannt (Rückweg für #336; entfällt in v0.10)";
+                    $meldungen[] = "Tabelle {$alt} nach {$neu} umbenannt (Rückweg für #336; bleibt bis auf Weiteres erhalten)";
                 }
             }
 

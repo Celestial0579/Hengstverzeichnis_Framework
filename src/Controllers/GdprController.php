@@ -342,6 +342,20 @@ class GdprController extends BaseController {
             // Nicht genullt werden id/name (name wird ersetzt) sowie
             // is_published, is_breeder und contact_public: Sie sagen etwas über
             // den Datensatz, nicht über die Person, und sind NOT NULL.
+            //
+            // DER NAME IST EIN VERTRAG (Audit N78). Das Addon mitgliedsstatus
+            // (Uebernahme::altbestandZeilen()) und
+            // App\Service\MitgliedsstatusAltbestand erkennen anonymisierte
+            // Kontakte an GENAU diesem Wortlaut und übernehmen bzw. zählen
+            // ihren Mitgliedsstatus aus dem v0.7-Altbestand persons_pre_contacts
+            // nicht. Wer ihn ändert (M23), zieht beide Filter mit.
+            //
+            // Offen für M23 (fw-dsgvo): Der Altbestand persons_pre_contacts
+            // wird hier nicht angefasst. Die DSGVO-Behandlung je Kontakt muss
+            // dort künftig membership_status (und die übrigen PII) derselben
+            // ID mit NULLen; die Zeile selbst und ihre id müssen stehen bleiben,
+            // solange MitgliedsstatusAltbestand::offen() > 0 ist (siehe
+            // SchemaMigrator, Schritt 336_altbestand_stilllegen).
             $anonName = "Anonymisierte Person (#" . $personId . ")";
             $stmt = $db->prepare("UPDATE contacts SET name = ?, contact_person = NULL, contact_info = NULL, street = NULL, house_number = NULL, postal_code = NULL, city = NULL, state = NULL, country = NULL, address = NULL, email = NULL, phone = NULL, mobile = NULL, website = NULL WHERE id = ?");
             $stmt->execute([$anonName, $personId]);

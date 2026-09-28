@@ -66,6 +66,26 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </div>
     <?php endif; ?>
 
+    <?php // Mitgliedsstatus aus v0.7 (Audit N78).
+          //
+          // Wer direkt von v0.7 hebt, konnte das Addon mitgliedsstatus vorher
+          // nicht installieren; die Werte stehen danach nur noch im
+          // stillgelegten Altbestand persons_pre_contacts. Das Addon ab 1.1.0
+          // holt sie von dort - aber nur, wenn jemand es installiert. Bis
+          // dahin steht der Hinweis hier, nur fuer Administratoren und nur
+          // dann ueberhaupt berechnet. Die Regel steht in
+          // App\Service\MitgliedsstatusAltbestand. ?>
+    <?php $mitgliedsstatusAltbestand = $isAdmin ? \App\Service\MitgliedsstatusAltbestand::offen(\App\Database::getInstance()) : 0; ?>
+    <?php if ($mitgliedsstatusAltbestand > 0): ?>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);">
+            <strong>Mitgliedsstatus aus v0.7:</strong>
+            <?= (int)$mitgliedsstatusAltbestand ?> <?= $mitgliedsstatusAltbestand === 1 ? 'Kontakt führt' : 'Kontakte führen' ?>
+            einen Wert, der nur noch im stillgelegten Altbestand steht.
+            Installiere oder aktualisiere das Addon <code>mitgliedsstatus</code> (ab 1.1.0), es übernimmt die Werte von dort.
+            <a href="/admin/plugins/store" style="color: inherit;">Addon-Store</a>
+        </div>
+    <?php endif; ?>
+
     <?php // Offene oder gescheiterte Schema-Migration (Audit N76).
           //
           // Der implizite Migrationsweg verschluckt Fehler, damit die App

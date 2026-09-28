@@ -4,6 +4,7 @@
 namespace Tests\Integration;
 
 use App\Helper\HorseImagePath;
+use App\Service\MitgliedsstatusAltbestand;
 use App\Service\SchemaMigrator;
 use PDO;
 use PHPUnit\Framework\TestCase;
@@ -253,5 +254,55 @@ class Migration336AusV07Test extends TestCase {
 
         $this->assertSame(1, (int)$pdo->query("SELECT expires_at = created_at FROM api_keys WHERE id = 1")->fetchColumn());
         $this->assertSame(1, (int)$pdo->query("SELECT expires_at > NOW() + INTERVAL 29 DAY FROM api_keys WHERE id = 2")->fetchColumn());
+    }
+
+    // ---------------------------------------------------------------- N78
+
+    /**
+     * Sprung aus v0.7 direkt auf den Stand nach #395 (Audit N78). `contacts`
+     * bekommt die Spalte nie, der Mitgliedsstatus bleibt im stillgelegten
+     * Altbestand. Der Schritt 395 findet nichts zu löschen und setzt deshalb
+     * KEINEN Marker - genau daran erkennen Addon und Dashboard-Hinweis den
+     * Sprung. Die Migration meldet die Werte, ändert sie aber nicht.
+     */
+    public function testV07MitgliedsstatusBleibtImAltbestand(): void {
+        $pdo = AltbestandV072::anlegen(self::db());
+        $pdo->exec("INSERT INTO persons (id, name, membership_status) VALUES
+                    (1, 'Anna', 'Mitglied'), (2, 'Bert', '\t'), (3, 'Cora', NULL)");
+
+        $schritte = SchemaMigrator::run($pdo);
+
+        $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion($pdo), implode("\n", $schritte));
+        $this->assertFalse(AltbestandV072::spalteExistiert($pdo, 'contacts', 'membership_status'));
+        $this->assertSame(
+            'Mitglied',
+            $pdo->query('SELECT membership_status FROM persons_pre_contacts WHERE id = 1')->fetchColumn(),
+            'Der Wert muss im Altbestand stehen bleiben - er ist die einzige Quelle.'
+        );
+        $this->assertTrue(
+            self::enthaelt($schritte, '1 Person(en) führen einen Mitgliedsstatus - er bleibt in persons_pre_contacts'),
+            implode("\n", $schritte)
+        );
+        $this->assertNull(
+            AltbestandV072::einstellung($pdo, 'migration_395_membership_status_faellt'),
+            'Ohne Spalte in contacts darf Schritt 395 keinen Marker setzen - sonst ist der Sprung nicht erkennbar.'
+        );
+        $this->assertSame(1, MitgliedsstatusAltbestand::offen($pdo));
+
+        // Nach der Übernahme durch das Addon (Marker mit quelle) ist nichts mehr offen.
+        $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('plugin_mitgliedsstatus_uebernahme', ?)")
+            ->execute([json_encode(['gesamt' => 1, 'zugeordnet' => 1, 'offen' => 0, 'quelle' => 'persons_pre_contacts', 'bestand' => 0])]);
+        $this->assertSame(0, MitgliedsstatusAltbestand::offen($pdo));
+    }
+
+    /** Ohne belegten Mitgliedsstatus keine Meldung - sie wäre Rauschen. */
+    public function testV07OhneMitgliedsstatusMeldetNichts(): void {
+        $pdo = AltbestandV072::anlegen(self::db());
+        $pdo->exec("INSERT INTO persons (id, name, membership_status) VALUES (1, 'Anna', NULL), (2, 'Bert', ' ')");
+
+        $schritte = SchemaMigrator::run($pdo);
+
+        $this->assertFalse(self::enthaelt($schritte, 'Mitgliedsstatus'), implode("\n", $schritte));
+        $this->assertSame(0, MitgliedsstatusAltbestand::offen($pdo));
     }
 }

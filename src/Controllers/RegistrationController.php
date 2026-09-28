@@ -52,16 +52,16 @@ class RegistrationController extends BaseController {
 
         // Rate-Limit pro Client-IP: 5 Registrierungsversuche / Stunde. Jeder
         // POST zählt (auch fehlgeschlagene), damit Enumeration über wiederholte
-        // Versuche ebenso gebremst wird wie Massenregistrierung.
-        $clientIp = \App\Security\ClientIp::resolve();
-        if (\App\Security\RateLimiter::tooManyAttempts($clientIp, 'registration', 5, 3600)) {
+        // Versuche ebenso gebremst wird wie Massenregistrierung. Erst
+        // buchen, dann zählen (Audit M20); bei IPv6 zählt das /64 (M7).
+        $clientKey = \App\Security\ClientIp::rateLimitKey();
+        if (\App\Security\RateLimiter::reserveAttempt($clientKey, 'registration', 5, 3600) === null) {
             $this->render('register', [
                 'title' => \App\I18n\Translator::t('register.title'),
                 'error' => \App\I18n\Translator::t('register.rate_limited'),
             ]);
             return;
         }
-        \App\Security\RateLimiter::recordAttempt($clientIp, 'registration');
 
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');

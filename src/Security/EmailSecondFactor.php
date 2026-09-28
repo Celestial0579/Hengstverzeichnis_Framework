@@ -81,8 +81,23 @@ final class EmailSecondFactor {
     /**
      * Prueft einen eingegebenen Code und verbraucht ihn bei Erfolg.
      *
-     * Abgelaufene, aufgebrauchte und eingeloeste Codes werden geloescht: Was
-     * nicht mehr gelten soll, bleibt nicht als Zeile liegen.
+     * Abgelaufene und eingeloeste Codes werden geloescht: Was nicht mehr
+     * gelten soll, bleibt nicht als Zeile liegen. Aufgebrauchte bleiben bis
+     * zum Ablauf stehen und gelten nicht mehr (siehe discardInvalid()).
+     *
+     * ATOMAR UND AN DEN CODE GEBUNDEN (Audit M20, N43). Bisher: lesen,
+     * pruefen, bei Fehlschlag den Zaehler erhoehen, bei Erfolg die Zeile
+     * loeschen. Parallele Anfragen sahen alle denselben Zaehlerstand und
+     * bekamen zusammen weit mehr als MAX_ATTEMPTS Versuche; ein richtiger Code
+     * galt mehrfach; und das Loeschen nach (user_id, purpose) raeumte auch
+     * einen inzwischen NEU ausgestellten Code ab. Jetzt:
+     *
+     * 1. Der Versuch wird VOR der Pruefung gebucht - nur, solange die Grenze
+     *    nicht erreicht ist, und nur fuer genau den gelesenen Abdruck. Wer die
+     *    Buchung nicht bekommt, prueft gar nicht erst.
+     * 2. Eingeloest ist der Code nur, wenn das Loeschen GENAU dieses Abdrucks
+     *    eine Zeile trifft. Eine zweite parallele Einloesung findet nichts
+     *    mehr, und ein neu ausgestellter Code hat einen anderen Abdruck.
      */
     public static function verify(int $userId, string $purpose, string $code): bool {
         $code = preg_replace('/\s+/u', '', trim($code)) ?? '';
@@ -92,31 +107,54 @@ final class EmailSecondFactor {
 
         $db = Database::getInstance();
         $stmt = $db->prepare(
-            'SELECT code_hash, attempts, expires_at > NOW() AS gueltig
-             FROM email_2fa_codes WHERE user_id = ? AND purpose = ?'
+            'SELECT code_hash FROM email_2fa_codes
+             WHERE user_id = ? AND purpose = ? AND expires_at > NOW() AND attempts < ?'
         );
-        $stmt->execute([$userId, $purpose]);
-        $row = $stmt->fetch();
+        $stmt->execute([$userId, $purpose, self::MAX_ATTEMPTS]);
+        $hash = $stmt->fetchColumn();
 
-        if (!is_array($row)) {
+        if (!is_string($hash) || $hash === '') {
+            self::discardInvalid($userId, $purpose);
             return false;
         }
 
-        if (empty($row['gueltig']) || (int)$row['attempts'] >= self::MAX_ATTEMPTS) {
-            self::discard($userId, $purpose);
+        $stmt = $db->prepare(
+            'UPDATE email_2fa_codes SET attempts = attempts + 1
+             WHERE user_id = ? AND purpose = ? AND code_hash = ? AND attempts < ? AND expires_at > NOW()'
+        );
+        $stmt->execute([$userId, $purpose, $hash, self::MAX_ATTEMPTS]);
+        if ($stmt->rowCount() !== 1) {
+            self::discardInvalid($userId, $purpose);
             return false;
         }
 
-        if (!password_verify($code, (string)$row['code_hash'])) {
-            $stmt = $db->prepare(
-                'UPDATE email_2fa_codes SET attempts = attempts + 1 WHERE user_id = ? AND purpose = ?'
-            );
-            $stmt->execute([$userId, $purpose]);
+        if (!password_verify($code, $hash)) {
             return false;
         }
 
-        self::discard($userId, $purpose);
-        return true;
+        $stmt = $db->prepare('DELETE FROM email_2fa_codes WHERE user_id = ? AND purpose = ? AND code_hash = ?');
+        $stmt->execute([$userId, $purpose, $hash]);
+        return $stmt->rowCount() === 1;
+    }
+
+    /**
+     * Raeumt abgelaufene Zeilen ab. Ein gueltiger, vielleicht gerade neu
+     * ausgestellter Code bleibt stehen.
+     *
+     * Aufgebrauchte Codes (attempts = MAX_ATTEMPTS) bleiben bis zum Ablauf
+     * liegen, gelten aber nirgends mehr (verify(), pending()). Sie sofort zu
+     * loeschen hiesse, einer parallelen Pruefung, die ihre Buchung noch
+     * bekommen hat, die Zeile unter den Fuessen wegzuziehen - dann haette
+     * unter einem Burst auch der richtige Code keine Chance mehr.
+     */
+    private static function discardInvalid(int $userId, string $purpose): void {
+        try {
+            Database::getInstance()->prepare(
+                'DELETE FROM email_2fa_codes WHERE user_id = ? AND purpose = ? AND expires_at <= NOW()'
+            )->execute([$userId, $purpose]);
+        } catch (\Throwable $e) {
+            // Aufraeumen ist nachrangig; die Zeile gilt ohnehin nicht mehr.
+        }
     }
 
     /**

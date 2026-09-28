@@ -262,9 +262,15 @@ Fremdschlüssel auf `users` mit `ON DELETE CASCADE`.
 
 ### `login_attempts`
 Fehlversuchs-Log für `RateLimiter` (siehe [security.md](security.md)),
-`type` ∈ {`login`, `login_ip`, `2fa`, `2fa_email_send`, `backup`,
-`password_reset`, `registration`, `dsgvo_request`, `profile_*`} — Plugins
-können eigene `type`-Werte ergänzen —, mit `identifier` und `ip_address`.
+`type` ∈ {`login`, `login_ip`, `login_net`, `login_konto`, `2fa`,
+`2fa_email_send`, `backup`, `force_pw_change`, `password_reset`,
+`password_reset_to`, `registration`, `verify_resend`, `dsgvo_attempt`,
+`dsgvo_request`, `profile_*`} — Plugins können eigene `type`-Werte ergänzen,
+höchstens 20 Zeichen (`RateLimiter::MAX_TYPE_LENGTH`, sonst
+`InvalidArgumentException`) —, mit `identifier` und `ip_address`. IP-Zähler
+führen bei IPv6 das /64 als `identifier` (`2001:db8:1:2::/64`), `ip_address`
+die volle Adresse. `password_reset_to` zählt nur einen SHA-256-Abdruck der
+Empfängeradresse (`mail:<hash>`).
 Beim Login ist der `identifier` seit #348 `uid:<id>|<ip>`, sobald das Konto
 gefunden wurde, sonst `kennung:<normalisiert>|<ip>`: Der Zähler hängt am
 Konto, nicht an der Schreibweise, sonst gäbe die zweite gültige Kennung

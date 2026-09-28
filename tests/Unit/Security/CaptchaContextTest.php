@@ -22,6 +22,8 @@ class CaptchaContextTest extends TestCase {
     public function testKernKontexteSindDa(): void {
         $this->assertTrue(CaptchaContext::isValid('dsgvo'));
         $this->assertTrue(CaptchaContext::isValid('register'));
+        // Kontoweite Bremse der Anmeldung (Audit M7).
+        $this->assertTrue(CaptchaContext::isValid('login'));
     }
 
     public function testAddonKannEigenesFormularAnmelden(): void {

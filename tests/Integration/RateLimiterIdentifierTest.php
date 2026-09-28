@@ -24,9 +24,9 @@ use PHPUnit\Framework\TestCase;
  */
 class RateLimiterIdentifierTest extends TestCase {
 
-    // login_attempts.type ist VARCHAR(20) - ein längerer Wert ließe den
-    // Insert (im strict mode) scheitern, und recordAttempt() schluckt den
-    // Fehler bewusst. Der Testtyp muss also kurz sein.
+    // Höchstens RateLimiter::MAX_TYPE_LENGTH Zeichen (Spalte
+    // login_attempts.type) - ein längerer Typ wird seit Audit M8 laut
+    // abgelehnt.
     private const TYPE = 'test_rl_ident';
 
     protected function setUp(): void {
@@ -83,5 +83,35 @@ class RateLimiterIdentifierTest extends TestCase {
             ->query("SELECT COUNT(*) FROM login_attempts WHERE type = '" . self::TYPE . "'")
             ->fetchColumn();
         $this->assertSame(0, $remaining);
+    }
+
+    /**
+     * IPv6: Adressen aus demselben /64 teilen sich einen Zähler (Audit M7).
+     * Sonst wechselte ein Angreifer mit eigenem Präfix bei jedem Versuch die
+     * Adresse. Greift auch für Addons, die die nackte Adresse übergeben.
+     */
+    public function testIpv6AdressenEinesPraefixesTeilenSichEinenZaehler(): void {
+        foreach (['2001:db8:1:2::1', '2001:db8:1:2::2', '2001:db8:1:2:1::1', '2001:DB8:1:2:ffff::7', '2001:db8:1:2::abcd'] as $ip) {
+            RateLimiter::recordAttempt($ip, self::TYPE);
+        }
+
+        $this->assertTrue(RateLimiter::tooManyAttempts('2001:db8:1:2:abcd::9', self::TYPE));
+        $this->assertFalse(
+            RateLimiter::tooManyAttempts('2001:db8:1:3::1', self::TYPE),
+            'Ein anderes /64 hat seinen eigenen Zähler.'
+        );
+
+        $stmt = Database::getInstance()->prepare("SELECT DISTINCT identifier FROM login_attempts WHERE type = ?");
+        $stmt->execute([self::TYPE]);
+        $this->assertSame(['2001:db8:1:2::/64'], $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    public function testIpv4GemapptUndIpv4TeilenSichEinenZaehler(): void {
+        for ($i = 0; $i < 3; $i++) {
+            RateLimiter::recordAttempt('::ffff:198.51.100.4', self::TYPE);
+            RateLimiter::recordAttempt('198.51.100.4', self::TYPE);
+        }
+        $this->assertTrue(RateLimiter::tooManyAttempts('198.51.100.4', self::TYPE, 6));
+        $this->assertTrue(RateLimiter::tooManyAttempts('::ffff:198.51.100.4', self::TYPE, 6));
     }
 }

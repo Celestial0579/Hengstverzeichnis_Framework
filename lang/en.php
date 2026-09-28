@@ -243,6 +243,7 @@ return [
     'auth.login_button' => 'Sign In',
     'auth.rate_limited_login' => 'Too many failed login attempts. Please try again in 15 minutes.',
     'auth.invalid_credentials' => 'Invalid credentials.',
+    'auth.login_captcha_required' => 'After many failed sign-in attempts, an additional security check is required. Please complete it below and sign in again.',
     'auth.email_not_verified' => 'Please confirm your email address first using the link in our email (please also check your spam folder). If it has expired or got lost, we will automatically send you a current link when you sign in with your password.',
     'auth.email_verified_success' => '✓ Email address confirmed. You can sign in now.',
     'auth.register_link' => 'No account yet? Register now',

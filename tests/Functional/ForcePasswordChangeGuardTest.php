@@ -179,4 +179,75 @@ class ForcePasswordChangeGuardTest extends FunctionalTestCase {
         ]);
         $this->assertSame('/admin?password_changed=1', $ok->location(), "Body: {$ok->body}");
     }
+
+    private static function zeilen(int $userId): int {
+        $stmt = \App\Database::getInstance()->prepare(
+            "SELECT COUNT(*) FROM login_attempts WHERE identifier = ? AND type = ?"
+        );
+        $stmt->execute([(string)$userId, \App\Controllers\AuthController::FORCE_PW_LIMITER_TYPE]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Die Sperre griff nie (Audit M8): Der Zählertyp war mit 21 Zeichen
+     * länger als die Spalte, jedes Buchen scheiterte still, und das
+     * bisherige Passwort ließ sich unbegrenzt raten.
+     */
+    public function testNachFuenfFehlversuchenGreiftDieSperre(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $email = "forcesperre-{$unique}@example.com";
+        $password = 'SperrePruef123!';
+        [$client, $userId] = $this->userWaitingForPasswordChange($admin, "forcesperre{$unique}", $email, $password);
+
+        $stmt = \App\Database::getInstance()->prepare("SELECT password_hash FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        $hashVorher = (string)$stmt->fetchColumn();
+
+        $csrf = $client->get('/force-password-change')->formField('csrf_token') ?? '';
+        for ($i = 0; $i < 5; $i++) {
+            $falsch = $client->post('/force-password-change', [
+                'csrf_token' => $csrf,
+                'current_password' => 'geraten-' . $i,
+                'password' => 'NeuesPasswort456!',
+                'password_confirm' => 'NeuesPasswort456!',
+            ]);
+            $this->assertStringContainsString('bisherige Passwort', $falsch->body);
+        }
+
+        // Der sechste Versuch - jetzt sogar mit dem RICHTIGEN Passwort.
+        $gesperrt = $client->post('/force-password-change', [
+            'csrf_token' => $csrf,
+            'current_password' => $password,
+            'password' => 'NeuesPasswort456!',
+            'password_confirm' => 'NeuesPasswort456!',
+        ]);
+        $this->assertSame(200, $gesperrt->statusCode);
+        $this->assertStringContainsString('Zu viele Fehlversuche', $gesperrt->body);
+
+        $stmt->execute([$userId]);
+        $this->assertSame($hashVorher, (string)$stmt->fetchColumn(), 'Das Passwort darf sich nicht geändert haben.');
+        $this->assertSame(5, self::zeilen($userId));
+
+        \App\Security\RateLimiter::clearAttempts((string)$userId, \App\Controllers\AuthController::FORCE_PW_LIMITER_TYPE);
+    }
+
+    /** Richtiges bisheriges Passwort, aber zu kurzes neues: kein Rateversuch. */
+    public function testNeutralerAusstiegZaehltNicht(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $email = "forceneutral-{$unique}@example.com";
+        $password = 'NeutralPruef123!';
+        [$client, $userId] = $this->userWaitingForPasswordChange($admin, "forceneutral{$unique}", $email, $password);
+
+        $kurz = $client->post('/force-password-change', [
+            'csrf_token' => $client->get('/force-password-change')->formField('csrf_token') ?? '',
+            'current_password' => $password,
+            'password' => 'kurz',
+            'password_confirm' => 'kurz',
+        ]);
+        $this->assertSame(200, $kurz->statusCode);
+        $this->assertStringContainsString('zu kurz', $kurz->body);
+        $this->assertSame(0, self::zeilen($userId));
+    }
 }

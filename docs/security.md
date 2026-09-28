@@ -362,18 +362,104 @@ Schlüssel kann nie mehr als sein Besitzer, und Rechteverlust wirkt sofort.
 ## Brute-Force-Schutz (`src/Security/RateLimiter.php`)
 
 Datenbankgestützter Zähler fehlgeschlagener Versuche pro `identifier` + `type`
-(`login`, `login_ip`, `2fa`, `backup`, `password_reset`, `registration`,
-`dsgvo_attempt`, `dsgvo_request`) in einem Zeitfenster (Default: 5
-Versuche / 15 Min). Bei DB-Fehlern **fail-open** (blockiert nicht) – bewusste
-Ausfallsicherheits-Entscheidung, damit ein DB-Problem nicht versehentlich alle
-Logins sperrt. Öffentliche Formulare bekommen deshalb zusätzlich eine
-DB-unabhängige Schicht – siehe Abschnitt „DSGVO-Portal" weiter unten.
+in einem Zeitfenster (Default: 5 Versuche / 15 Min). Bei DB-Fehlern
+**fail-open** (blockiert nicht) – bewusste Ausfallsicherheits-Entscheidung,
+damit ein DB-Problem nicht versehentlich alle Logins sperrt. Öffentliche
+Formulare bekommen deshalb zusätzlich eine DB-unabhängige Schicht – siehe
+Abschnitt „DSGVO-Portal" weiter unten.
 
-Der Login nutzt zwei getrennte Zähler (#115): Der Konto-Zähler ist an die
-Client-IP gekoppelt (`email|ip`, 5 Versuche), damit gezielte Fehlversuche
-eines Angreifers keine bekannten E-Mail-Adressen global aussperren können
-(Account-Lockout-DoS); ein zusätzlicher reiner IP-Zähler (`login_ip`, 20
-Versuche) bremst Passwort-Spraying über viele Konten von derselben Adresse.
+**Erst buchen, dann zählen** (Audit M20). Bis v0.9.0 zählte der Kern zuerst,
+prüfte dann Passwort oder Code und buchte den Fehlversuch zuletzt. Parallel
+abgeschickte Anfragen sahen dazwischen alle denselben alten Stand – so ließ
+sich ein Vielfaches der erlaubten Versuche erzwingen. `reserveAttempt()`
+schreibt die eigene Zeile zuerst (Autocommit) und zählt danach; über der
+Grenze löscht es sie wieder und liefert `null`. Die k-te angenommene Buchung
+sieht mindestens k Zeilen, mehr als die Grenze kommt also auch parallel nie
+durch. Kehrseite: Unter einem exakt gleichzeitigen Burst können alle
+abgelehnt werden (fail-closed, nur unter Angriff).
+
+- Fehlschlag: Die Buchung bleibt stehen, sie *ist* der Fehlversuch.
+- Erfolg: `clearAttempts()` wie bisher bzw. `releaseAttempt()` für Zähler,
+  die ein Erfolg nicht leeren soll (`login_ip`, `login_konto`).
+- Neutraler Ausstieg (nichts geprüft, z. B. Konto inzwischen gelöscht, neues
+  Passwort zu kurz) und Sperre eines nachgelagerten Zählers:
+  `releaseAttempt()` der schon gemachten Buchungen.
+- In einer offenen Transaktion wirft `reserveAttempt()` eine
+  `LogicException` – dort wäre die Buchung für andere unsichtbar.
+
+So arbeiten Anmeldung, alle zweiten Faktoren samt Step-up, erzwungener
+Passwortwechsel, „Passwort vergessen“, Registrierung, DSGVO-Formular und der
+Versand von Mail- und Bestätigungscodes. Die `profile_*`-Zähler bleiben beim
+alten Muster: Sie setzen eine voll angemeldete Sitzung voraus, deren Anfragen
+die Sitzungssperre ohnehin serialisiert. `tooManyAttempts()`,
+`recordAttempt()` und `clearAttempts()` bleiben unverändert (Addon-API); für
+neue Aufrufer, auch in Addons, gilt `reserveAttempt()`.
+
+**Mailcodes** (`EmailSecondFactor::verify()`) buchen ihren Versuch je Code
+ebenfalls vor der Prüfung, gebunden an den gelesenen Abdruck; eingelöst ist
+ein Code nur, wenn genau diese Anfrage seine Zeile löscht. **Backup-Codes und
+TOTP-Zeitschlitze** werden per Vergleich mit dem gelesenen Stand verbraucht
+(`App\Security\OneTimeProofs`, Audit N43): Ein Backup-Code gilt auch bei
+parallelen Anfragen einmal, eine laufende Einlösung überschreibt keinen
+inzwischen neu erzeugten Codesatz, und der gespeicherte Zeitschlitz kann nur
+steigen.
+
+**Typen** (Spalte `login_attempts.type`, `VARCHAR(20)`): `login`, `login_ip`,
+`login_net`, `login_konto`, `2fa`, `2fa_email_send`, `backup`,
+`force_pw_change`, `password_reset`, `password_reset_to`, `registration`,
+`verify_resend`, `dsgvo_attempt`, `dsgvo_request`, `profile_*`. Längere oder
+leere Typen lösen eine `InvalidArgumentException` aus
+(`RateLimiter::MAX_TYPE_LENGTH`, Audit M8) – bis dahin scheiterte das Buchen
+still, und die Sperre beim erzwungenen Passwortwechsel (`force_password_change`,
+21 Zeichen) griff nie.
+
+**IP-Zähler je /64** (Audit M7). Jeder IPv6-Anschluss hat mindestens ein /64
+und kann jede Anfrage von einer neuen Adresse schicken; ein Zähler je voller
+Adresse griff dann nie. `ClientIp::rateLimitKey()` kürzt IPv6 auf das /64
+(`2001:db8:1:2::/64`) und macht aus IPv4-gemappten Adressen IPv4. Alle
+IP-Zähler des Kerns nutzen diesen Schlüssel; `RateLimiter` wendet ihn
+zusätzlich auf jeden Bezeichner an, der als Ganzes eine IPv6-Adresse ist – so
+zählen auch die Formulare der Addons je /64, ohne eigene Änderung. Die Spalte
+`ip_address` speichert weiter die volle Adresse. Geräte im selben /64 teilen
+sich damit einen Zähler, wie hinter einem IPv4-NAT.
+
+Der Login nutzt mehrere getrennte Zähler (#115):
+
+- Der Konto-Zähler ist an die Client-IP gekoppelt (`uid:<id>|<ip>`, 5
+  Versuche), damit gezielte Fehlversuche eines Angreifers keine bekannten
+  Konten global aussperren können (Account-Lockout-DoS).
+- Ein reiner IP-Zähler (`login_ip`, 20 Versuche) bremst Passwort-Spraying
+  über viele Konten vom selben Anschluss. Nur bei IPv6 kommt eine zweite
+  Stufe je /48 dazu (`login_net`, 100 Versuche): Ein /48 sind 65.536 /64, und
+  so viel gibt es bei Tunnelbrokern kostenlos.
+- **Kontoweite Bremse ohne Sperre** (`login_konto`, Audit M7): Ab 10
+  Fehlversuchen gegen dasselbe Konto in 15 Minuten, gleich von welchen
+  Adressen, verlangt die Anmeldung zusätzlich die Spam-Schutz-Abfrage
+  (Captcha-Kontext „Anmeldung“, `login`). Ohne gelöste Abfrage wird das
+  Passwort gar nicht erst geprüft. Gesperrt wird das Konto nie – mit gelöster
+  Abfrage kommt der Besitzer jederzeit hinein, der Schutz aus #115 bleibt.
+  Unbekannte Kennungen werden genauso behandelt, die Bremse verrät also
+  nicht, ob es ein Konto gibt. Eine erfolgreiche Anmeldung leert diesen
+  Zähler bewusst nicht, sonst setzte jeder Login des Opfers das Budget des
+  Angreifers zurück. Ein einzelnes /64 erreicht die Schwelle nie, weil der
+  Konto|IP-Zähler vorher sperrt.
+
+**Restrisiko und Empfehlung.** Wer ein /48 hat, verteilt seine Versuche auf
+viele /64; danach bremsen nur noch `login_net` und die kontoweite Abfrage.
+Die eingebaute Rechenaufgabe lässt sich per Skript lösen und kostet dann nur
+einen GET, 3 Sekunden Wartezeit und eine eigene Sitzung je Versuch. Für den
+Kontext „Anmeldung“ empfiehlt sich deshalb ein Proof-of-Work-Anbieter
+(Addon `captcha-altcha`, *Systemeinstellungen → Spam-Schutz je Formular*).
+Ein Angreifer kann einem Opfer die Zusatzabfrage mit Fehlversuchen von drei
+Anschlüssen dauerhaft aufzwingen – lästig, aber keine Sperre.
+
+**„Passwort vergessen“** ist doppelt begrenzt: je Absender (5 je 15 Minuten,
+bei IPv6 je /64) und je Empfänger (höchstens 3 Reset-Mails je Adresse und
+Stunde, `password_reset_to`, Audit M7). Über der Empfängergrenze wird still
+nichts erzeugt; Antwort und Antwortzeit bleiben gleich. Gezählt wird nur ein
+Abdruck der Adresse (SHA-256 der kleingeschriebenen Adresse) – die Tabelle
+wird nie aufgeräumt, und beliebige eingetippte Fremdadressen haben dort im
+Klartext nichts verloren.
 
 ## Verschlüsselung sensibler Werte (`src/Security/Crypto.php`)
 
@@ -402,8 +488,9 @@ Konten mit nicht lesbarem Secret. Der Klartext-Rückfall bleibt als
 Sicherheitsnetz (Restore alter Dumps) bis zum nächsten Minor-Release und
 entfällt dann. Backup-Codes
 (`users.backup_codes`) werden dagegen **gehasht** (`password_hash()`, wie
-Passwörter) und beim Verbrauch aus dem Array entfernt – sie sind also
-Single-Use und selbst bei DB-Zugriff nicht im Klartext einsehbar.
+Passwörter) und beim Verbrauch aus dem Array entfernt – atomar, siehe
+„Brute-Force-Schutz“ (Audit N43). Sie sind also Single-Use und selbst bei
+DB-Zugriff nicht im Klartext einsehbar.
 
 ## Reverse-Proxy- & Client-IP-Erkennung (`src/Security/ClientIp.php`)
 

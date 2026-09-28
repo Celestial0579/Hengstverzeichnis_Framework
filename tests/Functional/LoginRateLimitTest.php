@@ -17,6 +17,146 @@ namespace Tests\Functional;
  */
 class LoginRateLimitTest extends FunctionalTestCase {
 
+    use DsgvoFormHelper;
+
+    /** Höchste Zeilen-ID in login_attempts vor dem Test - alles darüber räumt tearDown() ab. */
+    private ?int $zaehlerStand = null;
+
+    private function zaehlerMerken(): void {
+        $this->zaehlerStand = (int)\App\Database::getInstance()
+            ->query("SELECT COALESCE(MAX(id), 0) FROM login_attempts")->fetchColumn();
+    }
+
+    protected function tearDown(): void {
+        // Alle Anfragen der Suite kommen von 127.0.0.1 und teilen sich
+        // login_ip (20 in 15 Minuten). Was diese Tests dort buchen, darf
+        // die nachfolgenden Anmeldungen nicht sperren.
+        if ($this->zaehlerStand !== null) {
+            \App\Database::getInstance()
+                ->prepare("DELETE FROM login_attempts WHERE id > ?")
+                ->execute([$this->zaehlerStand]);
+            $this->zaehlerStand = null;
+        }
+        parent::tearDown();
+    }
+
+    /** @param array<string, string> $mehr */
+    private function anmelden(\Tests\Support\HttpClient $client, string $kennung, string $passwort, array $mehr = [], ?\Tests\Support\HttpResponse $seite = null): \Tests\Support\HttpResponse {
+        $seite ??= $client->get('/login');
+        return $client->post('/login', [
+            'csrf_token' => $seite->formField('csrf_token') ?? '',
+            'kennung' => $kennung,
+            'password' => $passwort,
+        ] + $mehr);
+    }
+
+    private static function zeilen(string $identifier, string $typ): int {
+        $stmt = \App\Database::getInstance()->prepare(
+            "SELECT COUNT(*) FROM login_attempts WHERE identifier = ? AND type = ?"
+        );
+        $stmt->execute([$identifier, $typ]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    private static function kontoweiteFehlversucheSetzen(string $kontoKey, int $anzahl): void {
+        $stmt = \App\Database::getInstance()->prepare(
+            "INSERT INTO login_attempts (identifier, type, ip_address) VALUES (?, ?, '198.51.100.9')"
+        );
+        for ($i = 0; $i < $anzahl; $i++) {
+            $stmt->execute([$kontoKey, \App\Controllers\AuthController::KONTO_BREMSE_TYP]);
+        }
+    }
+
+    /**
+     * Kontoweite Bremse (Audit M7): Nach gehäuften Fehlversuchen gegen
+     * dasselbe Konto - von vielen Adressen aus - verlangt die Anmeldung
+     * zusätzlich die Spam-Schutz-Abfrage. Gesperrt wird das Konto NIE (#115):
+     * Mit gelöster Aufgabe kommt es sofort hinein.
+     */
+    public function testKontoweiteBremseVerlangtZusatzpruefungStattZuSperren(): void {
+        $admin = $this->authenticatedClient();
+        $konto = $this->angemeldetOhneFaktor($admin, 'bremse');
+        $this->zaehlerMerken();
+        $kontoKey = 'uid:' . $konto['id'];
+        self::kontoweiteFehlversucheSetzen($kontoKey, \App\Controllers\AuthController::KONTO_BREMSE_AB);
+
+        $client = $this->newClient();
+        $gate = $this->anmelden($client, $konto['username'], $konto['passwort']);
+        $this->assertSame(200, $gate->statusCode);
+        $this->assertNull($gate->location(), 'Ohne gelöste Aufgabe keine Anmeldung - auch nicht mit richtigem Passwort.');
+        $this->assertStringContainsString(
+            htmlspecialchars(\App\I18n\Translator::t('auth.login_captcha_required')),
+            $gate->body
+        );
+        $this->assertStringContainsString('name="captcha"', $gate->body);
+        $this->assertStringContainsString('value="' . $konto['username'] . '"', $gate->body, 'Die Kennung bleibt stehen.');
+        $this->assertSame(0, self::zeilen($kontoKey . '|127.0.0.1', 'login'), 'Ohne Passwortprüfung kein Konto|IP-Fehlversuch.');
+
+        $antwort = $this->solveCaptcha($gate);
+        $this->waitForMinimumSolveTime();
+        $angemeldet = $this->anmelden($client, $konto['username'], $konto['passwort'], [
+            'captcha' => (string)$antwort,
+            'login_captcha' => '1',
+        ], $gate);
+
+        $this->assertSame(302, $angemeldet->statusCode, "Body: {$angemeldet->body}");
+        $this->assertStringNotContainsString('Zu viele', $angemeldet->body);
+        $this->assertSame(
+            \App\Controllers\AuthController::KONTO_BREMSE_AB,
+            self::zeilen($kontoKey, \App\Controllers\AuthController::KONTO_BREMSE_TYP),
+            'Die eigene Buchung des erfolgreichen Versuchs wird freigegeben, der Rest bleibt - '
+            . 'sonst setzte jede Anmeldung des Opfers das Budget des Angreifers zurück.'
+        );
+    }
+
+    /** Eine unbekannte Kennung bekommt dieselbe Bremse - kein Orakel für Konten. */
+    public function testKontoweiteBremseVerraetKeineKonten(): void {
+        $this->authenticatedClient();
+        $this->zaehlerMerken();
+        $kennung = 'niemand-' . uniqid() . '@example.com';
+        self::kontoweiteFehlversucheSetzen(
+            'kennung:' . \App\Security\LoginIdentifier::normalize($kennung),
+            \App\Controllers\AuthController::KONTO_BREMSE_AB
+        );
+
+        $antwort = $this->anmelden($this->newClient(), $kennung, 'egal-was');
+
+        $this->assertSame(200, $antwort->statusCode);
+        $this->assertStringContainsString(
+            htmlspecialchars(\App\I18n\Translator::t('auth.login_captcha_required')),
+            $antwort->body
+        );
+        $this->assertStringContainsString('name="captcha"', $antwort->body);
+    }
+
+    /**
+     * Wer an EINEM Konto gesperrt ist, verbraucht mit weiteren Klicks nicht
+     * das IP-Budget des ganzen Anschlusses (Audit M20/M7). Gesperrte
+     * Versuche prüfen kein Passwort und zählen deshalb nirgends.
+     */
+    public function testGesperrterKontoVersuchBelastetIpZaehlerNicht(): void {
+        $this->authenticatedClient();
+        $this->zaehlerMerken();
+        $client = $this->newClient();
+        $kennung = 'gesperrt-' . uniqid() . '@example.com';
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->assertStringContainsString('Ungültige Zugangsdaten.', $this->anmelden($client, $kennung, 'falsch')->body);
+        }
+        for ($i = 0; $i < 3; $i++) {
+            $this->assertStringContainsString(
+                'Zu viele fehlgeschlagene Anmeldeversuche',
+                $this->anmelden($client, $kennung, 'falsch')->body
+            );
+        }
+
+        $stmt = \App\Database::getInstance()->prepare(
+            "SELECT COUNT(*) FROM login_attempts WHERE type = 'login_ip' AND id > ?"
+        );
+        $stmt->execute([$this->zaehlerStand]);
+        $this->assertSame(5, (int)$stmt->fetchColumn());
+    }
+
     public function testFifthFailureLocksOnlyThatEmailIpCombination(): void {
         // Provisioniert die App (Setup-Wizard) bei isoliertem Lauf und belegt
         // nebenbei, dass der Admin-Login VOR den Fehlversuchen funktioniert.

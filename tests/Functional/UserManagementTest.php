@@ -521,6 +521,204 @@ class UserManagementTest extends FunctionalTestCase {
         $this->assertSame('/2fa/setup', $loginResponse->location(), "Nach dem Admin-Reset muss der Login das 2FA-Setup neu erzwingen, Body: {$loginResponse->body}");
     }
 
+    // ---- Passwort-Neusetzung durch die Verwaltung (Audit N13) ----------
+
+    /**
+     * Setzt die Verwaltung das Passwort eines ANDEREN Kontos, muss es bei
+     * der nächsten Anmeldung gewechselt werden - so war es dokumentiert,
+     * umgesetzt war es nicht. Der Zwang greift nach dem zweiten Faktor.
+     */
+    public function testAdminPasswortNeusetzungErzwingtWechsel(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $username = "uvzwang{$unique}";
+        $email = "uv-zwang-{$unique}@example.com";
+        $this->createdUsernames[] = $username;
+        $this->createAndLoginEditor($admin, $username, $email);
+        $secret = (string)$this->lastEditorTotpSecret;
+        $userId = $this->findUserIdByUsername($admin, $username);
+
+        $form = $admin->get('/admin/users/edit?id=' . $userId);
+        $this->assertStringContainsString('bei der nächsten Anmeldung ändern', $form->body);
+        $gesetzt = $admin->post('/admin/users/update', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'id' => (string)$userId,
+            'username' => $username,
+            'email' => $email,
+            'password' => 'VerwaltungGesetzt1!',
+        ]);
+        $this->assertSame('/admin/users?success=updated', $gesetzt->location(), "Body: {$gesetzt->body}");
+        $this->assertSame(1, $this->spalteVon($userId, 'must_change_password'));
+
+        self::resetTotpReplayGuard($email);
+        $client = $this->newClient();
+        $login = $client->post('/login', [
+            'csrf_token' => $client->get('/login')->formField('csrf_token') ?? '',
+            'kennung' => $email,
+            'password' => 'VerwaltungGesetzt1!',
+        ]);
+        $this->assertSame('/login/2fa', $login->location(), 'Der Zwang greift erst nach dem zweiten Faktor.');
+        $zweiter = $client->post('/login/2fa', [
+            'csrf_token' => $client->get('/login/2fa')->formField('csrf_token') ?? '',
+            'totp_code' => \App\Security\Totp::getCode($secret),
+        ]);
+        $this->assertSame('/force-password-change', $zweiter->location());
+        $this->assertSame('/force-password-change', $client->get('/admin')->location());
+
+        $gewechselt = $client->post('/force-password-change', [
+            'csrf_token' => $client->get('/force-password-change')->formField('csrf_token') ?? '',
+            'current_password' => 'VerwaltungGesetzt1!',
+            'password' => 'SelbstGewaehlt22!',
+            'password_confirm' => 'SelbstGewaehlt22!',
+        ]);
+        $this->assertSame('/admin?password_changed=1', $gewechselt->location());
+        $this->assertSame(0, $this->spalteVon($userId, 'must_change_password'));
+        $this->assertSame(200, $client->get('/admin')->statusCode);
+    }
+
+    /** Gegenprobe: Das eigene Konto des Admins bekommt keinen Zwang, die Sitzung lebt. */
+    public function testEigenesPasswortNeuSetzenErzwingtKeinenWechsel(): void {
+        $admin = $this->authenticatedClient();
+        $adminId = $this->findUserIdByUsername($admin, (string)self::$adminEmail);
+        $form = $admin->get('/admin/users/edit?id=' . $adminId);
+
+        $antwort = $admin->post('/admin/users/update', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'id' => (string)$adminId,
+            'username' => (string)$form->formField('username'),
+            'email' => (string)self::$adminEmail,
+            // Dasselbe Passwort - der geteilte Admin der Suite muss es behalten.
+            'password' => (string)self::$adminPassword,
+            'groups' => [(string)$this->findBuiltinGroupId($admin, 'Administrator')],
+        ]);
+        $this->assertSame('/admin/users?success=updated', $antwort->location(), "Body: {$antwort->body}");
+        $this->assertSame(0, $this->spalteVon($adminId, 'must_change_password'));
+        $this->assertSame(200, $admin->get('/admin')->statusCode, 'Die eigene Sitzung bleibt bestehen.');
+    }
+
+    // ---- Vergebene Stammdaten (Audit N52) ------------------------------
+
+    /**
+     * Ein vergebener Benutzername oder eine vergebene Adresse - auch die
+     * eines Kontos im Papierkorb - ist ein Formularfehler, kein HTTP 500.
+     */
+    public function testVergebeneStammdatenSindEinFormularfehler(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        foreach (['a', 'b', 'c'] as $x) {
+            $this->assertSame('/admin/users?success=created', $this->createUser($admin, "uvdup{$x}{$unique}", "uv-dup-{$x}-{$unique}@example.com")->location());
+        }
+        $idA = $this->findUserIdByUsername($admin, "uvdupa{$unique}");
+        $idC = $this->findUserIdByUsername($admin, "uvdupc{$unique}");
+        \App\Database::getInstance()->prepare("UPDATE users SET deleted_at = NOW() WHERE id = ?")->execute([$idC]);
+
+        $faelle = [
+            'Benutzername' => ["uvdupb{$unique}", "uv-dup-a-{$unique}@example.com"],
+            'Adresse' => ["uvdupa{$unique}", "uv-dup-b-{$unique}@example.com"],
+            'Papierkorb' => ["uvdupa{$unique}", "uv-dup-c-{$unique}@example.com"],
+        ];
+        foreach ($faelle as $fall => [$name, $adresse]) {
+            $antwort = $admin->post('/admin/users/update', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'id' => (string)$idA,
+                'username' => $name,
+                'email' => $adresse,
+            ]);
+            $this->assertSame(200, $antwort->statusCode, "{$fall}: kein Absturz, Body: {$antwort->body}");
+            $this->assertStringContainsString('bereits vergeben', $antwort->body, $fall);
+        }
+
+        $stmt = \App\Database::getInstance()->prepare("SELECT username, email FROM users WHERE id = ?");
+        $stmt->execute([$idA]);
+        $this->assertSame(
+            ['username' => "uvdupa{$unique}", 'email' => "uv-dup-a-{$unique}@example.com"],
+            $stmt->fetch(),
+            'Die Stammdaten dürfen sich nicht geändert haben.'
+        );
+    }
+
+    // ---- 2FA-Reset: alle Faktoren, alle Sitzungen (Audit N60) -----------
+
+    public function testReset2faEntferntAuchPasskeysUndBeendetSitzungen(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $username = "uvreset{$unique}";
+        $email = "uv-reset-{$unique}@example.com";
+        $this->createdUsernames[] = $username;
+        $editor = $this->createAndLoginEditor($admin, $username, $email);
+        $userId = $this->findUserIdByUsername($admin, $username);
+        self::legeTestPasskeyAn($userId);
+
+        $liste = $admin->get('/admin/users?search=' . urlencode($username));
+        $this->assertStringContainsString('🔒 App', $liste->body);
+        $this->assertStringContainsString('🔑 Passkey (1)', $liste->body);
+
+        $reset = $admin->post('/admin/users/reset-2fa', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'id' => (string)$userId,
+        ]);
+        $this->assertSame('/admin/users?success=2fa_reset', $reset->location());
+
+        $db = \App\Database::getInstance();
+        $stmt = $db->prepare("SELECT COUNT(*) FROM user_passkeys WHERE user_id = ?");
+        $stmt->execute([$userId]);
+        $this->assertSame(0, (int)$stmt->fetchColumn(), 'Kein Passkey darf den Reset überleben.');
+        $stmt = $db->prepare(
+            "SELECT details FROM audit_logs WHERE action = '2FA zurückgesetzt' AND details LIKE ? ORDER BY id DESC LIMIT 1"
+        );
+        $stmt->execute(['%(ID: ' . $userId . ')%']);
+        $this->assertStringContainsString('1 Passkey(s)', (string)$stmt->fetchColumn());
+
+        // Die vor dem Reset angemeldete Sitzung - das gestohlene Gerät -
+        // bindet keinen eigenen Faktor mehr.
+        $setup = $editor->get('/2fa/setup');
+        $this->assertSame('/login?error=session_expired', $setup->location());
+        $this->assertNull(self::extractTotpSecret($setup));
+
+        $client = $this->newClient();
+        $login = $client->post('/login', [
+            'csrf_token' => $client->get('/login')->formField('csrf_token') ?? '',
+            'kennung' => $email,
+            'password' => 'EditorTestNeu456!',
+        ]);
+        $this->assertSame('/2fa/setup', $login->location(), 'Nach dem Reset beginnt die Einrichtung von vorn.');
+    }
+
+    /**
+     * Ein Konto, dessen einziger Faktor ein Passkey ist, galt in der Liste
+     * als "Ausstehend", und der Reset-Knopf fehlte.
+     */
+    public function testEinPasskeyKontoIstGeschuetztUndZuruecksetzbar(): void {
+        $admin = $this->authenticatedClient();
+        $konto = $this->angemeldetOhneFaktor($admin, 'uvpasskey');
+        $this->createdUsernames[] = $konto['username'];
+        self::legeTestPasskeyAn($konto['id']);
+
+        $liste = $admin->get('/admin/users?search=' . urlencode($konto['username']));
+        $this->assertStringContainsString('🔑 Passkey (1)', $liste->body);
+        $this->assertStringNotContainsString('⚠️ Ausstehend', $liste->body);
+        $this->assertStringContainsString('action="/admin/users/reset-2fa"', $liste->body);
+
+        $admin->post('/admin/users/reset-2fa', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'id' => (string)$konto['id'],
+        ]);
+
+        $client = $this->newClient();
+        $login = $client->post('/login', [
+            'csrf_token' => $client->get('/login')->formField('csrf_token') ?? '',
+            'kennung' => $konto['username'],
+            'password' => $konto['passwort'],
+        ]);
+        $this->assertSame('/admin', $login->location(), 'Ohne Faktor und ohne Pflicht geht es direkt hinein.');
+    }
+
+    private function spalteVon(int $userId, string $spalte): int {
+        $stmt = \App\Database::getInstance()->prepare("SELECT `{$spalte}` FROM users WHERE id = ?");
+        $stmt->execute([$userId]);
+        return (int)$stmt->fetchColumn();
+    }
+
     // ---- Hilfsmethoden -------------------------------------------------
 
     /**

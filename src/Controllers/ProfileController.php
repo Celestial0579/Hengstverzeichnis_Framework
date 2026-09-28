@@ -5,11 +5,13 @@ namespace App\Controllers;
 
 use App\Database;
 use App\Router;
-use App\Security\ApiKey;
+use App\Security\BackupCodes;
 use App\Security\EmailSecondFactor;
+use App\Security\KontoSicherheit;
 use App\Security\RateLimiter;
 use App\Security\SecondFactors;
-use App\Security\Totp;
+use App\Security\StepUp;
+use App\Service\AdressWechsel;
 use App\Service\AuditLogger;
 use App\Service\Mailer;
 
@@ -25,6 +27,13 @@ use App\Service\Mailer;
  * DIE SEITE STEHT JEDEM ANGEMELDETEN BENUTZER OFFEN, unabhängig von Rechten.
  * Sie arbeitet ausschliesslich auf $_SESSION['user_id'] - es gibt keinen
  * Parameter, über den sich ein fremdes Konto adressieren liesse.
+ *
+ * WAS DIE ZWEITEN FAKTOREN VERÄNDERT, VERLANGT EINEN STEP-UP (Audit M15, M17,
+ * N10): Mailcode ein- und ausschalten und die Adresse ändern - die Adresse
+ * ist der Zustellweg des Mailcodes. Passwort allein genügte dafür nicht: Wer
+ * eine Sitzung übernommen hatte und das Passwort kannte, schaltete den
+ * Mailcode ab und richtete ohne Nachweis eine eigene App ein, oder trug die
+ * Adresse samt Faktor auf ein eigenes Postfach um. Siehe App\Security\StepUp.
  */
 class ProfileController extends BaseController {
 
@@ -65,25 +74,25 @@ class ProfileController extends BaseController {
         return $konto;
     }
 
-    /**
-     * Zahl der noch ungenutzten Backup-Codes.
-     *
-     * json_decode() liefert bei NULL oder kaputtem JSON null - das muss als 0
-     * gelten und nicht in einen TypeError laufen.
-     */
+    /** Zahl der noch ungenutzten Backup-Codes (siehe BackupCodes::offen()). */
     private function offeneBackupCodes(array $konto): int {
-        $codes = json_decode((string)($konto['backup_codes'] ?? '[]'), true);
-        return is_array($codes) ? count($codes) : 0;
+        return BackupCodes::offen(isset($konto['backup_codes']) ? (string)$konto['backup_codes'] : null);
     }
 
     public function index(): void {
         $this->checkAuth();
         $konto = $this->konto();
+        $faktoren = SecondFactors::fromRow($konto);
 
         $this->render('profil', [
             'title' => 'Mein Profil',
             'konto' => $konto,
-            'faktoren' => SecondFactors::fromRow($konto),
+            'faktoren' => $faktoren,
+            // Darf das Konto seine Faktoren gerade ändern (ohne Faktor immer,
+            // sonst nur mit frischer Bestätigung)? Die Seite zeigt sonst den
+            // Weg zur Bestätigung statt der Formulare.
+            'stepUpErfuellt' => StepUp::erfuellt($this->userId(), $faktoren),
+            'stepUpBis' => StepUp::gueltigBis($this->userId()),
             // Warum der Mailcode NICHT angeboten wird, muss auf der Seite
             // stehen - eine fehlende Auswahl ohne Begruendung sieht wie ein
             // Fehler aus (#354).
@@ -106,8 +115,8 @@ class ProfileController extends BaseController {
      * @return array<int, string>
      */
     private function einmaligeCodesAbholen(): array {
-        $ablage = $_SESSION['profile_new_backup_codes'] ?? null;
-        unset($_SESSION['profile_new_backup_codes']);
+        $ablage = $_SESSION[BackupCodes::SESSION] ?? null;
+        unset($_SESSION[BackupCodes::SESSION]);
 
         if (!is_array($ablage) || (int)($ablage['user_id'] ?? 0) !== $this->userId()) {
             return [];
@@ -166,8 +175,13 @@ class ProfileController extends BaseController {
             $this->zurueck('error', 'same_password');
         }
 
+        // Ein offener Adressantrag endet im selben Statement (Audit M16):
+        // Sonst bestaetigte ein Angreifer ihn nach dem Wechsel noch und holte
+        // sich das Konto ueber "Passwort vergessen" an die neue Adresse.
+        $offenerAntrag = KontoSicherheit::offenerAdressantrag($userId);
         $stmt = $db->prepare(
-            "UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1
+            "UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1,
+                    " . KontoSicherheit::ADRESSANTRAG_LEEREN . "
              WHERE id = ?"
         );
         $stmt->execute([password_hash($neu, PASSWORD_DEFAULT), $userId]);
@@ -175,9 +189,7 @@ class ProfileController extends BaseController {
         // Offene Mailcodes gehoeren in denselben Zug wie Sitzungen und
         // Schluessel (#354): Ein Code, der schon in einem fremden Postfach
         // liegt, darf den Wechsel nicht ueberleben.
-        EmailSecondFactor::discard($userId);
-
-        $widerrufen = ApiKey::revokeAllForUser($userId);
+        $widerrufen = KontoSicherheit::nachPasswortwechsel($userId, $offenerAntrag);
         AuditLogger::log(
             'Passwort selbst geändert',
             'auth',
@@ -210,11 +222,13 @@ class ProfileController extends BaseController {
      * übernimmt und einmal aufs Telefon schaut, bindet das Konto sonst
      * dauerhaft an sich.
      *
-     * WELCHER Faktor, entscheidet das Konto (#354): TOTP, wenn vorhanden -
-     * sonst der Mailcode. Bis v0.8 verlangte die Methode ausdrücklich TOTP;
-     * ein Konto, dessen einziger Faktor der Mailcode ist, käme sonst nie
-     * wieder an frische Backup-Codes und wäre nach dem letzten verbrauchten
-     * ausgesperrt, sobald einmal keine Mail ankommt.
+     * WELCHER Faktor, entscheidet das Konto (#354, Audit N10) - dieselbe
+     * Weiche wie die Bestätigungsseite (StepUp::codePruefen()): TOTP, wenn
+     * vorhanden, sonst der Mailcode, aber nur, wenn er ein Faktor des Kontos
+     * ist. Ein reines Passkey-Konto tippt keinen Code, es bestätigt vorher mit
+     * dem Passkey (/2fa/reauth). Bis hierher genügte ihm ein Mailcode - der
+     * Postfachzugang ersetzte den Passkey -, und ohne Adresse kam es nie an
+     * neue Codes. Eine frische Bestätigung ersetzt den Code auch sonst.
      */
     public function regenerateBackupCodes(): void {
         $this->checkAuth();
@@ -225,9 +239,16 @@ class ProfileController extends BaseController {
         $userId = $this->userId();
         $konto = $this->konto();
         $faktoren = SecondFactors::fromRow($konto);
+        $codeArt = StepUp::codeArt($faktoren);
+        $freigegeben = StepUp::frisch($userId);
 
         if ($faktoren === []) {
             $this->zurueck('error', 'no_2fa');
+        }
+        if ($codeArt === null && !$freigegeben) {
+            // Vor der Passwortprüfung: Ohne Freigabe kann dieses Konto hier
+            // nie bestehen, und die Seite soll kein Passwort-Orakel sein.
+            $this->zurueck('error', 'stepup_required');
         }
         if (RateLimiter::tooManyAttempts((string)$userId, 'profile_backup', 5, 900)) {
             $this->zurueck('error', 'rate_limited');
@@ -245,61 +266,22 @@ class ProfileController extends BaseController {
             $this->zurueck('error', 'current_password_wrong');
         }
 
-        $slice = null;
-        if (in_array(SecondFactors::TOTP, $faktoren, true)) {
-            $code = trim((string)($_POST['totp_code'] ?? ''));
-
-            // Dieselbe Lesestelle wie im Anmeldeweg (Audit N8): Alter
-            // Base32-Klartext gilt weiter, ein nicht lesbares Secret besteht
-            // nie - bis hierher wurde dann der Chiffretext selbst zum Secret.
-            $secret = Totp::secretAusSpeicher((string)($konto['totp_secret'] ?? ''), $userId);
-            $slice = $secret === null
-                ? null
-                : Totp::verifyCodeReturnSlice($secret, $code, $konto['last_totp_timeslice'] === null ? null : (int)$konto['last_totp_timeslice']);
-
-            if ($slice === null) {
-                RateLimiter::recordAttempt((string)$userId, 'profile_backup');
-                $this->zurueck('error', 'totp_wrong');
-            }
-        } elseif (!EmailSecondFactor::verify($userId, EmailSecondFactor::PURPOSE_SETUP, (string)($_POST['email_code'] ?? ''))) {
+        if (!$freigegeben && !StepUp::codePruefen(
+            $userId,
+            $konto,
+            $faktoren,
+            (string)($_POST['totp_code'] ?? ''),
+            (string)($_POST['email_code'] ?? '')
+        )) {
             RateLimiter::recordAttempt((string)$userId, 'profile_backup');
-            $this->zurueck('error', 'code_wrong');
+            $this->zurueck('error', $codeArt === SecondFactors::TOTP ? 'totp_wrong' : 'code_wrong');
         }
 
-        $this->neueBackupCodesSetzen($userId, $slice);
+        BackupCodes::erneuern($userId);
         AuditLogger::log('Backup-Codes neu erzeugt', 'auth', 'User ID ' . $userId);
 
         header('Location: /profil?success=backup_codes');
         exit;
-    }
-
-    /**
-     * Erzeugt zehn frische Backup-Codes, speichert ihre Abdrücke und legt den
-     * Klartext für die einmalige Anzeige in der Sitzung ab.
-     *
-     * $slice ist der beim Nachweis getroffene TOTP-Zeitschlitz, sofern über
-     * TOTP nachgewiesen wurde: Der Replay-Schutz (#111) lebt davon, dass jeder
-     * akzeptierte Code seinen Zeitschlitz verbraucht. Bei einem Nachweis über
-     * den Mailcode gibt es keinen - der Code ist dort schon durch das Löschen
-     * seiner Zeile verbraucht.
-     */
-    private function neueBackupCodesSetzen(int $userId, ?int $slice): void {
-        $neueCodes = Totp::generateBackupCodes(10);
-        $gehasht = array_map(
-            static fn(string $c): string => password_hash(str_replace('-', '', strtoupper($c)), PASSWORD_DEFAULT),
-            $neueCodes
-        );
-
-        $db = Database::getInstance();
-        if ($slice === null) {
-            $stmt = $db->prepare("UPDATE users SET backup_codes = ? WHERE id = ?");
-            $stmt->execute([json_encode($gehasht), $userId]);
-        } else {
-            $stmt = $db->prepare("UPDATE users SET backup_codes = ?, last_totp_timeslice = ? WHERE id = ?");
-            $stmt->execute([json_encode($gehasht), $slice, $userId]);
-        }
-
-        $_SESSION['profile_new_backup_codes'] = ['user_id' => $userId, 'codes' => $neueCodes];
     }
 
     // ---- Zweiter Faktor per E-Mail (#354) ------------------------------
@@ -332,6 +314,17 @@ class ProfileController extends BaseController {
         if ($adresse === '') {
             $this->zurueck('error', 'no_email');
         }
+        // Nur, wo der Code etwas bewirken kann (Audit N10): beim Einschalten
+        // (dann muss das Konto den Faktor nutzen dürfen) oder als Faktor, den
+        // das Konto schon hat. Bis hierher bekam jedes Konto mit Adresse
+        // einen - auch eines, dessen Faktor ein Passkey ist, und dort stand
+        // der Code dann für den Passkey ein.
+        if (
+            !SecondFactors::emailFactorAllowedFor($userId, $adresse)
+            && !in_array(SecondFactors::EMAIL, SecondFactors::fromRow($konto), true)
+        ) {
+            $this->zurueck('error', 'email_factor_not_allowed');
+        }
         if (RateLimiter::tooManyAttempts(
             (string)$userId,
             EmailSecondFactor::RESEND_LIMITER_TYPE,
@@ -363,7 +356,9 @@ class ProfileController extends BaseController {
      *
      * Verlangt Passwort UND den Probecode. Das Passwort, weil eine
      * uebernommene Sitzung allein nicht genuegen darf; den Probecode, weil
-     * sonst eine falsch eingetragene Adresse das Konto aussperrt.
+     * sonst eine falsch eingetragene Adresse das Konto aussperrt. Hat das
+     * Konto schon einen Faktor, zusaetzlich die frische Bestaetigung (Audit
+     * M15): Ein neuer Faktor ist ein neuer Weg ins Konto.
      *
      * Backup-Codes werden dabei erzeugt, falls es noch keine gibt: Sie sind
      * der Rueckweg, wenn keine Mail ankommt - und der Mailversand ist der
@@ -380,6 +375,11 @@ class ProfileController extends BaseController {
 
         if (!SecondFactors::emailFactorAllowedFor($userId, $konto['email'] ?? null)) {
             $this->zurueck('error', 'email_factor_not_allowed');
+        }
+        // NACH der Zulassung (die Ablehnung fuer Administratoren bleibt die
+        // erste Antwort), VOR Drossel und Passwort (kein Passwort-Orakel).
+        if (!StepUp::erfuellt($userId, SecondFactors::fromRow($konto))) {
+            $this->zurueck('error', 'stepup_required');
         }
         if (RateLimiter::tooManyAttempts((string)$userId, 'profile_2fa', 5, 900)) {
             $this->zurueck('error', 'rate_limited');
@@ -402,7 +402,7 @@ class ProfileController extends BaseController {
         $stmt->execute([$userId]);
 
         if ($this->offeneBackupCodes($konto) === 0) {
-            $this->neueBackupCodesSetzen($userId, null);
+            BackupCodes::erneuern($userId);
         }
 
         AuditLogger::log('Zweiter Faktor per E-Mail eingeschaltet', 'auth', 'User ID ' . $userId);
@@ -410,9 +410,14 @@ class ProfileController extends BaseController {
     }
 
     /**
-     * Mailcode wieder ausschalten. Passwort genuegt: Einen Faktor abzugeben
-     * schwaecht nur das eigene Konto, und wer die Sitzung UND das Passwort
-     * hat, kaeme ohnehin ueberall hin.
+     * Mailcode wieder ausschalten.
+     *
+     * Verlangt Passwort UND die frische Bestätigung (Audit M17). Die frühere
+     * Begründung ("einen Faktor abzugeben schwächt nur das eigene Konto")
+     * traf nicht zu: Nach dem Abschalten ist das Konto oft faktorlos, und
+     * /2fa/setup nimmt dann ohne jeden Nachweis ein fremdes TOTP-Secret an.
+     * Wer Sitzung und Passwort hatte, band das Konto so an sein eigenes
+     * Gerät - genau das, was #112 für TOTP-Konten verhindert.
      */
     public function disableEmailFactor(): void {
         $this->checkAuth();
@@ -421,7 +426,16 @@ class ProfileController extends BaseController {
         }
 
         $userId = $this->userId();
+        $konto = $this->konto();
 
+        if (empty($konto['email_2fa_enabled'])) {
+            $this->zurueck('error', 'email_factor_not_on');
+        }
+        // Vor Drossel und Passwortprüfung - sonst ist die Seite ein Orakel
+        // für das Passwort, auch ohne dass je etwas abgeschaltet wird.
+        if (!StepUp::frisch($userId)) {
+            $this->zurueck('error', 'stepup_required');
+        }
         if (RateLimiter::tooManyAttempts((string)$userId, 'profile_2fa', 5, 900)) {
             $this->zurueck('error', 'rate_limited');
         }
@@ -439,6 +453,15 @@ class ProfileController extends BaseController {
         EmailSecondFactor::discard($userId);
 
         AuditLogger::log('Zweiter Faktor per E-Mail ausgeschaltet', 'auth', 'User ID ' . $userId);
+        KontoSicherheit::hinweisSenden(
+            $userId,
+            'Zweiter Faktor per E-Mail ausgeschaltet',
+            sprintf(
+                'Für Ihr Konto wurde am %s der Einmalcode per E-Mail als zweiter Faktor ausgeschaltet.',
+                date('d.m.Y \u\m H:i')
+            ),
+            (string)($konto['email'] ?? '')
+        );
         $this->zurueck('success', 'email_factor_off');
     }
 
@@ -447,8 +470,11 @@ class ProfileController extends BaseController {
     /**
      * Neue Adresse beantragen.
      *
-     * ZWEI SCHRANKEN. Erstens das aktuelle Passwort - eine übernommene
-     * Sitzung allein genügt nicht. Zweitens gilt die neue Adresse erst nach
+     * DREI SCHRANKEN. Erstens das aktuelle Passwort - eine übernommene
+     * Sitzung allein genügt nicht. Zweitens, bei einem Konto mit zweitem
+     * Faktor, die frische Bestätigung (Audit M17): Die Adresse ist der
+     * Zustellweg des Mailcodes und des Passwort-Resets; wer sie umträgt,
+     * nimmt beides mit. Drittens gilt die neue Adresse erst nach
      * Bestätigung über einen Link an SIE; bis dahin bleibt die alte in Kraft.
      * Zusätzlich geht eine Nachricht an die BISHERIGE Adresse: Die kann ein
      * Angreifer nicht verhindern, und sie ist der einzige Weg, auf dem der
@@ -464,6 +490,9 @@ class ProfileController extends BaseController {
         $userId = $this->userId();
         $konto = $this->konto();
 
+        if (!StepUp::erfuellt($userId, SecondFactors::fromRow($konto))) {
+            $this->zurueck('error', 'stepup_required');
+        }
         if (RateLimiter::tooManyAttempts((string)$userId, 'profile_email', 5, 3600)) {
             $this->zurueck('error', 'rate_limited');
         }
@@ -489,7 +518,10 @@ class ProfileController extends BaseController {
             $this->zurueck('error', 'email_unchanged');
         }
 
-        $stmt = $db->prepare("SELECT COUNT(*) FROM users WHERE email = ? AND id <> ? AND deleted_at IS NULL");
+        // OHNE `deleted_at IS NULL` (Audit N52): Der UNIQUE-Index umfasst auch
+        // Konten im Papierkorb. Mit dem Filter wurde der Antrag angenommen und
+        // scheiterte erst die Bestätigung - mit HTTP 500.
+        $stmt = $db->prepare("SELECT COUNT(*) FROM users WHERE email = ? AND id <> ?");
         $stmt->execute([$neu, $userId]);
         if ((int)$stmt->fetchColumn() > 0) {
             // Bewusst dieselbe Meldung wie bei einer ungültigen Adresse: Sonst
@@ -529,6 +561,9 @@ class ProfileController extends BaseController {
      * zwingend gerade angemeldet, und der Besitz des Tokens ist der Nachweis.
      * Deshalb steht die Route auch nicht hinter checkAuth() - siehe
      * public/index.php.
+     *
+     * Die Übernahme selbst ist atomar und fängt eine inzwischen vergebene
+     * Adresse ab (App\Service\AdressWechsel, Audit N52, N53).
      */
     public function confirmNewEmail(): void {
         $token = trim((string)($_GET['token'] ?? ''));
@@ -537,13 +572,14 @@ class ProfileController extends BaseController {
             exit;
         }
 
+        $tokenHash = hash('sha256', $token);
         $db = Database::getInstance();
         $stmt = $db->prepare(
-            "SELECT id, pending_email FROM users
+            "SELECT id, email, pending_email FROM users
              WHERE pending_email_token = ? AND pending_email_expires_at > NOW()
                AND deleted_at IS NULL AND deactivated_at IS NULL"
         );
-        $stmt->execute([hash('sha256', $token)]);
+        $stmt->execute([$tokenHash]);
         $konto = $stmt->fetch();
 
         if (!$konto || empty($konto['pending_email'])) {
@@ -551,20 +587,53 @@ class ProfileController extends BaseController {
             exit;
         }
 
-        $stmt = $db->prepare(
-            "UPDATE users
-             SET email = pending_email, pending_email = NULL, pending_email_token = NULL,
-                 pending_email_expires_at = NULL, unprotected_since = NULL
-             WHERE id = ?"
-        );
-        $stmt->execute([(int)$konto['id']]);
+        $userId = (int)$konto['id'];
+        $alteAdresse = trim((string)($konto['email'] ?? ''));
+        $neueAdresse = (string)$konto['pending_email'];
+
+        $ergebnis = AdressWechsel::uebernehmen($db, $userId, $tokenHash, $neueAdresse);
+
+        if ($ergebnis === AdressWechsel::VERGEBEN) {
+            header('Location: /profil?error=email_taken');
+            exit;
+        }
+
+        if ($ergebnis === AdressWechsel::NICHT_MEHR_OFFEN) {
+            // Ein paralleler Aufruf desselben Links (Mailscanner) war
+            // schneller. Hat ER die Adresse übernommen, ist das für den
+            // Benutzer ein Erfolg - ohne zweites Protokoll und zweite Mail.
+            $stmt = $db->prepare("SELECT email FROM users WHERE id = ?");
+            $stmt->execute([$userId]);
+            $jetzt = (string)($stmt->fetchColumn() ?: '');
+            $ziel = strcasecmp($jetzt, $neueAdresse) === 0 ? 'success=email_changed' : 'error=email_token_invalid';
+            header('Location: /profil?' . $ziel);
+            exit;
+        }
 
         // Offene Codes gingen an die ALTE Adresse (#354). Sie sollen nach dem
         // Wechsel nichts mehr bewirken - wer sie dort noch lesen kann, ist
         // gerade nicht mehr der Eigentuemer dieses Kontos.
-        EmailSecondFactor::discard((int)$konto['id']);
+        EmailSecondFactor::discard($userId);
 
-        AuditLogger::log('E-Mail-Adresse bestätigt', 'auth', 'User ID ' . $konto['id']);
+        AuditLogger::log('E-Mail-Adresse bestätigt', 'auth', 'User ID ' . $userId);
+
+        // Hinweis an die ALTE Adresse (Audit M17): Ab jetzt gehen Mailcode und
+        // Passwort-Reset an die neue - und der SSO-Login ordnet Konten über
+        // die Adresse zu. Der bisherige Eigentümer muss davon erfahren.
+        if ($alteAdresse !== '') {
+            KontoSicherheit::hinweisSenden(
+                $userId,
+                'Ihre E-Mail-Adresse wurde geändert',
+                sprintf(
+                    'Die E-Mail-Adresse Ihres Kontos wurde am %s auf %s geändert. '
+                    . 'An diese Adresse hier gehen ab jetzt keine Nachrichten mehr.',
+                    date('d.m.Y \u\m H:i'),
+                    $neueAdresse
+                ),
+                $alteAdresse
+            );
+        }
+
         header('Location: /profil?success=email_changed');
         exit;
     }

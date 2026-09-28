@@ -13,7 +13,13 @@
  * @var bool $mailcodeAngefordert Liegt ein gueltiger Probecode bereit?
  * @var int $backupCodesOffen
  * @var array<int, string> $neueCodes
+ * @var bool $stepUpErfuellt Darf das Konto seine Faktoren gerade ändern
+ *                           (ohne Faktor immer, sonst nur mit frischer
+ *                           Bestätigung - App\Security\StepUp)?
+ * @var int|null $stepUpBis  Ende der frischen Bestätigung (Unix-Zeit)
  */
+$stepUpErfuellt = $stepUpErfuellt ?? false;
+$stepUpBis = $stepUpBis ?? null;
 $meldungen = [
     'password_changed' => 'Passwort geändert.',
     'backup_codes' => 'Neue Backup-Codes erzeugt. Die alten gelten nicht mehr.',
@@ -39,7 +45,13 @@ $fehler = [
     'code_send_failed' => 'Der Code konnte nicht versendet werden. Bitte prüfen Sie die Mail-Einstellungen oder wenden Sie sich an das Verwaltungsteam.',
     'no_email' => 'Ohne hinterlegte E-Mail-Adresse gibt es keinen Faktor per E-Mail.',
     'email_factor_not_allowed' => 'Für dieses Konto ist der Mailcode als zweiter Faktor nicht zugelassen.',
+    'email_factor_not_on' => 'Der zweite Faktor per E-Mail ist gar nicht eingeschaltet.',
+    'email_taken' => 'Diese Adresse ist inzwischen einem anderen Konto zugeordnet. Der Antrag wurde verworfen.',
+    'stepup_required' => 'Diese Änderung verlangt eine frische Bestätigung mit Passwort und zweitem Faktor.',
 ];
+// Wohin der Link „Jetzt bestätigen“ zurückführt (App\Security\StepUp::ziel()).
+$bestaetigenLink = static fn(string $fuer): string =>
+    '<a href="/2fa/reauth?fuer=' . htmlspecialchars($fuer) . '">Jetzt bestätigen</a>';
 $csrf = App\Router::generateCsrfToken();
 ?>
 <div class="card" style="max-width: 780px;">
@@ -58,6 +70,9 @@ $csrf = App\Router::generateCsrfToken();
     <?php if ($error !== null && isset($fehler[$error])): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 0.8rem; border-radius: 4px; margin: 1rem 0;">
             <?= htmlspecialchars($fehler[$error]) ?>
+            <?php if ($error === 'stepup_required'): ?>
+                <?= $bestaetigenLink('profil') ?>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
@@ -105,6 +120,16 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
 
     <?php if ($faktoren === []): ?>
         <p style="color: var(--text-muted);">Noch kein zweiter Faktor eingerichtet.</p>
+    <?php elseif ($stepUpBis !== null): ?>
+        <p style="color: var(--success-fg);" data-stepup-status>
+            Bestätigt bis <?= htmlspecialchars(date('H:i', $stepUpBis)) ?> Uhr &ndash; bis dahin lassen sich
+            Faktoren, Backup-Codes und Adresse ohne erneute Bestätigung ändern.
+        </p>
+    <?php else: ?>
+        <p style="color: var(--text-muted); font-size: 0.9rem;" data-stepup-status>
+            Änderungen an Faktoren und Adresse verlangen eine frische Bestätigung mit Passwort und
+            zweitem Faktor (gilt 10 Minuten). <?= $bestaetigenLink('profil') ?>
+        </p>
     <?php endif; ?>
 
     <?php
@@ -159,7 +184,13 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
         </div>
     <?php endif; ?>
 
-    <?php if (App\Security\Passkeys::verfuegbar()): ?>
+    <?php if (App\Security\Passkeys::verfuegbar() && !$stepUpErfuellt): ?>
+        <?php // Das Element bleibt im DOM (data-passkey-registrieren), nur ohne
+              // Zeremonie: Das Hinzufügen verlangt die Bestätigung (Audit M15). ?>
+        <a href="/2fa/reauth?fuer=passkeys" class="btn btn-secondary" data-passkey-registrieren="stepup">
+            Zum Hinzufügen zuerst bestätigen
+        </a>
+    <?php elseif (App\Security\Passkeys::verfuegbar()): ?>
         <p data-passkey-meldung class="passkey-meldung" hidden></p>
         <label for="passkey-bezeichnung" style="display:block; font-size:0.9rem; margin-bottom:0.3rem;">
             Bezeichnung (damit Sie ihn später wiedererkennen)
@@ -167,7 +198,7 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
         <input type="text" id="passkey-bezeichnung" data-passkey-bezeichnung maxlength="100"
                placeholder="z. B. Diensttelefon" style="max-width: 320px; margin-bottom: 0.6rem;">
         <br>
-        <button type="button" class="btn" data-passkey-registrieren
+        <button type="button" class="btn" data-passkey-registrieren="bereit"
                 data-csrf="<?= htmlspecialchars($passkeyCsrf) ?>">
             Passkey hinzufügen
         </button>
@@ -211,13 +242,19 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
             <button type="submit" class="btn btn-secondary"><?= $mailcodeAngefordert ? 'Neuen Code schicken' : 'Code schicken (für neue Backup-Codes)' ?></button>
         </form>
-        <form method="POST" action="/profil/2fa/email/aus"
-              data-confirm="Zweiten Faktor per E-Mail ausschalten?">
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
-            <label for="off_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
-            <input type="password" id="off_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
-            <button type="submit" class="btn btn-secondary" style="margin-top:1rem;">Ausschalten</button>
-        </form>
+        <?php if ($stepUpErfuellt): ?>
+            <form method="POST" action="/profil/2fa/email/aus"
+                  data-confirm="Zweiten Faktor per E-Mail ausschalten?">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                <label for="off_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
+                <input type="password" id="off_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
+                <button type="submit" class="btn btn-secondary" style="margin-top:1rem;">Ausschalten</button>
+            </form>
+        <?php else: ?>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                Zum Ausschalten bestätigen Sie zuerst Passwort und zweiten Faktor. <?= $bestaetigenLink('profil') ?>
+            </p>
+        <?php endif; ?>
     <?php elseif ($istAdmin): ?>
         <p style="color: var(--danger-fg);">
             Für Administratoren nicht zugelassen. Ein Konto mit allen Rechten soll nicht an einem Postfach
@@ -238,7 +275,12 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
             <button type="submit" class="btn btn-secondary"><?= $mailcodeAngefordert ? 'Neuen Probecode schicken' : 'Probecode schicken' ?></button>
         </form>
-        <?php if ($mailcodeAngefordert): ?>
+        <?php if ($mailcodeAngefordert && !$stepUpErfuellt): ?>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                Ihr Konto hat schon einen zweiten Faktor. Zum Einschalten bestätigen Sie zuerst Passwort und
+                diesen Faktor. <?= $bestaetigenLink('profil') ?>
+            </p>
+        <?php elseif ($mailcodeAngefordert): ?>
             <form method="POST" action="/profil/2fa/email/ein">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
                 <label for="on_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
@@ -259,7 +301,20 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
             <?php endif; ?>
             Sie sind der Rückweg, wenn das Gerät fehlt oder keine Mail ankommt.
         </p>
-        <?php if (!$hatTotp && !$mailcodeAngefordert): ?>
+        <?php
+        // Dieselbe Weiche wie ProfileController::regenerateBackupCodes() und
+        // StepUp::codePruefen() (Audit N10): mit frischer Bestätigung nur das
+        // Passwort, sonst der Code des Faktors, der zählt - und ein reines
+        // Passkey-Konto bestätigt vorher mit dem Passkey.
+        $backupFrisch = $stepUpBis !== null;
+        $backupCodeArt = App\Security\StepUp::codeArt($faktoren);
+        ?>
+        <?php if (!$backupFrisch && $backupCodeArt === null): ?>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                Für neue Backup-Codes bestätigen Sie zuerst Passwort und Passkey.
+                <a href="/2fa/reauth?fuer=profil">Mit Passkey bestätigen</a>
+            </p>
+        <?php elseif (!$backupFrisch && $backupCodeArt === App\Security\SecondFactors::EMAIL && !$mailcodeAngefordert): ?>
             <p style="color: var(--text-muted); font-size: 0.9rem;">
                 Für neue Backup-Codes brauchen wir einen gültigen Code aus Ihrer E-Mail &ndash; fordern Sie
                 oben einen Probecode an.
@@ -274,7 +329,9 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
                 </p>
                 <label for="bc_password" style="display:block; font-weight:bold;">Aktuelles Passwort</label>
                 <input type="password" id="bc_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
-                <?php if ($hatTotp): ?>
+                <?php if ($backupFrisch): ?>
+                    <?php // Der Faktor ist mit der Bestätigung schon nachgewiesen. ?>
+                <?php elseif ($backupCodeArt === App\Security\SecondFactors::TOTP): ?>
                     <label for="bc_totp" style="display:block; font-weight:bold; margin-top:0.8rem;">6-stelliger Code aus der App</label>
                     <input type="text" id="bc_totp" name="totp_code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" style="padding:0.5rem;">
                 <?php else: ?>
@@ -288,7 +345,7 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
 </div>
 
 <div class="card" style="max-width: 780px; margin-top: 1.5rem;">
-    <h2 style="font-size: 1.15rem; margin-top: 0;">E-Mail-Adresse</h2>
+    <h2 id="email" style="font-size: 1.15rem; margin-top: 0;">E-Mail-Adresse</h2>
 
     <?php if (!empty($konto['pending_email'])): ?>
         <div style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 0.8rem; border-radius: 4px; margin-bottom: 1rem;">
@@ -310,14 +367,25 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
             180 Tagen deaktiviert.
         <?php endif; ?>
     </p>
-    <form method="POST" action="/profil/email">
-        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
-        <label for="new_email" style="display:block; font-weight:bold;">Neue E-Mail-Adresse</label>
-        <input type="email" id="new_email" name="new_email" required maxlength="100" style="width:100%; padding:0.5rem;">
-        <label for="mail_password" style="display:block; font-weight:bold; margin-top:0.8rem;">Aktuelles Passwort</label>
-        <input type="password" id="mail_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
-        <button type="submit" class="btn" style="margin-top:1rem;">Adresse beantragen</button>
-    </form>
+    <?php if ($stepUpErfuellt): ?>
+        <form method="POST" action="/profil/email">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+            <label for="new_email" style="display:block; font-weight:bold;">Neue E-Mail-Adresse</label>
+            <input type="email" id="new_email" name="new_email" required maxlength="100" style="width:100%; padding:0.5rem;">
+            <label for="mail_password" style="display:block; font-weight:bold; margin-top:0.8rem;">Aktuelles Passwort</label>
+            <input type="password" id="mail_password" name="current_password" required autocomplete="current-password" style="width:100%; padding:0.5rem;">
+            <button type="submit" class="btn" style="margin-top:1rem;">Adresse beantragen</button>
+        </form>
+    <?php else: ?>
+        <?php // Die Adresse ist der Zustellweg des Mailcodes und des
+              // Passwort-Resets (Audit M17) - bei einem Konto mit Faktor
+              // erst nach frischer Bestätigung. ?>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+            Ihr Konto hat einen zweiten Faktor. Bevor Sie die Adresse ändern, bestätigen Sie Passwort und
+            diesen Faktor &ndash; ein Mailcode geht dafür noch an die bisherige Adresse.
+            <?= $bestaetigenLink('email') ?>
+        </p>
+    <?php endif; ?>
 </div>
 
 <div class="card" style="max-width: 780px; margin-top: 1.5rem;">

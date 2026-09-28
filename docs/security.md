@@ -16,18 +16,39 @@ Konto adressieren liesse. Drei Punkte, die dort mehr sind als Bequemlichkeit:
   `ApiKey::revokeAllForUser()`. Ohne beides bewirkte er weniger als der
   erzwungene Wechsel, während die Seite dem Benutzer das Gegenteil verspricht.
   Die eigene Sitzung endet mit — bei einem Verdacht ist „alle Sitzungen sind
-  weg, auch meine" die ehrlichere Zusage.
+  weg, auch meine" die ehrlichere Zusage. Ein offener Adressantrag endet im
+  selben `UPDATE` (Audit M16, siehe unten).
 - **Backup-Codes neu erzeugen** verlangt Passwort **und** einen gültigen
   zweiten Faktor, denselben Maßstab wie die 2FA-Einrichtung (#112): Zehn
   frische Codes sind dasselbe Material wie ein neues Geheimnis. Welcher Faktor,
-  entscheidet das Konto — TOTP, wenn vorhanden, sonst der Mailcode (#354). Bei
-  TOTP wird der verbrauchte Zeitschlitz mitgeschrieben, sonst löchert die
-  Aktion den Replay-Schutz (#111).
-- **Adressänderung** braucht das aktuelle Passwort, gilt erst nach Bestätigung
-  über einen Link an die NEUE Adresse — und schickt gleichzeitig einen Hinweis
-  an die BISHERIGE. Den kann ein Angreifer nicht verhindern; er ist der
-  einzige Weg, auf dem der rechtmäßige Eigentümer von einer Übernahme erfährt,
-  solange sie noch rückgängig zu machen ist.
+  entscheidet das Konto über dieselbe Weiche wie der Step-up
+  (`StepUp::codePruefen()`, Audit N10): TOTP, wenn vorhanden, sonst der
+  Mailcode, aber nur, wenn er ein Faktor des Kontos ist. Ein reines
+  Passkey-Konto bestätigt vorher mit dem Passkey; eine frische Bestätigung
+  ersetzt den Code auch sonst. Bei TOTP wird der verbrauchte Zeitschlitz
+  mitgeschrieben, sonst löchert die Aktion den Replay-Schutz (#111).
+- **Adressänderung** braucht das aktuelle Passwort und, bei einem Konto mit
+  zweitem Faktor, die frische Bestätigung (Audit M17, siehe „Step-up“). Sie
+  gilt erst nach Bestätigung über einen Link an die NEUE Adresse — und schickt
+  gleichzeitig einen Hinweis an die BISHERIGE. Den kann ein Angreifer nicht
+  verhindern; er ist der einzige Weg, auf dem der rechtmäßige Eigentümer von
+  einer Übernahme erfährt, solange sie noch rückgängig zu machen ist. Er nennt
+  auch den Ausweg: Ein Passwortwechsel bricht den Antrag ab, ebenso der Knopf
+  unter „Mein Profil“. Nach der Übernahme geht ein zweiter Hinweis an die alte
+  Adresse — wichtig auch, weil der SSO-Login lokale Konten über die Adresse
+  zuordnet.
+- **Der Antrag überlebt keine Incident-Response** (Audit M16). Jeder
+  Passwortwechsel (Profil, Reset per Link, erzwungener Wechsel, Neusetzung
+  durch die Verwaltung), eine Adressänderung durch die Verwaltung und der
+  „2FA Reset“ verwerfen ihn (`App\Security\KontoSicherheit`). Bis dahin konnte
+  ein Angreifer einen vorbereiteten Antrag nach dem Passwortwechsel des Opfers
+  noch bestätigen und sich das Konto über „Passwort vergessen“ zurückholen.
+- **Die Übernahme ist atomar** (Audit N53, `App\Service\AdressWechsel`): Das
+  `UPDATE` trägt Token, Frist und aktives Konto selbst, nur eine getroffene
+  Zeile gilt. Zwei fast gleichzeitige Aufrufe des Links (Mailscanner) setzten
+  vorher `email = NULL`. Eine inzwischen vergebene Adresse — auch die eines
+  Kontos im Papierkorb, der `UNIQUE`-Index zählt es mit — verwirft den Antrag
+  mit Meldung statt HTTP 500 (Audit N52).
 
 `GET /profil/email/bestaetigen` ist bewusst **ohne** Anmeldung erreichbar: Der
 Empfänger der neuen Adresse ist nicht zwingend angemeldet, und der Besitz des
@@ -136,8 +157,13 @@ beschriftet und mit Schranken:
   Mailversand ist der unzuverlässigste Teil, und sie sind der Rückweg.
 - **Ein Passwortwechsel verwirft offene Codes** (`EmailSecondFactor::discard()`)
   — in allen vier Wegen: Selbstbedienung, Reset per Link, erzwungener Wechsel
-  und Neusetzung durch einen Admin. Ebenso beim Bestätigen einer neuen Adresse,
-  denn offene Codes gingen an die alte.
+  und Neusetzung durch einen Admin, jetzt gebündelt in
+  `KontoSicherheit::nachPasswortwechsel()`. Ebenso beim Bestätigen einer neuen
+  Adresse, denn offene Codes gingen an die alte.
+- **Probecodes nur, wo der Mailcode etwas bewirkt** (Audit N10):
+  `POST /profil/2fa/email/code` stellt nur für Konten aus, die den Mailcode
+  einschalten dürfen oder ihn schon nutzen. Vorher bekam jedes Konto mit
+  Adresse einen — auch eines, dessen Faktor ein Passkey ist.
 
 - **Die Step-up-Schranke (#112) fragt nach JEDEM Faktor, nicht nach TOTP.**
   Bis v0.8 war `totp_enabled = 0` gleichbedeutend mit „kein zweiter Faktor".
@@ -148,10 +174,14 @@ beschriftet und mit Schranken:
   überschrieben. Beide Wege prüfen deshalb `SecondFactors::fromRow()`, und
   beide für sich allein (`/2fa/setup` gibt das Secret bereits aus, ein Fix nur
   im POST käme zu spät).
-- **Der Step-up ist mit dem Faktor führbar, den das Konto hat.** Für ein Konto
-  ohne TOTP verlangt `/2fa/reauth` einen Mailcode, den `POST /2fa/reauth/code`
-  ausstellt. Ohne das wäre die Schranke oben eine Sackgasse: Ein
-  Mailcode-Konto könnte nie eine Authentikator-App nachrüsten.
+- **Der Step-up ist mit dem Faktor führbar, den das Konto hat** (Audit N10).
+  TOTP, wenn vorhanden — auch bei TOTP + Mailcode, strenger als die Anmeldung.
+  Sonst der Mailcode, den `POST /2fa/reauth/code` an die **bisherige** Adresse
+  ausstellt, aber nur, wenn er ein Faktor des Kontos ist. Ein reines
+  Passkey-Konto bestätigt mit dem Passkey. Ohne das wäre die Schranke oben
+  eine Sackgasse: Ein Mailcode-Konto könnte nie eine Authentikator-App
+  nachrüsten. Wer bei TOTP + Mailcode das Gerät verloren hat, geht über die
+  Verwaltung („2FA Reset“).
 
 Welche Faktoren ein Konto hat, beantwortet **ausschliesslich**
 `App\Security\SecondFactors` — Speicherung bleibt beim Material des jeweiligen
@@ -193,12 +223,40 @@ den Setup-Assistenten an.
   seiner Gruppen sie verlangt - ohne Bestandsschutz: Wird die Pflicht
   nachträglich aktiviert, greift sie beim nächsten Login. Bereits
   aktivierte 2FA bleibt unabhängig von der Gruppen-Einstellung aktiv.
-- **Step-up-Reauth für 2FA-Änderungen (#112):** Ist 2FA bereits aktiv, kann
-  eine Session die Konfiguration (neues Secret, neue Backup-Codes) nur nach
-  erneuter Bestätigung von Passwort UND aktuellem TOTP-Code ändern
-  (`/2fa/reauth`, Freischaltung 10 Minuten gültig). Secret und Backup-Codes
-  entstehen ausschließlich serverseitig und liegen bis zur Bestätigung in der
-  Session - POST-Werte des Clients werden ignoriert.
+- **Step-up für jede Änderung an den Faktoren (#112, Audit M15, M17, N10,
+  `App\Security\StepUp`):** Hat ein Konto einen zweiten Faktor, verlangt jede
+  Aktion, die einen Faktor hinzufügt, abschaltet oder seinen Zustellweg
+  ändert, eine frische Bestätigung mit Passwort UND einem vorhandenen Faktor:
+  - Authentikator-App neu einrichten (`/2fa/setup`, `/2fa/enable`)
+  - Passkey hinzufügen (`/passkeys/optionen`, `/passkeys/registrieren`) und
+    entziehen
+  - Mailcode ein- oder ausschalten
+  - E-Mail-Adresse ändern
+  - Backup-Codes erneuern bei einem reinen Passkey-Konto
+
+  Bis dahin galt die Schranke nur für die App: Wer eine Sitzung übernommen
+  hatte und das Passwort kannte, hängte einen eigenen Passkey an, schaltete
+  den Mailcode ab und richtete danach ohne Nachweis eine eigene App ein, oder
+  trug die Adresse samt Mailcode auf ein eigenes Postfach um. Die
+  Bestätigungsseite `/2fa/reauth?fuer=…` ist direkt erreichbar; `fuer` führt
+  nur auf die Ziele aus `StepUp::ziel()` zurück (`setup`, `profil`,
+  `passkeys`, `email`), nie auf einen übergebenen Pfad. Ihre Felder folgen
+  exakt `StepUp::codePruefen()`. Passkey-Konten bestätigen über
+  `POST /2fa/reauth/passkey/optionen` und `POST /2fa/reauth/passkey`
+  (Passwort + Assertion, eigener Zeremonie-Zweck `passkey_stepup`, immer an
+  das angemeldete Konto gebunden, Fehlversuche im Topf `2fa`). Die Freigabe
+  (`twofa_reauth`) gilt 10 Minuten für genau dieses Konto und mehrere
+  Aktionen; nur `/2fa/enable` verbraucht sie. Konten **ohne** Faktor brauchen
+  keinen Nachweis — der erste Faktor lässt sich wie bisher mit der
+  angemeldeten Sitzung einrichten. Secret und Backup-Codes entstehen
+  ausschließlich serverseitig und liegen bis zur Bestätigung in der Session -
+  POST-Werte des Clients werden ignoriert.
+
+  **Folgen für den Betrieb:** Mailcode-Konten ohne Zugang zum bisherigen
+  Postfach können ihre Adresse nicht mehr selbst ändern — Rückweg ist die
+  Verwaltung. SSO-Benutzer (Entra/OIDC) mit lokalem Faktor brauchen für die
+  Bestätigung ihr lokales Passwort; wer es nicht kennt, setzt es über
+  „Passwort vergessen“.
 - **Alle Nachweise der 2FA-Einrichtung tragen die Konto-ID.** Zwei
   Session-Werte können ein Konto benennen und dabei auf verschiedene zeigen:
   `pending_2fa_user_id` (Faktor 1 des laufenden Logins) und `user_id` (eine
@@ -238,6 +296,11 @@ den Setup-Assistenten an.
     ausgerechnet diese Route der Rückweg aus der Session-Invalidierung
     darunter: Wer eine invalidierte Sitzung hält, setzte dort ein neues
     Passwort und schriebe sich die frische `session_version` selbst zurück.
+    Gesetzt wird das Flag für neu angelegte Konten und, seit Audit N13, wenn
+    die Verwaltung das Passwort eines **anderen** Kontos neu setzt — das
+    Passwort kennt dann die Verwaltung und jeder, der den Zettel sieht. Auch
+    eine SSO-Anmeldung eines solchen Kontos landet im Zwangswechsel und
+    braucht das von der Verwaltung gesetzte Passwort.
     Abgedeckt durch `tests/Functional/ForcePasswordChangeGuardTest.php`.
   - **Session-Invalidierung bei Passwortänderung (#113):** `users.session_version`
     wird bei jeder Passwortänderung (Reset per Mail-Token, erzwungener Wechsel,
@@ -708,7 +771,28 @@ TOTP einen, auch eines, dessen einziger Faktor ein Passkey war, und landete
 in einer Sackgasse. „Abbrechen“ auf der Passkey-Seite meldet per POST mit
 CSRF-Token ab (Audit N86) und führt zurück zu `/login`.
 
+**Hinzufügen und Entziehen verlangen den Step-up** (Audit M15, Entscheidung
+D06), sobald das Konto einen Faktor hat. Ohne Freigabe entstehen weder
+Optionen noch eine Challenge; die Antwort ist `403` mit dem Weg zur
+Bestätigung. Die Registrierungs-Zeremonie ist an das angemeldete Konto
+gebunden, und ein neuer Login räumt angefangene Zeremonien
+(`passkey_registrierung`, `passkey_stepup`) weg. Nach dem Hinzufügen geht
+ein Hinweis an die hinterlegte Adresse. Wer als ersten Faktor einen Passkey
+einrichtet und keine Backup-Codes hat, bekommt dabei zehn (einmalige
+Anzeige im Profil).
+
 **Wiederherstellung.** Geht das Gerät verloren, hilft ein zweiter Passkey, die
 Authentikator-App oder das Zurücksetzen durch die Verwaltung. Der letzte
 verbleibende zweite Faktor lässt sich deshalb nicht über die Profilseite
-entziehen.
+entziehen. Der „2FA Reset“ der Verwaltung entfernt **alle** zweiten Faktoren
+— App, Mailcode, Backup-Codes und seit Audit N60 auch die Passkeys — dazu
+offene Mailcodes und einen offenen Adressantrag, in einer Transaktion
+(`KontoSicherheit::zweiteFaktorenZuruecksetzen()`). Er beendet außerdem alle
+Sitzungen des Kontos (`session_version + 1`) und widerruft seine
+API-Schlüssel (Entscheidung D07): Danach ist das Konto faktorlos, und eine
+noch lebende Sitzung — etwa auf dem gestohlenen Gerät — hätte sonst ohne
+Nachweis sofort einen eigenen Faktor gebunden. `/2fa/setup` und
+`/2fa/enable` prüfen eine bestehende Anmeldung deshalb wie jede geschützte
+Seite. Der Benutzer bekommt einen Hinweis an seine Adresse. Die
+Benutzerliste zeigt Passkeys an und bietet den Reset auch für Konten an,
+deren einziger Faktor ein Passkey ist.

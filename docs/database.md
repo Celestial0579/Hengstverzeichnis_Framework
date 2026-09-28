@@ -118,7 +118,14 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   Gespeichert wird nur der SHA-256-Abdruck des Tokens (Muster
   `password_resets`), Frist 48 Stunden. Bis zur Bestätigung gilt die
   bisherige Adresse — sonst trüge sich ein Angreifer mit übernommener Sitzung
-  eine eigene ein und bekäme damit den Passwort-Reset-Weg.
+  eine eigene ein und bekäme damit den Passwort-Reset-Weg. Jeder
+  Passwortwechsel (alle vier Wege), eine Adressänderung durch die Verwaltung
+  und der „2FA Reset" leeren die drei Spalten (Audit M16,
+  `KontoSicherheit::ADRESSANTRAG_LEEREN` bzw. `adressantragVerwerfen()`). Die
+  Übernahme ist ein bedingtes `UPDATE` auf Token, Frist und aktives Konto;
+  nur `rowCount() = 1` gilt als Erfolg (Audit N53, `App\Service\AdressWechsel`).
+  Die Adresse eines Kontos im Papierkorb gilt als vergeben — der
+  `UNIQUE`-Index auf `email` zählt es mit (Audit N52).
 
 ### `horse_registrations`
 Weitere Lebensnummern / Registriernummern je Pferd (#246):
@@ -216,8 +223,10 @@ nach `created_at`, Audit N54).
 gleicht sie an `schema.sql` an und verschlüsselt danach verbliebene
 Klartext-Secrets (Datenschritt `totp_klartext_verschluesseln`, Audit N8 –
 ohne `APP_KEY` bleibt er offen).
-`must_change_password` erzwingt eine Passwortänderung beim nächsten Login
-(z. B. nach Admin-initiiertem Reset). `deleted_at` für Soft-Delete,
+`must_change_password` erzwingt eine Passwortänderung beim nächsten Login:
+für neu angelegte Konten und, seit Audit N13, wenn die Verwaltung das
+Passwort eines **anderen** Kontos neu setzt (nicht beim eigenen). Der Zwang
+greift nach dem zweiten Faktor (`LoginSession::establish()`). `deleted_at` für Soft-Delete,
 `deactivated_at`/`deactivated_reason`/`unprotected_since` für die Sperre und
 die 180-Tage-Regel (#358).
 

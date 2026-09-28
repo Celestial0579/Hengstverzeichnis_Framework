@@ -120,7 +120,14 @@
         }).then(function (antwort) {
             return antwort.json().then(function (daten) {
                 if (!antwort.ok || daten.ok === false) {
-                    throw new Error(daten.fehler || 'Der Vorgang ist fehlgeschlagen.');
+                    var fehler = new Error(daten.fehler || 'Der Vorgang ist fehlgeschlagen.');
+                    // Weg zur Bestätigung (Audit M15). Er kommt ausschliesslich
+                    // aus der eigenen JSON-Antwort derselben Herkunft - und
+                    // wird trotzdem nur als Pfad dieser Seite übernommen.
+                    if (typeof daten.stepup === 'string' && daten.stepup.charAt(0) === '/' && daten.stepup.charAt(1) !== '/') {
+                        fehler.stepup = daten.stepup;
+                    }
+                    throw fehler;
                 }
                 return daten;
             }).catch(function (fehler) {
@@ -147,7 +154,10 @@
 
     // ---- Registrierung ---------------------------------------------------
 
-    var registrieren = document.querySelector('[data-passkey-registrieren]');
+    // Nur der Knopf, der die Zeremonie wirklich starten darf. Ohne frische
+    // Bestätigung steht an seiner Stelle ein gewöhnlicher Link zur
+    // Bestätigungsseite (data-passkey-registrieren="stepup").
+    var registrieren = document.querySelector('[data-passkey-registrieren="bereit"]');
     if (registrieren) {
         registrieren.addEventListener('click', function (ereignis) {
             ereignis.preventDefault();
@@ -175,7 +185,65 @@
                     window.location.reload();
                 })
                 .catch(function (fehler) {
+                    // Die Bestätigung ist abgelaufen oder fehlt: dorthin, wo
+                    // sie sich holen lässt, statt nur die Meldung zu zeigen.
+                    if (fehler && fehler.stepup) {
+                        window.location.href = fehler.stepup;
+                        return;
+                    }
                     registrieren.disabled = false;
+                    melden(meldung, deutlich(fehler), true);
+                });
+        });
+    }
+
+    // ---- Step-up: eine Änderung mit dem Passkey bestätigen (Audit N10) ----
+
+    var stepup = document.querySelector('[data-passkey-stepup]');
+    if (stepup) {
+        stepup.addEventListener('click', function (ereignis) {
+            ereignis.preventDefault();
+            var meldung = document.querySelector('[data-passkey-meldung]');
+            var passwortfeld = document.getElementById('password');
+            var passwort = passwortfeld ? passwortfeld.value : '';
+            var csrf = stepup.getAttribute('data-csrf') || '';
+            var fuer = stepup.getAttribute('data-fuer') || '';
+
+            // Das Passwort gehört zum Nachweis. Ohne gar nicht erst den
+            // Authenticator bemühen - der Server lehnte ohnehin ab.
+            if (passwort === '') {
+                melden(meldung, 'Bitte geben Sie zuerst Ihr aktuelles Passwort ein.', true);
+                if (passwortfeld) {
+                    passwortfeld.focus();
+                }
+                return;
+            }
+
+            stepup.disabled = true;
+            melden(meldung, 'Bitte bestätigen Sie am Gerät …', false);
+
+            senden('/2fa/reauth/passkey/optionen', { csrf_token: csrf })
+                .then(function (optionen) {
+                    return navigator.credentials.get({
+                        publicKey: optionenFuerAnfrage(optionen)
+                    });
+                })
+                .then(function (credential) {
+                    return senden('/2fa/reauth/passkey', {
+                        csrf_token: csrf,
+                        password: passwort,
+                        fuer: fuer,
+                        antwort: JSON.stringify(verpacken(credential))
+                    });
+                })
+                .then(function (daten) {
+                    var weiter = typeof daten.weiter === 'string' && daten.weiter.charAt(0) === '/' && daten.weiter.charAt(1) !== '/'
+                        ? daten.weiter
+                        : '/profil';
+                    window.location.href = weiter;
+                })
+                .catch(function (fehler) {
+                    stepup.disabled = false;
                     melden(meldung, deutlich(fehler), true);
                 });
         });

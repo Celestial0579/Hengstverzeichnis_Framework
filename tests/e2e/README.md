@@ -22,6 +22,15 @@ gegen eine frisch aus dem Repo-`Dockerfile` gebaute Instanz:
 - **Update-Prüfung** (im Container ist In-Place aus, siehe #158 — geprüft wird,
   dass der Stand angezeigt wird)
 
+**Passkeys nur auf Anforderung** (`PHASES=…,passkey`): Die Phase prüft
+Step-up vor der Registrierung, die Registrierung mit einem virtuellen
+Authenticator (CDP `WebAuthn.addVirtualAuthenticator`), den Step-up per
+Passkey, neue Backup-Codes und den „2FA Reset“ eines Zweitkontos (Audit M15,
+N10, N60). WebAuthn braucht einen sicheren Kontext; gegen `http://hvapp` des
+Docker-Laufs überspringt sie sich deshalb selbst. Mit `MAILPIT_URL` prüft sie
+zusätzlich die Hinweis-Mail. Sie läuft zuletzt, weil sie dem Admin einen
+Passkey hinzufügt.
+
 **Kein SSO**: Der OIDC-Code ist durch die Fake-IdP-Tests der Functional-Suite
 abgedeckt; ein echtes Authentik wäre für ein Nacht-Gate zu schwer/fragil.
 

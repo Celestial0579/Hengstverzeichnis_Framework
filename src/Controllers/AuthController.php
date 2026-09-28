@@ -7,7 +7,9 @@ use App\Database;
 use App\Security\EmailSecondFactor;
 use App\Security\LoginIdentifier;
 use App\Security\Passkeys;
+use App\Security\KontoSicherheit;
 use App\Security\SecondFactors;
+use App\Security\StepUp;
 use App\Security\Totp;
 use App\Service\EmailVerification;
 
@@ -433,6 +435,10 @@ class AuthController extends BaseController {
      * Session, sobald ein neuer Faktor-1-Nachweis erbracht wurde. Das
      * CSRF-Token bleibt bewusst erhalten - es gehört zur Sitzung, nicht zur
      * Identität, und der Login-Vorgang ist an dieser Stelle bereits geprüft.
+     *
+     * Dazu gehören auch angefangene Passkey-Zeremonien (Audit M15, N10): Eine
+     * Registrierung oder ein Step-up, eröffnet für das vorherige Konto, darf
+     * nach dem Identitätswechsel nicht mehr abzuschliessen sein.
      */
     private function discardExistingSessionState(): void {
         unset(
@@ -443,6 +449,8 @@ class AuthController extends BaseController {
             $_SESSION['pending_2fa_user_id'],
             $_SESSION['zweiter_faktor_bestanden'],
             $_SESSION['twofa_reauth'],
+            $_SESSION['passkey_stepup'],
+            $_SESSION['passkey_registrierung'],
             $_SESSION['totp_setup'],
             $_SESSION['must_change_password'],
             $_SESSION['last_activity'],
@@ -506,10 +514,11 @@ class AuthController extends BaseController {
     }
 
     /**
-     * Gültigkeitsdauer einer Step-up-Reauthentifizierung für die 2FA-
-     * (Neu-)Einrichtung (#112) in Sekunden.
+     * Gültigkeitsdauer einer Step-up-Reauthentifizierung (#112) in Sekunden.
+     * Die Regel selbst steht seit Audit M15 in App\Security\StepUp; die
+     * Marke aus dem Anmeldeweg (Audit M32) gilt ebenso lange.
      */
-    private const TWOFA_REAUTH_TTL = 600;
+    private const TWOFA_REAUTH_TTL = StepUp::TTL;
 
     /**
      * Konto, dessen 2FA gerade eingerichtet oder neu konfiguriert wird.
@@ -529,22 +538,10 @@ class AuthController extends BaseController {
 
     /**
      * Liegt für GENAU dieses Konto eine frische Step-up-Freigabe vor?
-     *
-     * Der Zeitstempel allein reicht nicht: Er entsteht in process2faReauth()
-     * aus Passwort und TOTP-Code des dort angemeldeten Benutzers und sagt
-     * nichts darüber aus, für welches Konto er gilt. Ohne den Abgleich
-     * bezahlt der Nachweis des einen Kontos die Neukonfiguration eines
-     * anderen.
+     * Siehe StepUp::frisch() - dort steht auch, warum die Konto-ID dazugehört.
      */
     private function hasFresh2faReauth(int $userId): bool {
-        $reauth = $_SESSION['twofa_reauth'] ?? null;
-        if (!is_array($reauth) || !isset($reauth['user_id'], $reauth['at'])) {
-            return false;
-        }
-        if ((int)$reauth['user_id'] !== $userId) {
-            return false;
-        }
-        return (time() - (int)$reauth['at']) <= self::TWOFA_REAUTH_TTL;
+        return StepUp::frisch($userId);
     }
 
     /**
@@ -571,12 +568,31 @@ class AuthController extends BaseController {
         return (time() - (int)$marke['at']) <= self::TWOFA_REAUTH_TTL;
     }
 
+    /**
+     * Eine BESTEHENDE Anmeldung (nicht der laufende Login) geht auf /2fa/setup
+     * und /2fa/enable durch dieselbe Sitzungsprüfung wie jede geschützte
+     * Seite (Audit N60).
+     *
+     * Ohne sie galt dort nur `user_id` in der Sitzung. Nach einem "2FA Reset"
+     * durch die Verwaltung ist das Konto faktorlos und die Einrichtung
+     * verlangt keinen Nachweis - eine noch lebende Sitzung, etwa auf dem
+     * gestohlenen Gerät, hätte sofort ein eigenes Secret gebunden, obwohl der
+     * Reset `session_version` erhöht hat. Der laufende Login
+     * (`pending_2fa_user_id`) hat noch keine Sitzung, die zu prüfen wäre.
+     */
+    private function sitzungPruefenWennAngemeldet(): void {
+        if (!isset($_SESSION['pending_2fa_user_id'])) {
+            $this->checkAuth();
+        }
+    }
+
     public function show2faSetup(): void {
         $userId = $this->twofaTargetUserId();
         if ($userId === null) {
             header("Location: /login");
             exit;
         }
+        $this->sitzungPruefenWennAngemeldet();
 
         $user = $this->aktivesKonto($userId);
         if ($user === null) {
@@ -619,11 +635,7 @@ class AuthController extends BaseController {
                 exit;
             }
             if (!$this->hasFresh2faReauth($userId)) {
-                $this->render('2fa_reauth', [
-                    'title' => '2FA-Änderung bestätigen',
-                    'faktoren' => $vorhandeneFaktoren,
-                    'mailcodeAngefordert' => EmailSecondFactor::pending($userId, EmailSecondFactor::PURPOSE_SETUP),
-                ]);
+                $this->reauthSeite($userId, $vorhandeneFaktoren, 'setup');
                 return;
             }
         }
@@ -653,31 +665,80 @@ class AuthController extends BaseController {
     }
 
     /**
-     * Step-up-Reauthentifizierung vor einer 2FA-Neukonfiguration (#112):
-     * verlangt das aktuelle Passwort UND einen aktuellen TOTP-Code der
-     * bestehenden 2FA. Erfolg wird zeitlich begrenzt in der Session vermerkt
-     * (siehe hasFresh2faReauth()).
+     * Die Bestätigungsseite (#112, Audit M15, M17, N10).
+     *
+     * Welche Felder sie zeigt, richtet sich EXAKT nach StepUp::codePruefen():
+     * TOTP-Feld bei TOTP, Mailcodefeld nur bei Mailcode ohne TOTP, und für
+     * ein Konto mit Passkey der Passkey-Knopf. `fuer` bestimmt Überschrift
+     * und Rückweg und kommt nur über die Liste in StepUp::ziel().
+     *
+     * @param array<int, string> $faktoren
+     */
+    private function reauthSeite(int $userId, array $faktoren, string $fuer, ?string $error = null): void {
+        $daten = [
+            'title' => $fuer === 'setup' ? '2FA-Änderung bestätigen' : 'Änderung bestätigen',
+            'faktoren' => $faktoren,
+            'fuer' => StepUp::fuer($fuer),
+            'codeArt' => StepUp::codeArt($faktoren),
+            'mailcodeAngefordert' => EmailSecondFactor::pending($userId, EmailSecondFactor::PURPOSE_SETUP),
+            'passkeyMoeglich' => in_array(SecondFactors::PASSKEY, $faktoren, true) && Passkeys::verfuegbar(),
+        ];
+        if ($error !== null) {
+            $daten['error'] = $error;
+        }
+        $this->render('2fa_reauth', $daten);
+    }
+
+    /**
+     * GET /2fa/reauth?fuer=… - die Bestätigung direkt aufrufen (Audit M15).
+     *
+     * Bis hierher gab es die Seite nur als Zwischenstation von /2fa/setup.
+     * Jetzt verlangen auch Passkey, Mailcode und Adressänderung sie, und nach
+     * der Bestätigung geht es dorthin zurück, woher der Benutzer kam.
+     */
+    public function show2faReauth(): void {
+        $this->checkAuth();
+        $userId = (int)$_SESSION['user_id'];
+        $fuer = StepUp::fuer($_GET['fuer'] ?? null);
+
+        // Fail-closed: nicht über SecondFactors::forUser(), das bei einem
+        // Datenbankfehler "keine Faktoren" meldet.
+        $faktoren = StepUp::faktoren($userId);
+        if ($faktoren === null) {
+            header("Location: /login");
+            exit;
+        }
+        if ($faktoren === []) {
+            // Nichts zu bestätigen - die Aktion selbst verlangt dann keinen
+            // Nachweis (StepUp::erfuellt()).
+            header('Location: ' . StepUp::ziel($fuer));
+            exit;
+        }
+
+        $this->reauthSeite($userId, $faktoren, $fuer);
+    }
+
+    /**
+     * Step-up-Reauthentifizierung (#112): verlangt das aktuelle Passwort UND
+     * einen gültigen Code des Faktors, den das Konto hat (StepUp::codePruefen(),
+     * Audit N10). Erfolg wird zeitlich begrenzt in der Session vermerkt
+     * (StepUp::markieren()); danach geht es zum Ziel aus `fuer`.
+     *
+     * Ein Konto, dessen einziger Faktor ein Passkey ist, besteht hier nie -
+     * es bestätigt mit dem Passkey (PasskeyController::stepUpPruefen()). Bis
+     * hierher genügte ihm ein Mailcode, obwohl der gar nicht sein Faktor war.
      */
     public function process2faReauth(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $userId = $_SESSION['user_id'] ?? null;
-        if (!$userId) {
-            header("Location: /login");
-            exit;
-        }
-
-        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
-            $this->render('2fa_reauth', [
-                'title' => '2FA-Änderung bestätigen',
-                'error' => \App\I18n\Translator::t('auth.rate_limited_2fa')
-            ]);
-            return;
-        }
-
-        $password = $_POST['password'] ?? '';
+        // Dieselbe Sitzungsprüfung wie jede geschützte Seite: Eine Sitzung,
+        // die dort hinausflöge (abgelaufen, anderes Gerät, Passwort anderswo
+        // geändert), soll sich hier keine Freigabe mehr holen.
+        $this->checkAuth();
+        $userId = (int)$_SESSION['user_id'];
+        $fuer = StepUp::fuer($_POST['fuer'] ?? null);
 
         $db = Database::getInstance();
         $stmt = $db->prepare(
@@ -695,67 +756,55 @@ class AuthController extends BaseController {
         $user = $stmt->fetch();
         $faktoren = is_array($user) ? SecondFactors::fromRow($user) : [];
 
-        if ($user && $faktoren !== [] && password_verify($password, $user['password_hash'])) {
-            $bestanden = false;
+        if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, '2fa')) {
+            $this->reauthSeite($userId, $faktoren, $fuer, \App\I18n\Translator::t('auth.rate_limited_2fa'));
+            return;
+        }
 
-            if (in_array(SecondFactors::TOTP, $faktoren, true) && !empty($user['totp_secret'])) {
-                // Fail-closed (Audit N8): Ein nicht lesbares Secret besteht
-                // nie - auch nicht mit einem Code, der aus dem Chiffretext
-                // berechnet wurde.
-                $decryptedSecret = Totp::secretAusSpeicher((string)$user['totp_secret'], (int)$userId);
-                $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
-                $matchedSlice = $decryptedSecret === null
-                    ? null
-                    : Totp::verifyCodeReturnSlice($decryptedSecret, trim($_POST['totp_code'] ?? ''), $lastSlice);
+        $password = (string)($_POST['password'] ?? '');
 
-                if ($matchedSlice !== null) {
-                    $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
-                    $update->execute([$matchedSlice, $userId]);
-                    $bestanden = true;
-                }
-            } else {
-                // Konto ohne TOTP, aber mit Mailcode (#354): Der Step-up muss
-                // sich mit dem Faktor fuehren lassen, den das Konto HAT. Sonst
-                // waere die Seite fuer diese Konten eine Sackgasse - sie
-                // koennten nie eine Authentikator-App nachruesten.
-                $bestanden = EmailSecondFactor::verify(
-                    (int)$userId,
-                    EmailSecondFactor::PURPOSE_SETUP,
-                    (string)($_POST['email_code'] ?? '')
-                );
-            }
+        if (
+            $user
+            && $faktoren !== []
+            && password_verify($password, (string)$user['password_hash'])
+            && StepUp::codePruefen(
+                $userId,
+                $user,
+                $faktoren,
+                (string)($_POST['totp_code'] ?? ''),
+                (string)($_POST['email_code'] ?? '')
+            )
+        ) {
+            \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
 
-            if ($bestanden) {
-                \App\Security\RateLimiter::clearAttempts((string)$userId, '2fa');
+            // Mit der Konto-ID, nicht als blanker Zeitstempel: Der
+            // Nachweis gilt für dieses Konto und für kein anderes.
+            StepUp::markieren($userId);
 
-                // Mit der Konto-ID, nicht als blanker Zeitstempel: Der
-                // Nachweis gilt für dieses Konto und für kein anderes
-                // (siehe hasFresh2faReauth()).
-                $_SESSION['twofa_reauth'] = ['user_id' => (int)$userId, 'at' => time()];
+            \App\Service\AuditLogger::log("2FA-Neukonfiguration freigeschaltet", "auth", "Step-up-Reauth erfolgreich ({$fuer})", $userId, $_SESSION['username'] ?? null);
 
-                \App\Service\AuditLogger::log("2FA-Neukonfiguration freigeschaltet", "auth", "Step-up-Reauth erfolgreich", (int)$userId, $_SESSION['username'] ?? null);
-
-                header("Location: /2fa/setup");
-                exit;
-            }
+            header("Location: " . StepUp::ziel($fuer));
+            exit;
         }
 
         \App\Security\RateLimiter::recordAttempt((string)$userId, '2fa');
 
-        $this->render('2fa_reauth', [
-            'title' => '2FA-Änderung bestätigen',
-            'faktoren' => $faktoren,
-            'mailcodeAngefordert' => EmailSecondFactor::pending((int)$userId, EmailSecondFactor::PURPOSE_SETUP),
-            'error' => 'Passwort oder Code ungültig. Bitte versuchen Sie es erneut.'
-        ]);
+        $this->reauthSeite($userId, $faktoren, $fuer, 'Passwort oder Code ungültig. Bitte versuchen Sie es erneut.');
     }
 
     /**
      * Probecode fuer den Step-up an die hinterlegte Adresse (#354).
      *
-     * Braucht ein Konto, dessen einziger Faktor der Mailcode ist, um eine
-     * Authentikator-App nachzuruesten: Die Reauth-Seite verlangt einen
-     * gueltigen Faktor, und den gibt es hier.
+     * Braucht ein Konto, dessen Faktor der Mailcode ist, um eine
+     * Authentikator-App nachzuruesten oder seine Faktoren zu aendern: Die
+     * Bestaetigungsseite verlangt einen gueltigen Faktor, und den gibt es
+     * hier. Nur, wenn der Mailcode dort auch ZAEHLT (StepUp::codeArt()) -
+     * ein Konto mit TOTP bestaetigt mit der App, einer ohne Mailcode-Faktor
+     * bekommt keinen Code.
+     *
+     * Der Code geht an die BISHERIGE Adresse - auch vor einer Adressaenderung
+     * (Audit M17). Sonst truege der Angreifer die Adresse um und bestaetigte
+     * mit dem Code aus seinem eigenen Postfach.
      */
     public function sendReauthCode(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -764,15 +813,17 @@ class AuthController extends BaseController {
 
         // Ausdruecklich nur die eigene, angemeldete Sitzung - genau wie der
         // Step-up selbst. Eine Pending-Session hat erst das Passwort bewiesen.
-        $userId = (int)($_SESSION['user_id'] ?? 0);
-        if ($userId <= 0) {
-            header("Location: /login");
-            exit;
-        }
+        $this->checkAuth();
+        $userId = (int)$_SESSION['user_id'];
+        $zurueck = '/2fa/reauth?fuer=' . StepUp::fuer($_POST['fuer'] ?? null);
 
         $konto = $this->aktivesKonto($userId);
-        if ($konto === null || empty($konto['email_2fa_enabled']) || empty($konto['email'])) {
-            header("Location: /2fa/setup");
+        if (
+            $konto === null
+            || empty($konto['email'])
+            || StepUp::codeArt(SecondFactors::fromRow($konto)) !== SecondFactors::EMAIL
+        ) {
+            header("Location: " . $zurueck);
             exit;
         }
 
@@ -782,7 +833,7 @@ class AuthController extends BaseController {
             EmailSecondFactor::RESEND_MAX,
             EmailSecondFactor::RESEND_WINDOW
         )) {
-            header("Location: /2fa/setup");
+            header("Location: " . $zurueck);
             exit;
         }
         \App\Security\RateLimiter::recordAttempt((string)$userId, EmailSecondFactor::RESEND_LIMITER_TYPE);
@@ -794,7 +845,7 @@ class AuthController extends BaseController {
             (int)round(EmailSecondFactor::TTL_SECONDS / 60)
         );
 
-        header("Location: /2fa/setup");
+        header("Location: " . $zurueck);
         exit;
     }
 
@@ -808,6 +859,7 @@ class AuthController extends BaseController {
             header("Location: /login");
             exit;
         }
+        $this->sitzungPruefenWennAngemeldet();
 
         $db = Database::getInstance();
         $dbUser = $this->aktivesKonto($userId);
@@ -890,7 +942,8 @@ class AuthController extends BaseController {
         // Server-State der Einrichtung und Reauth-Freischaltung verbrauchen -
         // ebenso die Marke aus dem Anmeldeweg (Audit M32): Sie hat ihren
         // einen Zweck erfüllt, afterSecondFactor() findet jetzt TOTP vor.
-        unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth'], $_SESSION['zweiter_faktor_bestanden']);
+        unset($_SESSION['totp_setup'], $_SESSION['zweiter_faktor_bestanden']);
+        StepUp::verbrauchen();
 
         $this->afterSecondFactor($userId, '/admin?2fa=enabled');
     }
@@ -1365,6 +1418,14 @@ class AuthController extends BaseController {
 
         $newPasswordHash = password_hash($password, PASSWORD_DEFAULT);
 
+        // Das Konto VOR dem UPDATE: Sein offener Adressantrag endet im
+        // selben Statement (Audit M16), und fuer das Protokoll muss bekannt
+        // sein, ob es einen gab.
+        $stmt = $db->prepare("SELECT id, username FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
+        $stmt->execute([$reset['email']]);
+        $account = $stmt->fetch();
+        $offenerAntrag = $account ? KontoSicherheit::offenerAdressantrag((int)$account['id']) : null;
+
         // Update user's password hash. session_version wird erhöht, damit alle
         // bestehenden Sessions dieses Benutzers sofort ungültig werden (#113) -
         // gerade der Passwort-Reset ist die typische Reaktion auf einen
@@ -1382,7 +1443,8 @@ class AuthController extends BaseController {
         // damit samt eigenem Passwort.
         $stmt = $db->prepare(
             "UPDATE users SET password_hash = ?, session_version = session_version + 1,
-                    email_verification_token = NULL, email_verification_expires_at = NULL
+                    email_verification_token = NULL, email_verification_expires_at = NULL,
+                    " . KontoSicherheit::ADRESSANTRAG_LEEREN . "
              WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL"
         );
         $stmt->execute([$newPasswordHash, $reset['email']]);
@@ -1393,18 +1455,11 @@ class AuthController extends BaseController {
         // zusätzlich dauerhaft und in der Schlüsselverwaltung sichtbar. Ein
         // Schlüssel darf den Passwort-Reset (die typische Reaktion auf einen
         // Kompromittierungsverdacht) nicht als zweites Credential überleben.
-        $stmt = $db->prepare("SELECT id, username FROM users WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL");
-        $stmt->execute([$reset['email']]);
-        $account = $stmt->fetch();
         if ($account) {
-            // Ein noch unterwegs befindlicher Anmeldecode gehoert in denselben
-            // Zug wie Sitzungen und API-Schluessel (#354): Der Passwortwechsel
-            // ist die Reaktion auf einen Verdacht, und ein Code, der schon in
-            // einem fremden Postfach liegt, waere sonst der einzige Rest, der
-            // ihn ueberlebt.
-            EmailSecondFactor::discard((int)$account['id']);
-
-            $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$account['id']);
+            // Ebenso ein noch unterwegs befindlicher Anmeldecode (#354) und
+            // ein offener Adressantrag (Audit M16) - siehe
+            // KontoSicherheit::nachPasswortwechsel().
+            $revokedKeys = KontoSicherheit::nachPasswortwechsel((int)$account['id'], $offenerAntrag);
             if ($revokedKeys > 0) {
                 // Benutzer-Kontext explizit übergeben: Beim Reset per E-Mail-
                 // Link existiert keine angemeldete Session, aus der der
@@ -1457,7 +1512,7 @@ class AuthController extends BaseController {
         }
 
         $this->render('auth_force_password_change', [
-            'title' => 'Erstmals Passwort ändern'
+            'title' => 'Neues Passwort festlegen'
         ]);
     }
 
@@ -1485,7 +1540,7 @@ class AuthController extends BaseController {
         // können. Gegen Raten gilt derselbe Zähler wie beim Login.
         if (\App\Security\RateLimiter::tooManyAttempts((string)$userId, 'force_password_change')) {
             $this->render('auth_force_password_change', [
-                'title' => 'Erstmals Passwort ändern',
+                'title' => 'Neues Passwort festlegen',
                 'error' => 'Zu viele Fehlversuche. Bitte versuchen Sie es später erneut.'
             ]);
             return;
@@ -1507,7 +1562,7 @@ class AuthController extends BaseController {
             );
 
             $this->render('auth_force_password_change', [
-                'title' => 'Erstmals Passwort ändern',
+                'title' => 'Neues Passwort festlegen',
                 'error' => 'Das bisherige Passwort ist nicht korrekt.'
             ]);
             return;
@@ -1515,7 +1570,7 @@ class AuthController extends BaseController {
 
         if (strlen($password) < 8 || $password !== $passwordConfirm) {
             $this->render('auth_force_password_change', [
-                'title' => 'Erstmals Passwort ändern',
+                'title' => 'Neues Passwort festlegen',
                 'error' => 'Die Passwörter stimmen nicht überein oder sind zu kurz (mindestens 8 Zeichen).'
             ]);
             return;
@@ -1524,21 +1579,24 @@ class AuthController extends BaseController {
         \App\Security\RateLimiter::clearAttempts((string)$userId, 'force_password_change');
 
         $hash = password_hash($password, PASSWORD_DEFAULT);
+        $offenerAntrag = KontoSicherheit::offenerAdressantrag((int)$userId);
         // session_version erhöhen, damit andere bestehende Sessions dieses
         // Benutzers ungültig werden (#113) - die eigene, gerade aktive Session
-        // übernimmt den neuen Stand direkt und bleibt angemeldet.
-        $stmt = $db->prepare("UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1 WHERE id = ?");
+        // übernimmt den neuen Stand direkt und bleibt angemeldet. Ein offener
+        // Adressantrag endet im selben Statement (Audit M16).
+        $stmt = $db->prepare(
+            "UPDATE users SET password_hash = ?, must_change_password = 0, session_version = session_version + 1,
+                    " . KontoSicherheit::ADRESSANTRAG_LEEREN . "
+             WHERE id = ?"
+        );
         $stmt->execute([$hash, $userId]);
 
-        // Offene Mailcodes verwerfen (#354) - dieselbe Begruendung wie in
-        // updatePassword().
-        EmailSecondFactor::discard((int)$userId);
-
-        // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen (#217) -
-        // dieselbe Begründung wie in updatePassword(): Die session_version-
-        // Kopplung invalidiert sie bereits implizit, der Widerruf macht es
-        // dauerhaft und sichtbar (revoked_at).
-        $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$userId);
+        // Offene Mailcodes verwerfen (#354) und alle API-Schlüssel des
+        // Kontos ausdrücklich widerrufen (#217) - dieselbe Begründung wie in
+        // updatePassword(): Die session_version-Kopplung invalidiert sie
+        // bereits implizit, der Widerruf macht es dauerhaft und sichtbar
+        // (revoked_at).
+        $revokedKeys = KontoSicherheit::nachPasswortwechsel((int)$userId, $offenerAntrag);
         if ($revokedKeys > 0) {
             \App\Service\AuditLogger::log(
                 "API-Schlüssel widerrufen (Passwortänderung)",

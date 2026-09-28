@@ -61,12 +61,8 @@ use App\Service\Maintenance;
 $ernst = in_array('--ich-weiss', $argv, true);
 $verwerfen = in_array('--zuordnungen-verwerfen', $argv, true);
 
-if (strpos(DB_HOST, '/') === 0) {
-    $dsn = 'mysql:unix_socket=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-} else {
-    $port = defined('DB_PORT') ? DB_PORT : '3306';
-    $dsn = 'mysql:host=' . DB_HOST . ';port=' . $port . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-}
+// DSN aus demselben Helfer wie die Anwendung (Audit N55).
+$dsn = \App\Database::buildDsn((string)DB_HOST, (string)(defined('DB_PORT') ? DB_PORT : '3306'), (string)DB_NAME);
 $pdo = new PDO($dsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
 $hatTabelle = static function (string $t) use ($pdo): bool {

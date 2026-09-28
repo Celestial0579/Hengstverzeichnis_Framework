@@ -31,7 +31,20 @@ class AdminController extends BaseController {
 
     public function settings(): void {
         $this->requireAdmin();
-        $this->render('admin_settings', ['title' => 'Branding Einstellungen']);
+
+        // Nur Meldungen aus dieser Liste - $_GET wird nicht reflektiert
+        // (Audit N85, Muster wie mailSettings()).
+        $logoHinweis = 'Die übrigen Einstellungen wurden gespeichert, das Logo jedoch nicht: ';
+        $errorMessages = [
+            'logo_type' => $logoHinweis . 'Nur PNG, JPG und WEBP sind erlaubt (SVG aus Sicherheitsgründen nicht).',
+            'logo_size' => $logoHinweis . 'Die Datei ist größer als 5 MB.',
+            'logo_upload' => $logoHinweis . 'Der Upload ist fehlgeschlagen. Bitte erneut versuchen.',
+        ];
+
+        $this->render('admin_settings', [
+            'title' => 'Branding Einstellungen',
+            'error' => $errorMessages[$_GET['error'] ?? ''] ?? null,
+        ]);
     }
 
     public function updateSettings(): void {
@@ -82,44 +95,74 @@ class AdminController extends BaseController {
             $stmt->execute();
         }
 
-        // 3. Handle New Logo Upload
-        if (!empty($_FILES['logo_file']) && $_FILES['logo_file']['error'] === UPLOAD_ERR_OK && $_FILES['logo_file']['size'] > 0) {
-            $file = $_FILES['logo_file'];
-            if ($file['size'] <= 5 * 1024 * 1024) {
-                // SVG bewusst nicht erlaubt: kann eingebettete <script>-Tags enthalten,
-                // die bei direktem Aufruf der Datei-URL im Browser ausgeführt würden.
-                $allowedMimeTypes = [
-                    'image/jpeg' => 'jpg',
-                    'image/png' => 'png',
-                    'image/webp' => 'webp',
-                ];
+        // 3. Neues Logo (Audit N85). Die Textfelder oben sind bereits
+        // gespeichert; ein abgelehntes Logo meldet einen Fehler, statt still
+        // verworfen zu werden und "gespeichert" anzuzeigen.
+        $logoFehler = $this->logoUebernehmen($db, $_FILES['logo_file'] ?? null);
 
-                $finfo = new \finfo(FILEINFO_MIME_TYPE);
-                $mime = $finfo->file($file['tmp_name']);
+        \App\Service\AuditLogger::log(
+            "Branding-Einstellungen aktualisiert",
+            "settings",
+            "Verbandsname: " . ($settingsToUpdate['site_name'] ?? '') . ($logoFehler !== null ? " - Logo abgelehnt ({$logoFehler})" : '')
+        );
 
-                if (isset($allowedMimeTypes[$mime])) {
-                    $ext = $allowedMimeTypes[$mime];
-                    $uploadDir = __DIR__ . '/../../public/uploads/branding/';
-                    if (!is_dir($uploadDir)) {
-                        mkdir($uploadDir, 0755, true);
-                    }
+        header("Location: /admin/settings?" . ($logoFehler === null ? 'success=1' : 'error=' . $logoFehler));
+        exit;
+    }
 
-                    $filename = 'logo_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-                    $targetPath = $uploadDir . $filename;
+    /** Höchstgröße des Verbandslogos. */
+    private const LOGO_MAX_BYTES = 5 * 1024 * 1024;
 
-                    if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-                        $newLogoUrl = '/uploads/branding/' . $filename;
-                        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('site_logo', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
-                        $stmt->execute([$newLogoUrl, $newLogoUrl]);
-                    }
-                }
-            }
+    /**
+     * Übernimmt ein hochgeladenes Logo und liefert null - oder den Grund der
+     * Ablehnung ('logo_size', 'logo_type', 'logo_upload'). Kein Upload ist
+     * kein Fehler.
+     *
+     * SVG bewusst nicht erlaubt: kann eingebettete <script>-Tags enthalten,
+     * die bei direktem Aufruf der Datei-URL im Browser ausgeführt würden.
+     * Der Typ kommt aus dem Inhalt (finfo), nicht aus dem Dateinamen oder
+     * dem vom Browser gemeldeten Content-Type.
+     *
+     * @param mixed $file Eintrag aus $_FILES
+     */
+    private function logoUebernehmen(\PDO $db, $file): ?string {
+        if (!is_array($file) || !isset($file['error']) || (int)$file['error'] === UPLOAD_ERR_NO_FILE) {
+            return null;
         }
 
-        \App\Service\AuditLogger::log("Branding-Einstellungen aktualisiert", "settings", "Verbandsname: " . ($settingsToUpdate['site_name'] ?? ''));
+        $fehler = (int)$file['error'];
+        $groesse = (int)($file['size'] ?? 0);
+        if ($fehler === UPLOAD_ERR_INI_SIZE || $fehler === UPLOAD_ERR_FORM_SIZE || $groesse > self::LOGO_MAX_BYTES) {
+            return 'logo_size';
+        }
+        if ($fehler !== UPLOAD_ERR_OK || $groesse === 0 || !is_string($file['tmp_name'] ?? null) || !is_uploaded_file($file['tmp_name'])) {
+            return 'logo_upload';
+        }
 
-        header("Location: /admin/settings?success=1");
-        exit;
+        $allowedMimeTypes = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+        ];
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+        if (!is_string($mime) || !isset($allowedMimeTypes[$mime])) {
+            return 'logo_type';
+        }
+
+        $uploadDir = __DIR__ . '/../../public/uploads/branding/';
+        if (!is_dir($uploadDir) && !@mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+            return 'logo_upload';
+        }
+
+        $filename = 'logo_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $allowedMimeTypes[$mime];
+        if (!@move_uploaded_file($file['tmp_name'], $uploadDir . $filename)) {
+            return 'logo_upload';
+        }
+
+        $newLogoUrl = '/uploads/branding/' . $filename;
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('site_logo', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        $stmt->execute([$newLogoUrl, $newLogoUrl]);
+        return null;
     }
 
     /**
@@ -177,67 +220,17 @@ class AdminController extends BaseController {
         $baseUrl = trim($_POST['base_url'] ?? '');
         $isHttpWarning = false;
 
-        if (!empty($baseUrl)) {
-            // Das Protokoll wird VERLANGT, nicht ergaenzt.
-            //
-            // Hier stand fuer schemalose Eingaben ein
-            // `$baseUrl = 'https://' . $baseUrl;`. Das war aus drei Gruenden
-            // die falsche Freundlichkeit:
-            //
-            // 1. Geprueft wurde danach eine Zeichenkette, die zur Haelfte von
-            //    uns selbst stammte. Dieselbe Bauart hatte hier schon einmal
-            //    einen Fehler versteckt (geprueft wurde `rtrim(...)`,
-            //    gespeichert `$baseUrl`).
-            // 2. Sie widerspricht dem eigenen Formular: Das Feld ist
-            //    `<input type="url">`, Beschriftung und Hilfetext verlangen
-            //    das Protokoll ausdruecklich. Ein Browser laesst eine Eingabe
-            //    ohne Schema gar nicht erst abschicken - ergaenzt wurde also
-            //    nur fuer Anfragen, die das Formular umgehen.
-            // 3. Ein Schema-Literal unmittelbar vor einem Wert aus `$_POST`
-            //    ist die Bauform, aus der SSRF entsteht; Semgrep meldet sie
-            //    als `tainted-url-host`. Die Regel kennt keinen Sanitizer -
-            //    keine noch so strenge Pruefung danach kann sie erfuellen,
-            //    nur das Nicht-mehr-Zusammensetzen.
-            //
-            // Das Schema kommt jetzt aus der geprueften Adresse und muss in
-            // der Allowlist stehen. Das ist keine reine Formsache:
-            // FILTER_VALIDATE_URL laesst auch `ftp://` und `javascript:`
-            // durch - bisher schloss das allein die Praefix-Logik oben aus.
-            //
-            // Gespeichert wird der GEPRUEFTE Wert, nicht die Eingabe.
-            //
-            // Vorher lief die Pruefung auf rtrim($baseUrl, '/') und abgelegt
-            // wurde $baseUrl - geprueft und gespeichert waren also zwei
-            // verschiedene Zeichenketten. Das ist genau die Bauart, bei der
-            // eine spaetere Aenderung an einer der beiden Stellen unbemerkt
-            // auseinanderlaeuft. filter_var liefert die Adresse bei Erfolg
-            // zurueck; dieser Rueckgabewert ist ab hier die einzige Quelle.
-            $geprueft = filter_var(rtrim($baseUrl, '/'), FILTER_VALIDATE_URL);
-            $host = is_string($geprueft) ? (string) (parse_url($geprueft, PHP_URL_HOST) ?? '') : '';
-            $schema = is_string($geprueft) ? strtolower((string) (parse_url($geprueft, PHP_URL_SCHEME) ?? '')) : '';
-            $isHttpWarning = $schema === 'http';
-
-            // Verteidigung in die Tiefe (OWASP SSRF Cheat Sheet): "localhost" sowie
-            // literale private/reservierte IPs als Host blockieren. base_url wird
-            // aktuell nur zur Erzeugung von Links genutzt (Mailer.php, layout.php)
-            // und nie serverseitig abgerufen - kein aktiver SSRF-Sink -, das soll
-            // aber auch so bleiben, falls hier künftig ein serverseitiger Abruf
-            // hinzukommt.
-            $isPrivateOrLoopbackIp = filter_var($host, FILTER_VALIDATE_IP) !== false
-                && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
-
-            if (
-                !is_string($geprueft)
-                || !in_array($schema, ['http', 'https'], true)
-                || $host === ''
-                || strcasecmp($host, 'localhost') === 0
-                || $isPrivateOrLoopbackIp
-            ) {
+        if ($baseUrl !== '') {
+            // Prüfung und Begründung stehen in App\Security\BaseUrl::normalize()
+            // - dieselbe Regel gilt im Einrichtungsassistenten (Audit M6).
+            // Gespeichert wird der GEPRÜFTE Wert, nicht die Eingabe.
+            $geprueft = \App\Security\BaseUrl::normalize($baseUrl);
+            if ($geprueft === null) {
                 header("Location: /admin/system-settings?error=invalid_base_url");
                 exit;
             }
-
-            $baseUrl = $geprueft . '/';
+            $isHttpWarning = strtolower((string)(parse_url($geprueft, PHP_URL_SCHEME) ?? '')) === 'http';
+            $baseUrl = $geprueft;
         }
 
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('base_url', ?) ON DUPLICATE KEY UPDATE setting_value = ?");

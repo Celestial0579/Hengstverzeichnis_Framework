@@ -29,6 +29,8 @@ services:
     build: .
     ports:
       - "8080:80"
+    # In .env dringend APP_URL setzen (siehe .env.example): Ohne feste
+    # Stamm-URL verschickt die Instanz keine Passwort-Reset-Mails.
     env_file:
       - .env
     depends_on:

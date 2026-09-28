@@ -37,9 +37,31 @@ class RegistrationController extends BaseController {
             $this->renderNotFound();
         }
 
+        if (!$this->tokenLinksMoeglich()) {
+            $this->render('register', [
+                'title' => \App\I18n\Translator::t('register.title'),
+                'error' => \App\I18n\Translator::t('register.unavailable'),
+                'hideForm' => true,
+            ]);
+            return;
+        }
+
         $this->render('register', [
             'title' => \App\I18n\Translator::t('register.title'),
         ]);
+    }
+
+    /**
+     * Lässt sich der Bestätigungslink überhaupt verschicken (Audit M6)?
+     *
+     * Ohne feste Stamm-URL verweigert der Mailer Token-Links. Eine
+     * Registrierung legte dann ein Konto an, das nie bestätigt werden kann,
+     * und belegte Benutzername und Adresse (beide UNIQUE) bis zur
+     * Bereinigung. Deshalb VOR dem Anlegen prüfen. Kein Orakel: Die Prüfung
+     * hängt nicht von der eingegebenen Adresse ab.
+     */
+    private function tokenLinksMoeglich(): bool {
+        return \App\Security\BaseUrl::forLinks($this->settings['base_url'] ?? null) !== null;
     }
 
     public function submit(): void {
@@ -48,6 +70,19 @@ class RegistrationController extends BaseController {
         }
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden(\App\I18n\Translator::t('errors.csrf_invalid'));
+        }
+
+        // Vor der Drossel: Solange die Einrichtung unvollständig ist, soll
+        // ein Versuch nicht auch noch das Kontingent der IP aufbrauchen.
+        // Bewusst OHNE Audit-Eintrag: Der Weg ist anonym und hier noch
+        // ungedrosselt; den Admin führt die Warnung im Dashboard.
+        if (!$this->tokenLinksMoeglich()) {
+            $this->render('register', [
+                'title' => \App\I18n\Translator::t('register.title'),
+                'error' => \App\I18n\Translator::t('register.unavailable'),
+                'hideForm' => true,
+            ]);
+            return;
         }
 
         // Rate-Limit pro Client-IP: 5 Registrierungsversuche / Stunde. Jeder

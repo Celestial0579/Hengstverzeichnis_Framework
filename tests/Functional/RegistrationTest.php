@@ -15,6 +15,60 @@ namespace Tests\Functional;
  */
 class RegistrationTest extends FunctionalTestCase {
 
+    private ?string $stammUrlVorher = null;
+
+    /**
+     * Seit Audit M6 prüft die Registrierung vorab, ob sich der
+     * Bestätigungslink verschicken lässt - dafür braucht es eine feste
+     * Stamm-URL. Der Negativfall steht in testOhneStammUrlKeineRegistrierung().
+     */
+    protected function setUp(): void {
+        $this->stammUrlVorher = self::stammUrlSetzen(self::TEST_STAMM_URL);
+    }
+
+    protected function tearDown(): void {
+        self::stammUrlSetzen($this->stammUrlVorher);
+    }
+
+    /**
+     * Audit M6: Ohne feste Stamm-URL legt die Registrierung kein Konto an,
+     * das nie bestätigt werden könnte - sie sagt es vorher.
+     */
+    public function testOhneStammUrlKeineRegistrierung(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $email = "ohnestamm-{$unique}@example.com";
+        \App\Database::getInstance()->exec("DELETE FROM login_attempts WHERE type = 'registration'");
+
+        $this->saveRegistrationSettings($admin, true, 0, '');
+        try {
+            $client = $this->newClient();
+            $formular = $client->get('/register');
+            $this->assertSame(200, $formular->statusCode);
+            $this->assertStringContainsString('derzeit nicht möglich', $formular->body);
+            $this->assertStringNotContainsString('name="password_confirm"', $formular->body, 'Kein Formular, das ins Leere führt.');
+
+            $antwort = $client->post('/register', [
+                // Die Seite hat kein Formular mehr - Token derselben Sitzung
+                // von /login, damit der POST die Vorabprüfung wirklich
+                // erreicht und nicht am CSRF-Check scheitert.
+                'csrf_token' => $this->csrfTokenFrom($client, '/login'),
+                'username' => "ohnestamm{$unique}",
+                'email' => $email,
+                'password' => self::PASSWORT,
+                'password_confirm' => self::PASSWORT,
+            ]);
+            $this->assertNull($antwort->location(), "Body: {$antwort->body}");
+            $this->assertStringContainsString('derzeit nicht möglich', $antwort->body);
+
+            $stmt = \App\Database::getInstance()->prepare("SELECT COUNT(*) FROM users WHERE email = ?");
+            $stmt->execute([$email]);
+            $this->assertSame(0, (int)$stmt->fetchColumn(), 'Es darf kein Konto entstehen.');
+        } finally {
+            $this->saveRegistrationSettings($admin, false, 0);
+        }
+    }
+
     public function testRegistrationFlowWithEmailVerification(): void {
         $admin = $this->authenticatedClient();
         $unique = uniqid();
@@ -242,6 +296,27 @@ class RegistrationTest extends FunctionalTestCase {
         $this->assertSame(1, (int)$neu['innerhalb'], 'Der neue Link darf nicht über created_at + 9 Tage hinaus gelten.');
     }
 
+    /**
+     * Audit M6: Ohne feste Stamm-URL kein Neuversand - und die
+     * Anmeldeversuche in dieser Zeit verbrauchen die Tagesdrossel nicht.
+     * Sobald die Stamm-URL steht, kommt der Link.
+     */
+    public function testOhneStammUrlKeinNeuversandUndKeineVerbrauchteDrossel(): void {
+        [$client, $email, $id] = $this->registriertesKonto();
+        $db = \App\Database::getInstance();
+        $db->prepare("UPDATE users SET email_verification_expires_at = NOW() - INTERVAL 1 HOUR WHERE id = ?")->execute([$id]);
+
+        self::stammUrlSetzen(null);
+        for ($i = 0; $i < 4; $i++) {
+            $this->assertStringContainsString('bestätigen Sie zunächst', $this->anmelden($client, $email)->body);
+        }
+        $this->assertSame(0, $this->neuversandEintraege($id));
+
+        self::stammUrlSetzen(self::TEST_STAMM_URL);
+        $this->anmelden($client, $email);
+        $this->assertSame(1, $this->neuversandEintraege($id), 'Die Drossel darf nicht aufgebraucht sein.');
+    }
+
     public function testPasswortResetBestaetigtDieAdresse(): void {
         [$client, $email, $id] = $this->registriertesKonto();
         $resetToken = bin2hex(random_bytes(32));
@@ -268,11 +343,11 @@ class RegistrationTest extends FunctionalTestCase {
         $this->assertSame('/admin', $login->location(), "Body: {$login->body}");
     }
 
-    private function saveRegistrationSettings(\Tests\Support\HttpClient $admin, bool $enabled, int $defaultGroupId): void {
+    private function saveRegistrationSettings(\Tests\Support\HttpClient $admin, bool $enabled, int $defaultGroupId, string $baseUrl = self::TEST_STAMM_URL): void {
         $page = $admin->get('/admin/system-settings');
         $fields = [
             'csrf_token' => $page->formField('csrf_token') ?? '',
-            'base_url' => '',
+            'base_url' => $baseUrl,
             'language' => 'de',
             'registration_default_group' => (string)$defaultGroupId,
         ];

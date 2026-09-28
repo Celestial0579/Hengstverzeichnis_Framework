@@ -560,6 +560,14 @@ konfigurieren (`AdminController::updateSystemSettings()`, validiert über
 Konstante `TRUSTED_PROXIES` aus Env-Variable **oder** `db_config.php` auf,
 bevor `ClientIp` sie liest.
 
+`db_config.php` trägt APP_KEY und DB-Passwort und wird deshalb **atomar**
+geschrieben (`App\Helper\AtomicFile`, Audit N56): exklusiv angelegte
+temporäre Datei im selben Ordner (nie im System-Temp-Verzeichnis, daher kein
+`tempnam()`), Rechte 0600 vor dem Schreiben, `fsync`, dann `rename()`.
+Scheitert ein Schritt, bleibt die alte Datei unverändert. Lesen, Ändern und
+Schreiben laufen unter der Sperre `config/.db_config.lock`, damit sich zwei
+gleichzeitige Speichervorgänge nicht gegenseitig überschreiben.
+
 ### `APP_ENV`-Default
 
 Ist die Instanz überhaupt konfiguriert - also entweder über
@@ -644,21 +652,69 @@ Eigener minimaler SMTP-Client (kein PHPMailer/Symfony-Mailer-Abhängigkeit).
 Zertifikatsprüfung (`verify_peer`/`verify_peer_name`) ist aktiv,
 selbstsignierte Zertifikate werden abgelehnt. STARTTLS erzwingt TLS 1.2/1.3.
 
-## Host-Header-Validierung (`src/Security/TrustedHost.php`)
+## Host-Header-Validierung und feste Stamm-URL (`src/Security/TrustedHost.php`, `src/Security/BaseUrl.php`)
 
-Absolute URLs in ausgehenden Mails (u. a. der Passwort-Reset-Link) entstehen
-bevorzugt aus `settings.base_url` bzw. der Umgebungsvariable `APP_URL`. Nur
-wenn beides fehlt, wird auf den vom Client mitgeschickten `Host:`-Header
-zurückgegriffen — und dieser ist Angreifer-kontrolliert (Reset-Link-Poisoning,
-siehe #116). `TrustedHost::resolve()` validiert den Header daher syntaktisch
-(Hostname/IP-Literal, optional `:Port`, keine Sonderzeichen) und prüft ihn
-zusätzlich gegen die optionale Allowlist `TRUSTED_HOSTS` (kommagetrennte
-Hostnamen; führender Punkt = beliebige Subdomain, z. B. `.example.org`;
-Konfiguration per Umgebungsvariable oder `db_config.php`, analog
-`TRUSTED_PROXIES`). Wird der Header verworfen, fällt die URL-Erzeugung auf
-einen neutralen Platzhalter zurück statt auf den Angreifer-Wert.
-**Empfehlung:** In Produktion immer `base_url` (Admin → Systemeinstellungen)
-oder `APP_URL` setzen — dann wird der Host-Header gar nicht erst befragt.
+Absolute URLs in ausgehenden Mails (u. a. der Passwort-Reset-Link) dürfen nie
+aus dem vom Client mitgeschickten `Host:`-Header entstehen, denn dieser ist
+Angreifer-kontrolliert (Reset-Link-Poisoning, siehe #116 und Audit M6):
+`POST /forgot-password` mit `Host: evil.example` erzeugte sonst eine echte
+Verbandsmail mit einem Link auf die Domain des Angreifers, und das Token
+landete dort, sobald das Opfer klickt.
+
+**Quellen für Links mit Einmal-Token** (`App\Security\BaseUrl::forLinks()`),
+in dieser Reihenfolge:
+
+1. `settings.base_url` (Admin → Systemeinstellungen oder Einrichtungsassistent),
+2. die Umgebungsvariable `APP_URL` (bewusst per `getenv()` gelesen – die
+   Konstante `APP_URL` aus `config/config.php` enthält auch den
+   Host-Header-Rückfall),
+3. nur mit konfigurierter Allowlist `TRUSTED_HOSTS`: Schema und geprüfter
+   Host der Anfrage.
+
+Gibt es keine dieser Quellen, **verweigert der Mailer den Versand** von
+Passwort-Reset-, Registrierungs- und Adressbestätigungs-Mails
+(Audit-Log „E-Mail-Versand verweigert (keine feste Stamm-URL)“, Kategorie
+`email`). `/forgot-password` antwortet unverändert, damit die Route kein
+Orakel wird. Selbstregistrierung und Adressänderung im Profil prüfen VORAB
+und melden „derzeit nicht möglich“ – sonst entstünde ein Konto bzw. ein
+Antrag, der nie bestätigt werden kann (Benutzername und Adresse wären per
+UNIQUE blockiert). Der Neuversand des Bestätigungslinks bei der Anmeldung
+prüft ebenfalls vorab, damit die Tagesdrossel nicht aufgebraucht wird. Die
+anonym auslösbare DSGVO-Benachrichtigung an die Admins geht weiterhin
+hinaus (Fristen), enthält ohne vertrauenswürdige Basis aber keinen
+absoluten Link. Das Admin-Dashboard zeigt in diesem Zustand eine rote
+Warnung „Keine feste Stamm-URL“.
+
+Mails ohne Token (Update-, Digest-, Willkommensmails; Addons wie
+`kontaktanfrage`) nutzen weiterhin `Mailer::getBaseUrl()` mit dem
+bisherigen Rückfall.
+
+`TrustedHost::resolve()` validiert den Header syntaktisch (Hostname/IP-Literal,
+optional `:Port`, keine Sonderzeichen) und prüft ihn gegen die optionale
+Allowlist `TRUSTED_HOSTS` (kommagetrennte Hostnamen; führender Punkt =
+beliebige Subdomain, z. B. `.example.org`; Konfiguration per
+Umgebungsvariable oder `db_config.php`, analog `TRUSTED_PROXIES`). Die rein
+syntaktische Prüfung schützt vor Header-Injection, nicht vor einer fremden,
+aber gültigen Domain – deshalb reicht sie ohne Allowlist nicht für
+Token-Links.
+
+**Prüfung der Stamm-URL** (`BaseUrl::normalize()`, identisch in
+Systemeinstellungen und Einrichtungsassistent): Protokoll `http://` oder
+`https://` Pflicht (wird nicht ergänzt), Host nicht leer, nicht `localhost`,
+keine private oder reservierte IP (auch IPv6-Literale). Der Assistent schlägt
+die aufgerufene Adresse vor, wenn sie diese Prüfung besteht; bei lokalen
+Adressen bleibt das Feld leer.
+
+**Empfehlung:** In Produktion immer `APP_URL` setzen (auch bei der
+Env-Ersteinrichtung – dort ist es bewusst keine Pflicht, damit CI und
+Healthchecks nicht blockieren) oder die Stamm-URL unter
+Admin → Systemeinstellungen eintragen.
+
+Offener Folgepunkt: `EntraSsoController::redirectUri()` und die
+Cron-Einstellungsseite verwenden noch die Konstante `APP_URL`. Beim
+OIDC-Redirect verhindert die beim IdP registrierte Redirect-URI eine
+Umlenkung; mittelfristig sollen beide auf `BaseUrl::fixed()` umgestellt
+werden.
 
 ## EntraID-SSO (#42, `src/Controllers/EntraSsoController.php`)
 

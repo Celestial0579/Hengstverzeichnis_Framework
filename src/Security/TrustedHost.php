@@ -25,6 +25,13 @@ namespace App\Security;
  * Vorrang haben immer die explizit konfigurierte settings.base_url bzw. die
  * Umgebungsvariable APP_URL - diese Klasse betrifft nur den dynamischen
  * Fallback, wenn beides fehlt.
+ *
+ * Token-Links (Passwort-Reset, Verifizierung, Adressbestätigung) bauen seit
+ * Audit M6 NICHT mehr auf resolve() allein auf, sondern auf
+ * App\Security\BaseUrl::forLinks(): Ohne feste Stamm-URL zählt der Host dort
+ * nur, wenn eine Allowlist konfiguriert ist (hasAllowlist()). Die rein
+ * syntaktische Prüfung schützt vor Header-Injection, nicht vor einer
+ * fremden, aber gültigen Domain.
  */
 class TrustedHost {
 
@@ -41,9 +48,10 @@ class TrustedHost {
 
         $allowlist = self::getTrustedHosts();
         if ($allowlist === []) {
-            // Keine Allowlist konfiguriert: nur syntaktische Prüfung (Härtung
-            // ohne Breaking Change für Bestandsinstallationen). Betreiber ohne
-            // gesetzte base_url/APP_URL sollten TRUSTED_HOSTS setzen, siehe
+            // Keine Allowlist konfiguriert: nur syntaktische Prüfung. Der Wert
+            // bleibt für unkritische Zwecke nutzbar (Absender-Fallback,
+            // Vorschlag im Assistenten); Token-Links bekommen ihn über
+            // BaseUrl::forLinks() in diesem Fall NICHT (Audit M6). Siehe
             // docs/security.md.
             return $rawHost;
         }
@@ -55,6 +63,15 @@ class TrustedHost {
             }
         }
         return '';
+    }
+
+    /**
+     * Ist eine Allowlist TRUSTED_HOSTS konfiguriert? Nur dann ist ein
+     * Host aus der Anfrage vertrauenswürdig genug für Token-Links
+     * (App\Security\BaseUrl::forLinks(), Audit M6).
+     */
+    public static function hasAllowlist(): bool {
+        return self::getTrustedHosts() !== [];
     }
 
     /**

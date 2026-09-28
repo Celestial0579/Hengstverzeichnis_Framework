@@ -10,6 +10,29 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Passwort-Reset-Links ließen sich über den Host-Header umlenken** (Audit
+  M6). Ohne gesetzte Stamm-URL, `APP_URL` oder `TRUSTED_HOSTS` bildete eine
+  frisch eingerichtete Instanz die Links in Reset-, Verifizierungs- und
+  Adressbestätigungsmails aus dem Host-Header der Anfrage. Ein Angreifer
+  konnte so mit `POST /forgot-password` und `Host: evil.example` ein
+  gültiges Reset-Token auf seine eigene Domain leiten. Diese Mails werden
+  ohne feste Stamm-URL jetzt **nicht mehr verschickt** (neue Klasse
+  `App\Security\BaseUrl`). Selbstregistrierung und Adressänderung melden in
+  diesem Fall vorab, dass sie derzeit nicht möglich sind, statt ein Konto
+  oder einen Antrag anzulegen, der nie bestätigt werden kann.
+  `/forgot-password` antwortet unverändert. Die DSGVO-Benachrichtigung an
+  die Admins kommt weiterhin, aber ohne absoluten Link. Jede Verweigerung
+  steht im Audit-Log („E-Mail-Versand verweigert (keine feste Stamm-URL)“),
+  und das Admin-Dashboard zeigt eine rote Warnung. Der
+  Einrichtungsassistent fragt die Stamm-URL ab und prüft sie wie die
+  Systemeinstellungen; lokale und private Adressen werden abgelehnt (für
+  Testinstallationen das Feld leer lassen oder `APP_URL` setzen). Die
+  Env-Ersteinrichtung verlangt `APP_URL` bewusst nicht, empfiehlt es aber
+  dringend (`.env.example`, README, Hinweis im Server-Log).
+  **Bestehende Installationen ohne Stamm-URL:** Bitte unter Admin >
+  Systemeinstellungen die Stamm-URL eintragen oder `APP_URL` bzw.
+  `TRUSTED_HOSTS` setzen, sonst kommen keine Reset-Mails mehr an.
+
 - **Entzogene Rechte kamen mit einem Update zurück** (Audit M22, N18). Zwei
   Standardrechte-Seeds im Schema-Migrator haben aus dem aktuellen
   Rechtebestand geschlossen, ob sie schon gelaufen waren. Dadurch haben sie
@@ -306,6 +329,29 @@ Breaking Changes sind jederzeit möglich).
     Kontext bleibt die ID `captcha`.
   - Laufende Sitzungen brechen beim Update nicht ab: Fehlt die Aufgabe im
     Kontext-Platz, gilt die im bisherigen gemeinsamen Platz.
+- **Ersteinrichtung mit Unix-Socket als Datenbank-Host schlug fehl** (Audit
+  N55). Ein Socketpfad wie `/var/run/mysqld/mysqld.sock` in `DB_HOST` oder
+  im Formular wurde als TCP-Host behandelt. Einrichtung, laufender Betrieb
+  und die Skripte `database/migrate.php` und `database/rollback-336.php`
+  bauen die Verbindung jetzt über denselben Helfer `Database::buildDsn()`.
+- **`config/db_config.php` konnte beim Speichern der Systemeinstellungen
+  verloren gehen** (Audit N56). Die Datei wurde erst gekürzt und dann
+  beschrieben; bei voller Platte blieben eine leere Datei und ein verlorener
+  `APP_KEY` zurück. Jetzt wird zuerst eine temporäre Datei mit den Rechten
+  0600 im selben Verzeichnis geschrieben und diese dann atomar umbenannt.
+  Schlägt das fehl, bleibt die alte Datei unverändert. Gleichzeitige
+  Speichervorgänge überschreiben sich nicht mehr gegenseitig, und
+  unveränderte Werte werden nicht neu geschrieben.
+- **Tote Links im Hinweis „Sprache fehlt“** (Audit N83). Dashboard und
+  Systemeinstellungen verwiesen auf `/admin/system` und `/admin/addon-store`.
+  Die Links führen jetzt zu den Systemeinstellungen und zum Addon-Store; ein
+  Test prüft alle `/admin/…`-Links der Views gegen die registrierten Routen.
+- **Logo-Upload meldete Erfolg, obwohl die Datei verworfen wurde** (Audit
+  N85). Das Formular bot SVG an, der Server lehnt SVG aus Sicherheitsgründen
+  aber ab. SVG wird nicht mehr angeboten. Abgelehnte, zu große oder
+  gescheiterte Uploads führen zu einer Fehlermeldung
+  (`?error=logo_type|logo_size|logo_upload`), die übrigen
+  Branding-Einstellungen werden trotzdem gespeichert.
 
 - **Mitgliedsstatus beim Sprung von v0.7 nicht übernehmbar** (Audit N78).
   Eine v0.7-Instanz konnte das Addon `mitgliedsstatus` nicht vor dem Update
@@ -528,6 +574,15 @@ Breaking Changes sind jederzeit möglich).
   Formulare einer Seite weiter einen Platz. Tests, die die Aufgabe über
   `<label for="captcha">` aus dem HTML lesen, müssen `captcha-<kontext>`
   akzeptieren. Siehe docs/plugin-development.md.
+- Das Verzeichnis `config/` muss für PHP beschreibbar sein, nicht nur die
+  Datei `db_config.php`, damit Einstellungen atomar gespeichert werden
+  können (Audit N56). Bei gesetztem Sticky-Bit (Docker-Image: `config/` ist
+  `root:www-data 1775`) muss die Datei dem PHP-Benutzer gehören; das ist der
+  Fall, wenn der Assistent sie angelegt hat. Hat der Betreiber sie als root
+  angelegt, scheitert das Speichern von Trusted Proxies bzw.
+  Tracking-Domains sicher mit „…_write_failed“, die Datei bleibt unverändert.
+  Neu entsteht die Sperrdatei `config/.db_config.lock`.
+
 - **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
   offen bleiben („[UNVOLLSTÄNDIG]“). Deploy-Skripte, die nur 0 erwarten,
   sehen das als Fehlschlag.

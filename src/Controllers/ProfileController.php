@@ -108,6 +108,7 @@ class ProfileController extends BaseController {
             'mailcodeAngefordert' => EmailSecondFactor::pending($this->userId(), EmailSecondFactor::PURPOSE_SETUP),
             'backupCodesOffen' => $this->offeneBackupCodes($konto),
             'neueCodes' => $this->einmaligeCodesAbholen(),
+            'adressWechselMoeglich' => $this->adressWechselMoeglich(),
             'error' => $_GET['error'] ?? null,
             'success' => $_GET['success'] ?? null,
         ]);
@@ -501,6 +502,12 @@ class ProfileController extends BaseController {
         if (!StepUp::erfuellt($userId, SecondFactors::fromRow($konto))) {
             $this->zurueck('error', 'stepup_required');
         }
+        // Ohne feste Stamm-URL verweigert der Mailer den Bestätigungslink
+        // (Audit M6). Vorher melden, statt einen Antrag anzulegen, der nie
+        // bestätigt werden kann - und bevor Passwortversuche verbraucht sind.
+        if (!$this->adressWechselMoeglich()) {
+            $this->zurueck('error', 'email_unavailable');
+        }
         if (RateLimiter::tooManyAttempts((string)$userId, 'profile_email', 5, 3600)) {
             $this->zurueck('error', 'rate_limited');
         }
@@ -560,6 +567,14 @@ class ProfileController extends BaseController {
         AuditLogger::log('Adressänderung beantragt', 'auth', 'User ID ' . $userId);
         header('Location: /profil?success=email_requested');
         exit;
+    }
+
+    /**
+     * Lässt sich ein Bestätigungslink verschicken (Audit M6,
+     * App\Security\BaseUrl::forLinks())? Hängt nicht von der Eingabe ab.
+     */
+    private function adressWechselMoeglich(): bool {
+        return \App\Security\BaseUrl::forLinks($this->settings['base_url'] ?? null) !== null;
     }
 
     /**

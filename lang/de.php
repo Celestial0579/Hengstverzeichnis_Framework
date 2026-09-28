@@ -323,6 +323,7 @@ return [
     'register.email_invalid' => 'Bitte geben Sie eine gültige E-Mail-Adresse an.',
     'register.password_invalid' => 'Die Passwörter stimmen nicht überein oder sind zu kurz (mindestens 8 Zeichen).',
     'register.already_taken' => 'Benutzername oder E-Mail-Adresse ist bereits vergeben.',
+    'register.unavailable' => 'Die Registrierung ist derzeit nicht möglich (Einrichtung unvollständig). Bitte wenden Sie sich an den Verband.',
     'register.verification_invalid' => 'Der Bestätigungslink ist ungültig oder abgelaufen. Melden Sie sich mit Benutzername oder E-Mail-Adresse und Passwort an – wir senden Ihnen dann automatisch einen neuen Link.',
 
     'auth.2fa_heading' => '🔐 2FA Bestätigung',

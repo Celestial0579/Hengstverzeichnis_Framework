@@ -57,7 +57,17 @@
             <input type="url" id="base_url" name="base_url" class="form-control" placeholder="https://hengstverzeichnis.de/" value="<?= htmlspecialchars($settings['base_url'] ?? '') ?>">
             <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
                 Basis-Adresse der Instanz inklusive Protokoll (`https://`) und abschließendem Slash (`/`). Wird u. a. für E-Mail-Links, Canonical URLs und Systembenachrichtigungen genutzt.
+                Ohne Stamm-URL (und ohne <code>APP_URL</code> bzw. <code>TRUSTED_HOSTS</code>) werden keine Passwort-Reset-, Verifizierungs- und Adressbestätigungs-Mails verschickt.
             </small>
+            <?php // Nur ein Vorschlag aus der aktuellen Anfrage (Audit M6): Das
+                  // Feld wird bewusst NICHT vorbelegt - der Wert stammt aus dem
+                  // Host-Header und wird erst mit dem Absenden bestätigt. ?>
+            <?php $stammUrlVorschlag = trim((string)($settings['base_url'] ?? '')) === '' ? \App\Security\BaseUrl::suggestion() : null; ?>
+            <?php if ($stammUrlVorschlag !== null): ?>
+                <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                    Vorschlag: <code><?= htmlspecialchars($stammUrlVorschlag) ?></code>
+                </small>
+            <?php endif; ?>
         </div>
 
         <div class="form-group" style="margin-top: 1.5rem;">
@@ -112,7 +122,7 @@
                     <strong>Für diese eingestellten Sprachen fehlt das Sprach-Addon:</strong>
                     <?= htmlspecialchars(implode(', ', $fehlendeSprachen)) ?>.
                     <br>Sie erscheinen nicht im Umschalter, und wer sie eingestellt hatte, sieht Deutsch.
-                    Zu installieren unter <a href="/admin/addon-store">Addon-Store</a> als
+                    Zu installieren unter <a href="/admin/plugins/store">Addon-Store</a> als
                     <?php $slugs = array_map(static fn(string $c): string => 'sprache-' . $c, array_keys($fehlendeSprachen)); ?>
                     <code><?= htmlspecialchars(implode('</code>, <code>', $slugs), ENT_QUOTES) ?></code>.
                 </div>

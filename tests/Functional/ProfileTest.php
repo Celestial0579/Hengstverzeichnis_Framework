@@ -18,6 +18,43 @@ class ProfileTest extends FunctionalTestCase {
 
     use ApiKeyHelper;
 
+    private ?string $stammUrlVorher = null;
+
+    /**
+     * Die Adressänderung prüft seit Audit M6 vorab, ob sich der
+     * Bestätigungslink verschicken lässt; dafür braucht es eine feste
+     * Stamm-URL. Der Negativfall: testOhneStammUrlKeineAdressaenderung().
+     */
+    protected function setUp(): void {
+        $this->stammUrlVorher = self::stammUrlSetzen(self::TEST_STAMM_URL);
+    }
+
+    protected function tearDown(): void {
+        self::stammUrlSetzen($this->stammUrlVorher);
+    }
+
+    /**
+     * Audit M6: Ohne feste Stamm-URL entsteht kein Antrag, der nie bestätigt
+     * werden kann - die Seite sagt es, und pending_email bleibt leer.
+     */
+    public function testOhneStammUrlKeineAdressaenderung(): void {
+        $konto = $this->angemeldetOhneFaktor($this->authenticatedClient(), 'profstamm');
+        self::stammUrlSetzen(null);
+
+        $seite = $konto['client']->get('/profil');
+        $this->assertStringContainsString('Adressänderung ist derzeit nicht möglich', $seite->body);
+        $this->assertStringNotContainsString('Adresse beantragen', $seite->body);
+
+        $antwort = $konto['client']->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($konto['client']),
+            'new_email' => 'profstamm-neu-' . uniqid() . '@example.com',
+            'current_password' => $konto['passwort'],
+        ]);
+        $this->assertSame('/profil?error=email_unavailable', $antwort->location());
+        $this->assertNull($this->spalte($konto['username'], 'pending_email'), 'pending_email muss NULL bleiben.');
+        $this->assertStringContainsString('derzeit nicht möglich', $konto['client']->get('/profil?error=email_unavailable')->body);
+    }
+
     private function spalte(string $benutzer, string $spalte) {
         $stmt = Database::getInstance()->prepare("SELECT `{$spalte}` FROM users WHERE username = ?");
         $stmt->execute([$benutzer]);

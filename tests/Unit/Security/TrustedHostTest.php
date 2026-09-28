@@ -54,6 +54,20 @@ class TrustedHostTest extends TestCase {
         $this->assertSame('verband.example', TrustedHost::resolveHostname());
     }
 
+    /**
+     * Audit M6: Nur mit Allowlist taugt der Host der Anfrage für Token-Links
+     * (App\Security\BaseUrl::forLinks()).
+     */
+    public function testHasAllowlist(): void {
+        $this->assertFalse(TrustedHost::hasAllowlist());
+
+        putenv('TRUSTED_HOSTS= , ');
+        $this->assertFalse(TrustedHost::hasAllowlist(), 'Nur Trennzeichen sind keine Allowlist.');
+
+        putenv('TRUSTED_HOSTS=verband.example');
+        $this->assertTrue(TrustedHost::hasAllowlist());
+    }
+
     public function testMissingHostHeaderResolvesToEmptyString(): void {
         $this->assertSame('', TrustedHost::resolve());
     }

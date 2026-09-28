@@ -54,6 +54,7 @@ class PasskeysTest extends TestCase {
             $this->db->prepare("DELETE FROM users WHERE id = ?")->execute([$this->userId]);
         }
         $this->db->exec("DELETE FROM settings WHERE setting_key = 'base_url' AND setting_value LIKE '%pk-test%'");
+        $_SESSION = [];
     }
 
     // ---- RP-ID: die Bindung an die Domain -------------------------------
@@ -283,6 +284,101 @@ class PasskeysTest extends TestCase {
         $registrierung = json_decode(Passkeys::registrierungsOptionen($this->userId, 'pk', 'pk'), true);
         $this->assertIsArray($registrierung);
         $this->assertSame('verband.pk-test.example', $registrierung['rp']['id'] ?? null);
+    }
+
+    // ---- Step-up als eigene Zeremonie (Audit N10) -----------------------
+
+    /**
+     * Der Step-up legt seine Challenge unter einem EIGENEN Schlüssel ab. Eine
+     * im Anmeldeweg eröffnete Challenge darf nicht als Step-up eingelöst
+     * werden und umgekehrt.
+     */
+    public function testStepUpSchreibtNurSeineEigeneZeremonie(): void {
+        $this->setzeBaseUrl('https://verband.pk-test.example/');
+        $this->legePasskeyAn($this->userId, 'IT-TEST stepup', base64_encode('IT-TEST-stepup-' . $this->userId));
+        $_SESSION = [];
+
+        $optionen = json_decode(Passkeys::anmeldeOptionen($this->userId, Passkeys::ZWECK_STEPUP), true);
+
+        $this->assertIsArray($optionen);
+        $this->assertArrayHasKey('challenge', $optionen);
+        $this->assertCount(1, $optionen['allowCredentials'] ?? []);
+        $this->assertArrayHasKey('passkey_stepup', $_SESSION);
+        $this->assertArrayNotHasKey('passkey_anmeldung', $_SESSION);
+        $this->assertSame($this->userId, $_SESSION['passkey_stepup']['user_id']);
+    }
+
+    public function testEineAnmeldeZeremonieIstKeinStepUp(): void {
+        $this->setzeBaseUrl('https://verband.pk-test.example/');
+        $_SESSION = [];
+        Passkeys::anmeldeOptionen($this->userId);
+
+        try {
+            Passkeys::anmeldungPruefen('{}', Passkeys::ZWECK_STEPUP);
+            $this->fail('Eine Anmelde-Challenge darf keinen Step-up tragen.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('abgelaufen', $e->getMessage());
+        }
+        $this->assertArrayHasKey('passkey_anmeldung', $_SESSION, 'Die fremde Zeremonie bleibt unangetastet.');
+    }
+
+    public function testEinStepUpIstKeineAnmeldeZeremonie(): void {
+        $this->setzeBaseUrl('https://verband.pk-test.example/');
+        $_SESSION = [];
+        Passkeys::anmeldeOptionen($this->userId, Passkeys::ZWECK_STEPUP);
+
+        try {
+            Passkeys::anmeldungPruefen('{}');
+            $this->fail('Eine Step-up-Challenge darf keine Anmeldung tragen.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('abgelaufen', $e->getMessage());
+        }
+        $this->assertArrayHasKey('passkey_stepup', $_SESSION);
+    }
+
+    /** Ohne Konto gibt es keinen Step-up - weder beim Erzeugen noch beim Prüfen. */
+    public function testStepUpVerlangtEinKonto(): void {
+        $_SESSION = [];
+        try {
+            Passkeys::anmeldeOptionen(null, Passkeys::ZWECK_STEPUP);
+            $this->fail('Ohne Benutzer-ID darf es keine Step-up-Optionen geben.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertArrayNotHasKey('passkey_stepup', $_SESSION);
+        }
+
+        // Eine so (etwa von einer älteren Fassung) abgelegte Zeremonie ohne
+        // Konto besteht beim Prüfen nicht - noch vor jeder Signaturprüfung.
+        $_SESSION['passkey_stepup'] = ['optionen' => '{}', 'user_id' => null, 'bis' => time() + 300];
+        $this->expectException(\RuntimeException::class);
+        Passkeys::anmeldungPruefen('{}', Passkeys::ZWECK_STEPUP);
+    }
+
+    public function testUnbekannterZweckWirdAbgewiesen(): void {
+        $this->expectException(\InvalidArgumentException::class);
+        Passkeys::anmeldungPruefen('{}', 'irgendwas');
+    }
+
+    // ---- Registrierung an die Sitzung gebunden (Audit M15) -------------
+
+    /**
+     * Eine für Konto A eröffnete Registrierung lässt sich in einer Sitzung,
+     * die inzwischen als B angemeldet ist, nicht abschliessen - der Passkey
+     * landete sonst bei A, ausgelöst von B.
+     */
+    public function testRegistrierungFuerEinAnderesKontoWirdAbgewiesen(): void {
+        $_SESSION = [
+            'user_id' => $this->userId + 1,
+            'passkey_registrierung' => ['optionen' => '{}', 'user_id' => $this->userId, 'bis' => time() + 300],
+        ];
+
+        try {
+            Passkeys::registrierungAbschliessen('{}', 'fremd');
+            $this->fail('Die Zeremonie gehört einem anderen Konto.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('nicht zu diesem Konto', $e->getMessage());
+        }
+        $this->assertArrayNotHasKey('passkey_registrierung', $_SESSION, 'Die Zeremonie ist verbraucht.');
+        $this->assertSame(0, Passkeys::anzahl($this->userId));
     }
 
     // ---- Hilfen ----------------------------------------------------------

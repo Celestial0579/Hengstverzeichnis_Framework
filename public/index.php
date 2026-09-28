@@ -193,10 +193,18 @@ $router->post('/force-password-change', [App\Controllers\AuthController::class, 
 // 2FA Routes
 $router->get('/2fa/setup', [App\Controllers\AuthController::class, 'show2faSetup']);
 $router->post('/2fa/enable', [App\Controllers\AuthController::class, 'enable2fa']);
+// Bestaetigung vor jeder Aenderung an den eigenen Faktoren (#112, Audit M15,
+// M17, N10) - direkt erreichbar, mit Rueckweg ueber ?fuer=… (nur die Ziele
+// aus App\Security\StepUp).
+$router->get('/2fa/reauth', [App\Controllers\AuthController::class, 'show2faReauth']);
 $router->post('/2fa/reauth', [App\Controllers\AuthController::class, 'process2faReauth']);
-// Probecode fuer den Step-up - fuer Konten, deren einziger Faktor der
-// Mailcode ist (#354). Ohne ihn koennten sie nie TOTP nachruesten.
+// Probecode fuer den Step-up - fuer Konten, deren Faktor der Mailcode ist
+// (#354). Ohne ihn koennten sie nie TOTP nachruesten.
 $router->post('/2fa/reauth/code', [App\Controllers\AuthController::class, 'sendReauthCode']);
+// Step-up mit dem Passkey (Audit N10) - fuer Konten, deren Faktor ein
+// Passkey ist. Bis hierher mussten sie mit einem Mailcode bestaetigen.
+$router->post('/2fa/reauth/passkey/optionen', [App\Controllers\PasskeyController::class, 'stepUpOptionen']);
+$router->post('/2fa/reauth/passkey', [App\Controllers\PasskeyController::class, 'stepUpPruefen']);
 $router->get('/2fa/verify', [App\Controllers\AuthController::class, 'show2faVerify']);
 $router->post('/2fa/verify', [App\Controllers\AuthController::class, 'process2faVerify']);
 $router->get('/login/2fa', [App\Controllers\AuthController::class, 'show2faVerify']);

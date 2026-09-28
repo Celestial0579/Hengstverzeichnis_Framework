@@ -134,6 +134,137 @@ abstract class FunctionalTestCase extends TestCase {
     }
 
     /**
+     * Konto-ID zu einem Benutzernamen, direkt aus der Datenbank.
+     *
+     * NICHT `userIdVon()` nennen: EmailSecondFactorLoginTest hat eine private
+     * Methode dieses Namens, und eine private Methode in der Unterklasse neben
+     * einer protected gleichen Namens hier bricht die ganze Suite mit einem
+     * Fatal Error ab ("Access level ... must be protected").
+     */
+    protected static function kontoIdNachName(string $username): int {
+        $stmt = \App\Database::getInstance()->prepare("SELECT id FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        $id = (int)$stmt->fetchColumn();
+        self::assertGreaterThan(0, $id, "Konto '{$username}' nicht gefunden.");
+        return $id;
+    }
+
+    /**
+     * Legt einen Passkey-Datensatz direkt in der Datenbank an.
+     *
+     * Eine echte Registrierung braucht einen Authenticator (siehe
+     * tests/Integration/PasskeysTest.php). Für die Schranken, die an der
+     * bloßen EXISTENZ eines Passkeys hängen - Faktorweiche, Step-up-Regel,
+     * Admin-Reset -, genügt der Datensatz; anmelden lässt sich damit nicht.
+     */
+    protected static function legeTestPasskeyAn(int $userId, string $label = 'Test-Passkey'): int {
+        $db = \App\Database::getInstance();
+        $db->prepare(
+            "INSERT INTO user_passkeys (user_id, credential_id, credential, label, sign_count, created_at)
+             VALUES (?, ?, ?, ?, 0, NOW())"
+        )->execute([$userId, base64_encode('FT-TEST-' . bin2hex(random_bytes(12))), '{"test":true}', $label]);
+        return (int)$db->lastInsertId();
+    }
+
+    /**
+     * Holt für eine angemeldete Sitzung mit TOTP die frische Bestätigung
+     * (App\Security\StepUp) über den echten Weg: GET und POST /2fa/reauth.
+     *
+     * Der Step-up verbraucht den TOTP-Zeitschlitz (#111). Der Replay-Schutz
+     * wird deshalb vorher UND nachher zurückgesetzt - sonst scheitert der
+     * nächste Code desselben 30-Sekunden-Fensters im selben Test.
+     */
+    protected function stepUpMitTotp(HttpClient $client, string $email, string $passwort, string $secret, string $fuer = 'profil'): void {
+        self::resetTotpReplayGuard($email);
+        $seite = $client->get('/2fa/reauth?fuer=' . urlencode($fuer));
+        self::assertSame(200, $seite->statusCode, "Die Bestätigungsseite muss erreichbar sein, Body: {$seite->body}");
+
+        $antwort = $client->post('/2fa/reauth', [
+            'csrf_token' => $seite->formField('csrf_token') ?? '',
+            'password' => $passwort,
+            'totp_code' => Totp::getCode($secret),
+            'fuer' => $fuer,
+        ]);
+        self::assertSame(
+            \App\Security\StepUp::ziel($fuer),
+            $antwort->location(),
+            "Step-up mit TOTP fehlgeschlagen, Body: {$antwort->body}"
+        );
+        self::resetTotpReplayGuard($email);
+    }
+
+    /**
+     * Ersetzt den Abdruck eines von der Anwendung ausgestellten Mailcodes
+     * durch den eines bekannten Codes - im Testlauf geht keine Mail hinaus.
+     * Bricht ab, wenn die Anwendung gar keinen ausgestellt hat.
+     */
+    protected static function bekanntenMailcodeSetzen(int $userId, string $purpose, string $code): void {
+        $db = \App\Database::getInstance();
+        $stmt = $db->prepare(
+            "UPDATE email_2fa_codes SET code_hash = ?, attempts = 0, expires_at = NOW() + INTERVAL 10 MINUTE
+             WHERE user_id = ? AND purpose = ?"
+        );
+        $stmt->execute([password_hash($code, PASSWORD_DEFAULT), $userId, $purpose]);
+        self::assertSame(1, $stmt->rowCount(), "Die Anwendung hätte einen Code für '{$purpose}' ausstellen müssen.");
+    }
+
+    /**
+     * Legt ein Konto in einer Gruppe OHNE 2FA-Pflicht an, meldet es an und
+     * erledigt den Passwortwechsel der Erstanmeldung. Das Konto hat danach
+     * keinen zweiten Faktor.
+     *
+     * @return array{client: HttpClient, username: string, email: string, passwort: string, id: int}
+     */
+    protected function angemeldetOhneFaktor(HttpClient $admin, string $prefix, string $email = ''): array {
+        $unique = uniqid();
+        $groupId = $this->createGroupWithoutTwoFa($admin, "Ohne Faktor {$prefix} {$unique}");
+        $username = $prefix . $unique;
+        $email = $email !== '' ? $email : "{$prefix}-{$unique}@example.com";
+        $erst = 'OhneFaktorTest123!';
+        $passwort = 'OhneFaktorNeu456!';
+
+        $createForm = $admin->get('/admin/users/create');
+        $angelegt = $admin->post('/admin/users/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'username' => $username,
+            'email' => $email,
+            'password' => $erst,
+            'groups' => [(string)$groupId],
+        ]);
+        self::assertSame('/admin/users?success=created', $angelegt->location(), "Anlegen fehlgeschlagen, Body: {$angelegt->body}");
+
+        $client = $this->newClient();
+        $login = $client->post('/login', [
+            'csrf_token' => $client->get('/login')->formField('csrf_token') ?? '',
+            'kennung' => $username,
+            'password' => $erst,
+        ]);
+        self::assertSame('/force-password-change', $login->location(), "Erstanmeldung fehlgeschlagen, Body: {$login->body}");
+
+        $gewechselt = $client->post('/force-password-change', [
+            'csrf_token' => $client->get('/force-password-change')->formField('csrf_token') ?? '',
+            'current_password' => $erst,
+            'password' => $passwort,
+            'password_confirm' => $passwort,
+        ]);
+        self::assertSame('/admin?password_changed=1', $gewechselt->location());
+
+        return [
+            'client' => $client,
+            'username' => $username,
+            'email' => $email,
+            'passwort' => $passwort,
+            'id' => self::kontoIdNachName($username),
+        ];
+    }
+
+    /** Dasselbe für den geteilten Admin der Suite. */
+    protected function adminStepUp(HttpClient $admin, string $fuer = 'profil'): void {
+        self::ensureProvisioned();
+        $this->stepUpMitTotp($admin, (string)self::$adminEmail, (string)self::$adminPassword, (string)self::$totpSecret, $fuer);
+    }
+
+    /**
      * Liefert einen frischen, aber bereits vollständig eingeloggten Client
      * (Passwort-Login + 2FA-Verifikation über den echten HTTP-Flow).
      */

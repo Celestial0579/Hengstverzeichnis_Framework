@@ -5,6 +5,7 @@ namespace App\Controllers;
 
 use App\Database;
 use App\Helper\Paginator;
+use App\Security\KontoSicherheit;
 use App\Security\LoginIdentifier;
 
 class UserController extends BaseController {
@@ -22,6 +23,9 @@ class UserController extends BaseController {
         $stmt = $db->query("
             SELECT u.id, u.username, u.email, u.created_at, u.totp_enabled, u.email_2fa_enabled,
                    u.deactivated_at, u.deactivated_reason,
+                   -- Passkeys zaehlen als Faktor (Audit N60). Ohne sie galt ein
+                   -- Passkey-Konto hier als ungeschuetzt, und der Reset-Knopf fehlte.
+                   (SELECT COUNT(*) FROM user_passkeys pk WHERE pk.user_id = u.id) AS passkey_count,
                    GROUP_CONCAT(g.name ORDER BY g.is_builtin DESC, g.name SEPARATOR ', ') AS group_names
             FROM users u
             LEFT JOIN user_groups ug ON ug.user_id = u.id
@@ -125,7 +129,9 @@ class UserController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT id, username, email FROM users WHERE id = ?");
+        $stmt = $db->prepare(
+            "SELECT id, username, email, pending_email, pending_email_expires_at FROM users WHERE id = ?"
+        );
         $stmt->execute([$id]);
         $user = $stmt->fetch();
 
@@ -159,11 +165,15 @@ class UserController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $id = $_POST['id'] ?? null;
-        if (!$id) {
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
             header("Location: /admin/users");
             exit;
         }
+        // Das eigene Konto des Admins oder ein fremdes? Davon haengt ab, ob
+        // ein neu gesetztes Passwort bei der naechsten Anmeldung gewechselt
+        // werden muss (Audit N13).
+        $fremdesKonto = $id !== (int)($_SESSION['user_id'] ?? 0);
 
         $username = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
@@ -182,7 +192,7 @@ class UserController extends BaseController {
         // Adresspflicht sich nach der Gruppenmenge richtet, die tatsaechlich
         // gespeichert wird - nicht nach der uebermittelten.
         $groupIds = $selectedGroupIds;
-        if ((int)$id === (int)($_SESSION['user_id'] ?? 0) && $this->isAdmin()) {
+        if (!$fremdesKonto && $this->isAdmin()) {
             $adminGroupId = (int)$db->query("SELECT id FROM `groups` WHERE slug = 'admin'")->fetchColumn();
             if ($adminGroupId > 0 && !in_array($adminGroupId, $groupIds, true)) {
                 $groupIds[] = $adminGroupId;
@@ -204,6 +214,7 @@ class UserController extends BaseController {
         // dem gerade das Bearbeitungsrecht gegeben wird, darf nicht zuerst
         // ohne Adresse gespeichert und danach abgelehnt werden.
         $errors = array_merge($errors, $this->emailFehler($db, $email, $groupIds));
+        $errors = array_merge($errors, $this->vergebenFehler($db, $id, $username, $email));
 
         if ($errors !== []) {
             $this->render('admin_user_form', [
@@ -228,28 +239,42 @@ class UserController extends BaseController {
                 return;
             }
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+            $offenerAntrag = KontoSicherheit::offenerAdressantrag($id);
             // session_version erhöhen: Bestehende Sessions des Benutzers werden
             // durch die Admin-Passwortänderung beendet (#113, siehe
             // BaseController::checkAuth()).
-            $stmt = $db->prepare("UPDATE users SET username = ?, email = ?, password_hash = ?, session_version = session_version + 1 WHERE id = ?");
+            //
+            // must_change_password bei einem FREMDEN Konto (Audit N13): Das
+            // Passwort kennt jetzt die Verwaltung - und wer den Zettel sieht,
+            // auf dem es weitergegeben wird. So war es dokumentiert
+            // (docs/database.md), umgesetzt war es nicht. Der Zwang greift
+            // nach dem zweiten Faktor (LoginSession::establish()). Beim
+            // eigenen Konto des Admins entfällt er.
+            //
+            // Ein offener Adressantrag endet im selben Statement (Audit M16).
+            $stmt = $db->prepare(
+                "UPDATE users SET username = ?, email = ?, password_hash = ?,
+                        session_version = session_version + 1,
+                        " . ($fremdesKonto ? 'must_change_password = 1, ' : '') . KontoSicherheit::ADRESSANTRAG_LEEREN . "
+                 WHERE id = ?"
+            );
             // Leere Eingabe = keine Adresse (NULL), nicht Leerstring - siehe store().
-            $stmt->execute([$username, $email === '' ? null : $email, $passwordHash, $id]);
+            if (!$this->speichern($stmt, [$username, $email === '' ? null : $email, $passwordHash, $id])) {
+                $this->formularFehler($id, $username, $email, $assignableGroups, $selectedGroupIds);
+                return;
+            }
 
-            // Offene Mailcodes des Kontos verwerfen (#354): Ein vom Admin neu
-            // gesetztes Passwort ist die typische Reaktion auf einen Verdacht,
-            // und ein Code, der schon unterwegs ist, darf sie nicht ueberleben.
-            \App\Security\EmailSecondFactor::discard((int)$id);
-
-            // Auch alle API-Schlüssel des Kontos ausdrücklich widerrufen
-            // (#217): Das Neusetzen des Passworts durch einen Admin ist die
-            // typische Incident-Response - neben den Sessions (session_version,
-            // oben) dürfen auch zuvor angelegte Schlüssel den Reset nicht als
-            // zweites Credential überleben. Die session_version-Kopplung in
-            // ApiKey::authenticate() lehnt sie bereits implizit ab; der
-            // Widerruf macht das dauerhaft und sichtbar (revoked_at). Gilt
-            // bewusst auch für das eigene Admin-Konto - nur die Session bleibt
-            // erhalten (siehe unten), Schlüssel sind neu anzulegen.
-            $revokedKeys = \App\Security\ApiKey::revokeAllForUser((int)$id);
+            // Offene Mailcodes und alle API-Schlüssel des Kontos (#354,
+            // #217): Das Neusetzen des Passworts durch einen Admin ist die
+            // typische Incident-Response - neben den Sessions
+            // (session_version, oben) dürfen weder ein Code, der schon
+            // unterwegs ist, noch zuvor angelegte Schlüssel den Reset
+            // überleben. Die session_version-Kopplung in
+            // ApiKey::authenticate() lehnt Schlüssel bereits implizit ab;
+            // der Widerruf macht das dauerhaft und sichtbar (revoked_at).
+            // Gilt bewusst auch für das eigene Admin-Konto - nur die Session
+            // bleibt erhalten (siehe unten), Schlüssel sind neu anzulegen.
+            $revokedKeys = KontoSicherheit::nachPasswortwechsel($id, $offenerAntrag);
             if ($revokedKeys > 0) {
                 \App\Service\AuditLogger::log(
                     "API-Schlüssel widerrufen (Passwort neu gesetzt)",
@@ -257,17 +282,27 @@ class UserController extends BaseController {
                     "{$revokedKeys} aktive(r) API-Schlüssel von Benutzer ID {$id} nach Passwort-Neusetzung durch Admin widerrufen"
                 );
             }
+            if ($fremdesKonto) {
+                \App\Service\AuditLogger::log(
+                    "Passwort durch Verwaltung neu gesetzt",
+                    "users",
+                    "Benutzer ID {$id}: Wechsel bei nächster Anmeldung erzwungen"
+                );
+            }
 
             // Ändert der Admin das eigene Passwort, übernimmt seine gerade
             // aktive Session den neuen Stand und bleibt angemeldet.
-            if ($id == $_SESSION['user_id']) {
+            if (!$fremdesKonto) {
                 $stmt = $db->prepare("SELECT session_version FROM users WHERE id = ?");
                 $stmt->execute([$id]);
                 $_SESSION['session_version'] = (int)$stmt->fetchColumn();
             }
         } else {
             $stmt = $db->prepare("UPDATE users SET username = ?, email = ? WHERE id = ?");
-            $stmt->execute([$username, $email === '' ? null : $email, $id]);
+            if (!$this->speichern($stmt, [$username, $email === '' ? null : $email, $id])) {
+                $this->formularFehler($id, $username, $email, $assignableGroups, $selectedGroupIds);
+                return;
+            }
         }
 
         // Adresse entfernt heisst: kein Mailcode-Faktor mehr (#354). Ohne das
@@ -286,16 +321,21 @@ class UserController extends BaseController {
         // Adresse um. Ohne das Verwerfen bleibt der Code im ALTEN Postfach
         // zehn Minuten lang gueltig. ProfileController::confirmNewEmail()
         // macht es aus derselben Begruendung.
+        //
+        // Ebenso einen offenen Adressantrag (Audit M16): Traegt die
+        // Verwaltung die Adresse bei einem Verdacht um, darf ein vom
+        // Angreifer gestellter Antrag danach nicht mehr bestaetigt werden.
         if ($email !== $adresseVorher) {
-            \App\Security\EmailSecondFactor::discard((int)$id);
+            \App\Security\EmailSecondFactor::discard($id);
+            KontoSicherheit::adressantragVerwerfen($id, 'Adressänderung durch Verwaltung');
         }
 
-        $this->syncUserGroups($db, (int)$id, $groupIds);
+        $this->syncUserGroups($db, $id, $groupIds);
 
         \App\Service\AuditLogger::log("Benutzer aktualisiert", "users", "Benutzer ID {$id}: {$username} ({$email})");
 
         // If updating self, keep the displayed username in sync
-        if ($id == $_SESSION['user_id']) {
+        if (!$fremdesKonto) {
             $_SESSION['username'] = $username;
         }
 
@@ -373,33 +413,75 @@ class UserController extends BaseController {
         exit;
     }
 
+    /**
+     * POST /admin/users/reset-2fa - ALLE zweiten Faktoren zurücksetzen.
+     *
+     * Alle, nicht nur TOTP (#354) und seit Audit N60 auch die Passkeys. Wer
+     * "2FA zurücksetzen" drückt, will den Benutzer wieder hereinlassen - ein
+     * übrig gebliebener Faktor liesse ihn genau davor stehen, jetzt ohne
+     * Backup-Codes, und ein gestohlener Passkey bliebe gültig.
+     *
+     * Der Reset beendet ausserdem alle Sitzungen und widerruft die
+     * API-Schlüssel (Entscheidung D07): Danach ist das Konto faktorlos, und
+     * eine noch lebende Sitzung - etwa auf dem gestohlenen Gerät - könnte
+     * sonst ohne jeden Nachweis sofort einen eigenen Faktor einrichten.
+     * Siehe KontoSicherheit::zweiteFaktorenZuruecksetzen().
+     */
     public function reset2fa(): void {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $id = $_POST['id'] ?? null;
-        if ($id) {
-            $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT username FROM users WHERE id = ?");
-            $stmt->execute([$id]);
-            $targetUsername = $stmt->fetchColumn() ?: "ID {$id}";
-
-            // ALLE zweiten Faktoren, nicht nur TOTP (#354). Wer "2FA
-            // zuruecksetzen" drueckt, will den Benutzer wieder hereinlassen -
-            // ein uebrig gebliebener Mailcode-Faktor liesse ihn genau davor
-            // stehen, und der Admin haette keinen Anlass, das zu vermuten.
-            $stmt = $db->prepare(
-                "UPDATE users
-                 SET totp_secret = NULL, totp_enabled = 0, email_2fa_enabled = 0,
-                     backup_codes = NULL, last_totp_timeslice = NULL
-                 WHERE id = ?"
-            );
-            $stmt->execute([$id]);
-            \App\Security\EmailSecondFactor::discard((int)$id);
-
-            \App\Service\AuditLogger::log("2FA zurückgesetzt", "users", "Alle zweiten Faktoren für Benutzer {$targetUsername} (ID: {$id}) durch Admin zurückgesetzt");
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id <= 0) {
+            header("Location: /admin/users");
+            exit;
         }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT username, email FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        $ziel = $stmt->fetch();
+        if (!$ziel) {
+            header("Location: /admin/users?error=unknown_user");
+            exit;
+        }
+        $targetUsername = (string)$ziel['username'];
+
+        $ergebnis = KontoSicherheit::zweiteFaktorenZuruecksetzen($id);
+
+        // Das eigene Konto: Die eigene Sitzung übernimmt den neuen Stand -
+        // wie beim Neusetzen des eigenen Passworts in update().
+        if ($id === (int)($_SESSION['user_id'] ?? 0)) {
+            $stmt = $db->prepare("SELECT session_version FROM users WHERE id = ?");
+            $stmt->execute([$id]);
+            $_SESSION['session_version'] = (int)$stmt->fetchColumn();
+        }
+
+        \App\Service\AuditLogger::log(
+            "2FA zurückgesetzt",
+            "users",
+            sprintf(
+                'Alle zweiten Faktoren (App, Mailcode, %d Passkey(s)) für Benutzer %s (ID: %d) durch Admin '
+                . 'zurückgesetzt; Sitzungen beendet, %d API-Schlüssel widerrufen',
+                $ergebnis['passkeys'],
+                $targetUsername,
+                $id,
+                $ergebnis['api_schluessel']
+            )
+        );
+
+        KontoSicherheit::hinweisSenden(
+            $id,
+            'Ihre Zwei-Faktor-Anmeldung wurde zurückgesetzt',
+            sprintf(
+                'Die Verwaltung hat am %s alle zweiten Faktoren Ihres Kontos zurückgesetzt '
+                . '(Authentikator-App, Mailcode und Passkeys). Alle Sitzungen wurden beendet und Ihre '
+                . 'API-Schlüssel widerrufen. Bei der nächsten Anmeldung richten Sie Ihren zweiten Faktor neu ein.',
+                date('d.m.Y \u\m H:i')
+            ),
+            (string)($ziel['email'] ?? '')
+        );
 
         header("Location: /admin/users?success=2fa_reset");
         exit;
@@ -442,6 +524,69 @@ class UserController extends BaseController {
 
         header("Location: /admin/users/edit?id={$id}&success=api_keys_revoked");
         exit;
+    }
+
+    /**
+     * Benutzername oder Adresse schon bei einem ANDEREN Konto (Audit N52)?
+     *
+     * Ausdruecklich einschliesslich Papierkorb: Die UNIQUE-Indizes umfassen
+     * auch geloeschte Konten. Bisher lief das UPDATE in den Duplikatsfehler
+     * und endete mit HTTP 500.
+     *
+     * @return array<int, string>
+     */
+    private function vergebenFehler(\PDO $db, int $id, string $username, string $email): array {
+        $stmt = $db->prepare(
+            "SELECT username, email FROM users
+             WHERE id <> ? AND (username = ? OR (? <> '' AND email = ?))"
+        );
+        $stmt->execute([$id, $username, $email, $email]);
+
+        // Vergleich wie die Datenbank-Kollation: ohne Gross-/Kleinschreibung.
+        $gleich = static fn(string $a, string $b): bool => mb_strtolower($a, 'UTF-8') === mb_strtolower($b, 'UTF-8');
+        $fehler = [];
+        foreach ($stmt->fetchAll() as $zeile) {
+            if ($gleich((string)$zeile['username'], $username)) {
+                $fehler['username'] = 'Der Benutzername ist bereits vergeben (auch Konten im Papierkorb zählen).';
+            }
+            if ($email !== '' && $gleich((string)($zeile['email'] ?? ''), $email)) {
+                $fehler['email'] = 'Die E-Mail-Adresse ist bereits vergeben (auch Konten im Papierkorb zählen).';
+            }
+        }
+        return array_values($fehler);
+    }
+
+    /**
+     * Führt ein UPDATE auf `users` aus. Ein Duplikatsfehler (1062) ist ein
+     * Formularfehler, kein Absturz - die Vorprüfung oben sieht ein
+     * Wettrennen zweier gleichzeitiger Änderungen nicht.
+     *
+     * @param array<int, mixed> $werte
+     */
+    private function speichern(\PDOStatement $stmt, array $werte): bool {
+        try {
+            $stmt->execute($werte);
+            return true;
+        } catch (\PDOException $e) {
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) {
+                return false;
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $assignableGroups
+     * @param array<int, int> $selectedGroupIds
+     */
+    private function formularFehler(int $id, string $username, string $email, array $assignableGroups, array $selectedGroupIds): void {
+        $this->render('admin_user_form', [
+            'title' => 'Benutzer bearbeiten',
+            'user' => ['id' => $id, 'username' => $username, 'email' => $email],
+            'errors' => ['E-Mail oder Benutzername bereits vergeben.'],
+            'assignableGroups' => $assignableGroups,
+            'userGroupIds' => $selectedGroupIds
+        ]);
     }
 
     /**

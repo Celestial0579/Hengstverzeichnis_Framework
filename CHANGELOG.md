@@ -104,6 +104,51 @@ Breaking Changes sind jederzeit möglich).
   nur noch bis zur automatischen Bereinigung belegen. Ein Passwort-Reset
   durch den Inhaber des Postfachs übernimmt das Konto.
 
+- **Passkey hinzufügen verlangt eine frische Bestätigung** (Audit M15).
+  Bisher genügte eine angemeldete Sitzung, um einen eigenen Passkey
+  anzuhängen, der als vollwertiger zweiter Faktor gilt. Damit ließ sich die
+  Schranke aus #112 umgehen, auch bei Administratoren mit
+  Authentikator-App. Hat ein Konto bereits einen zweiten Faktor, verlangt das
+  Hinzufügen jetzt Passwort und diesen Faktor (Freigabe 10 Minuten), ebenso
+  das Entziehen eines Passkeys und das Einschalten des Mailcodes. Nach dem
+  Hinzufügen geht ein Hinweis an die hinterlegte Adresse.
+- **Mailcode ausschalten und E-Mail-Adresse ändern verlangen bei Konten mit
+  zweitem Faktor dieselbe Bestätigung** (Audit M17). Wer Sitzung und Passwort
+  hatte, konnte bisher auf zwei Wegen das Konto an sich binden:
+  - den Mailcode abschalten und danach ohne Nachweis eine eigene
+    Authentikator-App einrichten, oder
+  - die Adresse und damit den Mailcode-Faktor auf ein eigenes Postfach
+    umtragen.
+
+  Mailcode-Konten bestätigen mit einem Code an die bisherige Adresse. Nach
+  einer Adressänderung geht ein Hinweis an die alte Adresse.
+- **Die Bestätigung richtet sich nach dem Faktor, den das Konto hat** (Audit
+  N10). Passkey-Konten bestätigen mit dem Passkey statt mit einem Mailcode.
+  Ein Mailcode zählt nur noch, wenn er Faktor des Kontos ist und das Konto
+  kein TOTP hat. Probecodes gibt es nur noch für Konten, die den Mailcode
+  nutzen oder einschalten dürfen. Passkey-Konten ohne E-Mail-Adresse kommen
+  wieder an neue Backup-Codes. Beim ersten Passkey entstehen Backup-Codes,
+  falls es noch keine gibt.
+- **Ein offener Antrag auf eine neue E-Mail-Adresse überlebt keinen
+  Passwortwechsel mehr** (Audit M16). Ihn verwerfen jetzt:
+  - ein selbst geändertes Passwort
+  - ein Reset per Link
+  - ein erzwungener Wechsel
+  - eine Neusetzung oder Adressänderung durch die Verwaltung
+  - „2FA Reset“
+
+  Bisher konnte ein Angreifer einen vorbereiteten Antrag nach der
+  Incident-Response noch bestätigen und das Konto über „Passwort vergessen“
+  übernehmen.
+- **„2FA Reset“ entfernt jetzt auch Passkeys und beendet alle Sitzungen des
+  Kontos** (Audit N60). Bisher blieben die Passkeys stehen: Der Benutzer
+  blieb ausgesperrt, ein gestohlener Passkey blieb gültig, und eine noch
+  offene Sitzung konnte nach dem Reset ohne Nachweis einen eigenen Faktor
+  einrichten. Die API-Schlüssel des Kontos werden dabei widerrufen – bei einem
+  nur verlorenen Gerät muss der Benutzer sie neu anlegen. Die Benutzerliste
+  zeigt Passkeys an und bietet den Reset auch für Konten an, die nur einen
+  Passkey haben.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -248,6 +293,14 @@ Breaking Changes sind jederzeit möglich).
   „registrieren Sie sich erneut“ entfällt aus den Meldungen – er scheiterte
   an der belegten Adresse.
 
+- **Ein doppelt aufgerufener Bestätigungslink konnte die E-Mail-Adresse
+  löschen** (Audit N53). Das Token wird jetzt atomar verbraucht.
+- **Fehlerseite statt Meldung bei bereits vergebener Adresse oder vergebenem
+  Benutzernamen** (Audit N52), bei der Bestätigung einer neuen Adresse im
+  Profil und beim Bearbeiten in der Benutzerverwaltung. Konten im Papierkorb
+  zählen bei der Prüfung mit – ihre Adresse ist erst nach dem endgültigen
+  Löschen wieder frei.
+
 ### Geändert
 
 - **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
@@ -294,6 +347,42 @@ Breaking Changes sind jederzeit möglich).
   `Totp::entschluesseleSecret()`, `Totp::secretAusSpeicher()` und
   `App\Service\EmailVerification`. `AuthController::nachErstemFaktor()` ist
   öffentlich, aber `@internal` (prüft kein Passwort).
+
+- **Setzt die Verwaltung das Passwort eines anderen Kontos neu, muss es bei
+  der nächsten Anmeldung geändert werden** (Audit N13), auch bei einer
+  SSO-Anmeldung. So war es dokumentiert, umgesetzt war es nicht. Beim eigenen
+  Konto entfällt der Zwang.
+- **Bestätigung vor Faktor-Änderungen:** Konten mit zweitem Faktor bestätigen
+  einmal Passwort und Faktor, bevor sie einen Passkey hinzufügen oder
+  entziehen, den Mailcode ein- oder ausschalten oder die Adresse ändern; die
+  Freigabe gilt 10 Minuten. Mailcode-Konten ohne Zugang zum bisherigen
+  Postfach ändern ihre Adresse über die Verwaltung. SSO-Benutzer mit lokalem
+  Faktor brauchen dafür ihr lokales Passwort („Passwort vergessen“ hilft).
+- Neue Hinweis-Mails an die hinterlegte Adresse bei sicherheitsrelevanten
+  Kontoänderungen: Passkey hinzugefügt, Mailcode ausgeschaltet, Adresse
+  geändert (an die alte Adresse), 2FA durch die Verwaltung zurückgesetzt. Der
+  Hinweis zu einer beantragten Adressänderung nennt, wie der Antrag
+  abzubrechen ist. Scheitert der Versand, steht das im Audit-Log
+  („Kontohinweis nicht zugestellt“).
+- Die Bestätigungsseite `/2fa/reauth` ist direkt erreichbar
+  (`?fuer=profil|passkeys|email|setup`) und führt nach der Bestätigung zur
+  auslösenden Seite zurück. Mit Passkey ist sie auch ohne Code nutzbar
+  (`POST /2fa/reauth/passkey/optionen`, `POST /2fa/reauth/passkey`).
+- `/2fa/setup` und `/2fa/enable` prüfen eine bestehende Anmeldung jetzt wie
+  jede geschützte Seite (Sitzungsversion, Sperre, Zwangswechsel).
+- Der erzwungene Passwortwechsel heißt „Neues Passwort festlegen“ statt
+  „Erstmals Passwort ändern“.
+- Für Addon- und Werkzeugautoren: neu und additiv sind `App\Security\StepUp`,
+  `App\Security\KontoSicherheit`, `App\Security\BackupCodes`,
+  `App\Service\AdressWechsel` und `Mailer::sendKontoHinweis()`.
+  `Passkeys::anmeldeOptionen()`/`anmeldungPruefen()` haben einen optionalen
+  Parameter `$zweck`, `Passkeys::registrierungAbschliessen()` liefert jetzt
+  die gespeicherte Bezeichnung und verlangt, dass die Zeremonie zum
+  angemeldeten Konto gehört. Der Testhelfer `FunctionalTestCase` hat neue
+  geschützte Methoden (`kontoIdNachName()`, `legeTestPasskeyAn()`,
+  `stepUpMitTotp()`, `adminStepUp()`, `bekanntenMailcodeSetzen()`,
+  `angemeldetOhneFaktor()`) – gleichnamige private Methoden in Unterklassen
+  brechen mit einem Fatal Error ab.
 
 ## [0.9.0] – 2026-08-27
 

@@ -1040,6 +1040,152 @@ def run():
             finally:
                 sctx.close()
 
+        # ---- Phase: Passkeys (Step-up, Registrierung, Reset) ----------------
+        # Audit M15/N10/N60. Opt-in (PHASES=...,passkey): WebAuthn braucht einen
+        # sicheren Kontext, und der Docker-Nachtlauf spricht die App über
+        # http://hvapp an - dort verweigern Browser UND Server (Passkeys::
+        # verfuegbar()) die Zeremonie. Läuft deshalb nur gegen HTTPS oder
+        # localhost. Der Authenticator ist virtuell (CDP WebAuthn-Domain) und
+        # gehört je zu einer Seite.
+        def phase_passkey():
+            if not (BASE.startswith("https://") or re.match(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$", BASE)):
+                log("  Passkey-Phase übersprungen: kein sicherer Kontext (HTTPS oder localhost nötig)")
+                return
+
+            def ergebnis(pg, slug, desc, ok):
+                counter[0] += 1
+                n = f"{counter[0]:03d}"
+                fn = f"{n}-{slug}.png"
+                try:
+                    pg.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
+                except Exception:
+                    fn = "(kein Screenshot)"
+                index.append((n, fn, pg.url, desc, "ok ✓" if ok else "FEHLER: Erwartung nicht erfüllt"))
+                log(f"{n} {slug}: {'ok' if ok else 'FEHLER'}")
+
+            def authenticator(pg):
+                cdp = pg.context.new_cdp_session(pg)
+                cdp.send("WebAuthn.enable")
+                cdp.send("WebAuthn.addVirtualAuthenticator", {"options": {
+                    "protocol": "ctap2", "transport": "internal", "hasResidentKey": True,
+                    "hasUserVerification": True, "isUserVerified": True}})
+                return cdp
+
+            def totp_stepup(pg, passwort, secret, fuer):
+                # Der Step-up verbraucht den Zeitschlitz (#111); schlägt er am
+                # schon benutzten Schlitz fest, im nächsten erneut versuchen.
+                for _ in range(2):
+                    pg.goto(BASE + f"/2fa/reauth?fuer={fuer}", wait_until="domcontentloaded", timeout=30000)
+                    pg.fill("#password", passwort)
+                    pg.fill("#totp_code", totp(secret))
+                    pg.locator('form[action="/2fa/reauth"] button[type="submit"]').click()
+                    pg.wait_for_load_state("domcontentloaded", timeout=30000)
+                    if "/2fa/reauth" not in pg.url:
+                        return True
+                    pg.wait_for_timeout(31000)
+                return False
+
+            def registrieren(pg, bezeichnung):
+                pg.goto(BASE + "/profil#passkeys", wait_until="domcontentloaded", timeout=30000)
+                pg.fill("[data-passkey-bezeichnung]", bezeichnung)
+                with pg.expect_navigation(timeout=30000):
+                    pg.click('[data-passkey-registrieren="bereit"]')
+                return bezeichnung in pg.content()
+
+            try:
+                secret = open(os.path.join(OUT, "totp_secret.txt")).read().strip()
+            except Exception:
+                secret = ""
+            if not secret:
+                log("  Passkey-Phase: TOTP-Secret des Admins fehlt (Setup-Phase) — übersprungen")
+                return
+
+            # 1) Ohne Bestätigung kein Registrierknopf, nur der Weg dorthin.
+            page.goto(BASE + "/profil", wait_until="domcontentloaded", timeout=30000)
+            ergebnis(page, "passkey-ohne-stepup", "Profil ohne Bestätigung: Link statt Registrierknopf (M15)",
+                     'data-passkey-registrieren="stepup"' in page.content())
+
+            # 2) Step-up mit TOTP, dann Registrierung mit virtuellem Authenticator.
+            authenticator(page)
+            ok = totp_stepup(page, ADMIN_PW, secret, "passkeys") and registrieren(page, "E2E-Schlüssel")
+            ergebnis(page, "passkey-registriert", "Passkey nach TOTP-Step-up registriert (M15)", ok)
+
+            # 3) Hinweis-Mail (nur mit mailpit, siehe MAILPIT_URL).
+            mailpit = os.environ.get("MAILPIT_URL", "")
+            if mailpit:
+                try:
+                    with urllib.request.urlopen(mailpit.rstrip("/") + "/api/v1/messages?limit=20", timeout=10) as r:
+                        betreffe = [m.get("Subject", "") for m in json.load(r).get("messages", [])]
+                    ergebnis(page, "passkey-hinweismail", "Hinweis-Mail „Neuer Passkey“ in mailpit (M15)",
+                             any("Neuer Passkey" in b for b in betreffe))
+                except Exception as e:
+                    log(f"  mailpit-Abfrage fehlgeschlagen: {e}")
+
+            # 4) Step-up mit dem Passkey statt eines Codes (N10), danach neue
+            #    Backup-Codes nur mit Passwort.
+            page.goto(BASE + "/2fa/reauth?fuer=profil", wait_until="domcontentloaded", timeout=30000)
+            page.fill("#password", ADMIN_PW)
+            with page.expect_navigation(timeout=30000):
+                page.click("[data-passkey-stepup]")
+            ergebnis(page, "passkey-stepup", "Step-up mit Passkey führt zurück ins Profil (N10)",
+                     page.url.rstrip("/").endswith("/profil") and "Bestätigt bis" in page.content())
+            try:
+                page.fill("#bc_password", ADMIN_PW)
+                page.once("dialog", lambda d: d.accept())
+                page.locator('form[action="/profil/backup-codes"] button[type="submit"]').click()
+                page.wait_for_load_state("domcontentloaded", timeout=30000)
+                ergebnis(page, "passkey-backupcodes", "Backup-Codes nach Passkey-Step-up",
+                         "Ihre neuen Backup-Codes" in page.content())
+            except Exception as e:
+                log(f"  Backup-Codes: {e}")
+
+            # 5) „2FA Reset“ eines zweiten Kontos entfernt dessen Passkey (N60).
+            name = "e2epasskey" + str(int(time.time()))
+            erst, neu = "E2ePasskeyErst1!", "E2ePasskeyNeu22!"
+            post(page, "/admin/users/store", {"csrf_token": get_csrf(page), "username": name,
+                                              "email": f"{name}@example.com", "password": erst})
+            nctx = browser.new_context(viewport={"width": 1440, "height": 1024}, ignore_https_errors=IGNORE_TLS)
+            npg = nctx.new_page()
+            npg.set_default_timeout(15000)
+            try:
+                npg.goto(BASE + "/login", wait_until="domcontentloaded", timeout=30000)
+                npg.fill('[name="kennung"]', name)
+                npg.fill('[name="password"]', erst)
+                npg.locator('form:has(#kennung) button[type="submit"]').first.click()
+                npg.wait_for_load_state("domcontentloaded")
+                m = re.search(r"Geheimer Schlüssel:\s*<strong>([A-Z2-7]+)</strong>", npg.content())
+                nsecret = m.group(1) if m else ""
+                npg.check('[name="confirm_backup"]')
+                npg.fill('[name="totp_code"]', totp(nsecret))
+                npg.click('button[type="submit"]')
+                npg.wait_for_load_state("domcontentloaded")
+                npg.fill('[name="current_password"]', erst)
+                npg.fill('[name="password"]', neu)
+                npg.fill('[name="password_confirm"]', neu)
+                npg.click('button[type="submit"]')
+                npg.wait_for_load_state("domcontentloaded")
+                authenticator(npg)
+                npg.wait_for_timeout(31000)  # Zeitschlitz der Einrichtung ist verbraucht
+                ok = totp_stepup(npg, neu, nsecret, "passkeys") and registrieren(npg, "E2E-Zweitkonto")
+                ergebnis(npg, "passkey-zweitkonto", "Zweitkonto mit Passkey", ok)
+
+                uid = None
+                page.goto(BASE + "/admin/users?search=" + name, wait_until="domcontentloaded", timeout=30000)
+                mid = re.search(r"/admin/users/edit\?id=(\d+)", page.content())
+                if mid:
+                    uid = mid.group(1)
+                ergebnis(page, "passkey-liste", "Benutzerliste zeigt den Passkey (N60)", "Passkey (1)" in page.content())
+                if uid:
+                    post(page, "/admin/users/reset-2fa", {"csrf_token": get_csrf(page), "id": uid})
+                    page.goto(BASE + "/admin/users?search=" + name, wait_until="domcontentloaded", timeout=30000)
+                    ergebnis(page, "passkey-reset", "„2FA Reset“ entfernt den Passkey (N60)",
+                             "Passkey (" not in page.content() and "Ausstehend" in page.content())
+                    npg.goto(BASE + "/2fa/setup", wait_until="domcontentloaded", timeout=30000)
+                    ergebnis(npg, "passkey-alte-sitzung", "Alte Sitzung nach dem Reset beendet (N60)",
+                             "/login" in npg.url)
+            finally:
+                nctx.close()
+
         # ---- Phase: Dark-Mode-Kontrast -------------------------------------
         def phase_darkmode():
             # Dark-Mode erzwingen: das Head-Script der App liest localStorage
@@ -1144,6 +1290,9 @@ def run():
             ("sso", phase_sso, False),
             ("update", phase_update, False),
             ("darkmode", phase_darkmode, False),
+            # Zuletzt und nur auf Anforderung: braucht HTTPS/localhost und
+            # verändert die Faktoren des Admins (siehe phase_passkey).
+            ("passkey", phase_passkey, False),
         ]
         for name, fn, always in phases:
             if not (always or phase_enabled(name)):

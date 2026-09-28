@@ -73,6 +73,22 @@ final class Passkeys {
     /** Sitzungsschlüssel für die laufende Zeremonie. */
     private const SESSION_REG = 'passkey_registrierung';
     private const SESSION_ANM = 'passkey_anmeldung';
+    private const SESSION_STEPUP = 'passkey_stepup';
+
+    /** Zweiter Faktor im Anmeldeweg - oder passwortlos. */
+    public const ZWECK_ANMELDUNG = 'anmeldung';
+
+    /**
+     * Bestätigung einer angemeldeten Sitzung vor einer Faktor-Änderung
+     * (Audit N10, App\Security\StepUp).
+     *
+     * Eine EIGENE Zeremonie mit eigenem Sitzungsschlüssel: Eine im Anmeldeweg
+     * eröffnete Challenge darf nicht als Step-up eingelöst werden und
+     * umgekehrt - ein Nachweis gilt für den Vorgang, für den er ausgestellt
+     * wurde. Und immer für ein bestimmtes Konto: Ohne Benutzer-ID prüfte
+     * die Zeremonie nur, dass IRGENDEIN Passkey vorgelegt wurde.
+     */
+    public const ZWECK_STEPUP = 'stepup';
 
     // ---- Ist das überhaupt nutzbar? -------------------------------------
 
@@ -210,15 +226,36 @@ final class Passkeys {
     /**
      * Prüft die Antwort des Browsers und legt den Passkey ab.
      *
+     * Die Zeremonie gehört dem Konto, für das sie eröffnet wurde, und dieses
+     * muss noch das angemeldete sein (Audit M15). Wechselt die Identität der
+     * Sitzung zwischen Optionen und Abschluss, landete der Passkey sonst beim
+     * vorherigen Konto - mit dessen Nachweis, aber im Namen des neuen.
+     *
+     * @return string die gespeicherte (gekürzte) Bezeichnung - für den
+     *         Hinweis an den Kontoinhaber
      * @throws \RuntimeException bei jedem Fehlschlag - die Meldung ist für den
      *         Benutzer gedacht und nennt nie Interna.
      */
-    public static function registrierungAbschliessen(string $antwortJson, string $bezeichnung): void {
+    public static function registrierungAbschliessen(string $antwortJson, string $bezeichnung): string {
         $zeremonie = $_SESSION[self::SESSION_REG] ?? null;
         unset($_SESSION[self::SESSION_REG]);
 
         if (!is_array($zeremonie) || ($zeremonie['bis'] ?? 0) < time()) {
             throw new \RuntimeException('Die Anmeldeanfrage ist abgelaufen. Bitte erneut versuchen.');
+        }
+
+        $angemeldet = (int)($_SESSION['user_id'] ?? 0);
+        if ($angemeldet <= 0 || (int)($zeremonie['user_id'] ?? 0) !== $angemeldet) {
+            AuditLogger::log(
+                'Passkey-Registrierung abgelehnt',
+                'security',
+                sprintf(
+                    'Zeremonie für Benutzer-ID %d, angemeldet ist %d.',
+                    (int)($zeremonie['user_id'] ?? 0),
+                    $angemeldet
+                )
+            );
+            throw new \RuntimeException('Die Anmeldeanfrage gehört nicht zu diesem Konto. Bitte erneut versuchen.');
         }
 
         $optionen = self::serializer()->deserialize(
@@ -248,7 +285,7 @@ final class Passkeys {
             throw new \RuntimeException('Der Sicherheitsschlüssel konnte nicht überprüft werden.');
         }
 
-        self::speichern((int)$zeremonie['user_id'], $datensatz, $bezeichnung);
+        return self::speichern((int)$zeremonie['user_id'], $datensatz, $bezeichnung);
     }
 
     // ---- Anmeldung -------------------------------------------------------
@@ -260,8 +297,16 @@ final class Passkeys {
      * der Browser sucht den passenden Passkey selbst. Eine Liste dort wäre
      * eine Benutzernamen-Auskunft: Wer fragt, erführe, welche Schlüssel es zu
      * einem Konto gibt und ob es das Konto überhaupt gibt.
+     *
+     * $zweck trennt Anmeldung und Step-up (siehe ZWECK_STEPUP); der Step-up
+     * verlangt eine Benutzer-ID.
      */
-    public static function anmeldeOptionen(?int $userId = null): string {
+    public static function anmeldeOptionen(?int $userId = null, string $zweck = self::ZWECK_ANMELDUNG): string {
+        $schluessel = self::sitzungsschluessel($zweck);
+        if ($zweck === self::ZWECK_STEPUP && ($userId === null || $userId <= 0)) {
+            throw new \InvalidArgumentException('Ein Passkey-Step-up braucht das Konto, für das er gilt.');
+        }
+
         $erlaubt = [];
         if ($userId !== null) {
             foreach (self::fuerBenutzer($userId) as $eintrag) {
@@ -280,7 +325,7 @@ final class Passkeys {
             self::GUELTIGKEIT * 1000
         );
 
-        $_SESSION[self::SESSION_ANM] = [
+        $_SESSION[$schluessel] = [
             'optionen' => self::serializer()->serialize($optionen, 'json'),
             'user_id'  => $userId,
             'bis'      => time() + self::GUELTIGKEIT,
@@ -290,15 +335,24 @@ final class Passkeys {
     }
 
     /**
-     * Prüft eine Anmeldung und liefert die Benutzer-ID.
+     * Prüft eine Anmeldung (oder einen Step-up, siehe $zweck) und liefert die
+     * Benutzer-ID.
      *
      * @throws \RuntimeException bei jedem Fehlschlag.
      */
-    public static function anmeldungPruefen(string $antwortJson): int {
-        $zeremonie = $_SESSION[self::SESSION_ANM] ?? null;
-        unset($_SESSION[self::SESSION_ANM]);
+    public static function anmeldungPruefen(string $antwortJson, string $zweck = self::ZWECK_ANMELDUNG): int {
+        $schluessel = self::sitzungsschluessel($zweck);
+        $zeremonie = $_SESSION[$schluessel] ?? null;
+        unset($_SESSION[$schluessel]);
 
         if (!is_array($zeremonie) || ($zeremonie['bis'] ?? 0) < time()) {
+            throw new \RuntimeException('Die Anmeldeanfrage ist abgelaufen. Bitte erneut versuchen.');
+        }
+
+        // Ein Step-up ohne Konto gibt es nicht - auch dann nicht, wenn eine
+        // Zeremonie so in der Sitzung liegt. Sonst bestätigte ein beliebiger
+        // eigener Passkey die Änderung an einem fremden Konto.
+        if ($zweck === self::ZWECK_STEPUP && ($zeremonie['user_id'] ?? null) === null) {
             throw new \RuntimeException('Die Anmeldeanfrage ist abgelaufen. Bitte erneut versuchen.');
         }
 
@@ -388,6 +442,15 @@ final class Passkeys {
         self::zaehlerUndZeitpunktSchreiben((int)$eintrag['id'], $aktualisiert);
 
         return (int)$eintrag['user_id'];
+    }
+
+    /** Sitzungsschlüssel der Anmelde-Zeremonie eines Zwecks. */
+    private static function sitzungsschluessel(string $zweck): string {
+        return match ($zweck) {
+            self::ZWECK_ANMELDUNG => self::SESSION_ANM,
+            self::ZWECK_STEPUP => self::SESSION_STEPUP,
+            default => throw new \InvalidArgumentException("Unbekannter Zeremonie-Zweck: {$zweck}"),
+        };
     }
 
     // ---- Verwaltung ------------------------------------------------------
@@ -500,7 +563,7 @@ final class Passkeys {
         return $name !== '' ? $name : 'Hengstverzeichnis';
     }
 
-    private static function speichern(int $userId, object $datensatz, string $bezeichnung): void {
+    private static function speichern(int $userId, object $datensatz, string $bezeichnung): string {
         $bezeichnung = trim($bezeichnung);
         if ($bezeichnung === '') {
             $bezeichnung = 'Sicherheitsschlüssel';
@@ -520,6 +583,7 @@ final class Passkeys {
         ]);
 
         AuditLogger::log('Passkey registriert', 'security', "Bezeichnung: {$bezeichnung}");
+        return $bezeichnung;
     }
 
     /** @return array<string, mixed>|null */

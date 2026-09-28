@@ -53,6 +53,19 @@ $apiKeys = $apiKeys ?? [];
                 setzt das Passwort neu) und bekommt keine Benachrichtigungen. Bleibt es zusätzlich ohne
                 zweiten Faktor, wird es nach 180 Tagen deaktiviert.
             </small>
+            <?php // Ein offener Antrag gehoert sichtbar hierher (Audit M16): Bei
+                  // einem Verdacht muss die Verwaltung sehen, dass jemand die
+                  // Adresse umtragen will - Speichern mit geaenderter Adresse
+                  // oder neuem Passwort verwirft ihn. ?>
+            <?php if ($isEdit && !empty($user['pending_email'])): ?>
+                <small style="color: var(--warning-fg); display: block; margin-top: 0.3rem;">
+                    Offener Adressantrag auf <strong><?= htmlspecialchars((string)$user['pending_email']) ?></strong>
+                    <?php if (!empty($user['pending_email_expires_at'])): ?>
+                        bis <?= htmlspecialchars(date('d.m.Y H:i', strtotime((string)$user['pending_email_expires_at']))) ?>
+                    <?php endif; ?>
+                    &ndash; wird verworfen, wenn Sie hier die Adresse ändern oder ein neues Passwort setzen.
+                </small>
+            <?php endif; ?>
         </div>
 
         <div class="form-group">
@@ -60,6 +73,13 @@ $apiKeys = $apiKeys ?? [];
                 Passwort <?= $isEdit ? '(Leer lassen, um unverändert zu lassen)' : '*' ?>
             </label>
             <input type="password" id="password" name="password" class="form-control" minlength="8" <?= $isEdit ? '' : 'required' ?>>
+            <?php if ($isEdit): ?>
+                <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                    Ein hier gesetztes Passwort muss der Benutzer bei der nächsten Anmeldung ändern
+                    (nicht beim eigenen Konto). Alle Sitzungen des Kontos enden, seine API-Schlüssel
+                    werden widerrufen.
+                </small>
+            <?php endif; ?>
         </div>
 
         <div class="form-group">

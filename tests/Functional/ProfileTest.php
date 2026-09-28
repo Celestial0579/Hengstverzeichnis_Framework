@@ -243,6 +243,9 @@ class ProfileTest extends FunctionalTestCase {
         $alt = "profmail-{$u}@example.com";
         $neu = "profmail-neu-{$u}@example.com";
         $editor = $this->createAndLoginEditor($admin, $name, $alt);
+        // Das Konto hat TOTP - die Adresse ist Zustellweg von Reset und
+        // Mailcode und verlangt deshalb die frische Bestätigung (Audit M17).
+        $this->stepUpMitTotp($editor, $alt, 'EditorTestNeu456!', (string)$this->lastEditorTotpSecret, 'email');
 
         $antwort = $editor->post('/profil/email', [
             'csrf_token' => $this->editorCsrfToken($editor),
@@ -271,6 +274,7 @@ class ProfileTest extends FunctionalTestCase {
         $name = "profmailtok{$u}";
         $alt = "profmailtok-{$u}@example.com";
         $editor = $this->createAndLoginEditor($admin, $name, $alt);
+        $this->stepUpMitTotp($editor, $alt, 'EditorTestNeu456!', (string)$this->lastEditorTotpSecret, 'email');
         $editor->post('/profil/email', [
             'csrf_token' => $this->editorCsrfToken($editor),
             'new_email' => "andere-{$u}@example.com",
@@ -288,6 +292,9 @@ class ProfileTest extends FunctionalTestCase {
         $u = uniqid();
         $name = "profmailpw{$u}";
         $editor = $this->createAndLoginEditor($admin, $name, "profmailpw-{$u}@example.com");
+        // Mit Bestätigung - sonst prüfte der Test die Step-up-Schranke statt
+        // der Passwortschranke dahinter.
+        $this->stepUpMitTotp($editor, "profmailpw-{$u}@example.com", 'EditorTestNeu456!', (string)$this->lastEditorTotpSecret, 'email');
 
         $antwort = $editor->post('/profil/email', [
             'csrf_token' => $this->editorCsrfToken($editor),
@@ -297,6 +304,139 @@ class ProfileTest extends FunctionalTestCase {
 
         $this->assertSame('/profil?error=current_password_wrong', $antwort->location());
         $this->assertNull($this->spalte($name, 'pending_email'), 'Ohne Passwort darf kein Antrag entstehen.');
+    }
+
+    // ---- Adressänderung: Step-up (Audit M17) --------------------------
+
+    /**
+     * Ein Konto mit zweitem Faktor trägt seine Adresse nicht mit Sitzung und
+     * Passwort allein um - sonst wanderten Mailcode und Passwort-Reset mit
+     * auf das Postfach des Angreifers.
+     */
+    public function testEinKontoMitFaktorBrauchtFuerDieAdresseDieBestaetigung(): void {
+        $admin = $this->authenticatedClient();
+        $u = uniqid();
+        $name = "profstep{$u}";
+        $alt = "profstep-{$u}@example.com";
+        $editor = $this->createAndLoginEditor($admin, $name, $alt);
+
+        $ohne = $editor->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($editor),
+            'new_email' => "profstep-neu-{$u}@example.com",
+            'current_password' => 'EditorTestNeu456!',
+        ]);
+        $this->assertSame('/profil?error=stepup_required', $ohne->location());
+        $this->assertNull($this->spalte($name, 'pending_email'));
+        $this->assertStringContainsString('/2fa/reauth?fuer=email', $editor->get('/profil')->body);
+
+        $this->stepUpMitTotp($editor, $alt, 'EditorTestNeu456!', (string)$this->lastEditorTotpSecret, 'email');
+        $mit = $editor->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($editor),
+            'new_email' => "profstep-neu-{$u}@example.com",
+            'current_password' => 'EditorTestNeu456!',
+        ]);
+        $this->assertSame('/profil?success=email_requested', $mit->location());
+    }
+
+    /** Regressionsschutz: Ohne Faktor genügt weiterhin das Passwort. */
+    public function testOhneFaktorGenuegtFuerDieAdresseDasPasswort(): void {
+        $konto = $this->angemeldetOhneFaktor($this->authenticatedClient(), 'profohne');
+
+        $antwort = $konto['client']->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($konto['client']),
+            'new_email' => 'profohne-neu-' . uniqid() . '@example.com',
+            'current_password' => $konto['passwort'],
+        ]);
+        $this->assertSame('/profil?success=email_requested', $antwort->location());
+    }
+
+    /**
+     * Nach dem Bestätigen geht ein Hinweis an die ALTE Adresse. Die Suite hat
+     * kein Postfach; der Versand scheitert hier und landet samt Empfänger im
+     * Audit-Log - das belegt, dass und wohin er versucht wurde.
+     */
+    public function testNachDemWechselGehtEinHinweisAnDieAlteAdresse(): void {
+        $konto = $this->angemeldetOhneFaktor($this->authenticatedClient(), 'profhinweis');
+        $neu = 'profhinweis-neu-' . uniqid() . '@example.com';
+        $konto['client']->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($konto['client']),
+            'new_email' => $neu,
+            'current_password' => $konto['passwort'],
+        ]);
+
+        $link = $this->newClient()->get('/profil/email/bestaetigen?token=' . urlencode($this->tokenFuerHash($konto['username'])));
+        $this->assertSame('/profil?success=email_changed', $link->location());
+
+        $stmt = Database::getInstance()->prepare(
+            "SELECT COUNT(*) FROM audit_logs WHERE action = 'Kontohinweis nicht zugestellt' AND details LIKE ?"
+        );
+        $stmt->execute(['%an ' . $konto['email'] . ': Ihre E-Mail-Adresse wurde geändert%']);
+        $this->assertSame(1, (int)$stmt->fetchColumn(), 'Der Hinweis muss an die ALTE Adresse gegangen sein.');
+    }
+
+    // ---- Vergebene Adressen (Audit N52) ---------------------------------
+
+    /** Der UNIQUE-Index umfasst den Papierkorb - die Vorprüfung jetzt auch. */
+    public function testEineAdresseAusDemPapierkorbGiltAlsVergeben(): void {
+        $admin = $this->authenticatedClient();
+        $belegt = 'profpapier-' . uniqid() . '@example.com';
+        $geloescht = $this->angemeldetOhneFaktor($admin, 'profpapiera', $belegt);
+        Database::getInstance()->prepare("UPDATE users SET deleted_at = NOW() WHERE id = ?")->execute([$geloescht['id']]);
+
+        $konto = $this->angemeldetOhneFaktor($admin, 'profpapierb');
+        $antwort = $konto['client']->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($konto['client']),
+            'new_email' => $belegt,
+            'current_password' => $konto['passwort'],
+        ]);
+
+        $this->assertSame('/profil?error=email_invalid', $antwort->location());
+        $this->assertNull($this->spalte($konto['username'], 'pending_email'));
+    }
+
+    /**
+     * Zwischen Antrag und Bestätigung bekommt ein anderes Konto die Adresse.
+     * Bisher: Duplikatsfehler, HTTP 500, Antrag hängt fest.
+     */
+    public function testEineInzwischenVergebeneAdresseVerwirftDenAntrag(): void {
+        $admin = $this->authenticatedClient();
+        $konto = $this->angemeldetOhneFaktor($admin, 'profrennen');
+        $neu = 'profrennen-neu-' . uniqid() . '@example.com';
+        $konto['client']->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($konto['client']),
+            'new_email' => $neu,
+            'current_password' => $konto['passwort'],
+        ]);
+        $token = $this->tokenFuerHash($konto['username']);
+
+        $anderes = $this->angemeldetOhneFaktor($admin, 'profrennenb');
+        Database::getInstance()->prepare("UPDATE users SET email = ? WHERE id = ?")->execute([$neu, $anderes['id']]);
+
+        $link = $this->newClient()->get('/profil/email/bestaetigen?token=' . urlencode($token));
+        $this->assertSame('/profil?error=email_taken', $link->location());
+        $this->assertNull($this->spalte($konto['username'], 'pending_email'));
+        $this->assertNull($this->spalte($konto['username'], 'pending_email_token'));
+        $this->assertSame($konto['email'], (string)$this->spalte($konto['username'], 'email'));
+    }
+
+    // ---- Doppelter Aufruf des Links (Audit N53) --------------------------
+
+    public function testDerLinkWirktGenauEinmal(): void {
+        $konto = $this->angemeldetOhneFaktor($this->authenticatedClient(), 'profdoppelt');
+        $neu = 'profdoppelt-neu-' . uniqid() . '@example.com';
+        $konto['client']->post('/profil/email', [
+            'csrf_token' => $this->editorCsrfToken($konto['client']),
+            'new_email' => $neu,
+            'current_password' => $konto['passwort'],
+        ]);
+        $token = $this->tokenFuerHash($konto['username']);
+
+        $erster = $this->newClient()->get('/profil/email/bestaetigen?token=' . urlencode($token));
+        $zweiter = $this->newClient()->get('/profil/email/bestaetigen?token=' . urlencode($token));
+
+        $this->assertSame('/profil?success=email_changed', $erster->location());
+        $this->assertSame('/profil?error=email_token_invalid', $zweiter->location());
+        $this->assertSame($neu, (string)$this->spalte($konto['username'], 'email'), 'Die Adresse darf nie NULL werden.');
     }
 
     // ---- Helfer --------------------------------------------------------

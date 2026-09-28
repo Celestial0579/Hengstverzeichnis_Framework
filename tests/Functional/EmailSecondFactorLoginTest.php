@@ -483,10 +483,39 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
         $this->assertSame('/login', $fremd->get('/login/2fa/email')->location());
     }
 
+    /**
+     * Ausschalten verlangt die frische Bestätigung (Audit M17) - mit dem
+     * Mailcode an die bisherige Adresse.
+     */
     public function testDerFaktorLaesstSichWiederAusschalten(): void {
         $unique = uniqid();
         [$client, $username, , $passwort] = $this->angemeldetesKonto($unique);
         $this->mailcodeEinschalten($client, $username, $passwort);
+
+        $profil = $client->get('/profil');
+        $ohne = $client->post('/profil/2fa/email/aus', [
+            'csrf_token' => $profil->formField('csrf_token') ?? '',
+            'current_password' => $passwort,
+        ]);
+        $this->assertSame('/profil?error=stepup_required', $ohne->location(), "Body: {$ohne->body}");
+        $this->assertSame(1, $this->mailcodeSchalter($username), 'Passwort allein darf den Faktor nicht abschalten.');
+
+        $code = $client->post('/2fa/reauth/code', [
+            'csrf_token' => $profil->formField('csrf_token') ?? '',
+            'fuer' => 'profil',
+        ]);
+        $this->assertSame('/2fa/reauth?fuer=profil', $code->location());
+        $this->codeUnterschieben($username, EmailSecondFactor::PURPOSE_SETUP);
+
+        $reauth = $client->get('/2fa/reauth?fuer=profil');
+        $this->assertStringContainsString('name="email_code"', $reauth->body);
+        $freigabe = $client->post('/2fa/reauth', [
+            'csrf_token' => $reauth->formField('csrf_token') ?? '',
+            'password' => $passwort,
+            'email_code' => self::TESTCODE,
+            'fuer' => 'profil',
+        ]);
+        $this->assertSame('/profil', $freigabe->location(), "Step-up fehlgeschlagen, Body: {$freigabe->body}");
 
         $profil = $client->get('/profil');
         $aus = $client->post('/profil/2fa/email/aus', [
@@ -503,6 +532,43 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
             'password' => $passwort,
         ]);
         $this->assertSame('/admin', $login->location(), 'Ohne zweiten Faktor ist die Anmeldung wieder in einem Schritt fertig.');
+    }
+
+    /**
+     * Weg 1 aus Audit M17: Mailcode abschalten und danach ohne Nachweis eine
+     * eigene App einrichten. Das Abschalten scheitert jetzt - und die
+     * Einrichtung bleibt hinter der Bestätigung.
+     */
+    public function testNachDemGescheitertenAbschaltenGibtEsKeinFremdesSecret(): void {
+        $unique = uniqid();
+        [$client, $username, , $passwort] = $this->angemeldetesKonto($unique);
+        $this->mailcodeEinschalten($client, $username, $passwort);
+
+        $profil = $client->get('/profil');
+        $client->post('/profil/2fa/email/aus', [
+            'csrf_token' => $profil->formField('csrf_token') ?? '',
+            'current_password' => $passwort,
+        ]);
+
+        $setup = $client->get('/2fa/setup');
+        $this->assertNull(self::extractTotpSecret($setup), 'Ohne Bestätigung darf kein Secret ausgegeben werden.');
+        $this->assertStringContainsString('action="/2fa/reauth"', $setup->body);
+    }
+
+    public function testAusschaltenOhneEingeschaltetenFaktorWirdAbgelehnt(): void {
+        [$client] = $this->angemeldetesKonto(uniqid());
+
+        $antwort = $client->post('/profil/2fa/email/aus', [
+            'csrf_token' => $client->get('/profil')->formField('csrf_token') ?? '',
+            'current_password' => 'egal',
+        ]);
+        $this->assertSame('/profil?error=email_factor_not_on', $antwort->location());
+    }
+
+    private function mailcodeSchalter(string $username): int {
+        $stmt = \App\Database::getInstance()->prepare("SELECT email_2fa_enabled FROM users WHERE username = ?");
+        $stmt->execute([$username]);
+        return (int)$stmt->fetchColumn();
     }
 
     /**

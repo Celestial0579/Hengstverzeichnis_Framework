@@ -707,11 +707,44 @@ class Mailer {
                 <p>Für Ihr Konto bei {$siteName} wurde beantragt, die E-Mail-Adresse auf <strong>{$neu}</strong> zu ändern.</p>
                 <p>Solange die neue Adresse nicht bestätigt ist, bleibt diese hier gültig.</p>
                 <p style='color:#a00;'><strong>Waren Sie das nicht?</strong> Dann hat jemand Zugriff auf Ihr Konto.
-                   Ändern Sie sofort Ihr Passwort und melden Sie sich beim Verwaltungsteam.</p>
+                   Ändern Sie sofort Ihr Passwort &ndash; das bricht den Antrag ab, und der Bestätigungslink wird
+                   wertlos. Alternativ lässt er sich unter „Mein Profil“ &rarr; E-Mail-Adresse abbrechen.
+                   Melden Sie sich danach beim Verwaltungsteam.</p>
             </div>
         ";
 
         return $this->send($currentEmail, "Änderung Ihrer E-Mail-Adresse - {$siteName}", $html);
+    }
+
+    /**
+     * Hinweis nach einer sicherheitsrelevanten Kontoänderung (Audit M15, M17,
+     * N60) - Passkey hinzugefügt, Mailcode ausgeschaltet, Adresse geändert,
+     * 2FA durch die Verwaltung zurückgesetzt.
+     *
+     * Titel und Text werden hier maskiert: Sie enthalten Werte, die der
+     * Benutzer selbst gesetzt hat (Bezeichnung des Passkeys, neue Adresse).
+     * Bewusst ohne Link - eine Mail, die zum Klicken einlädt, ist die Vorlage
+     * für die Phishing-Nachricht, die genau diesen Hinweis nachahmt.
+     */
+    public function sendKontoHinweis(string $email, string $titel, string $text): bool {
+        $siteName = $this->siteName();
+        $titelHtml = htmlspecialchars($titel, ENT_QUOTES, 'UTF-8');
+        $textHtml = nl2br(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'));
+
+        $html = "
+            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>
+                <h2>{$titelHtml}</h2>
+                <p>{$textHtml}</p>
+                <p style='color:#a00;'><strong>Waren Sie das nicht?</strong> Dann hat jemand Zugriff auf Ihr Konto.
+                   Ändern Sie sofort Ihr Passwort und melden Sie sich beim Verwaltungsteam.</p>
+            </div>
+        ";
+
+        $klartext = "{$titel}\n\n{$text}\n\n"
+                  . "Waren Sie das nicht? Dann hat jemand Zugriff auf Ihr Konto. "
+                  . "Ändern Sie sofort Ihr Passwort und melden Sie sich beim Verwaltungsteam.";
+
+        return $this->send($email, "{$titel} - {$siteName}", $html, $klartext);
     }
 
     /**

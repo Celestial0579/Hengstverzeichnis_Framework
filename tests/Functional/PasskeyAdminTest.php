@@ -97,14 +97,23 @@ class PasskeyAdminTest extends FunctionalTestCase {
      * Der Test prüft damit die Ausnahme selbst - und stünde sie falsch herum,
      * bekäme jeder Betreiber über eine ungesicherte Verbindung einen Knopf,
      * der ins Leere führt.
+     *
+     * Der Admin hat TOTP: Ohne frische Bestätigung steht an der Stelle des
+     * Knopfes der Weg dorthin (Audit M15) - das Element bleibt aber im DOM,
+     * und die Erkennung des sicheren Kontexts ist an beiden ablesbar.
      */
     public function testUeberLocalhostIstDerKontextSicherUndDerKnopfDa(): void {
         $admin = $this->authenticatedClient();
 
         $profil = $admin->get('/profil');
+        $this->assertSame(200, $profil->statusCode);
+        $this->assertStringContainsString('data-passkey-registrieren="stepup"', $profil->body);
+
+        $this->adminStepUp($admin, 'passkeys');
+        $profil = $admin->get('/profil');
 
         $this->assertSame(200, $profil->statusCode);
-        $this->assertStringContainsString('data-passkey-registrieren', $profil->body);
+        $this->assertStringContainsString('data-passkey-registrieren="bereit"', $profil->body);
         $this->assertStringNotContainsString(
             'Über diese Verbindung',
             $profil->body,
@@ -157,6 +166,9 @@ class PasskeyAdminTest extends FunctionalTestCase {
             $this->markTestSkipped('APP_URL/TRUSTED_HOSTS gesetzt - der Rückfall ist so nicht erreichbar.');
         }
         $admin = $this->authenticatedClient();
+        // Der Admin hat TOTP - ohne Bestätigung gäbe es gar keine Optionen
+        // (Audit M15), und der Test prüfte die falsche Schranke.
+        $this->adminStepUp($admin, 'passkeys');
 
         $db = \App\Database::getInstance();
         $vorher = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'base_url'")->fetchColumn();

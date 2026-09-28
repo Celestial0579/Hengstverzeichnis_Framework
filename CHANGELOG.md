@@ -155,9 +155,31 @@ Breaking Changes sind jederzeit möglich).
   der Kern das Feld nicht mehr an und nahm es nicht mehr entgegen; die Angabe
   führt das Addon `mitgliedsstatus`. Die Spalte stand ein Release lang weiter
   da, damit die Übernahme ins Addon laufen konnte. Das Update entfernt sie
-  (`SCHEMA_VERSION` 21) - **vorhandene Werte gehen dabei verloren.**
+  (`SCHEMA_VERSION` 21). **Vorhandene Werte gehen dabei verloren, wenn die
+  Instanz die Spalte in `contacts` führte (0.8/0.9) und das Addon
+  `mitgliedsstatus` sie nicht vorher übernommen hat.** Wer direkt von v0.7
+  hebt, verliert nichts: Die Werte bleiben im stillgelegten Altbestand
+  `persons_pre_contacts`, und `mitgliedsstatus` ab 1.1.0 übernimmt sie nach
+  dem Update.
 
 ### Behoben
+
+- **Mitgliedsstatus beim Sprung von v0.7 nicht übernehmbar** (Audit N78).
+  Eine v0.7-Instanz konnte das Addon `mitgliedsstatus` nicht vor dem Update
+  installieren. Danach fand das Addon die Spalte nicht mehr und schloss die
+  Übernahme ohne Ergebnis ab. Das Dashboard weist Admins jetzt auf nicht
+  übernommene Werte im Altbestand hin (mit Link in den Addon-Store), die
+  Migration meldet sie. `persons_pre_contacts` bleibt bis auf Weiteres
+  erhalten, eine künftige Bereinigung berücksichtigt solche Werte.
+  - Keine Schemaänderung, `SCHEMA_VERSION` bleibt unverändert.
+  - Maßgeblich ist das Fehlen des Markers
+    `migration_395_membership_status_faellt`: Den setzt das Update nur, wenn
+    es die Spalte in `contacts` tatsächlich gelöscht hat. Instanzen, die über
+    0.8/0.9 kamen, sehen den Hinweis deshalb nicht - ihr Altbestand ist der
+    womöglich überholte Stand der #336-Umstellung.
+  - **Für Addon-Autoren:** Der Kern liest die Addon-Einstellung
+    `plugin_mitgliedsstatus_uebernahme` (Felder `grund`, `quelle`); die Regel
+    steht in `App\Service\MitgliedsstatusAltbestand`.
 
 - **Nach einem Werksreset erbten neue Konten Rechte alter Konten** (#451).
   Der CLI-Reset `php database/reset.php` leerte `user_groups` nicht. Weil

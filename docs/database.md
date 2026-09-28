@@ -402,6 +402,17 @@ offen, Stand nicht gestempelt).
 - Fehler beim Anlegen einer Tabelle (`$createTable`) melden sich als offen
   unter `tabelle:<name>`.
 
+**`persons_pre_contacts` bleibt bis auf Weiteres** (Audit N78). Beim
+direkten Sprung aus v0.7 ist die Tabelle die einzige Quelle des
+Mitgliedsstatus: `contacts` hatte die Spalte `membership_status` nie, die
+Werte stehen nur hier (gleiche IDs). Das Addon `mitgliedsstatus` ab 1.1.0
+übernimmt sie von dort, solange der Marker
+`migration_395_membership_status_faellt` fehlt; bis dahin zeigt das
+Dashboard Admins einen Hinweis (`App\Service\MitgliedsstatusAltbestand`).
+Ein künftiges Entfernen der Alttabellen darf erst laufen, wenn
+`MitgliedsstatusAltbestand::offen()` 0 ergibt; eine Pseudonymisierung muss
+`id` und `membership_status` bis dahin stehen lassen.
+
 **Rückweg #336** (`php database/rollback-336.php`). Ohne Argument prüft das
 Skript nur und zählt, was verloren ginge: nach der Migration angelegte
 Kontakte und Zuordnungen ohne Rückschreibziel („über Kreuz“, etwa ein

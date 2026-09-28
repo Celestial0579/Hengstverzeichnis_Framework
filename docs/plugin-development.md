@@ -799,7 +799,37 @@ if (!\App\Permission\FeatureGate::isVisible('verpaarungsrechner', $this->setting
 
 `FeatureGate::isVisible()` ist fail-closed: unbekannte Funktionen sind nie
 sichtbar, ohne Anmeldung gibt es bei `members` keinen Zugriff, und DB-Fehler
-führen zu „nicht sichtbar". Das Referenz-Plugin demonstriert das Muster mit
+führen zu „nicht sichtbar". Die Anmeldung prüft `FeatureGate` selbst, nach
+derselben Regel wie `checkAuth()` (siehe unten): Eine Sitzung eines
+gelöschten oder deaktivierten Kontos oder eine nach einem Passwortwechsel
+gilt als nicht angemeldet.
+
+### Wer ist angemeldet?
+
+In Hooks und Routen **ohne** `checkAuth()` nicht `$_SESSION['user_id']` lesen,
+sondern `\App\Service\LoginSession::currentUserId()` (in Controllern:
+`$this->currentUserId()`). Die rohe ID steht auch in Sitzungen, die
+`checkAuth()` längst verworfen hätte - gelöschtes oder deaktiviertes Konto,
+Passwortwechsel, fremder Browser, abgelaufen. `currentUserId()` wendet
+dieselbe Regel an, liefert dann `null` und verwirft die Identität, leitet aber
+nicht weiter und rotiert die Sitzungs-ID nicht - die Seite rendert für einen
+Gast weiter.
+
+```php
+$userId = \App\Service\LoginSession::currentUserId();
+if ($userId !== null && \App\Permission\GroupMembership::hasPermission($userId, 'mein_modul', 'view')) {
+    // …
+}
+```
+
+`GroupMembership::isAdmin()`, `groupIds()` und `hasPermission()` liefern für
+gelöschte oder deaktivierte Konten ohnehin keine Rechte mehr.
+
+Ein Werksreset (Admin → System-Einstellungen bzw. `php database/reset.php`)
+leert alle Tabellen mit dem Präfix `plugin_`
+(`App\Plugin\PluginDataRegistry::PRAEFIX`), auch die deinstallierter Addons.
+`install()` muss danach mit leeren Tabellen zurechtkommen; die Einträge in
+`plugins` bleiben stehen. Das Referenz-Plugin demonstriert das Muster mit
 dem Feature `demo-premium` und der öffentlichen Route
 `/plugin/demo-plugin/premium`.
 

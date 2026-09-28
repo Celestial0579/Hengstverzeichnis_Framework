@@ -70,7 +70,14 @@ final class GroupMembership {
 
         try {
             $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT group_id FROM user_groups WHERE user_id = ?");
+            // Nur aktive Konten (Audit N14): Ein gelöschtes oder deaktiviertes
+            // Konto hat keine Rechte - auch nicht für Aufrufer, die eine rohe
+            // ID aus einer alten Sitzung oder einem API-Schlüssel übergeben.
+            $stmt = $db->prepare(
+                "SELECT ug.group_id FROM user_groups ug
+                 JOIN users u ON u.id = ug.user_id AND u.deleted_at IS NULL AND u.deactivated_at IS NULL
+                 WHERE ug.user_id = ?"
+            );
             $stmt->execute([$userId]);
             $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
             return array_values(array_unique($ids));
@@ -95,6 +102,8 @@ final class GroupMembership {
             $db = Database::getInstance();
             $stmt = $db->prepare(
                 "SELECT 1 FROM user_groups ug JOIN `groups` g ON g.id = ug.group_id
+                 -- Nur aktive Konten (Audit N14), siehe groupIds().
+                 JOIN users u ON u.id = ug.user_id AND u.deleted_at IS NULL AND u.deactivated_at IS NULL
                  WHERE ug.user_id = ? AND g.slug = 'admin' LIMIT 1"
             );
             $stmt->execute([$userId]);

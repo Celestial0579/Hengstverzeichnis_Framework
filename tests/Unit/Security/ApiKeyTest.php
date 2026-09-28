@@ -127,6 +127,8 @@ class ApiKeyTest extends TestCase {
         $pdo->exec("CREATE TABLE group_permissions (group_id INTEGER NOT NULL, module TEXT NOT NULL, action TEXT NOT NULL)");
         $pdo->exec("INSERT INTO `groups` (id, slug) VALUES (1, 'admin')");
         $pdo->exec("INSERT INTO user_groups (user_id, group_id) VALUES (1, 1)");
+        // GroupMembership zählt seit Audit N14 nur aktive Konten.
+        $pdo->exec("INSERT INTO users (id) VALUES (1)");
     }
 
     public function testMaxKeysPerUserIsFive(): void {
@@ -175,7 +177,8 @@ class ApiKeyTest extends TestCase {
         $pdo->exec("CREATE TABLE users (
             id INTEGER PRIMARY KEY,
             session_version INTEGER NOT NULL DEFAULT 1,
-            deleted_at TEXT NULL DEFAULT NULL
+            deleted_at TEXT NULL DEFAULT NULL,
+            deactivated_at TEXT NULL DEFAULT NULL
         )");
         $pdo->exec("CREATE TABLE api_keys (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

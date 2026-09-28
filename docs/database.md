@@ -303,6 +303,19 @@ siehe [Schema-Migration](#schema-migration-versioniert-idempotent)), dazu
 `schema_migration_status` (offener oder gescheiterter Lauf) und je
 Einmal-Datenschritt ein Marker `migration_<key>`.
 
+`install_epoch` ist die Installationsepoche (Audit M24,
+`App\Service\InstallEpoch`): ein Zufallswert, den `SetupController::provision()`
+(nach dem Schema-Import, beide Einrichtungswege) und jeder Werksreset
+(`SystemReset::truncateAll()`) neu würfeln. Jede Anmeldung und jede halbe
+Anmeldung während der 2FA merkt ihn sich in der Sitzung; weicht er ab, verwirft
+der `BaseController`-Konstruktor die Identität. So gilt eine vor einem Reset
+oder einer Neueinrichtung ausgestellte Sitzung nie für ein neues Konto mit
+derselben ID. Bestandsinstallationen erhalten den Wert über den Datenschritt
+`installationsepoche` (SCHEMA_VERSION 25, `INSERT IGNORE`, überschreibt nie).
+Der Wert ist kein Geheimnis, gehört aber zu genau einer Installation: nicht
+manuell in eine andere Instanz kopieren. Ein manuelles Neuwürfeln beendet alle
+Anmeldungen.
+
 ## Schema-Migration (versioniert, idempotent)
 
 Es gibt **kein klassisches Migrationssystem** (kein `up()`/`down()` pro

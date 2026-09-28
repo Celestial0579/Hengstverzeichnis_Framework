@@ -39,11 +39,53 @@ abstract class BaseController {
     private ?bool $isAdminCache = null;
 
     /**
+     * Request-lokaler Cache von currentUserId(): false = noch nicht geprüft.
+     * @var int|null|false
+     */
+    private int|null|false $currentUserIdCache = false;
+
+    /**
+     * Kamen die Einstellungen aus der Datenbank (und nicht aus dem
+     * Setup-Fallback)? Nur dann gleicht enforceInstallEpoch() ab.
+     */
+    private bool $settingsAusDatenbank = false;
+
+    /**
      * Basis-Konstruktor. Lädt automatisch alle Einstellungen aus der Datenbank.
      */
     public function __construct() {
         $this->loadSettings();
+        $this->enforceInstallEpoch();
         $this->initLocale();
+    }
+
+    /**
+     * Verwirft jede Identität, die aus einer anderen Installation stammt
+     * (Audit M24, siehe App\Service\InstallEpoch).
+     *
+     * WARUM IM KONSTRUKTOR. Jede Kern- und Addon-Route ist ein Kind dieser
+     * Klasse, auch die Bildauslieferung, die 2FA-Schritte und der
+     * Passkey-Abschluss - Stellen, die gar nicht oder erst später
+     * checkAuth() aufrufen und bis dahin der rohen `pending_2fa_user_id`
+     * bzw. `user_id` glauben. Die Einstellungen liegen hier ohnehin vor, der
+     * Vergleich kostet keine zusätzliche Abfrage.
+     *
+     * Fail-open im Setup-Modus und bei Datenbankfehlern (wie checkAuth()):
+     * Ohne geladene Einstellungen gibt es nichts zu vergleichen.
+     */
+    private function enforceInstallEpoch(): void {
+        if (!$this->settingsAusDatenbank) {
+            return;
+        }
+        if (!isset($_SESSION['user_id']) && !isset($_SESSION['pending_2fa_user_id']) && !isset($_SESSION['passkey_bestanden'])) {
+            return;
+        }
+        if (\App\Service\InstallEpoch::matches((string)($this->settings[\App\Service\InstallEpoch::SETTING] ?? ''))) {
+            return;
+        }
+
+        \App\Service\LoginSession::protokolliere(\App\Service\LoginSession::INSTALLATION);
+        \App\Service\LoginSession::forgetIdentity();
     }
 
     /**
@@ -59,6 +101,7 @@ abstract class BaseController {
             foreach ($rows as $row) {
                 $this->settings[$row['setting_key']] = $row['setting_value'];
             }
+            $this->settingsAusDatenbank = true;
         } catch (\Exception $e) {
             // Im Setup-Modus oder bei nicht existierender Datenbank Fallback-Werte nutzen
             $this->settings = [
@@ -157,115 +200,45 @@ abstract class BaseController {
      * beide Mechanismen wirken unabhängig voneinander, keiner ersetzt den anderen.
      */
     protected function checkAuth(): void {
-        if (!isset($_SESSION['user_id'])) {
+        // Die Regel selbst - Installationsepoche (Audit M24), gelöscht,
+        // deaktiviert, session_version (#113), User-Agent-Fingerprint,
+        // Inaktivität - steht seit Audit N14 seiteneffektfrei in
+        // App\Service\LoginSession::validate(). Hier wird sie durchgesetzt:
+        // Sitzung beenden, weiterleiten, rotieren. Die leichte Form ohne
+        // Weiterleitung und Rotation ist currentUserId().
+        //
+        // Berechtigungen selbst (inkl. Admin-Status) werden NICHT in der
+        // Session gehalten, sondern bei jedem Aufruf live über
+        // GroupMembership/hasPermission() geprüft (#66) - Rechteänderungen
+        // wirken so sofort, ohne erneuten Login. Fail-open bei DB-Fehlern
+        // (Ausfallsicherheit, wie auch bei RateLimiter).
+        $grund = \App\Service\LoginSession::validate();
+        if ($grund === \App\Service\LoginSession::ANONYM) {
             header("Location: /login");
             exit;
         }
 
-        // 0. Live-Abgleich mit der Datenbank: Ohne diesen Check bliebe einem Benutzer,
-        // dessen Account gelöscht/deaktiviert wurde, der volle Zugriff über seine
-        // bestehende Session erhalten - potenziell zeitlich unbegrenzt, da
-        // last_activity bei jedem Request erneuert wird (siehe unten, Punkt 2).
-        // Berechtigungen selbst (inkl. Admin-Status) werden NICHT in der Session
-        // gehalten, sondern bei jedem Aufruf live über GroupMembership/
-        // hasPermission() geprüft (#66) - Rechteänderungen wirken so sofort, ohne
-        // erneuten Login. Fail-open bei DB-Fehlern (Ausfallsicherheit, wie auch bei
-        // RateLimiter).
-        try {
-            $db = Database::getInstance();
-            $stmt = $db->prepare("SELECT deleted_at, deactivated_at, session_version FROM users WHERE id = ?");
-            $stmt->execute([$_SESSION['user_id']]);
-            $currentUser = $stmt->fetch();
-
-            // Zwei Zustände, zwei Meldungen (#358). Bis v0.8 war beides
-            // dieselbe Spalte; wer eine Sperre aufheben wollte, musste den
-            // Papierkorb bemühen.
-            $istGeloescht = !$currentUser || $currentUser['deleted_at'] !== null;
-            $istDeaktiviert = $currentUser && ($currentUser['deactivated_at'] ?? null) !== null;
-
-            if ($istGeloescht || $istDeaktiviert) {
-                \App\Service\AuditLogger::log(
-                    $istDeaktiviert && !$istGeloescht
-                        ? "Session beendet: Benutzerkonto deaktiviert"
-                        : "Session beendet: Benutzerkonto gelöscht",
-                    "auth",
-                    "User ID " . $_SESSION['user_id']
-                );
-
-                $_SESSION = [];
-                if (ini_get("session.use_cookies")) {
-                    $params = session_get_cookie_params();
-                    setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
-                }
-                session_destroy();
-                header("Location: /login?error=" . ($istDeaktiviert && !$istGeloescht ? 'account_deactivated' : 'account_disabled'));
-                exit;
-            }
-
-            // Session-Invalidierung bei Passwortänderung (#113): session_version
-            // wird bei jeder Passwortänderung erhöht (Reset per Mail-Token,
-            // erzwungener Wechsel, Admin-Änderung). Sessions, deren beim Login
-            // gemerkter Stand nicht mehr passt, werden beendet - eine von einem
-            // Angreifer gehaltene Alt-Session überlebt den Passwort-Reset des
-            // Opfers so nicht mehr. Sessions ohne gemerkten Stand (Login vor
-            // diesem Feature) gelten ebenfalls als veraltet.
-            $dbVersion = (int)($currentUser['session_version'] ?? 1);
-            $sessionVersion = $_SESSION['session_version'] ?? null;
-            if ($sessionVersion === null || (int)$sessionVersion !== $dbVersion) {
-                \App\Service\AuditLogger::log(
-                    "Session beendet: Passwort wurde geändert",
-                    "auth",
-                    "User ID " . $_SESSION['user_id']
-                );
-
-                $_SESSION = [];
-                if (ini_get("session.use_cookies")) {
-                    $params = session_get_cookie_params();
-                    setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
-                }
-                session_destroy();
-                header("Location: /login?error=session_expired");
-                exit;
-            }
-        } catch (\Throwable $e) {
-            // DB-Fehler dürfen bereits eingeloggte Nutzer nicht aussperren
-        }
-
-        // 1. Anti-Infostealer & Session-Hijacking Schutz: User-Agent Fingerprint Validierung
-        $currentAgentHash = hash('sha256', $_SERVER['HTTP_USER_AGENT'] ?? '');
-        if (isset($_SESSION['user_agent_hash']) && !hash_equals($_SESSION['user_agent_hash'], $currentAgentHash)) {
-            // Abweichender User-Agent (Session-Cookie auf anderen Browser/Rechner übertragen)
-            \App\Service\AuditLogger::log(
-                "Session-Hijacking Versuch abgefangen",
-                "auth",
-                "User-Agent Mismatch für User ID " . $_SESSION['user_id']
-            );
+        if ($grund !== null) {
+            \App\Service\LoginSession::protokolliere($grund);
 
             $_SESSION = [];
-            if (ini_get("session.use_cookies")) {
+            // Der Inaktivitätszweig löscht wie bisher kein Cookie.
+            if ($grund !== \App\Service\LoginSession::INAKTIV && ini_get("session.use_cookies")) {
                 $params = session_get_cookie_params();
                 setcookie(session_name(), '', time() - 42000, $params["path"], $params["domain"], $params["secure"], $params["httponly"]);
             }
             session_destroy();
-            header("Location: /login?error=session_hijacked");
+            $fehler = match ($grund) {
+                \App\Service\LoginSession::GELOESCHT => 'account_disabled',
+                \App\Service\LoginSession::DEAKTIVIERT => 'account_deactivated',
+                \App\Service\LoginSession::FREMDER_BROWSER => 'session_hijacked',
+                default => 'session_expired',
+            };
+            header("Location: /login?error=" . $fehler);
             exit;
         }
 
-        // 2. Inaktivitäts-Timeout (2 Stunden = 7200 Sekunden)
         $now = time();
-        $maxInactivity = 7200;
-        if (isset($_SESSION['last_activity']) && ($now - $_SESSION['last_activity'] > $maxInactivity)) {
-            \App\Service\AuditLogger::log(
-                "Session wegen Inaktivität beendet",
-                "auth",
-                "User ID " . $_SESSION['user_id']
-            );
-
-            $_SESSION = [];
-            session_destroy();
-            header("Location: /login?error=session_expired");
-            exit;
-        }
         $_SESSION['last_activity'] = $now;
 
         // 3. Periodische Session-ID Rotation (Sicherheits-Regenerierung alle 15 Minuten)
@@ -275,6 +248,10 @@ abstract class BaseController {
             session_regenerate_id(true);
             $_SESSION['last_token_rotation'] = $now;
         }
+
+        // Ab hier ist die Sitzung geprüft - currentUserId() braucht keine
+        // zweite Abfrage mehr.
+        $this->currentUserIdCache = (int)$_SESSION['user_id'];
 
         // 4. Zwang zur Passwortänderung prüfen (z. B. nach Admin-Passwort-Reset).
         // Exakter Pfad-Vergleich statt strpos() über die rohe REQUEST_URI - sonst
@@ -288,6 +265,23 @@ abstract class BaseController {
                 exit;
             }
         }
+    }
+
+    /**
+     * ID des gültig angemeldeten Benutzers oder null (Audit N14).
+     *
+     * Dieselbe Regel wie checkAuth(), aber ohne Weiterleitung und Rotation -
+     * siehe App\Service\LoginSession::currentUserId(). Grundlage von
+     * isAdmin() und userGroupIds(): Auf öffentlichen Seiten, die nur
+     * Berechtigungen prüfen, galt vorher die rohe `user_id` - auch die einer
+     * Sitzung, die checkAuth() längst verworfen hätte. Innerhalb einer
+     * Controller-Instanz gecacht; checkAuth() belegt den Cache vor.
+     */
+    protected function currentUserId(): ?int {
+        if ($this->currentUserIdCache === false) {
+            $this->currentUserIdCache = \App\Service\LoginSession::currentUserId();
+        }
+        return $this->currentUserIdCache;
     }
 
     /**
@@ -314,7 +308,7 @@ abstract class BaseController {
      */
     protected function isAdmin(): bool {
         if ($this->isAdminCache === null) {
-            $this->isAdminCache = \App\Permission\GroupMembership::isAdmin($_SESSION['user_id'] ?? null);
+            $this->isAdminCache = \App\Permission\GroupMembership::isAdmin($this->currentUserId());
         }
         return $this->isAdminCache;
     }
@@ -333,7 +327,7 @@ abstract class BaseController {
      */
     protected function userGroupIds(): array {
         if ($this->groupIdsCache === null) {
-            $this->groupIdsCache = \App\Permission\GroupMembership::groupIds($_SESSION['user_id'] ?? null);
+            $this->groupIdsCache = \App\Permission\GroupMembership::groupIds($this->currentUserId());
         }
         return $this->groupIdsCache;
     }

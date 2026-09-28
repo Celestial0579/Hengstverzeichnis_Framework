@@ -374,7 +374,7 @@
         ⚠️ Danger Zone: System zurücksetzen
     </h3>
     <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
-        Hier können Sie das gesamte System zurücksetzen. Alle Benutzer, Pferde, Einstellungen und Nachrichten werden unwiderruflich aus der Datenbank gelöscht. Danach wird der **Setup-Wizard** neu gestartet.
+        Hier können Sie das gesamte System zurücksetzen. Alle Benutzer, Pferde, Kontakte, Einstellungen, Nachrichten und die Daten aller Addons werden unwiderruflich aus der Datenbank gelöscht, und alle Anmeldungen werden beendet. Erhalten bleiben das Audit-Log, die Benutzergruppen samt Berechtigungen, die installierten Addons und die Addon-Quellen. Hochgeladene Dateien (Pferdefotos, Addon-Dokumente) bleiben auf dem Server. Danach startet der <strong>Einrichtungsassistent</strong> neu.
     </p>
 
     <?php if (isset($_GET['error']) && $_GET['error'] === 'reset_confirm_failed'): ?>
@@ -383,7 +383,7 @@
         </div>
     <?php endif; ?>
 
-    <form action="/admin/reset" method="POST" style="max-width: 500px;" data-confirm="WARNUNG: Möchten Sie wirklich ALLE Daten unwiderruflich löschen?" >
+    <form action="/admin/reset" method="POST" style="max-width: 500px;" data-confirm="WARNUNG: Möchten Sie wirklich alle Daten einschließlich aller Addon-Daten unwiderruflich löschen? Alle Anmeldungen werden beendet." >
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
         <div class="form-group">

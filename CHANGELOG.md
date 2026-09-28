@@ -202,6 +202,32 @@ Breaking Changes sind jederzeit möglich).
   ab. Im Audit-Log sind sie gekennzeichnet (Provider, `iss`, `sub`, Art des
   zweiten Faktors).
 
+- **Alte Sitzungen gelten nach einem Werksreset oder einer Neueinrichtung
+  nicht mehr für neue Konten** (Audit M24).
+  - Bisher vergab der Reset die Benutzer-IDs wieder ab 1. Eine noch offene
+    Sitzung eines früheren Benutzers galt danach für das neu angelegte Konto
+    mit derselben ID, beim Setup-Admin bis hin zu vollen
+    Administratorrechten. Das betraf auch halbe Anmeldungen während der 2FA
+    und den Passkey-Zwischenschritt, ebenso ein Setup mit „Datenbank
+    überschreiben“ oder mit neuer Datenbank.
+  - Jede Installation trägt jetzt eine zufällige Installationskennung
+    (`settings.install_epoch`). Setup (Assistent und Umgebungsvariablen) und
+    Werksreset erzeugen sie neu, jede Anmeldung merkt sie sich, und Sitzungen
+    mit abweichender Kennung werden verworfen.
+  - Zusätzlich laufen die Nummern von Benutzern, Pferden und Kontakten nach
+    einem Reset weiter.
+
+- **Gesperrte Sitzungen behalten auf öffentlichen Seiten keine
+  Mitgliederrechte mehr** (Audit N14).
+  - Betroffen waren Sitzungen gelöschter oder deaktivierter Konten und
+    Sitzungen nach einem Passwortwechsel. Sie galten weiter für
+    Zusatzfunktionen mit Sichtbarkeit „Mitglieder“ (`FeatureGate`) und für
+    Seiten, die nur Berechtigungen prüfen.
+  - Alle Stellen nutzen jetzt dieselbe Sitzungsprüfung
+    (`App\Service\LoginSession`). Gruppenabfragen
+    (`GroupMembership::isAdmin()`, `groupIds()`, `hasPermission()`)
+    berücksichtigen nur noch aktive Konten.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -381,6 +407,28 @@ Breaking Changes sind jederzeit möglich).
   bisherige Passwort ließ sich unbegrenzt raten. Nach fünf Fehlversuchen ist
   das Formular jetzt für 15 Minuten gesperrt.
 
+- **Der Werksreset ließ Addon-Daten stehen** (Audit N79).
+  - Verkaufsanzeigen, Deckanfragen mit Namen und E-Mail-Adressen Dritter und
+    weitere Addon-Daten überlebten den Reset und hingen sich an neue Pferde
+    und Konten. Kaufanfragen zu einem neuen Pferd gingen so an den früheren
+    Verkäufer.
+  - Der Reset leert jetzt alle Addon-Tabellen (`plugin_*`, auch die
+    deinstallierter Addons mit behaltenen Daten), den Altbestand
+    `persons_pre_contacts`/`breeding_stations_pre_contacts` aus #336 und die
+    Anmeldeversuche (`login_attempts`). Der Audit-Eintrag des Resets nennt die
+    geleerten Tabellen, `php database/reset.php` ihre Anzahl.
+  - Der Hinweistext nennt, was erhalten bleibt: Audit-Log, Benutzergruppen
+    samt Berechtigungen, installierte Addons, Addon-Quellen und hochgeladene
+    Dateien.
+
+- **Sporadische Abmeldung beim Laden vieler Bilder** (Audit N44).
+  Bildanfragen durchliefen die volle Anmeldeschranke samt
+  Sitzungs-ID-Rotation, parallel laufende Anfragen konnten die Sitzung durch
+  eine leere ersetzen. Bildanfragen (`/media/horse-image`,
+  `/media/horse-media`) prüfen die Sitzung jetzt nach derselben Regel, aber
+  ohne Rotation und Weiterleitung. Eine ungültige Sitzung wird dort wie ein
+  Gast behandelt.
+
 ### Geändert
 
 - **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
@@ -507,6 +555,32 @@ Breaking Changes sind jederzeit möglich).
   konfigurierten optionalen Claim.
 - Der Audit-Eintrag „Benutzer eingeloggt“ trägt bei SSO den Zusatz
   „per SSO (…)“; die Aktion selbst bleibt gleich.
+
+- **Einmalige Neuanmeldung nach dem Update** (Audit M24). Bestehende
+  Sitzungen kennen die Installationskennung noch nicht und werden wie bei
+  #113 einmal beendet, auch die des Admins, der das Update einspielt.
+
+- **Nach einem Werksreset laufen die Nummern weiter** (Benutzer, Pferde,
+  Kontakte, z. B. in `/horse?id=`; Audit N79). Der Reset leert per `DELETE`
+  statt `TRUNCATE`, alte Audit-Log-Einträge bleiben damit eindeutig. Das neue
+  Admin-Konto bekommt z. B. die ID 57 statt 1. Jeder Werksreset und jedes
+  Setup beendet alle bestehenden Anmeldungen.
+
+- **Bildabrufe verlängern die Inaktivitätsfrist nicht mehr** (Audit N44).
+
+- **Neue Kern-API für Addons** (Audit M24, N14, N79):
+  - `App\Service\LoginSession::currentUserId()` liefert die ID des gültig
+    angemeldeten Benutzers oder `null`. Sie ist für Hooks und Routen ohne
+    `checkAuth()` gedacht (in Controllern `$this->currentUserId()`), siehe
+    `docs/plugin-development.md`. Dazu `validate()`, `forgetIdentity()` und
+    `beginSecondFactor()`.
+  - `App\Service\InstallEpoch::renew()` würfelt die Installationskennung neu
+    und beendet damit alle Sitzungen.
+  - `App\Plugin\PluginDataRegistry::PRAEFIX` ist öffentlich,
+    `App\Service\SystemReset::tabellen()` nennt die Tabellen eines Resets.
+
+- `SCHEMA_VERSION` 25: Bestandsinstallationen erhalten beim Update ihre
+  Installationskennung (Datenschritt `installationsepoche`, überschreibt nie).
 
 ## [0.9.0] – 2026-08-27
 

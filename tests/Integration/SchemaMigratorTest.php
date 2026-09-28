@@ -366,6 +366,36 @@ class SchemaMigratorTest extends TestCase {
         );
 
         $this->assertSame([], SchemaMigrator::run(self::$pdo));
+
+        // Die Installationsepoche (Audit M24) legt der Lauf still an.
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string)self::einstellung('install_epoch'));
+    }
+
+    private static function einstellung(string $schluessel): ?string {
+        $stmt = self::$pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+        $stmt->execute([$schluessel]);
+        $wert = $stmt->fetchColumn();
+        return $wert === false ? null : (string)$wert;
+    }
+
+    /**
+     * Die Installationsepoche wird NIE überschrieben (Audit M24).
+     *
+     * Nach einem Werksreset fehlen alle Marker und schema_version, der
+     * Migrator läuft beim nächsten Verbindungsaufbau erneut. Überschriebe er
+     * die gerade von SystemReset bzw. dem Setup gewürfelte Epoche, flöge der
+     * Setup-Admin mitten in der 2FA-Einrichtung hinaus.
+     */
+    #[Depends('testRunOnCurrentSchemaOnlyPersistsVersion')]
+    public function testInstallationsepocheWirdNieUeberschrieben(): void {
+        self::$pdo->exec("UPDATE settings SET setting_value = 'fest' WHERE setting_key = 'install_epoch'");
+        self::$pdo->exec("DELETE FROM settings WHERE setting_key = 'schema_version' OR setting_key LIKE 'migration%'");
+
+        SchemaMigrator::run(self::$pdo);
+
+        $this->assertSame('fest', self::einstellung('install_epoch'));
+        $this->assertNotNull(self::einstellung('migration_installationsepoche'));
+        $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo));
     }
 
     /**

@@ -104,19 +104,21 @@ class MediaController extends BaseController {
         // aber weiter jedes Foto abrufen - auch die unveröffentlichter oder
         // nach DSGVO-Widerspruch depublizierter Pferde.
         //
-        // checkAuth() ist bewusst dieselbe Methode wie überall sonst: Eine
-        // eigene, schlankere Sitzungsprüfung für Bilder wäre eine zweite
-        // Fassung derselben Regel, und die Lücke von #113 lebte genau davon,
-        // dass die Invalidierung nur an einer Stelle stand. Ihre
-        // Fehlerantworten sind Weiterleitungen auf /login; für ein <img> ist
-        // das ein kaputtes Bild und damit dasselbe Ergebnis wie ein 404, nur
-        // mit dem zusätzlichen Effekt, dass die tote Sitzung tatsächlich
-        // beendet wird.
-        $angemeldet = false;
-        if (!empty($_SESSION['user_id'])) {
-            $this->checkAuth();
-            $angemeldet = true;
-        }
+        // Es gilt dieselbe Regel wie in checkAuth() - LoginSession::validate(),
+        // eine einzige Fassung, denn die Lücke von #113 lebte davon, dass die
+        // Invalidierung nur an einer Stelle stand. Aber in der leichten Form
+        // (currentUserId(), Audit N44): ohne Sitzungs-ID-Rotation, ohne
+        // Weiterleitung, ohne last_activity-Update. Bildanfragen laufen als
+        // Nebenanfragen einer Seite zu Dutzenden parallel; rotierte eine von
+        // ihnen die ID, legten die übrigen mit der alten ID unter
+        // use_strict_mode leere Sitzungen an und überschrieben das Cookie -
+        // der Benutzer war sporadisch abgemeldet. Eine ungültige Sitzung wird
+        // hier wie ein Gast behandelt (404 statt Weiterleitung, für ein <img>
+        // dasselbe) und verliert ihre Identität.
+        //
+        // must_change_password: checkAuth() leitete solche Sitzungen um, sie
+        // sahen also nie unveröffentlichte Fotos. Das bleibt so.
+        $angemeldet = $this->currentUserId() !== null && empty($_SESSION['must_change_password']);
 
         // Sitzung so früh wie möglich freigeben (#311).
         //
@@ -124,8 +126,9 @@ class MediaController extends BaseController {
         // des Requests exklusiv gesperrt; eine Katalogseite fordert zwei
         // Dutzend Bilder über diesen Endpunkt an, die sich sonst
         // hintereinander aufreihen statt parallel zu laufen. Ab hier wird
-        // nichts mehr in die Sitzung geschrieben - checkAuth() ist durch, und
-        // die folgenden Prüfungen lesen nur noch.
+        // nichts mehr in die Sitzung geschrieben - die Sitzungsprüfung ist
+        // durch (eine ungültige Identität ist bereits verworfen), und die
+        // folgenden Prüfungen lesen nur noch.
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_write_close();
         }
@@ -187,11 +190,8 @@ class MediaController extends BaseController {
             $this->sendStatus(404);
         }
 
-        $angemeldet = false;
-        if (!empty($_SESSION['user_id'])) {
-            $this->checkAuth();
-            $angemeldet = true;
-        }
+        // Dieselbe leichte Sitzungsprüfung wie in horseImage() (Audit N44).
+        $angemeldet = $this->currentUserId() !== null && empty($_SESSION['must_change_password']);
 
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_write_close();

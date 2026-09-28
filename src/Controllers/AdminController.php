@@ -563,8 +563,19 @@ class AdminController extends BaseController {
 
         $db = Database::getInstance();
 
-        // Reset-Vorgang protokollieren, bevor die Daten gelöscht werden (Audit-Log bleibt über Resets hinweg erhalten)
-        \App\Service\AuditLogger::log("System zurückgesetzt (Reset)", "settings", "Alle Daten außer dem Audit-Log wurden auf Werkseinstellungen zurückgesetzt.");
+        // Reset-Vorgang protokollieren, bevor die Daten gelöscht werden
+        // (Audit-Log bleibt über Resets hinweg erhalten). Der Eintrag nennt,
+        // WAS geleert wird (Audit N79) - nach dem Reset ist das die einzige
+        // Spur davon.
+        $tabellen = \App\Service\SystemReset::tabellen($db);
+        $detail = sprintf(
+            "Auf Werkseinstellungen zurückgesetzt, alle Anmeldungen beendet. Geleert - Kern: %s; Addons: %s; Altbestand: %s.%s",
+            implode(', ', $tabellen['kern']),
+            $tabellen['addons'] === [] ? '-' : implode(', ', $tabellen['addons']),
+            $tabellen['altbestand'] === [] ? '-' : implode(', ', $tabellen['altbestand']),
+            $tabellen['uebersprungen'] === [] ? '' : ' Übersprungen (unzulässiger Name): ' . implode(', ', $tabellen['uebersprungen']) . '.'
+        );
+        \App\Service\AuditLogger::log("System zurückgesetzt (Reset)", "settings", $detail);
 
         // Welche Tabellen geleert werden und warum, steht in SystemReset -
         // die Liste ist mit database/reset.php geteilt, damit die beiden

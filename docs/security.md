@@ -309,6 +309,33 @@ den Setup-Assistenten an.
     veraltetem Wert. Eine von einem Angreifer gehaltene Alt-Session überlebt
     den Passwort-Reset des Opfers damit nicht. Die Session, die die Änderung
     selbst ausgelöst hat, übernimmt den neuen Stand und bleibt angemeldet.
+  - **Eine Regel, zwei Formen (Audit N14, `App\Service\LoginSession`):**
+    Die Gültigkeitsregel (Installationsepoche, gelöscht, deaktiviert,
+    `session_version`, User-Agent, Inaktivität) steht seiteneffektfrei in
+    `LoginSession::validate()`. `checkAuth()` setzt sie mit Weiterleitung,
+    Rotation und `last_activity`-Update durch. Stellen ohne Anmeldeschranke -
+    öffentliche Seiten mit Berechtigungsprüfung (`BaseController::isAdmin()`,
+    `userGroupIds()`, `hasPermission()`), `FeatureGate::isVisible()`, die
+    Bildauslieferung - fragen `LoginSession::currentUserId()`: dieselbe Regel,
+    aber ohne Weiterleitung und Rotation. Eine ungültige Sitzung verliert dort
+    ihre Identität (Audit-Eintrag mit „ohne Anmeldeschranke erkannt“) und wird
+    wie ein Gast behandelt. Zusätzlich liefern `GroupMembership::isAdmin()`
+    und `groupIds()` für gelöschte oder deaktivierte Konten keine Gruppen
+    mehr - auch für Aufrufer mit roher ID.
+  - **Bildanfragen ohne Rotation (Audit N44):** `/media/horse-image` und
+    `/media/horse-media` nutzen die leichte Form. Parallele Bildanfragen einer
+    Seite rotierten vorher die Sitzungs-ID gegenseitig weg und meldeten den
+    Benutzer sporadisch ab. Bildabrufe verlängern die Inaktivitätsfrist nicht.
+  - **Installationsepoche (Audit M24, `App\Service\InstallEpoch`):** Jede
+    Einrichtung und jeder Werksreset würfeln `settings.install_epoch` neu,
+    Anmeldung und halbe Anmeldung (`LoginSession::beginSecondFactor()`)
+    merken sie sich. Der `BaseController`-Konstruktor verwirft jede
+    Identität (`user_id`, `pending_2fa_user_id`, `passkey_bestanden`) mit
+    abweichender oder fehlender Epoche - ohne zusätzliche Abfrage, die
+    Einstellungen sind ohnehin geladen. Vorher galt eine alte Sitzung nach
+    einem Reset für das neue Konto mit derselben ID, beim Setup-Admin bis
+    hin zu Administratorrechten. Zusätzlich leert der Werksreset per
+    `DELETE`, die ID-Zähler laufen weiter.
 
 ## CSRF-Schutz
 

@@ -37,6 +37,19 @@ Breaking Changes sind jederzeit möglich).
   (`admin` / `change-me-too`) verwendet hat, muss es vor einer erneuten
   Einrichtung ersetzen.
 
+- **Dependabot führt Laufzeit-Abhängigkeiten nicht mehr selbst zusammen**
+  (Audit N5). Seit #353 liefert der Kern `web-auth/webauthn-lib` samt rund 30
+  Folgepaketen im Passkey-Anmeldepfad aus, als `vendor/` im Zip und im
+  Docker-Image. Der Auto-Merge-Workflow unterschied bisher nur Major- von
+  anderen Updates. Updates dieser Bibliotheken kamen so ohne Durchsicht nach
+  `main`. Automatisch zusammengeführt werden jetzt nur noch GitHub-Actions,
+  Docker-Basisimages und Entwicklungsabhängigkeiten (`require-dev`), jeweils
+  Patch und Minor. Bei Composer gilt das zusätzlich nur, wenn der Laufzeitteil
+  von `composer.lock` unverändert bleibt. Alles andere wartet auf ein
+  manuelles Review, auch jedes Ökosystem, das der Workflow nicht kennt. Die
+  überholten „dev-only“-Hinweise in `.github/dependabot.yml`, `tests.yml` und
+  `docs/development.md` sind korrigiert.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte
@@ -85,6 +98,18 @@ Breaking Changes sind jederzeit möglich).
   sehen bekommen: Fehlt `vendor/autoload.php`, sagte die Meldung „Seit v0.10
   braucht die Anwendung die mitgelieferten Abhängigkeiten". Es ist seit
   v0.9.0.
+
+- **`:latest` zeigt nur noch auf die höchste stabile Version** (Audit N37).
+  Bisher setzte der Release-Lauf das Docker-Tag für jede Version ohne
+  Vorabsuffix, auch für ein Patch-Release einer älteren Linie und für einen
+  erneuten Lauf eines alten Tags. Installationen mit `:latest` und Watchtower
+  wären dadurch unbemerkt auf älteren Code zurückgefallen, gegen ein bereits
+  migriertes Schema, das sich nicht zurückrollen lässt. Der Release-Lauf
+  vergleicht das Tag jetzt mit der höchsten Version der Form `vX.Y.Z`. Nur
+  wenn es diese ist, wandern `:latest` und die GitHub-Kennzeichnung „Latest
+  release“. Tags aus der Zeit vor dieser Änderung bringen ihre alte
+  Workflow-Fassung mit und sollten nicht erneut laufen; wie man `latest`
+  notfalls zurücksetzt, steht in `docs/releasing.md`.
 
 ## [0.9.0] – 2026-08-27
 

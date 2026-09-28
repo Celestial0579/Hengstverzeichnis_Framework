@@ -8,7 +8,8 @@
 #   1. Testsuite (Unit/Integration/Functional, siehe tests.yml) als Gate -
 #      kein Release, wenn irgendetwas fehlschlägt.
 #   2. Docker-Image, gebaut aus dem Dockerfile und nach GHCR gepusht
-#      (ghcr.io/<repo>, Tags: Versionsnummer + "latest").
+#      (ghcr.io/<repo>, Tags: Versionsnummer, "latest" nur fuer die hoechste
+#      streng stabile Version vX.Y.Z - kein Backport, keine Vorabversion, N37).
 #   3. Bereinigtes Source-Archiv für klassisches Shared-Hosting (ohne
 #      Dev-Tooling wie tests/, composer.json, vendor/, .github/) als
 #      herunterladbares Release-Asset.
@@ -75,6 +76,22 @@ jobs:
       #
       # Deshalb hier eine Schranke statt einer Annahme. workflow_dispatch
       # bleibt nutzbar, aber nur mit einem ausgewaehlten Versions-Tag.
+      #
+      # is_latest (N37): ':latest' und "Latest release" wandern nur, wenn
+      # dieses Tag die HOECHSTE streng stabile Version ist. "Ohne '-'" reichte
+      # nicht:
+      #   - Ein Patch-Release einer aelteren Linie (Backport) oder ein
+      #     erneuter Lauf eines alten Tags haette ':latest' zurueckgehaengt.
+      #     Watchtower-Installationen liefen dann alten Code gegen ein bereits
+      #     migriertes Schema - SCHEMA_VERSION laesst sich nicht zurueckrollen.
+      #   - Die Schranke oben laesst jedes 'v[0-9]*' durch, auch 'v0.11rc1'
+      #     oder 'v1'. Deshalb das strenge Muster vX.Y.Z: Zu streng heisst nur,
+      #     latest bleibt stehen - die sichere Richtung.
+      # Vorabversionen werden VOR der Auswahl ausgefiltert, weil
+      # --sort=-v:refname v0.9.0-beta.6 vor v0.9.0 einsortiert. Schleife mit
+      # break statt '| head -n1': head schliesst die Pipe frueh, git bekaeme
+      # SIGPIPE, und unter 'bash -o pipefail' wuerde der Step rot.
+      # Setzt voraus, dass alle Tags da sind (fetch-depth: 0 oben).
       - name: Determine version from tag
         id: version
         run: |
@@ -89,6 +106,25 @@ jobs:
             *) echo "::error::'${GITHUB_REF_NAME}' ist kein Versions-Tag (erwartet: vX.Y.Z)."; exit 1 ;;
           esac
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+          is_latest=false
+          stabil='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          if printf '%s' "${GITHUB_REF_NAME}" | grep -Eq "${stabil}"; then
+            hoechste=""
+            for t in $(git tag -l 'v[0-9]*' --sort=-v:refname); do
+              printf '%s' "${t}" | grep -Eq "${stabil}" || continue
+              hoechste="${t}"
+              break
+            done
+            if [ "${hoechste}" = "${GITHUB_REF_NAME}" ]; then
+              is_latest=true
+            else
+              echo "::notice::'latest' bleibt unveraendert: hoechste stabile Version ist ${hoechste:-unbekannt}, nicht ${GITHUB_REF_NAME}."
+            fi
+          else
+            echo "::notice::'latest' bleibt unveraendert: '${GITHUB_REF_NAME}' ist keine streng stabile Version (vX.Y.Z)."
+          fi
+          echo "is_latest=${is_latest}" >> "$GITHUB_OUTPUT"
 
       # Nicht auf das PHP der Runner-Vorgabe verlassen: Welche Fassung dort
       # liegt, kann sich mit dem Image aendern, und kern-manifest.php liefe
@@ -138,7 +174,8 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
-            # ':latest' NUR fuer stabile Versionen.
+            # ':latest' NUR fuer die hoechste streng stabile Version
+            # (is_latest, berechnet im Version-Step, N37).
             #
             # Ohne die Bedingung verschiebt jede Vorabversion das Tag, auf das
             # ein Betreiber laut README "fuer den produktiven Betrieb" setzt -
@@ -156,7 +193,12 @@ jobs:
             #
             # Wer hier aufraeumt, trennt also bitte zwischen dem, was zu einem
             # Branch-Modell gehoert, und dem, was zu Versionsnummern gehoert.
-            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-') }}
+            #
+            # Seit N37 reicht "ohne '-'" nicht mehr: Auch ein Backport-Patch
+            # einer aelteren Linie oder ein erneuter Lauf eines alten Tags
+            # ist stabil, darf ':latest' aber nicht zurueckhaengen. Zusaetzlich
+            # zaehlt nur das strenge Muster vX.Y.Z (kein 'v0.11rc1').
+            type=raw,value=latest,enable=${{ steps.version.outputs.is_latest == 'true' }}
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -241,6 +283,12 @@ jobs:
           # v0.8.0-beta.1 als reguläres Update angeboten - der Kanal wäre
           # wirkungslos, und zwar in der gefährlichen Richtung.
           prerelease: ${{ contains(github.ref_name, '-') }}
+          # "Latest release" folgt derselben Entscheidung wie ':latest' (N37).
+          # Bewusst als Vergleich '== true' und nicht als Rohwert: Ein
+          # fehlender Output ergaebe einen leeren String, die Action liesse das
+          # Feld weg, und die GitHub-API setzt fuer Nicht-Vorabversionen dann
+          # standardmaessig "Latest" - fail-open.
+          make_latest: ${{ steps.version.outputs.is_latest == 'true' }}
           # Die beiden Kern-Listen werden auch EINZELN veroeffentlicht, nicht
           # nur im Zip. Das ist der ganze Punkt: Eine Integritaetspruefung,
           # deren Sollwert im selben Dateibaum liegt wie die geprueften

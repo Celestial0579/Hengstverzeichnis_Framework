@@ -29,7 +29,8 @@ automatisch gebaute Image unter `ghcr.io/celestial0579/hengstverzeichnis_framewo
 bereit. **Für den produktiven Betrieb wird ein fester Versions-Tag empfohlen**
 (`:0.9.0`), nicht `:latest`: Wer `latest` fährt, bekommt jede neue Hauptversion
 ungefragt, samt der Schema-Migration, die dazugehört. `latest` folgt
-ausschliesslich Versionen ohne Vorabsuffix — eine Beta verschiebt es nicht.
+ausschliesslich der höchsten stabilen Version (`vX.Y.Z`) — eine Beta
+verschiebt es nicht, ein Patch-Release einer älteren Linie auch nicht.
 Klassisches Shared-Hosting ohne Docker nutzt stattdessen das bereinigte
 Source-Zip aus den [Releases](../../releases) (siehe
 [docs/releasing.md](docs/releasing.md) und Variante B unten).

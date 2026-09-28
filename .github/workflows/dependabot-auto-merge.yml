@@ -30,8 +30,114 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Enable auto-merge for patch/minor updates
-        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+      # Laufzeitteil von composer.lock zwischen Base und Head vergleichen (N5).
+      #
+      # updated-dependencies-json nennt nur das Paket, das Dependabot hebt.
+      # Zieht Composer bei einem PHPUnit-Bump ein Paket nach, das auch
+      # web-auth/webauthn-lib nutzt, steht die Aenderung in `.packages` - ein
+      # Laufzeit-Update im Anmeldepfad, das ohne diesen Vergleich als
+      # "direct:development" durchginge. Heute sind Laufzeit- und Dev-Pakete
+      # disjunkt, garantiert ist das mit keinem Bump.
+      #
+      # Kein Checkout: Unter pull_request_target darf PR-Code nie ausgefuehrt
+      # werden. composer.lock wird nur als Daten ueber die API gelesen.
+      # Jeder Fehler (API, JSON, fehlendes `.packages`) ergibt false - der
+      # Step selbst bleibt dabei gruen, das Gate entscheidet.
+      - name: Laufzeitteil von composer.lock vergleichen
+        id: lock
+        if: steps.metadata.outputs.package-ecosystem == 'composer'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          laufzeit() {
+            gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/${REPO}/contents/composer.lock?ref=${1}" \
+              | jq -S '[.packages[] | {name, version, dist: .dist.reference}]'
+          }
+          unveraendert=false
+          if [ -n "${BASE_SHA}" ] && [ -n "${HEAD_SHA}" ]; then
+            basis="$(laufzeit "${BASE_SHA}")" || basis=""
+            kopf="$(laufzeit "${HEAD_SHA}")" || kopf=""
+            if [ -n "${basis}" ] && [ "${basis}" = "${kopf}" ]; then
+              unveraendert=true
+            fi
+          fi
+          echo "Laufzeitteil von composer.lock unveraendert: ${unveraendert}"
+          echo "laufzeit_unveraendert=${unveraendert}" >> "$GITHUB_OUTPUT"
+
+      # Auto-Merge nur per Allowlist, im Zweifel manuell (N5, fail-closed).
+      #
+      # Seit #353 liefert der Kern web-auth/webauthn-lib samt Folgepaketen als
+      # vendor/ in Zip und Image aus. "Alles ausser Major" liess deren Updates
+      # ohne Durchsicht nach main. Die Regeln im Einzelnen:
+      #   (a) Nicht einfach auf dependency-type == direct:development filtern:
+      #       Actions- und Docker-PRs melden ebenfalls direct:production und
+      #       bekaemen sonst kein Auto-Merge mehr.
+      #   (b) all() ueber updated-dependencies-json statt ueber den Output
+      #       dependency-type - der spiegelt nur die erste Abhaengigkeit, was
+      #       bei spaeteren groups einen Laufzeit-Bump verdecken koennte.
+      #   (c) Zusaetzlich der Lock-Vergleich oben, wegen transitiver
+      #       Laufzeitpakete.
+      #   (d) Allowlist statt Blocklist: Ein neues Oekosystem (oder geaenderte
+      #       Output-Namen von fetch-metadata) fuehrt zu "manuell", nie zu
+      #       einem unbeabsichtigten Merge.
+      # Alle Eingaben kommen ueber env, kein Ausdruck im Skript.
+      - name: Auto-Merge-Freigabe bestimmen
+        id: gate
+        env:
+          ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPS_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
+          LAUFZEIT_LOCK: ${{ steps.lock.outputs.laufzeit_unveraendert }}
+        run: |
+          erlaubt=false
+          major=false
+          if [ "${UPDATE_TYPE}" = "version-update:semver-major" ]; then
+            major=true
+          elif [ -n "${DEPS_JSON}" ] && printf '%s' "${DEPS_JSON}" \
+              | jq -e 'any(.[]?; .updateType? == "version-update:semver-major")' >/dev/null 2>&1; then
+            major=true
+          fi
+          if [ "${major}" = "true" ]; then
+            grund="Major-Update"
+          else
+            case "${ECOSYSTEM}" in
+              github_actions|docker)
+                erlaubt=true
+                grund="Oekosystem ${ECOSYSTEM} ist freigegeben"
+                ;;
+              composer)
+                if printf '%s' "${DEPS_JSON}" \
+                    | jq -e 'type == "array" and length > 0 and all(.[]; .dependencyType == "direct:development")' >/dev/null 2>&1; then
+                  if [ "${LAUFZEIT_LOCK}" = "true" ]; then
+                    erlaubt=true
+                    grund="nur require-dev, Laufzeitteil von composer.lock unveraendert"
+                  else
+                    grund="Laufzeitteil von composer.lock geaendert oder nicht pruefbar"
+                  fi
+                else
+                  grund="Composer-Update betrifft nicht ausschliesslich require-dev"
+                fi
+                ;;
+              *)
+                grund="Oekosystem '${ECOSYSTEM}' ist nicht freigegeben"
+                ;;
+            esac
+          fi
+          echo "Auto-Merge erlaubt: ${erlaubt} (${grund})"
+          if [ "${erlaubt}" != "true" ]; then
+            echo "::notice::Kein Auto-Merge: ${grund}. Bitte manuell pruefen und mergen."
+          fi
+          echo "erlaubt=${erlaubt}" >> "$GITHUB_OUTPUT"
+
+      # Merge haengt ausschliesslich am Gate. Kein automatisches
+      # --disable-auto: Ein von Hand aktiviertes Auto-Merge bleibt die
+      # Entscheidung des Maintainers.
+      - name: Auto-Merge fuer freigegebene Updates aktivieren
+        if: steps.gate.outputs.erlaubt == 'true'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

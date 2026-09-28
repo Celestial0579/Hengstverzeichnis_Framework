@@ -8,8 +8,10 @@
 #                   Instanz - nötig, weil praktisch jede Controller-Aktion mit
 #                   header()+exit; endet und sich daher nicht in-process testen
 #                   lässt (tests/Functional)
-# PHPUnit ist eine reine Dev-Abhängigkeit (Composer wird ausschließlich hier
-# und lokal für Tests genutzt, nicht für den Anwendungsbetrieb - siehe
+# PHPUnit ist eine reine Dev-Abhängigkeit. Composer selbst ist für den
+# Anwendungsbetrieb nicht nötig, weil vendor/ mit Zip und Image ausgeliefert
+# wird - seit #353 steckt darin aber eine Laufzeitbibliothek
+# (web-auth/webauthn-lib), composer.json ist also nicht mehr dev-only (siehe
 # docs/development.md).
 name: Tests
 

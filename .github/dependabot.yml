@@ -14,8 +14,13 @@ updates:
     cooldown:
       default-days: 7
 
-  # Dev-only Abhängigkeit (PHPUnit für die Testsuite, siehe composer.json) -
-  # betrifft nicht die Anwendungs-Runtime.
+  # Deckt Laufzeit UND Entwicklung ab: Seit #353 steht web-auth/webauthn-lib
+  # unter require (samt transitiver Pakete, ausgeliefert als vendor/ in Zip und
+  # Image, Passkey-Anmeldepfad); PHPUnit steht unter require-dev.
+  # Automatisch gemergt wird nur direct:development, und nur wenn der
+  # Laufzeitteil (`.packages`) von composer.lock unverändert bleibt - siehe
+  # workflows/dependabot-auto-merge.yml (Audit N5). Alles andere wartet auf ein
+  # manuelles Review.
   - package-ecosystem: "composer"
     directory: "/"
     schedule:

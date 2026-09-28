@@ -99,10 +99,14 @@ final class MatchLabel {
             $_SESSION['username'] ?? 'SYSTEM',
         ]);
 
+        // Die Notiz NICHT ins Protokoll spiegeln (Audit N45), nur dass es eine
+        // gibt - analog GdprController::updateStatus(). Sie ist Freitext über
+        // Menschen; die DSGVO-Behandlung leert match_labels.note, das Protokoll
+        // überlebt jede Löschung.
         AuditLogger::log(
             'Dubletten-Entscheidung gesetzt',
             'matches',
-            "{$art} {$links}/{$rechts}: {$label}" . ($notiz !== null && $notiz !== '' ? " ({$notiz})" : '')
+            "{$art} {$links}/{$rechts}: {$label}" . ($notiz !== null && $notiz !== '' ? ' (Notiz hinterlegt)' : '')
         );
     }
 

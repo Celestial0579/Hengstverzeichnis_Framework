@@ -167,6 +167,62 @@ class TrashPermissionTest extends FunctionalTestCase {
         $this->assertSame(0, (int)$stmt->fetchColumn());
     }
 
+    /**
+     * Audit M11: Auch das Leeren des Papierkorbs nimmt die Namenskopie der
+     * Station am Pferd mit - vorher wurde sie nach SET NULL zum öffentlichen
+     * Freitext. Admin-Pfad und Editor-Pfad (> 30 Tage).
+     */
+    public function testEmptyTrashClearsStationNameCopiesOfPurgedContacts(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $db = $this->db();
+
+        $kopie = function (string $name, string $vor) use ($db): array {
+            $db->prepare("INSERT INTO contacts (name, deleted_at) VALUES (?, DATE_SUB(NOW(), INTERVAL {$vor}))")->execute([$name]);
+            $kontakt = (int)$db->lastInsertId();
+            $db->prepare("INSERT INTO horses (name, breeding_station_id, breeding_station) VALUES (?, ?, ?)")
+               ->execute(["Pferd von {$name}", $kontakt, $name]);
+            return [$kontakt, (int)$db->lastInsertId()];
+        };
+        $bs = $db->prepare("SELECT breeding_station FROM horses WHERE id = ?");
+
+        // Editor mit contacts.delete: nur das Alte fällt.
+        $groupId = $this->createCustomGroup($admin, "Trash-Kopie {$unique}");
+        $this->setGroupPermissions($admin, $groupId, ['contacts' => ['view', 'delete']]);
+        $editor = $this->createAndLoginEditor($admin, "kopie{$unique}", "kopie-{$unique}@example.com", [$groupId]);
+        [$altKontakt, $altPferd] = $kopie("Alte Station {$unique}", '31 DAY');
+        [$neuKontakt, $neuPferd] = $kopie("Neue Station {$unique}", '2 DAY');
+        $response = $editor->post('/admin/trash/empty', ['csrf_token' => $this->csrfTokenFor($editor)]);
+        $this->assertSame('/admin/trash?success=emptied', $response->location());
+        $bs->execute([$altPferd]);
+        $this->assertNull($bs->fetchColumn());
+        $bs->execute([$neuPferd]);
+        $this->assertSame("Neue Station {$unique}", $bs->fetchColumn(), 'Innerhalb der Frist bleibt alles');
+
+        // Admin: alles.
+        $response = $admin->post('/admin/trash/empty', ['csrf_token' => $this->csrfTokenFor($admin)]);
+        $this->assertSame('/admin/trash?success=emptied', $response->location());
+        $bs->execute([$neuPferd]);
+        $this->assertNull($bs->fetchColumn());
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM contacts WHERE id IN ({$altKontakt}, {$neuKontakt})")->fetchColumn());
+        $db->exec("DELETE FROM horses WHERE id IN ({$altPferd}, {$neuPferd})");
+    }
+
+    /** Endgültig gelöscht wird nur, was (noch) im Papierkorb liegt. */
+    public function testPermanentDeleteSkipsAContactThatIsNotInTheTrash(): void {
+        $admin = $this->authenticatedClient();
+        $db = $this->db();
+        $db->prepare("INSERT INTO contacts (name) VALUES (?)")->execute(['Aktiver Kontakt ' . uniqid()]);
+        $id = (int)$db->lastInsertId();
+
+        $response = $admin->post('/admin/trash/permanent-delete', [
+            'csrf_token' => $this->csrfTokenFor($admin), 'type' => 'contact', 'id' => (string)$id,
+        ]);
+        $this->assertSame('/admin/trash?error=not_in_trash', $response->location());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM contacts WHERE id = {$id}")->fetchColumn());
+        $db->exec("DELETE FROM contacts WHERE id = {$id}");
+    }
+
     public function testWithoutDeletePermissionTrashActionsAreForbidden(): void {
         $admin = $this->authenticatedClient();
         $unique = uniqid();

@@ -25,6 +25,17 @@
         </div>
     <?php endif; ?>
 
+    <?php // Fehlerwege der DSGVO-Aktionen (Audit M11): Die Anfrage bleibt offen. ?>
+    <?php if (isset($_GET['error'])): ?>
+        <div role="alert" style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            <?php if ($_GET['error'] === 'not_found'): ?>
+                ✕ Kontakt #<?= htmlspecialchars((string)($_GET['person_id'] ?? '')) ?> wurde nicht gefunden - vermutlich schon bearbeitet. Es wurde nichts geändert, die Anfrage bleibt offen.
+            <?php else: ?>
+                ✕ Die DSGVO-Aktion für Kontakt #<?= htmlspecialchars((string)($_GET['person_id'] ?? '')) ?> ist fehlgeschlagen und wurde vollständig zurückgenommen. Die Anfrage bleibt offen; Einzelheiten stehen im Fehlerprotokoll des Servers.
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
     <?php if (empty($requests)): ?>
         <div style="padding: 2rem; text-align: center; color: var(--text-subtle); background: var(--surface-muted); border-radius: 6px; border: 1px dashed var(--border-color);">
             Es liegen derzeit keine DSGVO-Anfragen vor.
@@ -75,7 +86,17 @@
                                 🔍 Gefundene Kontakteinträge in der Datenbank:
                             </h4>
 
-                            <?php if (empty($req['matching_persons'])): ?>
+                            <?php if (!empty($req['matching_via_email'])): ?>
+                                <p class="gdpr-match-hint" style="margin: 0 0 0.6rem 0; font-size: 0.85rem; color: var(--warning-fg);">
+                                    Abgleich über die E-Mail-Adresse (Name kürzer als <?= (int)($minSearchLength ?? 3) ?> Zeichen).
+                                </p>
+                            <?php endif; ?>
+                            <?php if (!empty($req['matching_skipped'])): ?>
+                                <p class="gdpr-match-hint" style="margin: 0 0 0.6rem 0; font-size: 0.9rem; color: var(--warning-fg);">
+                                    Kein automatischer Abgleich: Name und E-Mail-Adresse sind kürzer als <?= (int)($minSearchLength ?? 3) ?> Zeichen.
+                                    Bitte über die manuelle Suche unten zuordnen.
+                                </p>
+                            <?php elseif (empty($req['matching_persons'])): ?>
                                 <p style="margin: 0 0 0.6rem 0; font-size: 0.9rem; color: var(--warning-fg);">
                                     Keine direkten Kontakteinträge für "<?= htmlspecialchars($req['name'] ?: $req['email']) ?>" gefunden.
                                     <br>
@@ -86,6 +107,11 @@
                                     </span>
                                 </p>
                             <?php else: ?>
+                                <?php if (!empty($req['matching_more'])): ?>
+                                    <p class="gdpr-match-hint" style="margin: 0 0 0.6rem 0; font-size: 0.9rem; color: var(--warning-fg);">
+                                        Mehr als <?= (int)($searchLimit ?? 50) ?> Treffer – angezeigt werden die ersten <?= (int)($searchLimit ?? 50) ?>. Bitte über die manuelle Suche eingrenzen.
+                                    </p>
+                                <?php endif; ?>
                                 <div style="display: flex; flex-direction: column; gap: 0.8rem; margin-top: 0.8rem;">
                                     <?php foreach ($req['matching_persons'] as $p): ?>
                                         <div style="background: var(--card-bg); padding: 0.8rem; border-radius: 6px; border: 1px solid #eedc9e; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
@@ -95,6 +121,17 @@
                                                     <br><span style="font-size: 0.85rem; color: var(--text-muted);"><?= htmlspecialchars($p['contact_info']) ?></span>
                                                 <?php endif; ?>
                                                 <br><span style="font-size: 0.8rem; color: var(--primary-fg); font-weight: bold;">🐴 <?= (int)$p['horse_count'] ?> verknüpfte Pferde/Rollen</span>
+                                                <?php if (!empty($p['altkopie'])): ?>
+                                                    <?php // Altkopie aus #336 (Audit M23): gehört zur Auskunft
+                                                          // und wird bei Löschung/Anonymisierung mitbehandelt. ?>
+                                                    <br><span style="font-size: 0.8rem; color: var(--text-muted);">
+                                                        <?php if ($isDeletion): ?>
+                                                            🗄️ Altkopie (#336) wird mitbehandelt
+                                                        <?php else: ?>
+                                                            🗄️ <a href="/admin/gdpr/legacy-copy?id=<?= (int)$p['id'] ?>">Altkopie (#336) anzeigen</a>
+                                                        <?php endif; ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             </div>
                                             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                                 <?php if ($isDeletion): ?>
@@ -136,14 +173,14 @@
                                   // falschen Personen finden (Geburtsname, zweiter Datensatz). Bei
                                   // Treffern eingeklappt, damit er den Normalfall nicht zustellt -
                                   // bei null Treffern aufgeklappt, weil er dann der einzige Weg ist. ?>
-                            <details style="margin-top: 0.8rem;" <?= empty($req['matching_persons']) ? 'open' : '' ?>>
+                            <details style="margin-top: 0.8rem;" <?= empty($req['matching_persons']) || !empty($req['matching_more']) ? 'open' : '' ?>>
                                 <summary style="cursor: pointer; font-size: 0.9rem; font-weight: bold; color: var(--warning-fg);">
                                     🔎 Person manuell suchen
                                 </summary>
 
                                 <div class="gdpr-manual-search" data-request-id="<?= (int)$req['id'] ?>" style="margin-top: 0.8rem;">
                                     <label for="gdpr-person-query-<?= (int)$req['id'] ?>" style="display: block; font-size: 0.85rem; margin-bottom: 0.3rem;">
-                                        Name, Kontaktangabe oder E-Mail (ab 2 Zeichen, höchstens 50 Treffer):
+                                        Name, Kontaktangabe oder E-Mail (ab 3 Zeichen, höchstens 50 Treffer):
                                     </label>
                                     <input type="search"
                                            id="gdpr-person-query-<?= (int)$req['id'] ?>"
@@ -194,6 +231,9 @@
                                             <?php else: ?>
                                                 <a href="/admin/contacts/edit" class="btn btn-secondary gdpr-selected-link" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
                                                     📄 Datensatz für die Auskunft öffnen
+                                                </a>
+                                                <a href="/admin/gdpr/legacy-copy" class="btn btn-secondary gdpr-legacy-link" hidden style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                    🗄️ Altkopie (#336) anzeigen
                                                 </a>
                                             <?php endif; ?>
                                         </div>

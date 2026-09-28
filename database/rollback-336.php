@@ -19,6 +19,15 @@
 // den Alttabellen nicht - sie gehen verloren. Das Skript zählt sie vorher und
 // verlangt eine ausdrückliche Bestätigung.
 //
+// DSGVO (Audit M23): Die Alttabellen sind der Stand vom Migrationszeitpunkt.
+// Wer seitdem per DSGVO gelöscht oder anonymisiert wurde, stünde nach dem
+// Rückweg wieder mit Namen, Anschrift und E-Mail in `persons`/
+// `breeding_stations`. Der Kern führt die Altkopien seit Audit M23 mit; für
+// ältere Fälle holt das Skript den Abgleich vor Schritt 1 nach
+// (KontaktDsgvo::nachholen(), dieselbe Arbeit wie der Update-Schritt
+// dsgvo_nachfuehrung). Der Prüfmodus warnt vorher. Altkopien endgültig
+// gelöschter Kontakte kommen damit NICHT zurück.
+//
 // Dasselbe gilt für Zuordnungen "über Kreuz" (Audit N40): Seit #336 kann
 // jeder Kontakt in jedem Steckplatz stehen - eine frühere Station als
 // Besitzer, eine Person als Deckstation. v0.7 hat dafür keinen Platz. Solche
@@ -191,6 +200,17 @@ if ($fremd) {
     exit(1);
 }
 
+// DSGVO-Befund (Audit M23) - siehe Kopfkommentar.
+$dsgvo = \App\Service\KontaktDsgvo::altbestandBefund($pdo);
+if ($dsgvo['geloescht'] + $dsgvo['anonymisiert'] > 0) {
+    printf(
+        "[WARNUNG] %d Altkopie(n) gehören zu inzwischen gelöschten, %d zu anonymisierten Kontakten.\n"
+        . "  Der Rückweg würde sie zurückholen. Mit --ich-weiss werden sie vorher entfernt bzw. anonymisiert.\n",
+        $dsgvo['geloescht'],
+        $dsgvo['anonymisiert']
+    );
+}
+
 if (!$ernst) {
     echo "\nNur geprüft. Zum tatsächlichen Zurückrollen: --ich-weiss\n";
     exit(0);
@@ -237,6 +257,20 @@ $dropFk = static function (string $tabelle, string $spalte) use ($pdo): void {
 // Datenbank in einem Zwischenzustand, aus dem heraus ein erneuter Aufruf
 // weitermachen kann, weil jeder Schritt für sich idempotent ist.
 try {
+    // 0. DSGVO-Abgleich der Altkopien (Audit M23), bevor sie wieder zu
+    //    `persons`/`breeding_stations` werden. Reine Daten in eigener
+    //    Transaktion und idempotent - bricht der Rückweg danach ab, ist
+    //    nichts verloren, was nicht ohnehin gelöscht gehörte.
+    $nachgeholt = \App\Service\KontaktDsgvo::nachholen($pdo);
+    if ($nachgeholt !== null) {
+        printf(
+            "DSGVO-Abgleich: %d Kontakt(e) nachgezogen, %d verwaiste Altkopie(n) entfernt (%s).\n",
+            $nachgeholt['kontakte'],
+            $nachgeholt['verwaist'],
+            \App\Service\KontaktDsgvo::zaehlerText($nachgeholt)
+        );
+    }
+
     // 1. Fremdschlüssel auf contacts lösen.
     $dropFk('horse_persons', 'contact_id');
     $dropFk('horse_persons', 'station_contact_id');

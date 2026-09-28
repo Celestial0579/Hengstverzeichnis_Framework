@@ -253,4 +253,30 @@ class HorseDetailStationVisibilityTest extends FunctionalTestCase {
             'Freitext ohne Stations-ID verbirgt nichts und muss erhalten bleiben'
         );
     }
+
+    /**
+     * Audit M11: Unter einer verknüpften Station erscheint keine abweichende
+     * Namenskopie mehr in Kleinschrift. Die Kopie ist bei gesetzter
+     * Verknüpfung nur der Spiegel des Namens zum Speicherzeitpunkt - nach
+     * Umbenennung, Zusammenführen oder Anonymisierung stand dort der alte.
+     */
+    public function testNoDivergentCopyUnderALinkedStation(): void {
+        $db = Database::getInstance();
+        $this->authenticatedClient();
+        $unique = uniqid();
+
+        $db->prepare("INSERT INTO contacts (name, is_published, created_at) VALUES (?, 1, NOW())")
+           ->execute(["Heutiger Hof {$unique}"]);
+        $stationId = (int)$db->lastInsertId();
+        $this->stationIds[] = $stationId;
+        $db->prepare("INSERT INTO horses (name, sex, is_published, breeding_station_id, breeding_station, created_at) VALUES (?, 'stallion', 1, ?, ?, NOW())")
+           ->execute(["Kopieprobe {$unique}", $stationId, "Früherer Hofname {$unique}"]);
+        $horseId = (int)$db->lastInsertId();
+        $this->horseIds[] = $horseId;
+
+        $seite = $this->newClient()->get('/horse?id=' . $horseId);
+        $this->assertSame(200, $seite->statusCode);
+        $this->assertStringContainsString("Heutiger Hof {$unique}", $seite->body, 'Vorbedingung: die verknüpfte Station wird genannt');
+        $this->assertStringNotContainsString("Früherer Hofname {$unique}", $seite->body);
+    }
 }

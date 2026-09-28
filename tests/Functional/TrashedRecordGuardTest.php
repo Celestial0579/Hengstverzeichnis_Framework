@@ -229,12 +229,16 @@ class TrashedRecordGuardTest extends FunctionalTestCase {
         // Und der zweite Weg zur Deckstation: horses.breeding_station_id wird
         // beim Speichern aus dem Zuordnungsblock gespiegelt und zeigt seit
         // #336 ebenfalls auf contacts.
-        $stmt = $db->prepare("SELECT breeding_station_id FROM horses WHERE id = ?");
+        $stmt = $db->prepare("SELECT breeding_station_id, breeding_station FROM horses WHERE id = ?");
         $stmt->execute([$horseIds['Station']]);
+        $pferd = $stmt->fetch();
         $this->assertNull(
-            $stmt->fetch()['breeding_station_id'],
+            $pferd['breeding_station_id'],
             'horses.breeding_station_id darf nach dem Löschen nicht auf eine tote Kennung zeigen'
         );
+        // Audit M11: Die Namenskopie am Pferd fällt mit - nach SET NULL gälte
+        // sie sonst als öffentlicher Freitext (Katalog, Detailseite, API).
+        $this->assertNull($pferd['breeding_station'], 'Die Namenskopie der gelöschten Station muss weg');
     }
 
     /**

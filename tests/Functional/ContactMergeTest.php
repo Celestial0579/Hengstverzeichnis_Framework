@@ -584,7 +584,7 @@ class ContactMergeTest extends FunctionalTestCase {
 
         // Audit-Log: Feldnamen ja, Werte nie.
         $stmt = $db->prepare("SELECT details FROM audit_logs WHERE action = 'Kontakte zusammengeführt' AND details LIKE ?");
-        $stmt->execute(['Quelle ID ' . $quelleId . ' (%']);
+        $stmt->execute(['Quelle ID ' . $quelleId . ' -> %']);
         $details = (string)$stmt->fetchColumn();
         $this->assertStringContainsString('4 Feld(er) ohne Freigabe nicht ergänzt', $details);
         $this->assertStringContainsString('phone', $details);
@@ -700,7 +700,7 @@ class ContactMergeTest extends FunctionalTestCase {
             $this->assertLegacyRedirects($alteIds, $zielId);
 
             $stmt = $db->prepare("SELECT details FROM audit_logs WHERE action = 'Kontakte zusammengeführt' AND details LIKE ?");
-            $stmt->execute(['Quelle ID ' . $quelleId . ' (%']);
+            $stmt->execute(['Quelle ID ' . $quelleId . ' -> %']);
             $this->assertStringContainsString('2 alte Kennung(en) umgehängt', (string)$stmt->fetchColumn());
 
             // Endgültig löschen: Die Zuordnung hängt nicht mehr an der Quelle,

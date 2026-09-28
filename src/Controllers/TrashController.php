@@ -273,6 +273,22 @@ class TrashController extends BaseController {
             $isOlderThan30Days = $deletedAt && (strtotime($deletedAt) <= strtotime('-30 days'));
 
             // Rule: Permanent deletion allowed if user is Admin OR if item is older than 30 days
+            if (($isAdmin || $isOlderThan30Days) && $type === 'contact') {
+                // Kontakte über KontaktDsgvo (Audit M11, M23, N45): Namenskopien
+                // am Pferd, Dubletten-Entscheidungen und Altkopien (#336) fallen
+                // in derselben Transaktion mit. Der Papierkorb-Guard und - für
+                // Nicht-Admins - die Frist werden unter Sperre erneut geprüft.
+                $geloescht = $this->deleteContactsWithCleanup($db, [$id], $isAdmin ? null : 30);
+                if ($geloescht === 0) {
+                    // Inzwischen wiederhergestellt (oder nie im Papierkorb) bzw.
+                    // die Frist hat sich unter Sperre als nicht abgelaufen erwiesen.
+                    header("Location: /admin/trash?error=" . ($deletedAt ? 'retention_period_30_days' : 'not_in_trash'));
+                    exit;
+                }
+                \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", "Typ: {$type}, ID: {$id}");
+                header("Location: /admin/trash?success=purged");
+                exit;
+            }
             if ($isAdmin || $isOlderThan30Days) {
                 // Plugin-Hook (#164): VOR dem endgültigen Löschen - die letzte
                 // Gelegenheit für Plugins, den Datensatz noch zu lesen.
@@ -284,16 +300,8 @@ class TrashController extends BaseController {
                     $this->hooks()->doAction('horse.before_delete', $id, $horse, true);
                 }
 
-                // Beim Kontakt raeumen die Fremdschluessel auf (#336): Die
-                // Zuordnungen in horse_persons.contact_id fallen mit
-                // (ON DELETE CASCADE), waehrend horse_persons.station_contact_id
-                // und horses.breeding_station_id auf NULL gehen (ON DELETE SET
-                // NULL). Beide Richtungen sind gewollt und im Schema
-                // begruendet - deshalb steht hier weiterhin ein schlichtes
-                // DELETE und kein Vorab-Aufraeumen von Hand.
                 $deleteStmt = match ($type) {
                     'horse' => $db->prepare("DELETE FROM horses WHERE id = ?"),
-                    'contact' => $db->prepare("DELETE FROM contacts WHERE id = ?"),
                     'user' => $db->prepare("DELETE FROM users WHERE id = ?"),
                 };
                 $deleteStmt->execute([$id]);
@@ -328,7 +336,7 @@ class TrashController extends BaseController {
         if ($isAdmin) {
             // Admins can clear all trash immediately
             $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL");
-            $db->exec("DELETE FROM contacts WHERE deleted_at IS NOT NULL");
+            $this->deleteContactsWithCleanup($db, $this->kontakteImPapierkorb($db, null), null);
             $db->exec("DELETE FROM users WHERE deleted_at IS NOT NULL");
 
             \App\Service\AuditLogger::log("Papierkorb geleert (Admin)", "trash", "Alle gelöschten Elemente endgültig bereinigt");
@@ -340,7 +348,7 @@ class TrashController extends BaseController {
                 $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
             }
             if ($this->hasPermission('contacts', 'delete')) {
-                $db->exec("DELETE FROM contacts WHERE deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+                $this->deleteContactsWithCleanup($db, $this->kontakteImPapierkorb($db, 30), 30);
             }
 
             \App\Service\AuditLogger::log("Papierkorb bereinigt (>30 Tage)", "trash", "Ältere Elemente durch Editor bereinigt");
@@ -348,6 +356,65 @@ class TrashController extends BaseController {
 
         header("Location: /admin/trash?success=emptied");
         exit;
+    }
+
+    /**
+     * Kennungen der Kontakte im Papierkorb, optional nur älter als $mindestTage.
+     *
+     * @return int[]
+     */
+    private function kontakteImPapierkorb(\PDO $db, ?int $mindestTage): array {
+        $sql = "SELECT id FROM contacts WHERE deleted_at IS NOT NULL";
+        if ($mindestTage !== null) {
+            $sql .= " AND deleted_at <= DATE_SUB(NOW(), INTERVAL " . (int)$mindestTage . " DAY)";
+        }
+        return array_map('intval', $db->query($sql . " ORDER BY id")->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Endgültiges Löschen von Kontakten aus dem Papierkorb (Audit M11, M23,
+     * N45) nach dem Muster von deleteHorsesWithHooks().
+     *
+     * Früher stand hier ein schlichtes DELETE, und die Fremdschlüssel räumten
+     * auf (#336): horse_persons.contact_id per CASCADE, station_contact_id
+     * und horses.breeding_station_id per SET NULL. Genau dieses SET NULL
+     * machte die Namenskopie der Station am Pferd (horses.breeding_station)
+     * zum öffentlichen Freitext - auch bei nie veröffentlichten Kontakten,
+     * in Katalog, Detailseite, Stationssuche und /api/horses. Deshalb bereinigt
+     * App\Service\KontaktDsgvo diese Kopien, die Dubletten-Entscheidungen und
+     * die Altkopien vorher, in derselben Transaktion. Das Protokoll bleibt
+     * unverändert - Papierkorb ist kein DSGVO-Verlangen.
+     *
+     * Je Charge (DELETE_BATCH_SIZE) eine Transaktion. Der Guard
+     * `deleted_at IS NOT NULL` (und für Nicht-Admins die Frist) gilt im
+     * Sperr-Select und im DELETE, nicht nur in der Vorauswahl: Ein zwischen
+     * Auswahl und Charge wiederhergestellter Kontakt bleibt erhalten (Race
+     * #222). `contact.erased` feuert NACH dem Commit, nur für tatsächlich
+     * gelöschte Kontakte.
+     *
+     * @param int[] $ids
+     * @return int Anzahl tatsächlich gelöschter Kontakte
+     */
+    private function deleteContactsWithCleanup(\PDO $db, array $ids, ?int $mindestTage): int {
+        $anzahl = 0;
+        foreach (array_chunk($ids, self::DELETE_BATCH_SIZE) as $charge) {
+            $db->beginTransaction();
+            try {
+                $ergebnis = \App\Service\KontaktDsgvo::loeschen($db, $charge, \App\Service\KontaktDsgvo::PAPIERKORB, $mindestTage);
+                $db->commit();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $e;
+            }
+
+            foreach ($ergebnis['kontakte'] as $kontaktId => $kontakt) {
+                $this->hooks()->doAction('contact.erased', (int)$kontaktId, $kontakt, 'papierkorb');
+                $anzahl++;
+            }
+        }
+        return $anzahl;
     }
 
     /**

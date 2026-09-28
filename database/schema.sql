@@ -662,6 +662,15 @@ CROSS JOIN (
 WHERE `groups`.`slug` = 'public';
 
 -- Audit Logs Table
+--
+-- Append-only mit genau EINER Ausnahme (Audit N45, Entscheidung D18): der
+-- DSGVO-Pseudonymisierung. Beim Anonymisieren oder Löschen eines Kontakts
+-- über /admin/gdpr ersetzt App\Service\AuditLogger::kontaktPseudonymisieren()
+-- Namens- und Notizteile der Einträge, die über ihre Kennung an diesem Kontakt
+-- hängen, durch '[DSGVO entfernt]'; der Update-Schritt dsgvo_nachfuehrung
+-- (SCHEMA_VERSION 28) holt das für frühere Fälle nach und maskiert Einmalcodes
+-- und Adressen in category = 'email'. Wer, wann und welche Kennung bleibt
+-- stehen, created_at wird dabei nicht verändert.
 CREATE TABLE IF NOT EXISTS `audit_logs` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `user_id` INT NULL,

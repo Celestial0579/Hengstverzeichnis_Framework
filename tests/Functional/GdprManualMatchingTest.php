@@ -334,6 +334,73 @@ class GdprManualMatchingTest extends FunctionalTestCase {
 
     // ------------------------------------------------------------------
 
+    // ---- Automatch mit Grenzen (Audit M12) ------------------------------
+
+    /** @return int[] die Kontakte, die die Karte zum Löschen anbietet */
+    private function angeboteneKontakte(string $card): array {
+        preg_match_all('/name="person_id" value="(\d+)"/', $card, $m);
+        return array_values(array_unique(array_map('intval', $m[1])));
+    }
+
+    public function testAutomatchIsCappedAtSearchLimitAndSaysSo(): void {
+        $u = uniqid();
+        for ($i = 1; $i <= 55; $i++) {
+            $this->seedPerson(sprintf('Deckel%s %02d', $u, $i));
+        }
+        $requestId = $this->seedRequest('deletion', "Deckel{$u}", "deckel-{$u}@example.com");
+
+        $card = $this->cardFor($this->gdprPage(), $requestId);
+        $this->assertCount(50, $this->angeboteneKontakte($card));
+        $this->assertStringContainsString('Mehr als 50 Treffer', $card);
+        $this->assertMatchesRegularExpression('/<details[^>]*open/', $card, 'Die manuelle Suche ist dann aufgeklappt');
+    }
+
+    public function testOneLetterNameFallsBackToEmailOnly(): void {
+        $u = uniqid();
+        $this->seedPerson("Eeeeva Einzeln {$u}");
+        $this->seedPerson("Erle Emma {$u}");
+        $requestId = $this->seedRequest('deletion', 'e', "niemand-{$u}@example.com");
+
+        $card = $this->cardFor($this->gdprPage(), $requestId);
+        $this->assertSame([], $this->angeboteneKontakte($card), 'Ein Buchstabe darf nicht den halben Bestand liefern');
+        $this->assertStringContainsString('Abgleich über die E-Mail-Adresse', $card);
+        $this->assertMatchesRegularExpression('/<details[^>]*open/', $card);
+    }
+
+    public function testShortNameFallsBackToEmail(): void {
+        $u = uniqid();
+        $id = $this->seedPerson("Li Kurzname {$u}", "li-{$u}@example.com");
+        $requestId = $this->seedRequest('deletion', 'Li', "li-{$u}@example.com");
+
+        $card = $this->cardFor($this->gdprPage(), $requestId);
+        $this->assertSame([$id], $this->angeboteneKontakte($card));
+    }
+
+    public function testLikeWildcardsAreLiteral(): void {
+        $u = uniqid();
+        $this->seedPerson("Platzhalter Otto {$u}");
+        $wirklich = $this->seedPerson("Rabatt 10%_%{$u}");
+        $requestId = $this->seedRequest('deletion', '%%%', "prozent-{$u}@example.com");
+
+        $card = $this->cardFor($this->gdprPage(), $requestId);
+        $this->assertSame([], $this->angeboteneKontakte($card), "'%%%' ist ein Name, kein Platzhalter");
+
+        $treffer = $this->search('%_%');
+        $this->assertContains($wirklich, array_column($treffer, 'id'));
+        foreach ($treffer as $t) {
+            $this->assertStringContainsString('%_%', $t['name'] . $t['contact_info'] . $t['email'], 'Nur wörtliche Treffer');
+        }
+    }
+
+    public function testTooShortNameAndEmailSkipTheAutomatch(): void {
+        $requestId = $this->seedRequest('deletion', '', 'ab');
+
+        $card = $this->cardFor($this->gdprPage(), $requestId);
+        $this->assertStringContainsString('kürzer als 3 Zeichen', $card);
+        $this->assertSame([], $this->angeboteneKontakte($card));
+        $this->assertStringContainsString('ab 3 Zeichen', $card);
+    }
+
     private function adminClient(): \Tests\Support\HttpClient {
         return $this->authenticatedClient();
     }

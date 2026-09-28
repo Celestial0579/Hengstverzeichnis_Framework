@@ -260,6 +260,8 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `contact.after_save` | Action | Nach Anlegen oder Ändern eines Kontakts (#347) | `function(int $contactId, array $postData, bool $isNew): void` |
 | `contact.deleted` | Action | Beim Verschieben eines Kontakts in den Papierkorb (#347) | `function(int $contactId, array $contact): void` — feuert beim Verschieben, nicht erst beim endgültigen Löschen; der Fremdschlüssel-CASCADE greift dort noch nicht (Lage wie `horse.trashed`). Feuert auch für den aufgegebenen Datensatz beim Zusammenführen, direkt nach `contact.merged` |
 | `contact.merged` | Action | Nach dem Commit von `ContactController::merge()` (Audit M33) | `function(int $sourceId, int $targetId, array $source, array $target): void` — `$source` ist der aufgegebene Datensatz im Stand **vor** dem Zusammenführen, `$target` der behaltene im Stand **danach**. Der Kern hat `horse_persons`, die Deckstations-Verweise und `contact_id_map` bereits umgehängt. Eigene Daten an `$sourceId` muss das Addon hier auf `$targetId` übertragen, sonst entfernt sie der FK-CASCADE beim Leeren des Papierkorbs. Schutzangaben (Opt-out, Widerspruch) restriktiv zusammenführen, Freigaben **nicht** übertragen — sie gelten dem Datensatz, dem sie erteilt wurden. Danach feuert `contact.deleted` für `$sourceId`. Ein Fehler im Callback macht nichts rückgängig. Auf älteren Kernen feuert der Hook nie; das Addon muss ohne ihn korrekt bleiben |
+| `contact.anonymized` | Action | Nach dem Commit einer DSGVO-Anonymisierung über `/admin/gdpr` (Audit N45) | `function(int $contactId, array $vorher): void` — `$vorher` ist der Datensatz im Stand **vor** der Anonymisierung (für den Abgleich eigener Daten, nicht zum Speichern). Der Kontakt bleibt bestehen, **kein Fremdschlüssel-CASCADE greift** — eigene personenbezogene Daten zu `$contactId` (Status, Zuordnungen zu Fremdsystemen, Freitext) muss das Addon hier selbst löschen. Ins Protokoll gehört nur „Kontakt #id“. Ein Fehler im Callback macht nichts rückgängig. Auf älteren Kernen feuert der Hook nie |
+| `contact.erased` | Action | Nach dem Commit jedes **endgültigen** Löschens eines Kontakts (Audit N45) | `function(int $contactId, array $contact, string $anlass): void` — `$anlass` ist `'dsgvo'` (Löschverlangen über `/admin/gdpr`) oder `'papierkorb'` (endgültig löschen bzw. Papierkorb leeren, je gelöschtem Kontakt). `$contact` ist die zuletzt gelesene Zeile; die CASCADE-Zeilen (`horse_persons`, `contact_id_map`, Addon-Tabellen mit FK) sind **schon weg**. Gedacht für Addon-Daten **ohne** Fremdschlüssel, die sonst als Waisen liegen blieben. Beim Anlass `'dsgvo'` auch Kopien und Freitexte zum Menschen entfernen. Ein Fehler im Callback macht nichts rückgängig |
 | `horse.publish_blockers` | Filter | Nach dem Speichern eines Pferds, bevor das Veröffentlichungs-Häkchen gilt (#335) | `function(array $gruende, int $horseId, array $horse): array` — jeder zurückgegebene String ist ein Einwand und verhindert **nur** die Veröffentlichung, nicht das Speichern. Läuft **nach** dem Speichern gegen den persistierten Stand, denn die Zuordnungen in `horse_persons` entstehen erst nach dem INSERT. Startwert ist die leere Liste: Ein abgestürztes Addon darf keine Veröffentlichung blockieren, sonst könnte niemand den Grund beheben. Beim **De**publizieren greift der Filter ausdrücklich nicht |
 | `horse.search_ids` | Filter | Beim Aufbau der Pferdesuche, öffentlich wie im Adminbereich (#346) | `function(?array $ids, array $request, bool $nurOeffentlich): ?array` — eine **Liste von Pferde-IDs**, auf die eingeschränkt wird, ausdrücklich **kein** SQL-Ausschnitt: Die Suchklassen beruhen darauf, dass kein Anfragewert je in einen SQL-String gerät. `null` = „ich habe nichts beizutragen"; ein **leeres Array** = „keine Treffer". Beides auf dasselbe abzubilden hieße, dass ein Addon „nichts passt" nicht sagen kann. **Setze ein LIMIT**: Die Liste wird als `h.id IN (…)` gebunden und wandert damit in jede Katalog- und Adminabfrage; eine ungedeckelte Liste über den halben Bestand kostet bei jedem Nachladeschritt erneut. Der Kern deckelt erst bei 60.000 Kennungen, und das nur, weil MySQL nicht mehr Werte binden kann (#371). `$nurOeffentlich = true` heißt „Sichtbarkeitsgrenzen des Katalogs“ – seit Audit M13 auch in der Verwaltungsliste `/admin/horses` für Konten ohne interne Einsicht (`horses.internal`, `edit`, `delete` oder `publish`) |
 | `home.sections_top` · `home.sections_bottom` | Filter | Beim Rendern der Startseite, über bzw. unter der Pferdeliste (#356) | `function(array $sections, array $featuredHorses): array` — jedes Element ist ein fertiger HTML-String und wird **unescaped** ausgegeben. Zwei Punkte statt eines: Was etwas bewirbt, gehört nach oben; was Zusatzinformationen nachreicht, darunter |
@@ -1252,8 +1254,31 @@ gespeichert und von keiner Löschfrist erfasst. Eine E-Mail-Adresse, die dort
 landet, überlebt jede DSGVO-Löschung des zugehörigen Kontakts — und macht die
 Löschung damit unvollständig, ohne dass es jemand merkt.
 
-Der Name eines Datensatzes ist in Ordnung („Kontakt #7"), der Inhalt eines
-Kontaktfelds nicht.
+Die **Kennung** eines Datensatzes ist in Ordnung („Kontakt #7"), der Name
+eines Kontakts nicht — und der Inhalt eines Kontaktfelds erst recht nicht.
+Seit Audit N45 schreibt auch der Kern bei Kontakten nur noch Kennungen; über
+„Anonymisierte Person (#7)“ ließe sich ein anonymisierter Datensatz sonst
+anhand älterer Einträge wieder zuordnen.
+
+**Die eine Ausnahme vom Append-only-Prinzip.** Beim DSGVO-Anonymisieren oder
+-Löschen eines Kontakts ersetzt der Kern in den Einträgen, die über ihre
+Kennung am Kontakt hängen (`Kontakt ID 7: …`, Merge-Einträge, alte
+`Person ID`/`Deckstation ID`-Formate, Dubletten-Notizen), den Namensteil
+durch `[DSGVO entfernt]`. Einträge von Addons fasst er dabei **nicht** an —
+wer trotzdem Namen protokolliert, bleibt damit hinter einer Löschung zurück.
+
+### Personenbezogene Daten an Kontakten
+
+Führt ein Addon eigene Daten zu einem Kontakt, gilt:
+
+- **Endgültiges Löschen:** Tabellen mit Fremdschlüssel `ON DELETE CASCADE`
+  auf `contacts` räumen sich selbst. Alles ohne Fremdschlüssel räumt
+  `contact.erased` ab (Anlass `dsgvo` oder `papierkorb`).
+- **Anonymisieren:** Der Datensatz bleibt, **kein CASCADE greift**.
+  `contact.anonymized` ist die einzige Gelegenheit, Status, Zuordnungen zu
+  Fremdsystemen oder Freitext zu diesem Menschen zu entfernen.
+- **Papierkorb:** `contact.deleted` meldet nur das Verschieben — die Daten
+  gehören dort stillgelegt, nicht gelöscht; der Kontakt kann zurückkommen.
 
 ### Fehler stören den Ablauf nicht
 

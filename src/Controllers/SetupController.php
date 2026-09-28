@@ -101,26 +101,67 @@ class SetupController extends BaseController {
     }
 
     /**
-     * @return array{username: string, email: string, password: string}|null
+     * Passwoerter aus Beispielen (.env.example, frueheres README). Wer sie
+     * uebernimmt, hat ein bekanntes Admin-Passwort.
      */
-    private static function envAdminCredentials(): ?array {
-        $username = getenv('ADMIN_USERNAME');
-        $email = getenv('ADMIN_EMAIL');
-        $password = getenv('ADMIN_PASSWORD');
-        if ($username === false || $email === false || $password === false) {
-            return null;
+    public const PLATZHALTER_PASSWOERTER = ['change-me', 'change-me-too'];
+
+    /**
+     * Ist der erste Admin per Umgebung vorgegeben? Wahr, sobald EINE der
+     * ADMIN_*-Variablen nicht leer ist. Leere Zeilen aus .env.example kommen
+     * per env_file als leere Strings an und zaehlen nicht.
+     *
+     * Dann gilt fail-closed (Audit H2): Entweder sind alle Werte vollstaendig
+     * und gueltig, oder es erscheint eine Fehlerseite OHNE Formular. Frueher
+     * fiel ein ungueltiger Wert still auf den Wizard zurueck - und der bot
+     * dem ersten beliebigen Besucher das Admin-Formular an. Das bisherige
+     * README-Beispiel ADMIN_USERNAME=admin (reserviert) loeste genau das aus.
+     */
+    private static function envAdminAngefordert(): bool {
+        foreach (['ADMIN_USERNAME', 'ADMIN_EMAIL', 'ADMIN_PASSWORD'] as $name) {
+            $wert = getenv($name);
+            if ($wert !== false && trim($wert) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Prueft die per Umgebung vorgegebenen Admin-Werte mit denselben Regeln
+     * wie jedes andere Anlegen. Die Meldungen nennen nur Variablennamen, nie
+     * Werte - die Seite ist vor der Einrichtung anonym erreichbar.
+     *
+     * @return array<int, string>
+     */
+    public static function envAdminFehler(string $username, string $email, string $password): array {
+        $fehler = [];
+
+        foreach (\App\Security\LoginIdentifier::usernameErrors($username) as $meldung) {
+            $fehler[] = 'ADMIN_USERNAME: ' . $meldung;
+        }
+        if (trim($username) !== '' && \App\Service\UserProvisioning::istReservierterName($username)) {
+            $fehler[] = 'ADMIN_USERNAME: Dieser Benutzername ist aus Sicherheitsgruenden reserviert.';
+        }
+        if (trim($email) === '' || !filter_var(trim($email), FILTER_VALIDATE_EMAIL)) {
+            $fehler[] = 'ADMIN_EMAIL: keine gueltige E-Mail-Adresse.';
+        }
+        if (strlen($password) < \App\Service\UserProvisioning::MIN_PASSWORD_LENGTH) {
+            $fehler[] = 'ADMIN_PASSWORD: mindestens ' . \App\Service\UserProvisioning::MIN_PASSWORD_LENGTH . ' Zeichen.';
+        } elseif (in_array(strtolower(trim($password)), self::PLATZHALTER_PASSWOERTER, true)) {
+            $fehler[] = 'ADMIN_PASSWORD: Das Beispielpasswort ist nicht zulaessig - bitte ein eigenes, starkes Passwort setzen.';
         }
 
-        $username = trim($username);
-        $email = trim($email);
-        if ($username === '' || $email === '' || strlen($password) < 8) {
-            return null;
-        }
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            return null;
-        }
+        return $fehler;
+    }
 
-        return ['username' => $username, 'email' => $email, 'password' => $password];
+    /** @return array{username: string, email: string, password: string} */
+    private static function envAdminRohwerte(): array {
+        return [
+            'username' => trim((string)getenv('ADMIN_USERNAME')),
+            'email' => trim((string)getenv('ADMIN_EMAIL')),
+            'password' => (string)getenv('ADMIN_PASSWORD'),
+        ];
     }
 
     private static function envSiteName(): ?string {
@@ -140,21 +181,32 @@ class SetupController extends BaseController {
 
         $dbFromEnv = self::isDbConfiguredViaEnv();
         $siteFromEnv = self::envSiteName();
-        $adminFromEnv = self::envAdminCredentials();
-        if ($adminFromEnv !== null && $this->isReservedUsername($adminFromEnv['username'])) {
-            $adminFromEnv = null;
-        }
 
-        // Vollautomatische Ersteinrichtung: alle nötigen Werte kamen per Umgebungsvariable,
-        // der Wizard wird komplett übersprungen.
-        if ($dbFromEnv && $siteFromEnv !== null && $adminFromEnv !== null) {
+        // Vollautomatische Ersteinrichtung: Der erste Admin ist per Umgebung
+        // vorgegeben. Dieser Zweig vergibt KEINE Sitzung (Audit H2) - wer
+        // /setup aufruft, ist irgendein Besucher und hat nichts bewiesen.
+        // Angelegt wird nur das Konto, das der Betreiber vorgegeben hat; die
+        // Anmeldung verlangt danach ADMIN_PASSWORD auf /login.
+        if (self::envAdminAngefordert()) {
+            $admin = self::envAdminRohwerte();
+            $fehler = self::envAdminFehler($admin['username'], $admin['email'], $admin['password']);
+            if (!$dbFromEnv) {
+                $fehler[] = 'Die Datenbankverbindung (DB_HOST/DB_USER/DB_PASS) ist nicht per Umgebungsvariable gesetzt.';
+            }
+            if ($siteFromEnv === null) {
+                $fehler[] = 'SITE_NAME fehlt.';
+            }
             if (empty(getenv('APP_KEY'))) {
-                $this->render('setup', [
+                $fehler[] = 'APP_KEY ist nicht gesetzt.';
+            }
+
+            $nurHinweis = ['nurHinweis' => true, 'hideDb' => true, 'hideSite' => true];
+            if ($fehler !== []) {
+                http_response_code(503);
+                $this->render('setup', array_merge([
                     'title' => 'Einrichtung - Hengstverzeichnis Framework',
-                    'errors' => ['Automatische Ersteinrichtung übersprungen: APP_KEY ist nicht gesetzt. Bitte APP_KEY als Umgebungsvariable definieren und die Seite neu laden.'],
-                    'hideDb' => $dbFromEnv,
-                    'hideSite' => true,
-                ]);
+                    'errors' => $fehler,
+                ], $nurHinweis));
                 return;
             }
 
@@ -168,12 +220,12 @@ class SetupController extends BaseController {
                 in_array(getenv('DB_SSL_VERIFY'), ['true', '1'], true),
                 getenv('DB_SSL_CA') ?: '',
                 $siteFromEnv,
-                $adminFromEnv['username'],
-                $adminFromEnv['email'],
-                $adminFromEnv['password'],
+                $admin['username'],
+                $admin['email'],
+                $admin['password'],
                 false,
                 false,
-                ['hideDb' => $dbFromEnv, 'hideSite' => true]
+                $nurHinweis
             );
             return;
         }
@@ -190,6 +242,15 @@ class SetupController extends BaseController {
     public function processSetup(): void {
         if (!self::needsSetup()) {
             header("Location: /login");
+            exit;
+        }
+
+        // Ist der erste Admin per Umgebung vorgegeben, legt ihn ausschliesslich
+        // der Env-Pfad an - ein Formular-POST darf kein eigenes Konto
+        // einschleusen (Audit H2). Bewusst VOR der CSRF-Pruefung: Der Guard
+        // aendert keinen Zustand.
+        if (self::envAdminAngefordert()) {
+            header("Location: /setup");
             exit;
         }
 
@@ -275,7 +336,8 @@ class SetupController extends BaseController {
             $siteName, $username, $email, $password,
             $overwriteDb,
             !$dbFromEnv,
-            array_merge(['old' => $_POST], $renderExtra)
+            array_merge(['old' => $_POST], $renderExtra),
+            startSession: true
         );
     }
 
@@ -289,12 +351,16 @@ class SetupController extends BaseController {
      *   entstehen, obwohl die App bereits rein über Env-Variablen lauffähig ist.
      * @param array $errorRenderExtra Zusätzliche View-Variablen (alte Eingaben, hideDb/hideSite),
      *   die bei einem Fehler zusammen mit der Fehlermeldung erneut gerendert werden.
+     * @param bool $startSession Nur der Wizard setzt das: Dort hat der Anfragende das
+     *   Passwort soeben selbst eingegeben, das ist der Nachweis des ersten Faktors. Die
+     *   Env-Einrichtung vergibt keine Sitzung (Audit H2). Default fail-safe: false.
      */
     private function provision(
         string $dbHost, string $dbPort, string $dbName, string $dbUser, string $dbPass,
         bool $dbSsl, bool $dbSslVerify, string $dbSslCa,
         string $siteName, string $username, string $email, string $password,
-        bool $overwriteDb, bool $writeDbConfigFile, array $errorRenderExtra = []
+        bool $overwriteDb, bool $writeDbConfigFile, array $errorRenderExtra = [],
+        bool $startSession = false
     ): void {
         // Build PDO Options including SSL if enabled
         $pdoOptions = [
@@ -327,6 +393,10 @@ class SetupController extends BaseController {
             $testPdo->exec("USE `$dbName`");
 
         } catch (PDOException $e) {
+            if (!$startSession) {
+                $this->envEinrichtungFehlgeschlagen($e->getMessage(), $errorRenderExtra);
+                return;
+            }
             $this->render('setup', array_merge([
                 'title' => 'Einrichtung - Hengstverzeichnis Framework',
                 'errors' => ['Datenbank-Verbindung fehlgeschlagen: ' . $e->getMessage()],
@@ -392,17 +462,57 @@ class SetupController extends BaseController {
                 $stmt->execute([$newUserId, $adminGroupId]);
             }
 
-            // Set pending 2FA session for setup
-            $_SESSION['pending_2fa_user_id'] = $newUserId;
+            if ($startSession) {
+                // Wizard: Der Anfragende hat das Passwort soeben selbst
+                // eingegeben - das ist der Nachweis des ersten Faktors.
+                $_SESSION['pending_2fa_user_id'] = (int)$newUserId;
+                header("Location: /2fa/setup");
+                exit;
+            }
 
-            header("Location: /2fa/setup");
+            // Env-Einrichtung (Audit H2): keine Sitzung. ALLE drei Schluessel
+            // werden abgeraeumt, nicht nur die Pending-ID:
+            // AuthController::twofaTargetUserId() nimmt `pending_2fa_user_id ??
+            // user_id`, und nach einem Werksreset beginnen die Benutzer-IDs
+            // wieder bei 1 - eine alte user_id in dieser Sitzung zeigte sonst
+            // auf das neue, faktorlose Konto.
+            unset($_SESSION['pending_2fa_user_id'], $_SESSION['user_id'], $_SESSION['twofa_reauth']);
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_regenerate_id(true);
+            }
+            error_log('ERSTEINRICHTUNG (Umgebung): Admin-Konto angelegt, ausgeloest von ' . \App\Security\ClientIp::resolve());
+            header("Location: /login?success=setup_completed");
             exit;
 
         } catch (\Exception $e) {
+            if (!$startSession) {
+                // Ein paralleler Erstaufruf war schneller: Die Instanz ist
+                // eingerichtet. Ohne diese Weiche saehe der anonyme Besucher
+                // "Duplicate entry '<ADMIN_USERNAME>'" - die halbe Kennung.
+                if (!self::needsSetup()) {
+                    header("Location: /login?success=setup_completed");
+                    exit;
+                }
+                $this->envEinrichtungFehlgeschlagen($e->getMessage(), $errorRenderExtra);
+                return;
+            }
             $this->render('setup', array_merge([
                 'title' => 'Einrichtung - Hengstverzeichnis Framework',
                 'errors' => ['Einrichtungsfehler: ' . $e->getMessage()],
             ], $errorRenderExtra));
         }
+    }
+
+    /**
+     * Fehler der Env-Einrichtung: Details nur ins Server-Log. Der Aufrufer ist
+     * anonym und bekommt weder die Rohmeldung der Datenbank noch ein Formular.
+     */
+    private function envEinrichtungFehlgeschlagen(string $detail, array $renderExtra): void {
+        error_log('ERSTEINRICHTUNG (Umgebung): ' . $detail);
+        http_response_code(503);
+        $this->render('setup', array_merge([
+            'title' => 'Einrichtung - Hengstverzeichnis Framework',
+            'errors' => ['Automatische Ersteinrichtung fehlgeschlagen – Details stehen im Server-Log.'],
+        ], $renderExtra, ['nurHinweis' => true]));
     }
 }

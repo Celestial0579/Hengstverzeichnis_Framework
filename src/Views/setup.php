@@ -5,9 +5,11 @@
  * @var array|null $old
  * @var bool|null $hideDb Datenbank-Abschnitt ausblenden, weil DB_HOST/DB_USER/DB_PASS bereits per Env-Variable gesetzt sind
  * @var bool|null $hideSite Verbandsname-Abschnitt ausblenden, weil SITE_NAME bereits per Env-Variable gesetzt ist
+ * @var bool|null $nurHinweis Env-Ersteinrichtung (ADMIN_*): nur Fehler und Hinweis, NIE ein Formular (Audit H2)
  */
 $hideDb = $hideDb ?? false;
 $hideSite = $hideSite ?? false;
+$nurHinweis = $nurHinweis ?? false;
 ?>
 <div class="card" style="max-width: 650px; margin: 3rem auto;">
     <h1 style="border-bottom: 2px solid var(--primary-fg); padding-bottom: 0.5rem; margin-bottom: 1rem;">
@@ -30,6 +32,14 @@ $hideSite = $hideSite ?? false;
             </ul>
         </div>
     <?php endif; ?>
+
+    <?php if ($nurHinweis): ?>
+        <div style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.9rem;">
+            Die Ersteinrichtung ist über Umgebungsvariablen (ADMIN_*) vorgegeben. Bitte die genannten Werte
+            in der .env korrigieren und den Container neu starten bzw. die Seite neu laden.
+        </div>
+</div>
+    <?php return; endif; ?>
 
     <?php if ($hideDb || $hideSite): ?>
         <div style="background-color: #d1ecf1; color: #0c5460; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; font-size: 0.9rem;">

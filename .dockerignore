@@ -3,6 +3,9 @@
 .claude
 .env
 config/db_config.php
+# Sperr- und Temp-Dateien des atomaren Schreibens (Audit N56)
+config/.db_config.lock
+config/.db_config.php.*.tmp
 public/uploads/*
 !public/uploads/.htaccess
 

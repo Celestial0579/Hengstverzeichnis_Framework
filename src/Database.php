@@ -53,6 +53,33 @@ class Database {
     private function __clone() {}
 
     /**
+     * Der DSN für MySQL/MariaDB - EINE Stelle für Anwendung, Einrichtung und
+     * CLI-Skripte (Audit N55).
+     *
+     * Ein Host, der mit '/' beginnt, ist ein Unix-Socket-Pfad (laut README
+     * und App\Security\DbIdentifier::isValidHost() zulässig); der Port
+     * spielt dann keine Rolle. Die Einrichtung baute bis hierher immer
+     * `host=` und scheiterte an genau diesem dokumentierten Fall.
+     *
+     * Ohne $dbName (null oder '') entsteht ein DSN ohne Datenbank - für die
+     * Einrichtung, die die Datenbank erst anlegt.
+     *
+     * Der Helfer prüft NICHTS: Werte aus Setup und Umgebung sind vorher über
+     * App\Security\DbIdentifier geprüft (insbesondere kein ';', das weitere
+     * DSN-Parameter einschleusen würde). Wer ihn mit anderen Werten aufruft,
+     * prüft selbst.
+     */
+    public static function buildDsn(string $host, string $port, ?string $dbName, string $charset = 'utf8mb4'): string {
+        $dsn = str_starts_with($host, '/')
+            ? "mysql:unix_socket={$host}"
+            : "mysql:host={$host};port={$port}";
+        if ($dbName !== null && $dbName !== '') {
+            $dsn .= ";dbname={$dbName}";
+        }
+        return $dsn . ";charset={$charset}";
+    }
+
+    /**
      * Liefert die zentrale PDO-Datenbankinstanz zurück oder baut diese bei Erstaufruf auf.
      *
      * @return PDO Aktive PDO-Verbindung
@@ -67,11 +94,7 @@ class Database {
             $pass = DB_PASS;
             $charset = 'utf8mb4';
 
-            if (strpos($host, '/') === 0) {
-                $dsn = "mysql:unix_socket=$host;dbname=$db;charset=$charset";
-            } else {
-                $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=$charset";
-            }
+            $dsn = self::buildDsn((string)$host, (string)$port, (string)$db, $charset);
             $options = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // Löst Exceptions bei Fehlern aus
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // Standard-Fetch: Assoziatives Array
@@ -102,7 +125,7 @@ class Database {
                 foreach ($fallbackSockets as $sock) {
                     if (file_exists($sock)) {
                         try {
-                            $fallbackDsn = "mysql:unix_socket=$sock;dbname=$db;charset=$charset";
+                            $fallbackDsn = self::buildDsn($sock, '', (string)$db, $charset);
                             self::$instance = new PDO($fallbackDsn, $user, $pass, $options);
                             self::alignSessionTimeZone(self::$instance);
                             self::ensureSchemaUpToDate(self::$instance);

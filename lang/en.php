@@ -301,6 +301,7 @@ return [
     'register.email_invalid' => 'Please provide a valid email address.',
     'register.password_invalid' => 'The passwords do not match or are too short (at least 8 characters).',
     'register.already_taken' => 'Username or email address is already taken.',
+    'register.unavailable' => 'Registration is currently not possible (setup incomplete). Please contact the association.',
     'register.verification_invalid' => 'The confirmation link is invalid or has expired. Sign in with your username or email address and password – we will then automatically send you a new link.',
 
     'auth.2fa_heading' => '🔐 2FA Verification',

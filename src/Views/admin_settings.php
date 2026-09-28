@@ -11,6 +11,13 @@
         </div>
     <?php endif; ?>
 
+    <?php // Nur Texte aus der Allowlist in AdminController::settings() (Audit N85). ?>
+    <?php if (!empty($error)): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <?= htmlspecialchars($error) ?>
+        </div>
+    <?php endif; ?>
+
     <form action="/admin/settings" method="POST" enctype="multipart/form-data" style="max-width: 600px;">
         <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
 
@@ -41,8 +48,8 @@
                 </div>
             <?php endif; ?>
 
-            <input type="file" id="logo_file" name="logo_file" accept="image/png,image/jpeg,image/svg+xml,image/webp" class="form-control">
-            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">Erlaubte Formate: PNG, SVG, JPG, WEBP (Max. 5 MB).</small>
+            <input type="file" id="logo_file" name="logo_file" accept="image/png,image/jpeg,image/webp" class="form-control">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">Erlaubte Formate: PNG, JPG, WEBP (max. 5 MB). SVG ist aus Sicherheitsgründen nicht zulässig.</small>
         </div>
 
         <div class="form-group">

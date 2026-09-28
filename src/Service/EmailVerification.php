@@ -4,6 +4,7 @@
 namespace App\Service;
 
 use App\Database;
+use App\Security\BaseUrl;
 use App\Security\RateLimiter;
 use PDO;
 
@@ -97,6 +98,15 @@ final class EmailVerification {
         }
         $spaetestens = $erstellt + self::MAX_UNVERIFIED_DAYS * 86400;
         if (time() >= $spaetestens) {
+            return false;
+        }
+
+        // Ohne feste Stamm-URL verweigert der Mailer den Link ohnehin (Audit
+        // M6). Vorher prüfen, damit die Anmeldeversuche in dieser Zeit nicht
+        // die Tagesdrossel aufbrauchen - sonst käme nach dem Festlegen der
+        // Stamm-URL bis zu einen Tag lang kein Link.
+        if (BaseUrl::forLinksFromSettings() === null) {
+            Mailer::versandVerweigertProtokollieren('Bestätigung der Registrierung (Neuversand)');
             return false;
         }
 

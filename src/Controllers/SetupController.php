@@ -27,36 +27,67 @@ class SetupController extends BaseController {
      * bleiben erhalten. Für sicherheitsrelevante Einstellungen (z. B. TRUSTED_PROXIES),
      * die auch ohne Umgebungsvariablen-Unterstützung (klassisches Webhosting) über den
      * Admin-Bereich konfigurierbar sein müssen.
+     *
+     * Lesen, Ändern und Schreiben laufen unter einer exklusiven Sperre auf
+     * config/.db_config.lock (Audit N56): Zwei gleichzeitige Speichervorgänge
+     * (etwa trusted_proxies und tracking_domains aus zwei Tabs) lasen sonst
+     * denselben Stand, und der zweite überschrieb den Wert des ersten. Ist
+     * die Sperrdatei nicht anlegbar, geht es ohne Sperre weiter - die
+     * atomare Umbenennung schützt die Datei selbst weiterhin.
+     *
+     * Ein unveränderter Wert wird nicht neu geschrieben.
      */
     public static function writeDbConfigValue(string $key, $value): bool {
-        $config = self::readDbConfig();
-        $config[$key] = $value;
-        $content = "<?php\n// Auto-generated database configuration\nreturn " . var_export($config, true) . ";\n";
-        return self::writeDbConfigFile($content);
+        $path = self::dbConfigFilePath();
+        $sperre = @fopen(dirname($path) . '/.db_config.lock', 'c');
+        if ($sperre === false) {
+            error_log('Konnte config/.db_config.lock nicht anlegen - db_config.php wird ohne Sperre geschrieben.');
+        } elseif (!@flock($sperre, LOCK_EX)) {
+            error_log('Konnte config/.db_config.lock nicht sperren - db_config.php wird ohne Sperre geschrieben.');
+        }
+
+        try {
+            // Unter der Sperre den AKTUELLEN Stand lesen: readDbConfig()
+            // lädt per `require`, und opcache könnte innerhalb von
+            // revalidate_freq noch den Stand vor dem letzten Schreiben
+            // liefern - dann ginge dessen Wert verloren.
+            if (function_exists('opcache_invalidate')) {
+                @opcache_invalidate($path, true);
+            }
+            $config = self::readDbConfig();
+            if (array_key_exists($key, $config) && $config[$key] === $value) {
+                return true;
+            }
+            $config[$key] = $value;
+            $content = "<?php\n// Auto-generated database configuration\nreturn " . var_export($config, true) . ";\n";
+            return self::writeDbConfigFile($content);
+        } finally {
+            if ($sperre !== false) {
+                @flock($sperre, LOCK_UN);
+                @fclose($sperre);
+            }
+        }
     }
 
     /**
-     * Schreibt config/db_config.php und beschränkt die Dateirechte auf den
-     * Eigentümer.
+     * Schreibt config/db_config.php atomar mit den Rechten 0600
+     * (App\Helper\AtomicFile, Audit N56).
      *
      * Die Datei enthält das Datenbank-Passwort und den APP_KEY im Klartext -
      * mit dem Schlüssel lassen sich alle verschlüsselt abgelegten Geheimnisse
      * entschlüsseln (SMTP-, S3-, FTPS-, WebDAV-Zugänge und die TOTP-Secrets,
-     * siehe App\Security\Crypto). file_put_contents legt sie mit 0644 an,
-     * also für jeden Systembenutzer lesbar; auf geteiltem Webhosting ist das
-     * genau der Fall, den man nicht will. Ein fehlgeschlagenes chmod ist kein
-     * Abbruchgrund - die Datei ist dann geschrieben und die Installation
-     * funktioniert -, wird aber protokolliert.
+     * siehe App\Security\Crypto). Deshalb nur für den Eigentümer lesbar;
+     * auf geteiltem Webhosting ist "für jeden Systembenutzer lesbar" genau
+     * der Fall, den man nicht will. Scheitert das Schreiben, bleibt die alte
+     * Datei unverändert - früher blieb eine gekürzte Datei und ein
+     * verlorener APP_KEY zurück.
+     *
+     * Voraussetzung: config/ ist für den PHP-Benutzer beschreibbar (die
+     * temporäre Datei entsteht dort), und bei gesetztem Sticky-Bit gehört
+     * db_config.php diesem Benutzer.
      */
     private static function writeDbConfigFile(string $content): bool {
-        $path = self::dbConfigFilePath();
-        if (file_put_contents($path, $content) === false) {
-            return false;
-        }
-        if (!@chmod($path, 0600)) {
-            error_log('Konnte die Dateirechte von config/db_config.php nicht auf 0600 setzen - bitte manuell prüfen.');
-        }
-        return true;
+        return \App\Helper\AtomicFile::write(self::dbConfigFilePath(), $content, 0600);
     }
 
     public static function needsSetup(): bool {
@@ -210,6 +241,17 @@ class SetupController extends BaseController {
                 return;
             }
 
+            // APP_URL ist für die Env-Einrichtung bewusst KEINE Pflicht
+            // (CI, Docker-Healthchecks), aber dringend empfohlen: Ohne feste
+            // Stamm-URL bleiben Token-Mails gesperrt (Audit M6), bis ein
+            // Admin sie in den Systemeinstellungen festlegt. Das Dashboard
+            // warnt; hier steht es für den Betreiber im Server-Log.
+            if (!self::appUrlAusUmgebung() && !\App\Security\TrustedHost::hasAllowlist()) {
+                error_log('ERSTEINRICHTUNG (Umgebung): APP_URL ist nicht gesetzt - Passwort-Reset-, Verifizierungs- und '
+                    . 'Adressbestätigungs-Mails bleiben gesperrt, bis APP_URL, TRUSTED_HOSTS oder die Stamm-URL '
+                    . '(Admin > Systemeinstellungen) gesetzt ist.');
+            }
+
             $this->provision(
                 getenv('DB_HOST') ?: '127.0.0.1',
                 getenv('DB_PORT') ?: '3306',
@@ -236,7 +278,28 @@ class SetupController extends BaseController {
             'title' => 'Einrichtung - Hengstverzeichnis Framework',
             'hideDb' => $dbFromEnv,
             'hideSite' => $siteFromEnv !== null,
-        ]);
+        ] + self::stammUrlAnzeige());
+    }
+
+    /** Ist APP_URL per Umgebung gesetzt? Dann entfällt das Feld Stamm-URL. */
+    private static function appUrlAusUmgebung(): bool {
+        return trim((string)(getenv('APP_URL') ?: '')) !== '';
+    }
+
+    /**
+     * View-Variablen für das Feld Stamm-URL (Audit M6): ausblenden, wenn
+     * APP_URL gesetzt ist; sonst ein Vorschlag aus der aufgerufenen Adresse,
+     * aber nur, wenn er die strenge Prüfung besteht (nie localhost oder
+     * private IPs). Der Vorschlag wird erst mit dem Absenden übernommen.
+     *
+     * @return array{hideBaseUrl: bool, baseUrlSuggestion: ?string}
+     */
+    private static function stammUrlAnzeige(): array {
+        $ausUmgebung = self::appUrlAusUmgebung();
+        return [
+            'hideBaseUrl' => $ausUmgebung,
+            'baseUrlSuggestion' => $ausUmgebung ? null : \App\Security\BaseUrl::suggestion(),
+        ];
     }
 
     public function processSetup(): void {
@@ -282,6 +345,20 @@ class SetupController extends BaseController {
 
         $errors = [];
 
+        // Stamm-URL (Audit M6): optional, aber - wenn angegeben - mit
+        // derselben strengen Prüfung wie in den Systemeinstellungen. Eine
+        // lokale Adresse, die hier durchginge, würde dort bei jedem späteren
+        // Speichern abgelehnt. Mit gesetztem APP_URL ist das Feld
+        // ausgeblendet und wird ignoriert.
+        $baseUrl = null;
+        $baseUrlEingabe = self::appUrlAusUmgebung() ? '' : trim((string)($_POST['base_url'] ?? ''));
+        if ($baseUrlEingabe !== '') {
+            $baseUrl = \App\Security\BaseUrl::normalize($baseUrlEingabe);
+            if ($baseUrl === null) {
+                $errors[] = 'Die Stamm-URL ist ungültig (http:// oder https:// mit öffentlichem Hostnamen). Für Testinstallationen das Feld leer lassen.';
+            }
+        }
+
         if (!$dbFromEnv) {
             if (empty($dbHost)) $errors[] = "Bitte geben Sie den Datenbank-Server (Host) ein.";
             if (empty($dbPort)) $errors[] = "Bitte geben Sie den Datenbank-Port ein.";
@@ -317,7 +394,7 @@ class SetupController extends BaseController {
         if (strlen($password) < 8) $errors[] = "Das Passwort muss mindestens 8 Zeichen lang sein.";
         if ($password !== $passwordConfirm) $errors[] = "Die Passwörter stimmen nicht überein.";
 
-        $renderExtra = ['hideDb' => $dbFromEnv, 'hideSite' => $siteFromEnv !== null];
+        $renderExtra = ['hideDb' => $dbFromEnv, 'hideSite' => $siteFromEnv !== null] + self::stammUrlAnzeige();
 
         if (!empty($errors)) {
             $this->render('setup', array_merge([
@@ -337,7 +414,8 @@ class SetupController extends BaseController {
             $overwriteDb,
             !$dbFromEnv,
             array_merge(['old' => $_POST], $renderExtra),
-            startSession: true
+            startSession: true,
+            baseUrl: $baseUrl
         );
     }
 
@@ -360,7 +438,7 @@ class SetupController extends BaseController {
         bool $dbSsl, bool $dbSslVerify, string $dbSslCa,
         string $siteName, string $username, string $email, string $password,
         bool $overwriteDb, bool $writeDbConfigFile, array $errorRenderExtra = [],
-        bool $startSession = false
+        bool $startSession = false, ?string $baseUrl = null
     ): void {
         // Build PDO Options including SSL if enabled
         $pdoOptions = [
@@ -379,7 +457,9 @@ class SetupController extends BaseController {
         }
 
         // Test Database Connection (Connect to MySQL server first)
-        $dsnWithoutDb = "mysql:host=$dbHost;port=$dbPort;charset=utf8mb4";
+        // Derselbe DSN-Helfer wie im laufenden Betrieb - auch für einen
+        // Unix-Socket als Host (Audit N55).
+        $dsnWithoutDb = Database::buildDsn($dbHost, $dbPort, null);
         try {
             $testPdo = new PDO($dsnWithoutDb, $dbUser, $dbPass, $pdoOptions);
 
@@ -455,6 +535,14 @@ class SetupController extends BaseController {
             // Save Site Name setting
             $stmt = $testPdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('site_name', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
             $stmt->execute([$siteName, $siteName]);
+
+            // Stamm-URL aus dem Assistenten (Audit M6) - bereits über
+            // App\Security\BaseUrl::normalize() geprüft. Die
+            // Env-Einrichtung übergibt null: Dort gilt APP_URL.
+            if ($baseUrl !== null) {
+                $stmt = $testPdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('base_url', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+                $stmt->execute([$baseUrl, $baseUrl]);
+            }
 
             // Create Admin User (must_change_password = 0 since password was set during setup)
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);

@@ -6,8 +6,12 @@
  * @var bool|null $hideDb Datenbank-Abschnitt ausblenden, weil DB_HOST/DB_USER/DB_PASS bereits per Env-Variable gesetzt sind
  * @var bool|null $hideSite Verbandsname-Abschnitt ausblenden, weil SITE_NAME bereits per Env-Variable gesetzt ist
  * @var bool|null $nurHinweis Env-Ersteinrichtung (ADMIN_*): nur Fehler und Hinweis, NIE ein Formular (Audit H2)
+ * @var bool|null $hideBaseUrl Feld Stamm-URL ausblenden, weil APP_URL per Env-Variable gesetzt ist (Audit M6)
+ * @var string|null $baseUrlSuggestion Vorschlag aus der aufgerufenen Adresse - nur, wenn er BaseUrl::normalize() besteht
  */
 $hideDb = $hideDb ?? false;
+$hideBaseUrl = $hideBaseUrl ?? false;
+$baseUrlSuggestion = $baseUrlSuggestion ?? null;
 $hideSite = $hideSite ?? false;
 $nurHinweis = $nurHinweis ?? false;
 ?>
@@ -136,6 +140,26 @@ $nurHinweis = $nurHinweis ?? false;
         <div class="form-group">
             <label for="site_name">Name des Verbands / der Seite *</label>
             <input type="text" id="site_name" name="site_name" class="form-control" value="<?= htmlspecialchars($old['site_name'] ?? 'Hengstverzeichnis') ?>" required>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!$hideBaseUrl): ?>
+        <!-- Stamm-URL (Audit M6) -->
+        <h3 style="margin-top: 1.5rem; margin-bottom: 1rem; color: var(--primary-fg); border-bottom: 1px solid var(--border-color); padding-bottom: 0.3rem;">
+            Stamm-URL der Webseite
+        </h3>
+        <div class="form-group">
+            <label for="base_url">Öffentliche Adresse (z. B. https://hengstverzeichnis.example.org/)</label>
+            <input type="url" id="base_url" name="base_url" class="form-control" placeholder="https://hengstverzeichnis.example.org/" value="<?= htmlspecialchars($old['base_url'] ?? $baseUrlSuggestion ?? '') ?>">
+            <small style="color: var(--text-muted); display: block; margin-top: 0.3rem;">
+                Diese Adresse steht in den Links der Passwort-Reset-, Verifizierungs- und Adressbestätigungs-Mails.
+                Ohne sie werden diese Mails aus Sicherheitsgründen nicht verschickt; sie lässt sich später unter
+                Admin &gt; Systemeinstellungen festlegen.
+                <?php if ($baseUrlSuggestion === null): ?>
+                    <br>Sie rufen die Einrichtung über eine lokale oder interne Adresse auf. Für Testinstallationen
+                    das Feld leer lassen oder die Umgebungsvariable <code>APP_URL</code> setzen.
+                <?php endif; ?>
+            </small>
         </div>
         <?php endif; ?>
 

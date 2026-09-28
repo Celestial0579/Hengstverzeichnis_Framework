@@ -149,6 +149,37 @@ abstract class FunctionalTestCase extends TestCase {
         return $id;
     }
 
+    /** Stamm-URL, mit der die Tests Token-Links ermöglichen (Audit M6). */
+    protected const TEST_STAMM_URL = 'https://hengstverzeichnis.example.com/';
+
+    /**
+     * Setzt settings.base_url direkt in der Datenbank (null = Zeile löschen,
+     * Auslieferungszustand) und gibt den bisherigen Wert zurück (null = keine
+     * Zeile) - zum Zurücksetzen im tearDown/finally.
+     *
+     * Seit Audit M6 gehen Token-Mails nur mit fester Stamm-URL hinaus, und
+     * Registrierung sowie Adressänderung prüfen das vorab. Der Testserver
+     * setzt weder APP_URL noch TRUSTED_HOSTS; Tests dieser Abläufe setzen die
+     * Stamm-URL deshalb ausdrücklich - und ebenso ausdrücklich NICHT, wenn sie
+     * die Sperre prüfen. Die App liest die Einstellungen je Anfrage neu.
+     */
+    protected static function stammUrlSetzen(?string $wert): ?string {
+        // Kann im setUp vor dem ersten Login laufen - dann gibt es die
+        // Tabellen erst nach der Ersteinrichtung.
+        self::ensureProvisioned();
+        $db = \App\Database::getInstance();
+        $vorher = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'base_url'")->fetchColumn();
+        if ($wert === null) {
+            $db->exec("DELETE FROM settings WHERE setting_key = 'base_url'");
+        } else {
+            $db->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES ('base_url', ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([$wert]);
+        }
+        return $vorher === false ? null : (string)$vorher;
+    }
+
     /**
      * Legt einen Passkey-Datensatz direkt in der Datenbank an.
      *

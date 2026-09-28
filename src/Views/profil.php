@@ -17,8 +17,11 @@
  *                           (ohne Faktor immer, sonst nur mit frischer
  *                           Bestätigung - App\Security\StepUp)?
  * @var int|null $stepUpBis  Ende der frischen Bestätigung (Unix-Zeit)
+ * @var bool $adressWechselMoeglich Gibt es eine feste Stamm-URL für den
+ *                           Bestätigungslink (Audit M6)?
  */
 $stepUpErfuellt = $stepUpErfuellt ?? false;
+$adressWechselMoeglich = $adressWechselMoeglich ?? true;
 $stepUpBis = $stepUpBis ?? null;
 $meldungen = [
     'password_changed' => 'Passwort geändert.',
@@ -48,6 +51,7 @@ $fehler = [
     'email_factor_not_on' => 'Der zweite Faktor per E-Mail ist gar nicht eingeschaltet.',
     'email_taken' => 'Diese Adresse ist inzwischen einem anderen Konto zugeordnet. Der Antrag wurde verworfen.',
     'stepup_required' => 'Diese Änderung verlangt eine frische Bestätigung mit Passwort und zweitem Faktor.',
+    'email_unavailable' => 'Die Adressänderung ist derzeit nicht möglich (Einrichtung unvollständig): Der Bestätigungslink kann nicht verschickt werden. Bitte wenden Sie sich an das Verwaltungsteam.',
 ];
 // Wohin der Link „Jetzt bestätigen“ zurückführt (App\Security\StepUp::ziel()).
 $bestaetigenLink = static fn(string $fuer): string =>
@@ -367,7 +371,13 @@ $hatMailcode = in_array(App\Security\SecondFactors::EMAIL, $faktoren, true);
             180 Tagen deaktiviert.
         <?php endif; ?>
     </p>
-    <?php if ($stepUpErfuellt): ?>
+    <?php if (!$adressWechselMoeglich): ?>
+        <?php // Audit M6: Ohne feste Stamm-URL geht kein Bestätigungslink
+              // hinaus - das Formular bliebe eine Sackgasse. ?>
+        <p style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 0.8rem; border-radius: 4px;">
+            Die Adressänderung ist derzeit nicht möglich (Einrichtung unvollständig). Bitte wenden Sie sich an das Verwaltungsteam.
+        </p>
+    <?php elseif ($stepUpErfuellt): ?>
         <form method="POST" action="/profil/email">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
             <label for="new_email" style="display:block; font-weight:bold;">Neue E-Mail-Adresse</label>

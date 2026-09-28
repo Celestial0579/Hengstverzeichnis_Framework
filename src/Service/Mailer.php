@@ -4,9 +4,13 @@
 namespace App\Service;
 
 use App\Database;
+use App\Security\BaseUrl;
 use App\Security\Crypto;
 
 class Mailer {
+
+    /** Aktion im Audit-Log, wenn ein Token-Link mangels Stamm-URL nicht verschickt wird (Audit M6). */
+    public const AUDIT_VERSAND_VERWEIGERT = 'E-Mail-Versand verweigert (keine feste Stamm-URL)';
 
     private array $config = [];
 
@@ -31,7 +35,12 @@ class Mailer {
     }
 
     /**
-     * Helper to get configured base URL
+     * Basis für Links in Mails OHNE Einmal-Token (Update-, Digest- und
+     * Willkommensmails; das Addon kontaktanfrage ruft sie ebenfalls auf).
+     * Signatur und Verhalten bleiben deshalb unverändert.
+     *
+     * Für Mails mit Einmal-Token gilt trustedBase() - dort gibt es keinen
+     * Rückfall auf den Host der Anfrage ohne TRUSTED_HOSTS (Audit M6).
      */
     public function getBaseUrl(): string {
         if (!empty($this->config['base_url'])) {
@@ -42,9 +51,47 @@ class Mailer {
         }
         // Fallback ohne base_url/APP_URL: Host-Header nur validiert übernehmen
         // (Issue #116, Reset-Link-Poisoning) - siehe App\Security\TrustedHost.
+        // Praktisch toter Code, solange config/config.php die Konstante
+        // APP_URL immer definiert (dort mit demselben Rückfall). Token-Mails
+        // nutzen ihn nicht mehr, siehe trustedBase().
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
         $host = \App\Security\TrustedHost::resolve() ?: 'hengstverzeichnis.de';
         return $scheme . $host . '/';
+    }
+
+    /**
+     * Basis für Links mit Einmal-Token (Passwort-Reset, Verifizierung,
+     * Adressbestätigung) - oder null, wenn es keine vertrauenswürdige Quelle
+     * gibt (App\Security\BaseUrl::forLinks(), Audit M6).
+     *
+     * Bei null wird der Versand verweigert und das im Audit-Log vermerkt:
+     * Ein Link aus dem Host-Header der Anfrage leitete das Token sonst auf
+     * die Domain dessen, der die Anfrage geschickt hat. Die Empfängeradresse
+     * steht bewusst nicht im Eintrag - /forgot-password ist anonym
+     * auslösbar, und das Protokoll soll keine eingetippten Fremdadressen
+     * sammeln.
+     */
+    private function trustedBase(string $zweck): ?string {
+        $basis = BaseUrl::forLinks($this->config['base_url'] ?? null);
+        if ($basis === null) {
+            error_log("E-Mail-Versand verweigert ({$zweck}): keine feste Stamm-URL (base_url, APP_URL oder TRUSTED_HOSTS).");
+            self::versandVerweigertProtokollieren($zweck);
+        }
+        return $basis;
+    }
+
+    /**
+     * Audit-Eintrag für einen verweigerten Token-Versand - auch für Aufrufer,
+     * die schon VOR dem Versand prüfen (EmailVerification::erneutSenden()).
+     */
+    public static function versandVerweigertProtokollieren(string $zweck): void {
+        AuditLogger::log(
+            self::AUDIT_VERSAND_VERWEIGERT,
+            'email',
+            $zweck . ' - Stamm-URL unter Admin > Systemeinstellungen festlegen oder APP_URL bzw. TRUSTED_HOSTS setzen',
+            null,
+            'SYSTEM'
+        );
     }
 
     /**
@@ -348,7 +395,15 @@ class Mailer {
         $subject = "⚠️ Neue DSGVO-Anfrage ({$requestType}) - {$siteName}";
         $nameText = $requesterName ? htmlspecialchars($requesterName) . " &lt;" . htmlspecialchars($requesterEmail) . "&gt;" : htmlspecialchars($requesterEmail);
         $messageText = !empty($messageDetails) ? htmlspecialchars($messageDetails) : 'Keine zusätzlichen Anmerkungen angegeben.';
-        $gdprAdminUrl = $this->getBaseUrl() . 'admin/gdpr';
+        // Anonym auslösbar (öffentliches DSGVO-Formular): Ein Link aus dem
+        // Host-Header wäre eine echte Verbandsmail mit einem Link auf eine
+        // fremde Domain an privilegierte Konten (Audit M6). Die Mail selbst
+        // geht trotzdem raus - DSGVO-Fristen -, der absolute Link nur mit
+        // vertrauenswürdiger Basis.
+        $basis = BaseUrl::forLinks($this->config['base_url'] ?? null);
+        $verwaltenHinweis = $basis !== null
+            ? "unter <a href='{$basis}admin/gdpr'>{$basis}admin/gdpr</a>"
+            : 'über die Kachel „DSGVO Anfragen“ im Dashboard';
 
         $html = "
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;'>
@@ -360,7 +415,7 @@ class Mailer {
                 </table>
                 <p><strong>Nachricht / Details:</strong></p>
                 <div style='background: #f8f9fa; padding: 15px; border-radius: 6px; white-space: pre-wrap;'>{$messageText}</div>
-                <p style='color: #666; font-size: 0.85rem; margin-top: 25px;'>Sie können diese Anfrage direkt im Admin-Bereich unter <a href='{$gdprAdminUrl}'>{$gdprAdminUrl}</a> verwalten und verarbeiten.</p>
+                <p style='color: #666; font-size: 0.85rem; margin-top: 25px;'>Sie können diese Anfrage direkt im Admin-Bereich {$verwaltenHinweis} verwalten und verarbeiten.</p>
             </div>
         ";
 
@@ -369,7 +424,11 @@ class Mailer {
 
     public function sendPasswordResetEmail(string $userEmail, string $resetToken): bool {
         $siteName = $this->siteName();
-        $resetUrl = $this->getBaseUrl() . "reset-password?token={$resetToken}";
+        $basis = $this->trustedBase('Passwort-Reset');
+        if ($basis === null) {
+            return false;
+        }
+        $resetUrl = $basis . "reset-password?token={$resetToken}";
 
         $subject = "Passwort zurücksetzen - {$siteName}";
         $html = "
@@ -393,7 +452,11 @@ class Mailer {
      */
     public function sendEmailVerification(string $userEmail, string $verificationToken): bool {
         $siteName = $this->siteName();
-        $verifyUrl = $this->getBaseUrl() . "verify-email?token={$verificationToken}";
+        $basis = $this->trustedBase('Bestätigung der Registrierung');
+        if ($basis === null) {
+            return false;
+        }
+        $verifyUrl = $basis . "verify-email?token={$verificationToken}";
         // Fristen aus EmailVerification, damit Mail und Verhalten nicht
         // auseinanderlaufen (Audit N54).
         $stunden = EmailVerification::TTL_HOURS;
@@ -673,7 +736,11 @@ class Mailer {
      */
     public function sendProfileEmailChangeConfirmation(string $newEmail, string $token): bool {
         $siteName = $this->siteName();
-        $link = $this->getBaseUrl() . 'profil/email/bestaetigen?token=' . urlencode($token);
+        $basis = $this->trustedBase('Bestätigung der neuen E-Mail-Adresse');
+        if ($basis === null) {
+            return false;
+        }
+        $link = $basis . 'profil/email/bestaetigen?token=' . urlencode($token);
 
         $html = "
             <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;'>

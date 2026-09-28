@@ -25,12 +25,8 @@ try {
     // Verbindungsaufbau dort führt die Migration bereits implizit aus
     // (ensureSchemaUpToDate) - dieses Skript könnte danach nur noch "nichts
     // zu tun" melden, statt die tatsächlich durchgeführten Schritte zu zeigen.
-    if (strpos(DB_HOST, '/') === 0) {
-        $dsn = 'mysql:unix_socket=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-    } else {
-        $port = defined('DB_PORT') ? DB_PORT : '3306';
-        $dsn = 'mysql:host=' . DB_HOST . ';port=' . $port . ';dbname=' . DB_NAME . ';charset=utf8mb4';
-    }
+    // DSN aus demselben Helfer wie die Anwendung (Audit N55).
+    $dsn = \App\Database::buildDsn((string)DB_HOST, (string)(defined('DB_PORT') ? DB_PORT : '3306'), (string)DB_NAME);
     $pdo = new PDO($dsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 
     $steps = SchemaMigrator::run($pdo);

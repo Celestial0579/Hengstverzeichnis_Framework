@@ -182,4 +182,40 @@ class SprachAddonTest extends FunctionalTestCase {
         $this->assertStringContainsString('lang="de"', $danach->get('/?lang=nl')->body);
         $this->assertStringNotContainsString('>Nederlands</option>', $danach->get('/')->body);
     }
+
+    /**
+     * Audit N83: Die Links im Hinweis „Sprache fehlt“ führten auf
+     * /admin/system und /admin/addon-store - beide nicht registriert (404).
+     */
+    public function testHinweisSpracheFehltVerlinktErreichbareSeiten(): void {
+        $db = \App\Database::getInstance();
+        $vorher = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'active_locales'")->fetchColumn();
+        $db->prepare(
+            "INSERT INTO settings (setting_key, setting_value) VALUES ('active_locales', 'de,en,nl')
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+        )->execute();
+
+        try {
+            $admin = $this->authenticatedClient();
+            $dashboard = $admin->get('/admin');
+            $this->assertStringContainsString('Sprache fehlt', $dashboard->body);
+            $this->assertStringContainsString('href="/admin/system-settings"', $dashboard->body);
+            $this->assertStringContainsString('href="/admin/plugins/store"', $dashboard->body);
+            $this->assertStringNotContainsString('href="/admin/system"', $dashboard->body);
+            $this->assertStringNotContainsString('href="/admin/addon-store"', $dashboard->body);
+
+            $einstellungen = $admin->get('/admin/system-settings');
+            $this->assertSame(200, $einstellungen->statusCode);
+            $this->assertStringContainsString('href="/admin/plugins/store"', $einstellungen->body);
+            // /admin/plugins/store selbst nicht aufrufen - ohne Katalog-Cache
+            // ginge das live zu GitHub. Dass die Route registriert ist, prüft
+            // tests/Unit/Views/AdminLinkRoutesTest.
+        } finally {
+            if ($vorher === false) {
+                $db->exec("DELETE FROM settings WHERE setting_key = 'active_locales'");
+            } else {
+                $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'active_locales'")->execute([$vorher]);
+            }
+        }
+    }
 }

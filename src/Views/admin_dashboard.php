@@ -45,6 +45,24 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </form>
     </div>
 
+    <?php // Keine feste Stamm-URL (Audit M6).
+          //
+          // Ohne settings.base_url, APP_URL und TRUSTED_HOSTS verweigert der
+          // Mailer jeden Token-Link: Passwort-Reset, Bestätigung der
+          // Registrierung und der neuen Adresse. Registrierung und
+          // Adressänderung melden "derzeit nicht möglich". Das darf nicht nur
+          // im Audit-Log stehen. Nur für Administratoren. ?>
+    <?php $stammUrlUnsicher = $isAdmin && !\App\Security\BaseUrl::isTrusted($settings['base_url'] ?? null); ?>
+    <?php if ($stammUrlUnsicher): ?>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);">
+            <strong>Keine feste Stamm-URL:</strong>
+            Passwort-Reset-, Verifizierungs- und Adressbestätigungs-Mails werden nicht verschickt,
+            Selbstregistrierung und Adressänderung sind gesperrt.
+            <a href="/admin/system-settings" style="color: inherit;">Stamm-URL festlegen</a>
+            oder <code>APP_URL</code> bzw. <code>TRUSTED_HOSTS</code> setzen.
+        </div>
+    <?php endif; ?>
+
     <?php // Fehlende Sprach-Addons (#344).
           //
           // AUF DEM DASHBOARD und nicht nur in den Systemeinstellungen: Wer
@@ -61,8 +79,8 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
             Für <?= htmlspecialchars(implode(', ', $fehlendeSprachen)) ?>
             <?= count($fehlendeSprachen) === 1 ? 'ist' : 'sind' ?> kein Sprach-Addon installiert.
             Die Oberfläche erscheint dort auf Deutsch.
-            <a href="/admin/system" style="color: inherit;">Zu den Spracheinstellungen</a> &middot;
-            <a href="/admin/addon-store" style="color: inherit;">Addon-Store</a>
+            <a href="/admin/system-settings" style="color: inherit;">Zu den Spracheinstellungen</a> &middot;
+            <a href="/admin/plugins/store" style="color: inherit;">Addon-Store</a>
         </div>
     <?php endif; ?>
 

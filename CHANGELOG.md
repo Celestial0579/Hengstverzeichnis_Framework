@@ -291,6 +291,22 @@ Breaking Changes sind jederzeit möglich).
 - **Angemeldete Konten ohne eigenes „Lesen“ sahen einen leeren Katalog** und
   bekamen auf Pferde-, Kontakt- und Bildseiten den Fehler 404, obwohl Gäste
   dieselben Seiten sahen (Audit N61).
+- **Zwei geschützte Formulare auf einer Seite stören sich nicht mehr**
+  (Audit N3). Die eingebaute Rechenaufgabe lag in einem einzigen Platz der
+  Sitzung. Standen zwei Formulare mit Spam-Schutz auf einer Seite, etwa
+  Deckanfrage und Verkaufsbörse auf einer Hengstseite, überschrieb das zweite
+  beim Rendern die Aufgabe des ersten. Das erste scheiterte beim Absenden
+  dann immer mit „Rechenaufgabe nicht richtig gelöst“. Jetzt hat jeder
+  Formular-Kontext seinen eigenen Platz (`captcha_challenges`).
+  - Keine Schemaänderung.
+  - Je Sitzung bleiben höchstens zehn Kontext-Aufgaben offen
+    (`Captcha::MAX_CONTEXTS`), abgelaufene fallen beim nächsten Rendern weg.
+  - Das Eingabefeld heißt weiter `captcha`, seine ID ist jetzt
+    `captcha-<kontext>` (z. B. `captcha-dsgvo`, `captcha-login`). Ohne
+    Kontext bleibt die ID `captcha`.
+  - Laufende Sitzungen brechen beim Update nicht ab: Fehlt die Aufgabe im
+    Kontext-Platz, gilt die im bisherigen gemeinsamen Platz.
+
 - **Mitgliedsstatus beim Sprung von v0.7 nicht übernehmbar** (Audit N78).
   Eine v0.7-Instanz konnte das Addon `mitgliedsstatus` nicht vor dem Update
   installieren. Danach fand das Addon die Spalte nicht mehr und schloss die
@@ -501,6 +517,17 @@ Breaking Changes sind jederzeit möglich).
   Pferdesuche (`/admin/horses/search`) liefert diesen Konten nur
   veröffentlichte Pferde – das betrifft auch die Pferdeauswahl der
   Rechner-Addons.
+- **Für Addon-Autoren: `Captcha::issue()`, `verifyBuiltin()` und `clear()`
+  nehmen einen Formular-Kontext** (Audit N3): `issue(?string $context = null)`,
+  `verifyBuiltin(?string $input, ?string $context = null)`,
+  `clear(?string $context = null)`. `renderField()` und `verify()` reichen
+  ihren Kontext selbst durch. Ohne Kontext gilt der bisherige gemeinsame Platz,
+  bestehende Aufrufe laufen unverändert weiter. Wer die Aufgabe selbst stellt
+  (etwa ein Anbieter-Addon für seine Rückfall-Aufgabe) oder nach dem Honeypot
+  `clear()` ruft, sollte den Kontext mitgeben - sonst teilen sich mehrere
+  Formulare einer Seite weiter einen Platz. Tests, die die Aufgabe über
+  `<label for="captcha">` aus dem HTML lesen, müssen `captcha-<kontext>`
+  akzeptieren. Siehe docs/plugin-development.md.
 - **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
   offen bleiben („[UNVOLLSTÄNDIG]“). Deploy-Skripte, die nur 0 erwarten,
   sehen das als Fehlschlag.

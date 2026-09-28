@@ -39,8 +39,31 @@ namespace App\Security;
  */
 class Captcha {
 
-    /** Schlüssel der laufenden Aufgabe in der Benutzersitzung. */
+    /**
+     * Schlüssel der Aufgabe OHNE Formular-Kontext in der Benutzersitzung. Bleibt
+     * für Aufrufer ohne Kontext (und für bereits laufende Sitzungen aus der
+     * Zeit vor den Kontext-Plätzen) unverändert bestehen.
+     */
     private const SESSION_KEY = 'captcha_challenge';
+
+    /**
+     * Schlüssel der Aufgaben JE FORMULAR-KONTEXT (Audit N3):
+     * `$_SESSION['captcha_challenges'][<kontext>]`.
+     *
+     * Vorher gab es genau einen Platz. Zwei geschützte Formulare auf einer
+     * Seite (etwa Deckanfrage und Verkaufsbörse auf einer Hengstseite)
+     * überschrieben sich beim Rendern gegenseitig die Aufgabe, und das zuerst
+     * gerenderte Formular scheiterte beim Absenden immer am Spam-Schutz.
+     */
+    private const SESSION_KEY_CONTEXTS = 'captcha_challenges';
+
+    /**
+     * Höchstzahl gleichzeitig offener Kontext-Aufgaben je Sitzung. Wird sie
+     * überschritten, fällt die am längsten nicht mehr ausgegebene weg - die
+     * Sitzung kann so nicht unbegrenzt wachsen, auch wenn jemand viele
+     * verschiedene Kontextnamen anfragt.
+     */
+    public const MAX_CONTEXTS = 10;
 
     /** Maximale Gültigkeit einer ausgegebenen Aufgabe in Sekunden. */
     public const TTL_SECONDS = 900;
@@ -73,11 +96,18 @@ class Captcha {
      * Erzeugt eine neue Aufgabe, legt Lösung und Ausgabezeitpunkt in der
      * Session ab und liefert den anzuzeigenden Aufgabentext in der aktiven
      * Sprache zurück. Muss bei JEDEM Rendern des Formulars aufgerufen werden -
-     * eine zuvor ausgegebene Aufgabe wird dabei ersetzt.
+     * eine zuvor ausgegebene Aufgabe DESSELBEN Kontexts wird dabei ersetzt.
      *
+     * Mit `$context` liegt die Aufgabe in einem eigenen Platz je Formular
+     * (Audit N3), sodass mehrere Formulare auf einer Seite sich nicht
+     * gegenseitig die Aufgabe überschreiben. Ohne Kontext gilt der bisherige
+     * gemeinsame Platz.
+     *
+     * @param string|null $context Formularkennung, i. d. R. dieselbe wie bei
+     *                             renderField()/verify()
      * @return string Aufgabentext, z. B. "sieben plus fünf"
      */
-    public static function issue(): string {
+    public static function issue(?string $context = null): string {
         $a = random_int(1, 9);
         $b = random_int(1, 9);
         $subtract = random_int(0, 1) === 1;
@@ -87,12 +117,94 @@ class Captcha {
             [$a, $b] = [$b, $a];
         }
 
-        $_SESSION[self::SESSION_KEY] = [
+        $challenge = [
             'answer' => $subtract ? $a - $b : $a + $b,
             'issued_at' => time(),
         ];
 
+        $slot = self::slot($context);
+        if ($slot === null) {
+            $_SESSION[self::SESSION_KEY] = $challenge;
+        } else {
+            self::storeContextChallenge($slot, $challenge);
+        }
+
         return self::questionText($a, $b, $subtract);
+    }
+
+    /**
+     * Platzname für einen Kontext: klein geschrieben, nur [a-z0-9_-], höchstens
+     * 64 Zeichen - dieselbe Form, die CaptchaContext::register() verlangt.
+     * `null` (oder was nach dem Bereinigen leer bleibt) heisst: kein Kontext,
+     * also der bisherige gemeinsame Platz.
+     */
+    private static function slot(?string $context): ?string {
+        if ($context === null) {
+            return null;
+        }
+        $slot = substr((string)preg_replace('/[^a-z0-9_-]/', '', strtolower($context)), 0, 64);
+
+        return $slot === '' ? null : $slot;
+    }
+
+    /**
+     * Legt eine Kontext-Aufgabe ab und hält die Liste klein: abgelaufene
+     * Aufgaben fallen weg, und mehr als MAX_CONTEXTS bleiben nie liegen (die
+     * am längsten nicht mehr ausgegebene zuerst).
+     *
+     * @param array{answer:int, issued_at:int} $challenge
+     */
+    private static function storeContextChallenge(string $slot, array $challenge): void {
+        $all = $_SESSION[self::SESSION_KEY_CONTEXTS] ?? [];
+        if (!is_array($all)) {
+            $all = [];
+        }
+
+        // Neu einsortieren statt überschreiben: Die Reihenfolge des Arrays ist
+        // die Reihenfolge der Ausgabe, und die älteste fällt zuerst weg.
+        unset($all[$slot]);
+        $now = time();
+        foreach ($all as $key => $existing) {
+            if (!is_array($existing) || ($now - (int)($existing['issued_at'] ?? 0)) > self::TTL_SECONDS) {
+                unset($all[$key]);
+            }
+        }
+        $all[$slot] = $challenge;
+
+        while (count($all) > self::MAX_CONTEXTS) {
+            unset($all[array_key_first($all)]);
+        }
+
+        $_SESSION[self::SESSION_KEY_CONTEXTS] = $all;
+    }
+
+    /**
+     * Holt die Aufgabe eines Platzes aus der Session und entfernt sie dabei
+     * (Single-Use).
+     *
+     * Liegt für einen Kontext (noch) keine eigene Aufgabe vor, gilt der
+     * gemeinsame Platz. Das trägt zwei Fälle über den Wechsel: eine Sitzung,
+     * deren Formular noch vor dem Update ausgeliefert wurde, und ein
+     * Anbieter-Addon, das die Rückfall-Aufgabe noch ohne Kontext stellt
+     * (`Captcha::issue()`), dessen Prüfung aber abstürzt und damit hier im
+     * Kern mit Kontext landet. Zwei Formulare MIT Kontext berührt dieser Weg
+     * nicht - ihre Aufgaben liegen jeweils im eigenen Platz.
+     *
+     * @return mixed Die gespeicherte Aufgabe oder null
+     */
+    private static function takeChallenge(?string $slot): mixed {
+        if ($slot !== null
+            && is_array($_SESSION[self::SESSION_KEY_CONTEXTS] ?? null)
+            && array_key_exists($slot, $_SESSION[self::SESSION_KEY_CONTEXTS])
+        ) {
+            $challenge = $_SESSION[self::SESSION_KEY_CONTEXTS][$slot];
+            unset($_SESSION[self::SESSION_KEY_CONTEXTS][$slot]);
+            return $challenge;
+        }
+
+        $challenge = $_SESSION[self::SESSION_KEY] ?? null;
+        unset($_SESSION[self::SESSION_KEY]);
+        return $challenge;
     }
 
     /**
@@ -208,21 +320,29 @@ class Captcha {
             // Kein Addon hat geantwortet - siehe verify(): der Kern übernimmt.
         }
 
-        return self::renderBuiltinField();
+        return self::renderBuiltinField($context);
     }
 
     /**
      * Das Fragment des eingebauten Anbieters: Beschriftung, Aufgabentext und
-     * Eingabefeld. Die Aufgabe selbst wird dabei neu ausgegeben.
+     * Eingabefeld. Die Aufgabe selbst wird dabei neu ausgegeben, und zwar im
+     * Platz des Kontexts.
+     *
+     * Mit Kontext bekommt das Eingabefeld die ID `captcha-<kontext>`, damit
+     * zwei Formulare auf einer Seite keine doppelte ID und keine fremde
+     * Beschriftung haben. Der Feldname bleibt `captcha` - den liest verify().
+     * Ohne Kontext bleibt die bisherige ID `captcha`.
      */
-    private static function renderBuiltinField(): string {
-        $question = self::issue();
+    private static function renderBuiltinField(?string $context = null): string {
+        $question = self::issue($context);
+        $slot = self::slot($context);
+        $id = htmlspecialchars($slot === null ? 'captcha' : 'captcha-' . $slot, ENT_QUOTES, 'UTF-8');
 
         return '<div class="form-group">'
-            . '<label for="captcha">' . htmlspecialchars(\App\I18n\Translator::t('dsgvo.captcha_label')) . '</label>'
+            . '<label for="' . $id . '">' . htmlspecialchars(\App\I18n\Translator::t('dsgvo.captcha_label')) . '</label>'
             . '<div style="margin-bottom: 0.5rem; font-size: 1.1rem;"><strong>'
             . htmlspecialchars($question) . '</strong> =</div>'
-            . '<input type="text" id="captcha" name="captcha" class="form-control" inputmode="numeric"'
+            . '<input type="text" id="' . $id . '" name="captcha" class="form-control" inputmode="numeric"'
             . ' autocomplete="off" maxlength="2" required style="max-width: 8rem;">'
             . '<small class="form-hint">' . htmlspecialchars(\App\I18n\Translator::t('dsgvo.captcha_hint')) . '</small>'
             . '</div>';
@@ -258,7 +378,12 @@ class Captcha {
 
             if (is_string($verdict) && in_array($verdict, [self::OK, self::WRONG, self::EXPIRED, self::TOO_FAST], true)) {
                 // Eine ggf. offene eigene Aufgabe entwerten, damit sie nicht
-                // später wiederverwendbar bleibt.
+                // später wiederverwendbar bleibt - die dieses Kontexts und
+                // die ohne Kontext, die ein Addon als Rückfall noch ohne
+                // Kontext gestellt haben kann. Aufgaben ANDERER Kontexte
+                // bleiben stehen: Sie gehören zu anderen Formularen derselben
+                // Seite (Audit N3).
+                self::clear($context);
                 self::clear();
                 return $verdict;
             }
@@ -270,7 +395,7 @@ class Captcha {
             );
         }
 
-        return self::verifyBuiltin(is_string($input['captcha'] ?? null) ? $input['captcha'] : null);
+        return self::verifyBuiltin(is_string($input['captcha'] ?? null) ? $input['captcha'] : null, $context);
     }
 
     /**
@@ -278,14 +403,14 @@ class Captcha {
      * diese dabei in jedem Fall (Single-Use).
      *
      * @param string|null $input Rohwert aus dem Formularfeld
+     * @param string|null $context Formularkennung wie bei issue(); ohne
+     *                             Kontext gilt der gemeinsame Platz
      * @return string Eine der Konstanten OK, WRONG, EXPIRED, TOO_FAST
      */
-    public static function verifyBuiltin(?string $input): string {
-        $challenge = $_SESSION[self::SESSION_KEY] ?? null;
-
+    public static function verifyBuiltin(?string $input, ?string $context = null): string {
         // Single-Use: Auch bei Erfolg wird die Aufgabe entwertet, damit eine
         // einmal gelöste Aufgabe nicht für eine Serie von Submits taugt.
-        unset($_SESSION[self::SESSION_KEY]);
+        $challenge = self::takeChallenge(self::slot($context));
 
         if (!is_array($challenge) || !isset($challenge['answer'], $challenge['issued_at'])) {
             return self::EXPIRED;
@@ -322,9 +447,19 @@ class Captcha {
     /**
      * Verwirft eine ggf. laufende Aufgabe (z. B. nach erfolgreicher
      * Verarbeitung), damit die Session keinen verwaisten Zustand behält.
+     *
+     * Mit Kontext nur die Aufgabe dieses Formulars - die anderer Formulare
+     * derselben Seite bleiben gültig. Ohne Kontext der gemeinsame Platz.
      */
-    public static function clear(): void {
-        unset($_SESSION[self::SESSION_KEY]);
+    public static function clear(?string $context = null): void {
+        $slot = self::slot($context);
+        if ($slot === null) {
+            unset($_SESSION[self::SESSION_KEY]);
+            return;
+        }
+        if (is_array($_SESSION[self::SESSION_KEY_CONTEXTS] ?? null)) {
+            unset($_SESSION[self::SESSION_KEY_CONTEXTS][$slot]);
+        }
     }
 
     /**

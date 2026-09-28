@@ -153,6 +153,40 @@ class MaintenanceTest extends TestCase {
     // tests/Functional/MaintenanceModeTest.php, wo ein echter HTTP-Request
     // läuft.
 
+    /**
+     * Rückweg #336 (Audit N39): Der Marker mit Migrationssperre trägt keine
+     * Prozesskennung - er darf nie über isStale() verfallen, sonst liefe
+     * #336 nach 15 Minuten doch wieder.
+     */
+    public function testMigrationssperreSchreibtMarkerOhnePid(): void {
+        Maintenance::enable('Rückweg', true);
+
+        $info = Maintenance::info();
+        $this->assertNotNull($info);
+        $this->assertNull($info['pid']);
+        $this->assertTrue($info['migration_gesperrt']);
+        $this->assertTrue(Maintenance::sperrtMigration());
+        $this->assertFalse(Maintenance::isStale());
+
+        $daten = json_decode((string)file_get_contents(Maintenance::lockFile()), true);
+        $daten['seit'] = date('c', time() - 7200);
+        file_put_contents(Maintenance::lockFile(), json_encode($daten));
+        $this->assertFalse(Maintenance::isStale(), 'Auch nach zwei Stunden nicht verwaist');
+        $this->assertTrue(Maintenance::sperrtMigration());
+    }
+
+    public function testStandardaufrufSperrtDieMigrationNicht(): void {
+        Maintenance::enable('Restore');
+        $info = Maintenance::info();
+        $this->assertSame(getmypid(), $info['pid']);
+        $this->assertFalse($info['migration_gesperrt']);
+        $this->assertFalse(Maintenance::sperrtMigration());
+
+        Maintenance::disable();
+        file_put_contents(Maintenance::lockFile(), '');
+        $this->assertFalse(Maintenance::sperrtMigration(), 'Ein leerer Marker sperrt die Migration nicht');
+    }
+
     public function testGuardIsNoOpUnderCli(): void {
         // Unter CLI (PHPUnit läuft als CLI-Prozess) darf der Guard weder den
         // Prozess beenden noch Ausgaben erzeugen - die Werkzeuge, die den

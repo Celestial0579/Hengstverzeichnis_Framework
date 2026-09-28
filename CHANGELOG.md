@@ -150,6 +150,76 @@ Breaking Changes sind jederzeit möglich).
   Workflow-Fassung mit und sollten nicht erneut laufen; wie man `latest`
   notfalls zurücksetzt, steht in `docs/releasing.md`.
 
+- **Update aus v0.7 blieb unter MySQL 8 dauerhaft hängen** (Audit M41). Die
+  Kontaktlisten-Übernahme (#336) meldete nach dem Kopieren namensgleiche
+  Kontakte mit einer Abfrage, die unter `ONLY_FULL_GROUP_BY` scheitert. Die
+  Kontakte waren da schon festgeschrieben, der Merker aber nicht. Jeder
+  weitere Lauf brach deshalb ab, Katalog und Pferdeseiten lieferten Fehler.
+  - Die Abfrage ist jetzt standardkonform.
+  - Der Merker wird zusammen mit den Daten geschrieben.
+  - Bereits hängende Installationen erkennen die abgeschlossene Übernahme
+    und laufen weiter.
+
+- **Verwaiste Deckstationsverweise blockierten die Kontaktlisten-Migration**
+  (Audit M42).
+  - Verweise auf endgültig gelöschte Deckstationen, und auf Kontakte, die in
+    der Zwischenzeit gelöscht wurden, werden jetzt geleert.
+  - Sie stehen mit Pferd und alter ID im Update-Protokoll und im Audit-Log.
+  - Wer schon festhing: Deckstationen, die in dieser Zeit gespeichert wurden,
+    werden nicht mehr falsch umgeschlüsselt; zweifelhafte Pferde werden zur
+    Prüfung genannt.
+  - In dieser Zeit ausgestellte API-Schlüssel laufen beim Nachholen nicht
+    mehr ab.
+
+- **„Wird erneut versucht“ stimmte nicht** (Audit N76). Konnte ein
+  Datenschritt nicht abschließen, etwa das Verschieben der Pferdefotos
+  (#366), galt die Migration trotzdem als erledigt.
+  - Jetzt bleibt der Schema-Stand stehen, und der Kern versucht es alle 15
+    Minuten erneut, nach einem Fehler jede Minute.
+  - Das Admin-Dashboard zeigt offene und gescheiterte Migrationen an.
+  - Gescheiterte Tabellenanlagen und nicht entfernbare Altspalten werden
+    nicht mehr still übergangen.
+  - `SCHEMA_VERSION` 23 holt liegen gebliebene Schritte nach.
+
+- **Parallele Migrationsläufe** (Audit N75). Mehrere gleichzeitige Requests
+  konnten die Migration parallel ausführen und Deckstationen doppelt
+  umschlüsseln. Die Migration ist jetzt über eine Datenbanksperre
+  serialisiert.
+
+- **Indexumbau #412 nach einem Abbruch nicht fortsetzbar** (Audit N77). Der
+  Schritt setzt jetzt aus jedem Zwischenzustand fort.
+
+- **Rückweg #336 wurde sofort wieder rückgängig gemacht** (Audit N39).
+  `database/rollback-336.php` setzt jetzt einen Wartungsmodus, der nicht von
+  selbst verfällt und die Migration sperrt.
+
+- **Rückweg #336 verlor Zuordnungen still** (Audit N40).
+  - Zuordnungen „über Kreuz“ werden vorab gezählt; ohne
+    `--zuordnungen-verwerfen` bricht das Skript ab.
+  - Vor dem Löschen wird jede Zuordnung geprüft.
+  - Ein erneuter Aufruf rechnet Deckstationen nicht doppelt um.
+  - Fremdschlüssel anderer Tabellen auf `contacts` (etwa vom Addon
+    mitgliedsstatus) werden vorab erkannt, statt die Datenbank in einem nicht
+    fortsetzbaren Zwischenzustand zu hinterlassen.
+
+### Geändert
+
+- **`php database/migrate.php` endet mit Exit-Code 2**, wenn Datenschritte
+  offen bleiben („[UNVOLLSTÄNDIG]“). Deploy-Skripte, die nur 0 erwarten,
+  sehen das als Fehlschlag.
+- **`database/rollback-336.php` lässt den Wartungsmodus aktiv.** Nach dem
+  Einspielen der alten Version `var/wartung.lock` löschen. Installationen mit
+  dem Addon mitgliedsstatus deinstallieren es vor dem Rückweg.
+- Das Leeren von `password_resets` lief bisher bei jeder Migration. Jetzt ist
+  es ein einmaliger Schritt, der nur Bestände von vor v0.7.1 betrifft. Offene
+  Reset-Links bleiben beim Update gültig.
+- Beim ersten Migrationslauf nach einem Update warten gleichzeitige Requests
+  bis zu 30 Sekunden auf dessen Ende.
+- Für Addon- und Werkzeugautoren: `Maintenance::enable()` und
+  `SchemaMigrator::run()` haben je einen optionalen Parameter und bleiben
+  rückwärtskompatibel. Ausnahmen aus Datenschritten tragen jetzt das Präfix
+  „Datenschritt <key>: “.
+
 ## [0.9.0] – 2026-08-27
 
 **Die erste Fassung der 0.9er-Linie ohne Vorabsuffix.** Was in den sechs Betas

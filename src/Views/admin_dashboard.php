@@ -66,6 +66,32 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </div>
     <?php endif; ?>
 
+    <?php // Offene oder gescheiterte Schema-Migration (Audit N76).
+          //
+          // Der implizite Migrationsweg verschluckt Fehler, damit die App
+          // lauffaehig bleibt - bisher sah sie deshalb niemand, und eine
+          // haengende Migration fiel erst an kaputten Seiten auf. Nur fuer
+          // Administratoren, gelesen aus den ohnehin geladenen Einstellungen.
+          // Angezeigt nur, solange der Stand das Ziel noch nicht erreicht hat. ?>
+    <?php $migrationsStatus = $isAdmin ? \App\Service\SchemaMigrator::statusAusEinstellungen($settings ?? []) : null; ?>
+    <?php if ($migrationsStatus !== null && $migrationsStatus['ziel'] > (int)($settings['schema_version'] ?? 0)): ?>
+        <?php $naechsterVersuch = \App\Service\SchemaMigrator::naechsterVersuch($migrationsStatus); ?>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);">
+            <strong><?= $migrationsStatus['zustand'] === 'fehler' ? 'Datenbank-Migration gescheitert:' : 'Datenbank-Migration unvollständig:' ?></strong>
+            Stand <?= (int)$migrationsStatus['von'] ?> &rarr; <?= (int)$migrationsStatus['ziel'] ?>,
+            seit <?= htmlspecialchars(date('d.m.Y H:i', (int)strtotime($migrationsStatus['zeit']))) ?>.
+            <?php if ($migrationsStatus['meldungen'] !== []): ?>
+                <ul style="margin: 0.4rem 0;">
+                    <?php foreach ($migrationsStatus['meldungen'] as $meldung): ?>
+                        <li><?= htmlspecialchars($meldung) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+            Nächster automatischer Versuch: <?= htmlspecialchars($naechsterVersuch > time() ? date('d.m.Y H:i', $naechsterVersuch) : 'beim nächsten Seitenaufruf') ?>.
+            Sofort: <code>php database/migrate.php</code>
+        </div>
+    <?php endif; ?>
+
     <!-- Section 1: Verwaltung -->
     <div class="card">
         <h3 style="margin-top: 0; color: var(--primary-fg); border-bottom: 2px solid var(--secondary-color); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">

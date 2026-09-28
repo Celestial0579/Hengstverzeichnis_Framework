@@ -42,7 +42,45 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 22; // 22: Rechte-Seeds einmalig, Marker in settings (Audit M22/N18)
+    public const SCHEMA_VERSION = 23; // 23: ohne DDL - holt Datenschritte nach, die der Stempel trotz "wird erneut versucht" übersprang (Audit N76)
+
+    /**
+     * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
+     * wartet (GET_LOCK, Audit N75). Gilt für explizite Aufrufer und den
+     * ERSTEN impliziten Lauf je Zielversion - also einmal je Update. Ein
+     * Wiederholungslauf des Web-Wegs wartet gar nicht, siehe run().
+     */
+    private const SPERRE_WARTEN_SEKUNDEN = 30;
+
+    /**
+     * Frühester erneuter Versuch des IMPLIZITEN Wegs (Database::
+     * ensureSchemaUpToDate()) je Zustand in settings.schema_migration_status,
+     * in Sekunden (Audit N76). Ohne Drosselung liefe bei einem offenen
+     * Schritt bei JEDEM Request ein voller migrate() mit rund 150
+     * Metadatenabfragen plus Dateiscan. `php database/migrate.php` und andere
+     * explizite Aufrufer laufen ungedrosselt.
+     */
+    public const WIEDERHOLEN_NACH = ['offen' => 900, 'fehler' => 60];
+
+    /** settings-Schlüssel des Laufzustands (offen/fehler), siehe status(). */
+    public const STATUS_SCHLUESSEL = 'schema_migration_status';
+
+    /** Höchstens so viele Meldungen je Status, je höchstens so lang. */
+    private const STATUS_MELDUNGEN_MAX = 10;
+    private const STATUS_MELDUNG_LAENGE = 500;
+
+    /**
+     * Wiedereintrittsschutz (Audit N75). Nötig im CLI-Weg: migrate.php und
+     * Restore-Werkzeuge nutzen eine eigene PDO, AuditLogger::log() baut über
+     * Database::getInstance() eine zweite Verbindung auf - und deren
+     * ensureSchemaUpToDate() wartete sonst auf die Sperre, die dieser Prozess
+     * selbst hält. Im Web-Weg tritt der Fall nicht auf, weil
+     * Database::$instance vor ensureSchemaUpToDate() gesetzt wird.
+     */
+    private static bool $laeuft = false;
+
+    /** Nur für Tests verkürzbar, siehe setzeSperreWartezeitFuerTests(). */
+    private static ?int $sperreWartezeit = null;
 
     /**
      * Der Stand, mit dem der Gast-Seed persons.view für die öffentliche
@@ -90,11 +128,30 @@ final class SchemaMigrator {
      *
      * Ist der persistierte Stand aktuell, wird die Migration komplett
      * übersprungen (Kurzschluss, #213). Andernfalls laufen alle - einzeln
-     * idempotenten und einzeln per try/catch abgesicherten - Schritte, und
-     * der neue Stand wird erst NACH vollständigem Durchlauf persistiert:
-     * Wirft ein Schritt doch einmal (oder fehlt settings noch, Setup-Fall),
-     * bleibt der alte Stand stehen und der nächste Lauf versucht die
-     * Migration erneut.
+     * idempotenten - Schritte, und der neue Stand wird erst NACH
+     * vollständigem Durchlauf persistiert:
+     *
+     *  - Wirft ein Schritt, bleibt der alte Stand stehen, der Fehler landet
+     *    in settings.schema_migration_status (zustand 'fehler', Dashboard)
+     *    und wird weitergeworfen.
+     *  - Meldet sich ein Datenschritt als offen ($offen, Audit N76), bleibt
+     *    der alte Stand ebenfalls stehen, der Status sagt 'offen'. Früher
+     *    stempelte run() trotzdem - und "wird erneut versucht" lief dann
+     *    erst mit dem nächsten Release.
+     *
+     * Parallele Läufe serialisiert eine Datenbanksperre (GET_LOCK, Audit
+     * N75): Mehrere gleichzeitige Requests konnten sonst nicht idempotente
+     * Schritte doppelt ausführen (Deckstationen doppelt umgeschlüsselt).
+     * Nach Erhalt der Sperre wird der Stand erneut geprüft - wer gewartet
+     * hat, findet die Arbeit meist schon erledigt. Liefert der Server kein
+     * Ergebnis (Galera, Proxy ohne GET_LOCK), läuft der Lauf bewusst ohne
+     * Sperre weiter wie bisher.
+     *
+     * $drosseln (nur Database::ensureSchemaUpToDate()): Nach einem offenen
+     * oder gescheiterten Lauf wird frühestens nach WIEDERHOLEN_NACH erneut
+     * versucht, und ein solcher Wiederholungslauf wartet NICHT auf die
+     * Sperre - das Schema ist dann benutzbar, und ein 15-Minuten-Versuch
+     * soll nicht jeden parallelen Request bis zu 30 s aufhalten.
      *
      * Das Persistieren selbst wirft bei fehlender settings-Tabelle nach oben
      * (der Aufrufer soll erfahren, dass der Stand NICHT festgehalten wurde);
@@ -103,22 +160,226 @@ final class SchemaMigrator {
      *
      * @return string[] Durchgeführte Schritte in Ausführungsreihenfolge
      */
-    public static function run(PDO $pdo): array {
+    public static function run(PDO $pdo, bool $drosseln = false): array {
         $current = self::storedVersion($pdo);
         if ($current >= self::SCHEMA_VERSION) {
             return []; // Normalfall: Schema aktuell, eine einzige Abfrage - fertig.
         }
+        if (self::$laeuft) {
+            return []; // Verschachtelter Aufruf aus einem laufenden Lauf heraus.
+        }
 
-        $performed = [];
-        self::migrate($pdo, $performed, $current);
+        // Rückweg #336 (Audit N39): Der Betreiber hat bewusst zurückgerollt
+        // und will die alte Version einspielen. Ein Lauf hier machte den
+        // Rückweg sofort wieder rückgängig.
+        if (Maintenance::sperrtMigration()) {
+            throw new \RuntimeException(
+                'Schema-Migration gesperrt: var/wartung.lock wurde vom Rückweg #336 gesetzt. '
+                . 'Die Datei erst NACH dem Einspielen der alten Version entfernen; wer auf dieser '
+                . 'Fassung bleiben will, entfernt sie jetzt (der nächste Lauf führt #336 erneut aus).'
+            );
+        }
 
-        $pdo->prepare(
-            "INSERT INTO settings (setting_key, setting_value) VALUES ('schema_version', ?)
-             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
-        )->execute([(string)self::SCHEMA_VERSION]);
-        $performed[] = sprintf('settings.schema_version auf %d gesetzt (vorher %d)', self::SCHEMA_VERSION, $current);
+        $status = $drosseln ? self::status($pdo) : null;
+        if ($drosseln && self::wartetAufWiederholung($status)) {
+            return [];
+        }
+        $wiederholung = $drosseln && $status !== null && $status['ziel'] === self::SCHEMA_VERSION;
+        $wartezeit = $wiederholung ? 0 : (self::$sperreWartezeit ?? self::SPERRE_WARTEN_SEKUNDEN);
 
-        return $performed;
+        $gesperrt = self::sperreHolen($pdo, $wartezeit);
+        if ($gesperrt === false) {
+            if ($wartezeit === 0) {
+                return []; // Wiederholungslauf: ein anderer Prozess ist schon dran.
+            }
+            // Bewusst KEIN Status: Es ist nichts gescheitert, es läuft nur
+            // gerade ein anderer Prozess. Database verschluckt die Ausnahme,
+            // migrate.php zeigt sie an.
+            throw new \RuntimeException(
+                'Schema-Migration läuft bereits in einem anderen Prozess - bitte später erneut versuchen.'
+            );
+        }
+
+        self::$laeuft = true;
+        try {
+            // Double-Check nach Erhalt der Sperre.
+            $current = self::storedVersion($pdo);
+            if ($current >= self::SCHEMA_VERSION) {
+                return [];
+            }
+            if ($drosseln && self::wartetAufWiederholung(self::status($pdo))) {
+                return [];
+            }
+
+            $performed = [];
+            $offeneSchritte = [];
+            try {
+                self::migrate($pdo, $performed, $offeneSchritte, $current);
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                self::statusSchreiben($pdo, 'fehler', $current, [$e->getMessage()]);
+                throw $e;
+            }
+
+            if ($offeneSchritte !== []) {
+                $meldungen = [];
+                foreach ($offeneSchritte as $schritt => $meldung) {
+                    $meldungen[] = $schritt . ': ' . $meldung;
+                }
+                self::statusSchreiben($pdo, 'offen', $current, $meldungen);
+                $performed[] = sprintf(
+                    'settings.schema_version bleibt auf %d: %d Datenschritt(e) offen (%s)',
+                    $current,
+                    count($offeneSchritte),
+                    implode(', ', array_keys($offeneSchritte))
+                );
+                return $performed;
+            }
+
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES ('schema_version', ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([(string)self::SCHEMA_VERSION]);
+            $performed[] = sprintf('settings.schema_version auf %d gesetzt (vorher %d)', self::SCHEMA_VERSION, $current);
+            try {
+                $pdo->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([self::STATUS_SCHLUESSEL]);
+            } catch (\Throwable $e) {
+                // Ein liegengebliebener Status verschwindet spätestens, weil
+                // ziel <= schema_version ihn für das Dashboard erledigt.
+            }
+
+            return $performed;
+        } finally {
+            if ($gesperrt === true) {
+                try {
+                    $pdo->query("DO RELEASE_LOCK(CONCAT('hv_schema_', MD5(DATABASE())))");
+                } catch (\Throwable $e) {
+                    // Verbindung weg - dann ist die Sperre es auch.
+                }
+            }
+            self::$laeuft = false;
+        }
+    }
+
+    /**
+     * Der zuletzt geschriebene Laufzustand (offen/fehler) oder null. Siehe
+     * statusAusEinstellungen() für die Form.
+     */
+    public static function status(PDO $pdo): ?array {
+        try {
+            $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $stmt->execute([self::STATUS_SCHLUESSEL]);
+            $roh = $stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return $roh === false ? null : self::statusAusEinstellungen([self::STATUS_SCHLUESSEL => $roh]);
+    }
+
+    /**
+     * Liest den Laufzustand aus bereits geladenen Einstellungen (Dashboard:
+     * BaseController::$settings, keine zusätzliche Abfrage). Kaputtes oder
+     * unvollständiges JSON zählt als "kein Status".
+     *
+     * @return array{zustand: string, von: int, ziel: int, zeit: string, meldungen: string[]}|null
+     */
+    public static function statusAusEinstellungen(array $settings): ?array {
+        $roh = $settings[self::STATUS_SCHLUESSEL] ?? null;
+        if (!is_string($roh) || $roh === '') {
+            return null;
+        }
+        $daten = json_decode($roh, true);
+        if (!is_array($daten)
+            || !isset($daten['zustand'], $daten['von'], $daten['ziel'], $daten['zeit'])
+            || !isset(self::WIEDERHOLEN_NACH[$daten['zustand']])
+            || !is_numeric($daten['von']) || !is_numeric($daten['ziel'])
+            || !is_string($daten['zeit']) || strtotime($daten['zeit']) === false
+        ) {
+            return null;
+        }
+        $meldungen = [];
+        foreach ((array)($daten['meldungen'] ?? []) as $m) {
+            if (is_scalar($m)) {
+                $meldungen[] = (string)$m;
+            }
+        }
+        return [
+            'zustand' => (string)$daten['zustand'],
+            'von' => (int)$daten['von'],
+            'ziel' => (int)$daten['ziel'],
+            'zeit' => $daten['zeit'],
+            'meldungen' => $meldungen,
+        ];
+    }
+
+    /**
+     * Zeitpunkt (Unix-Zeit), ab dem der implizite Weg einen Status erneut
+     * angeht - für den Dashboard-Hinweis.
+     */
+    public static function naechsterVersuch(array $status): int {
+        return (int)strtotime($status['zeit']) + (self::WIEDERHOLEN_NACH[$status['zustand']] ?? 0);
+    }
+
+    /**
+     * @internal Nur für Tests: Wartezeit auf die Migrationssperre in
+     * Sekunden; ein negativer Wert stellt den Standard wieder her.
+     */
+    public static function setzeSperreWartezeitFuerTests(int $sekunden): void {
+        self::$sperreWartezeit = $sekunden < 0 ? null : $sekunden;
+    }
+
+    /** Liegt für DIESES Ziel ein Status vor, dessen Wartefrist noch läuft? */
+    private static function wartetAufWiederholung(?array $status): bool {
+        return $status !== null
+            && $status['ziel'] === self::SCHEMA_VERSION
+            && self::naechsterVersuch($status) > time();
+    }
+
+    /**
+     * GET_LOCK je Datenbank (serverweit eindeutig, 42 Zeichen < 64).
+     *
+     * @return bool|null true = gehalten, false = nicht erhalten,
+     *                   null = Server kann es nicht (fail-open ohne Sperre)
+     */
+    private static function sperreHolen(PDO $pdo, int $wartezeit): ?bool {
+        try {
+            $stmt = $pdo->prepare("SELECT GET_LOCK(CONCAT('hv_schema_', MD5(DATABASE())), ?)");
+            $stmt->execute([$wartezeit]);
+            $ergebnis = $stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            return null;
+        }
+        if ($ergebnis === null || $ergebnis === false) {
+            return null;
+        }
+        return (int)$ergebnis === 1;
+    }
+
+    /**
+     * Schreibt settings.schema_migration_status. Scheitert das (Setup-Fall
+     * ohne settings), wird es ignoriert - der Status ist Anzeige, kein Gate.
+     */
+    private static function statusSchreiben(PDO $pdo, string $zustand, int $von, array $meldungen): void {
+        $gekuerzt = [];
+        foreach (array_slice(array_values($meldungen), 0, self::STATUS_MELDUNGEN_MAX) as $m) {
+            $gekuerzt[] = mb_substr((string)$m, 0, self::STATUS_MELDUNG_LAENGE);
+        }
+        try {
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([self::STATUS_SCHLUESSEL, json_encode([
+                'zustand' => $zustand,
+                'von' => $von,
+                'ziel' => self::SCHEMA_VERSION,
+                'zeit' => gmdate('c'),
+                'meldungen' => $gekuerzt,
+            ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)]);
+        } catch (\Throwable $e) {
+            // Siehe PHPDoc.
+        }
     }
 
     /**
@@ -138,6 +399,10 @@ final class SchemaMigrator {
      *
      * @param PDO      $pdo              Aktive Datenbankverbindung
      * @param string[] $performed        Sammelliste der durchgeführten Schritte
+     * @param array<string,string> $offeneSchritte Datenschritte (bzw.
+     *                                   'tabelle:<name>'), die sich als offen
+     *                                   gemeldet haben - run() stempelt dann
+     *                                   nicht (Audit N76)
      * @param int      $vorherigeVersion Stand VOR dieser Migration
      *                                   (settings.schema_version, siehe
      *                                   storedVersion()). 0 heißt: vor #213
@@ -148,7 +413,7 @@ final class SchemaMigrator {
      *                                   sondern stets mit einem strukturellen
      *                                   Befund kombinieren (Audit M22/N18).
      */
-    private static function migrate(PDO $pdo, array &$performed, int $vorherigeVersion): void {
+    private static function migrate(PDO $pdo, array &$performed, array &$offeneSchritte, int $vorherigeVersion): void {
         // Steht das Kontaktschema (#336) bereits? EINMAL am Anfang bestimmt,
         // bevor irgendein Schritt läuft - der Wert muss den Stand VOR dieser
         // Migration beschreiben, nicht den, den Schritt 31a gleich herstellt.
@@ -204,9 +469,28 @@ final class SchemaMigrator {
 
         // Einmal-Datenschritte (seit #336): $dataStep führt einen
         // Datenschritt genau einmal aus und hält das in settings fest.
-        // Rückgabe null = "war nicht zuständig" (z. B. Setup-Fall), dann wird
-        // NICHTS vermerkt und der nächste Lauf versucht es erneut.
-        $dataStep = function (string $key, callable $arbeit) use ($pdo, &$performed): void {
+        //
+        // Vertrag (Audit N75/N76): $arbeit($vermerke, $offen) - Closures ohne
+        // Parameter bleiben gültig.
+        //  - Rückgabe array = erledigt: Marker migration_<key> wird gesetzt,
+        //    die Zeilen landen in $performed.
+        //  - Rückgabe null OHNE $offen = "war nicht zuständig" (z. B.
+        //    Setup-Fall): nichts vermerkt, der nächste Lauf fragt erneut.
+        //  - `return $offen('…')` = "zuständig, aber nicht fertig": kein
+        //    Marker, die Meldung steht in $performed UND in $offeneSchritte -
+        //    run() stempelt dann nicht, und der implizite Weg versucht es
+        //    nach WIEDERHOLEN_NACH erneut. Früher hieß das nur "wird erneut
+        //    versucht", der Stempel kam trotzdem, und der Schritt lief bis
+        //    zum nächsten Release nie wieder.
+        //  - $vermerke() schreibt den Marker SOFORT. Innerhalb der eigenen
+        //    Transaktion vor commit() aufgerufen, sind Daten und Marker
+        //    atomar - Pflicht für jeden nicht idempotenten Schritt (Audit
+        //    M41: Daten festgeschrieben, Marker nicht, und jeder weitere Lauf
+        //    hing).
+        //  - Ein Schritt, der ein Teilergebnis still verschluckt (leeres
+        //    catch), darf keinen Marker setzen, sondern meldet sich offen.
+        //  - Ausnahmen gehen mit dem Präfix "Datenschritt <key>: " weiter.
+        $dataStep = function (string $key, callable $arbeit) use ($pdo, &$performed, &$offeneSchritte): void {
             $markerKey = 'migration_' . $key;
             try {
                 $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
@@ -218,15 +502,34 @@ final class SchemaMigrator {
                 return; // settings existiert noch nicht - dann gibt es auch keinen Altbestand.
             }
 
-            $ergebnis = $arbeit();
-            if ($ergebnis === null) {
-                return; // Nicht zuständig - kein Marker, damit ein späterer Lauf es erneut versucht.
+            $vermerkt = false;
+            $vermerke = function () use ($pdo, $markerKey, &$vermerkt): void {
+                $pdo->prepare(
+                    "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+                )->execute([$markerKey, gmdate('c')]);
+                $vermerkt = true;
+            };
+            $istOffen = false;
+            $offen = function (string $meldung) use ($key, &$offeneSchritte, &$performed, &$istOffen): ?array {
+                $offeneSchritte[$key] = $meldung;
+                $performed[] = $meldung;
+                $istOffen = true;
+                return null;
+            };
+
+            try {
+                $ergebnis = $arbeit($vermerke, $offen);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException("Datenschritt {$key}: " . $e->getMessage(), 0, $e);
+            }
+            if ($istOffen || $ergebnis === null) {
+                return; // Offen oder nicht zuständig - kein Marker, ein späterer Lauf versucht es erneut.
             }
 
-            $pdo->prepare(
-                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
-                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
-            )->execute([$markerKey, gmdate('c')]);
+            if (!$vermerkt) {
+                $vermerke();
+            }
 
             foreach ((array)$ergebnis as $zeile) {
                 $performed[] = $zeile;
@@ -289,7 +592,7 @@ final class SchemaMigrator {
         // Helper für neue Tabellen: SHOW TABLES vor dem CREATE TABLE IF NOT
         // EXISTS dient nur der Protokollierung (hat die Tabelle gefehlt?) -
         // die Idempotenz garantiert weiterhin das IF NOT EXISTS selbst.
-        $createTable = function (string $table, string $createSql) use ($pdo, &$performed, $abgeloest) {
+        $createTable = function (string $table, string $createSql) use ($pdo, &$performed, &$offeneSchritte, $abgeloest) {
             // BEDINGUNGSLOS, nicht nur wenn `contacts` schon steht.
             //
             // Der erste Anlauf machte das von $kontaktschemaAktiv abhängig -
@@ -318,7 +621,16 @@ final class SchemaMigrator {
                 if (!$existed) {
                     $performed[] = "Tabelle {$table} angelegt";
                 }
-            } catch (\Throwable $e) {}
+            } catch (\Throwable $e) {
+                // Früher ein leeres catch - und nach dem Stempel wurde eine
+                // gescheiterte Anlage nie wiederholt (dieselbe Lehre wie
+                // #309, Audit N76). Jetzt hält sie den Stempel auf. Im
+                // Setup-Fall ohne settings ist ein Stempel ohnehin nicht
+                // möglich, dort ändert das nichts.
+                $meldung = "Tabelle {$table} konnte nicht angelegt werden: " . $e->getMessage();
+                $offeneSchritte['tabelle:' . $table] = $meldung;
+                $performed[] = $meldung;
+            }
         };
 
         // 1. Audit-Log für Revisionssicherheit (dauerhafte Speicherung, keine automatische Löschung)
@@ -1331,7 +1643,7 @@ final class SchemaMigrator {
         // was eine ganze Fehlerklasse erspart. Stationen bekommen neue IDs
         // oberhalb des Personenbestands; /station?id= läuft über contact_id_map
         // als dauerhafte Weiterleitung.
-        $dataStep('336_contacts_uebernahme', function () use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('336_contacts_uebernahme', function (callable $vermerke) use ($pdo, $tabelleExistiert): ?array {
             // JE TABELLE EINZELN prüfen, nicht als Paar.
             //
             // Die beiden Alttabellen kamen zwar praktisch immer zusammen vor -
@@ -1346,15 +1658,38 @@ final class SchemaMigrator {
             if (!$hatPersonen && !$hatStationen) {
                 return null; // Neuinstallation: schema.sql hat contacts direkt angelegt.
             }
-            if ((int)$pdo->query("SELECT COUNT(*) FROM contacts")->fetchColumn() > 0) {
-                // Zieltabelle ist nicht leer, der Marker fehlt aber. Das ist kein
-                // Normalfall (etwa ein von Hand abgebrochener Lauf) - und genau
-                // hier wäre blindes Kopieren die Verdopplung. Lieber nichts tun
-                // und es sagen.
-                throw new \RuntimeException(
-                    'Migration #336: contacts enthält bereits Zeilen, der Übernahme-Marker fehlt aber. '
-                    . 'Bitte den Stand von Hand prüfen (settings.migration_336_contacts_uebernahme).'
-                );
+            $kontakte = (int)$pdo->query("SELECT COUNT(*) FROM contacts")->fetchColumn();
+            if ($kontakte > 0) {
+                // Zieltabelle ist nicht leer, der Marker fehlt aber - und genau
+                // hier wäre blindes Kopieren die Verdopplung.
+                //
+                // Selbstheilung (Audit M41): Bis zum Fix stand der Marker
+                // NICHT in der Übernahmetransaktion, und die Dublettenabfrage
+                // danach scheiterte unter ONLY_FULL_GROUP_BY (MySQL 8). Die
+                // Daten waren festgeschrieben, der Marker nicht - und jeder
+                // weitere Lauf warf hier. Solche Instanzen erkennt eine
+                // gefüllte contact_id_map: Sie wird AUSSCHLIESSLICH in der
+                // Übernahmetransaktion unten befüllt und nur zusammen mit
+                // contacts geleert (SystemReset, Rückweg). Eine nicht leere
+                // Map beweist also den vollständigen Commit. Kontakte aus der
+                // Hängezeit stören nicht; einzelne per CASCADE verschwundene
+                // Map-Zeilen (Kontakt inzwischen hart gelöscht) behandelt 31c.
+                $zugeordnet = (int)$pdo->query("SELECT COUNT(*) FROM contact_id_map")->fetchColumn();
+                $alt = ($hatPersonen ? (int)$pdo->query("SELECT COUNT(*) FROM persons")->fetchColumn() : 0)
+                    + ($hatStationen ? (int)$pdo->query("SELECT COUNT(*) FROM breeding_stations")->fetchColumn() : 0);
+                if ($zugeordnet > 0 || $alt === 0) {
+                    return ['Kontaktliste (#336): Übernahme eines abgebrochenen Vorlaufs erkannt ('
+                        . $zugeordnet . ' Zuordnungen in contact_id_map) - Marker nachgetragen, nichts erneut kopiert'];
+                }
+                // Kein Beleg für eine frühere Übernahme: lieber nichts tun und
+                // es sagen.
+                throw new \RuntimeException(sprintf(
+                    'Migration #336: contacts enthält bereits %d Zeile(n), contact_id_map ist leer, '
+                    . 'der Übernahme-Marker fehlt, und es gibt %d Altdatensätze. '
+                    . 'Bitte den Stand von Hand prüfen (settings.migration_336_contacts_uebernahme).',
+                    $kontakte,
+                    $alt
+                ));
             }
 
             $meldungen = [];
@@ -1411,6 +1746,10 @@ final class SchemaMigrator {
                     $merken->execute([(int)$s['id'], (int)$pdo->lastInsertId()]);
                 }
 
+                // Marker in DERSELBEN Transaktion (Audit M41): Kontakte,
+                // contact_id_map und migration_336_contacts_uebernahme landen
+                // gemeinsam - oder gar nicht.
+                $vermerke();
                 $pdo->commit();
             } catch (\Throwable $e) {
                 if ($pdo->inTransaction()) {
@@ -1440,32 +1779,46 @@ final class SchemaMigrator {
             // Stattdessen: melden. Der Deduplizierer (#355) kann Kontakte seit
             // demselben Release vorschlagen und zusammenführen - dort trifft ein
             // Mensch die Entscheidung, mit Vorschau und je Fall.
-            $doppelt = $pdo->query("
-                SELECT c.name, COUNT(*) AS anzahl
-                FROM contacts c
-                WHERE c.deleted_at IS NULL
-                GROUP BY LOWER(TRIM(c.name))
-                HAVING COUNT(*) > 1
-                ORDER BY c.name ASC
-            ")->fetchAll(PDO::FETCH_ASSOC);
-            if ($doppelt) {
-                $namen = implode(', ', array_map(static fn($z) => $z['name'], array_slice($doppelt, 0, 10)));
-                $meldungen[] = sprintf(
-                    'Kontaktliste (#336): %d namensgleiche Kontaktpaare NICHT automatisch zusammengeführt (%s%s) - '
-                    . 'zu entscheiden im Deduplizierer unter /admin/contacts/merge',
-                    count($doppelt),
-                    $namen,
-                    count($doppelt) > 10 ? ', …' : ''
-                );
-                try {
-                    \App\Service\AuditLogger::log(
-                        'Kontaktliste zusammengeführt (#336)',
-                        'contacts',
-                        sprintf('%d namensgleiche Paare offen gelassen: %s', count($doppelt), $namen)
+            //
+            // Alles ab hier läuft NACH dem Commit und darf den Schritt nicht
+            // mehr scheitern lassen - die Übernahme ist festgeschrieben.
+            //
+            // Die Abfrage ist standardkonform (nur Aggregate außerhalb des
+            // GROUP BY): MySQL ab 5.7.5 hat ONLY_FULL_GROUP_BY standardmäßig
+            // aktiv, und der Kern setzt keinen sql_mode. Die frühere Fassung
+            // (`SELECT c.name … GROUP BY LOWER(TRIM(c.name))`) scheiterte dort
+            // und ließ die Migration dauerhaft hängen (Audit M41).
+            try {
+                $doppelt = $pdo->query("
+                    SELECT MIN(c.name) AS name, COUNT(*) AS anzahl
+                    FROM contacts c
+                    WHERE c.deleted_at IS NULL
+                    GROUP BY LOWER(TRIM(c.name))
+                    HAVING COUNT(*) > 1
+                    ORDER BY MIN(c.name) ASC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+                if ($doppelt) {
+                    $namen = implode(', ', array_map(static fn($z) => $z['name'], array_slice($doppelt, 0, 10)));
+                    $meldungen[] = sprintf(
+                        'Kontaktliste (#336): %d namensgleiche Kontaktpaare NICHT automatisch zusammengeführt (%s%s) - '
+                        . 'zu entscheiden im Deduplizierer unter /admin/contacts/merge',
+                        count($doppelt),
+                        $namen,
+                        count($doppelt) > 10 ? ', …' : ''
                     );
-                } catch (\Throwable $e) {
-                    // Protokoll darf die Migration nicht aufhalten.
+                    try {
+                        \App\Service\AuditLogger::log(
+                            'Kontaktliste zusammengeführt (#336)',
+                            'contacts',
+                            sprintf('%d namensgleiche Paare offen gelassen: %s', count($doppelt), $namen)
+                        );
+                    } catch (\Throwable $e) {
+                        // Protokoll darf die Migration nicht aufhalten.
+                    }
                 }
+            } catch (\Throwable $e) {
+                $meldungen[] = 'Kontaktliste (#336): Dublettenprüfung übersprungen (' . $e->getMessage()
+                    . ') - namensgleiche Kontakte bitte im Deduplizierer (/admin/contacts/merge) prüfen';
             }
 
             return $meldungen;
@@ -1476,7 +1829,7 @@ final class SchemaMigrator {
         $addColumn('horse_persons', 'contact_id', 'INT NULL DEFAULT NULL AFTER `horse_id`');
         $addColumn('horse_persons', 'station_contact_id', 'INT NULL DEFAULT NULL AFTER `role`');
 
-        $dataStep('336_horse_persons_umhaengen', function () use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('336_horse_persons_umhaengen', function (callable $vermerke) use ($pdo, $tabelleExistiert): ?array {
             if (!$tabelleExistiert('horse_persons') || !$tabelleExistiert('contact_id_map')) {
                 return null;
             }
@@ -1485,51 +1838,151 @@ final class SchemaMigrator {
                 return null; // Neuinstallation - die Altspalten gab es nie.
             }
 
-            $pdo->exec("
-                UPDATE horse_persons hp
-                JOIN contact_id_map m ON m.old_type = 'person' AND m.old_id = hp.person_id
-                SET hp.contact_id = m.contact_id
-                WHERE hp.person_id IS NOT NULL
-            ");
-            $personen = $pdo->query("SELECT COUNT(*) FROM horse_persons WHERE contact_id IS NOT NULL")->fetchColumn();
+            // Nicht zuordenbar ist ein Altverweis OHNE Eintrag in
+            // contact_id_map - nicht einer, dessen Altdatensatz fehlt (Audit
+            // M42). Zwei Ursachen, beide im Bestand real:
+            //  (i)  Der Altdatensatz ist weg: In v0.7 hatte
+            //       horse_persons.breeding_station_id keinen Fremdschlüssel,
+            //       der Papierkorb löschte Stationen endgültig, ohne die
+            //       Zuordnungen anzufassen.
+            //  (ii) Der Altdatensatz ist da, der Kontakt aber inzwischen hart
+            //       gelöscht: contact_id_map hängt per ON DELETE CASCADE an
+            //       contacts. Papierkorb, die 30-Tage-Bereinigung und die
+            //       DSGVO-Löschung konnten das zwischen einem abgebrochenen
+            //       und dem abschließenden Lauf auslösen.
+            // Früher warf der Schritt in beiden Fällen - bei jedem Lauf, für
+            // immer. Jetzt werden die Verweise geleert (dieselbe Wirkung wie
+            // der neue Fremdschlüssel station_contact_id ON DELETE SET NULL)
+            // und mit Pferd und alter ID gemeldet.
+            //
+            // breeding_station_text bleibt bewusst unangetastet: Der Name
+            // einer endgültig gelöschten Station existiert nicht mehr, ein
+            // Platzhalter im öffentlichen Freitextfeld wäre erfunden.
+            $ohneMap = [
+                'station' => "hp.breeding_station_id IS NOT NULL AND hp.station_contact_id IS NULL
+                              AND NOT EXISTS (SELECT 1 FROM contact_id_map m
+                                              WHERE m.old_type = 'station' AND m.old_id = hp.breeding_station_id)",
+                'person'  => "hp.person_id IS NOT NULL AND hp.contact_id IS NULL
+                              AND NOT EXISTS (SELECT 1 FROM contact_id_map m
+                                              WHERE m.old_type = 'person' AND m.old_id = hp.person_id)",
+            ];
+            $quelle = [
+                'station' => ['breeding_station_id', 'breeding_stations'],
+                'person'  => ['person_id', 'persons'],
+            ];
 
-            $pdo->exec("
-                UPDATE horse_persons hp
-                JOIN contact_id_map m ON m.old_type = 'station' AND m.old_id = hp.breeding_station_id
-                SET hp.station_contact_id = m.contact_id
-                WHERE hp.breeding_station_id IS NOT NULL
-            ");
-            $stationen = $pdo->query("SELECT COUNT(*) FROM horse_persons WHERE station_contact_id IS NOT NULL")->fetchColumn();
+            $geleert = ['station' => 0, 'person' => 0];
+            $altWeg = 0;
+            $kontaktWeg = 0;
+            $beispiele = [];
 
-            // Nachweis vor dem Löschen der Altspalten: Jede Zeile, die vorher
-            // einen Verweis trug, muss ihn jetzt im neuen Steckplatz haben.
-            // Sonst bricht der Schritt ab, der Marker bleibt ungesetzt und der
-            // nächste Lauf versucht es erneut - statt Daten zu verlieren.
-            $offen = (int)$pdo->query("
-                SELECT COUNT(*) FROM horse_persons
-                WHERE (person_id IS NOT NULL AND contact_id IS NULL)
-                   OR (breeding_station_id IS NOT NULL AND station_contact_id IS NULL)
-            ")->fetchColumn();
-            if ($offen > 0) {
-                throw new \RuntimeException(sprintf(
-                    'Migration #336: %d horse_persons-Zeile(n) ohne Gegenstück in contact_id_map - '
-                    . 'Altspalten werden NICHT entfernt.',
-                    $offen
-                ));
+            $pdo->beginTransaction();
+            try {
+                $pdo->exec("
+                    UPDATE horse_persons hp
+                    JOIN contact_id_map m ON m.old_type = 'person' AND m.old_id = hp.person_id
+                    SET hp.contact_id = m.contact_id
+                    WHERE hp.person_id IS NOT NULL
+                ");
+                $personen = $pdo->query("SELECT COUNT(*) FROM horse_persons WHERE contact_id IS NOT NULL")->fetchColumn();
+
+                $pdo->exec("
+                    UPDATE horse_persons hp
+                    JOIN contact_id_map m ON m.old_type = 'station' AND m.old_id = hp.breeding_station_id
+                    SET hp.station_contact_id = m.contact_id
+                    WHERE hp.breeding_station_id IS NOT NULL
+                ");
+                $stationen = $pdo->query("SELECT COUNT(*) FROM horse_persons WHERE station_contact_id IS NOT NULL")->fetchColumn();
+
+                foreach ($ohneMap as $art => $bedingung) {
+                    [$spalte, $alttabelle] = $quelle[$art];
+                    $anzahl = (int)$pdo->query("SELECT COUNT(*) FROM horse_persons hp WHERE {$bedingung}")->fetchColumn();
+                    if ($anzahl === 0) {
+                        continue;
+                    }
+                    $nochDa = $tabelleExistiert($alttabelle)
+                        ? (int)$pdo->query(
+                            "SELECT COUNT(*) FROM horse_persons hp WHERE {$bedingung}
+                               AND EXISTS (SELECT 1 FROM `{$alttabelle}` a WHERE a.id = hp.{$spalte})"
+                        )->fetchColumn()
+                        : 0;
+                    $kontaktWeg += $nochDa;
+                    $altWeg += $anzahl - $nochDa;
+                    $geleert[$art] = $anzahl;
+
+                    foreach ($pdo->query(
+                        "SELECT hp.id, hp.horse_id, hp.{$spalte} AS alt FROM horse_persons hp
+                         WHERE {$bedingung} ORDER BY hp.id ASC LIMIT 20"
+                    )->fetchAll(PDO::FETCH_ASSOC) as $z) {
+                        $beispiele[] = sprintf(
+                            'Zuordnung #%d (Pferd #%d, alte %s #%d)',
+                            (int)$z['id'],
+                            (int)$z['horse_id'],
+                            $art === 'station' ? 'Station' : 'Person',
+                            (int)$z['alt']
+                        );
+                    }
+                    $pdo->exec("UPDATE horse_persons hp SET hp.{$spalte} = NULL WHERE {$bedingung}");
+                }
+
+                // Nachweis vor dem Löschen der Altspalten, jetzt als
+                // Plausibilitätsprüfung: Ein Altverweis MIT Map-Eintrag muss
+                // seinen neuen Steckplatz haben. Sonst bricht der Schritt ab,
+                // der Marker bleibt ungesetzt - statt Daten zu verlieren.
+                $ungeklaert = (int)$pdo->query("
+                    SELECT COUNT(*) FROM horse_persons
+                    WHERE (person_id IS NOT NULL AND contact_id IS NULL)
+                       OR (breeding_station_id IS NOT NULL AND station_contact_id IS NULL)
+                ")->fetchColumn();
+                if ($ungeklaert > 0) {
+                    throw new \RuntimeException(sprintf(
+                        'Migration #336: %d horse_persons-Zeile(n) ohne Gegenstück in contact_id_map - '
+                        . 'Altspalten werden NICHT entfernt.',
+                        $ungeklaert
+                    ));
+                }
+
+                $vermerke();
+                $pdo->commit();
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
             }
 
-            return [sprintf(
+            $meldungen = [sprintf(
                 'Kontaktliste (#336): %d Personen- und %d Stationsverweise in horse_persons umgehängt',
                 $personen,
                 $stationen
             )];
+            if ($geleert['station'] + $geleert['person'] > 0) {
+                $text = sprintf(
+                    '%d Deckstations- und %d Personenverweise ohne Gegenstück geleert '
+                    . '(%d Altdatensatz gelöscht, %d Kontakt seit dem Update gelöscht): %s%s',
+                    $geleert['station'],
+                    $geleert['person'],
+                    $altWeg,
+                    $kontaktWeg,
+                    implode(', ', array_slice($beispiele, 0, 20)),
+                    count($beispiele) > 20 || $geleert['station'] + $geleert['person'] > count($beispiele) ? ', …' : ''
+                );
+                $meldungen[] = 'Kontaktliste (#336): ' . $text;
+                try {
+                    \App\Service\AuditLogger::log('Verwaiste Verweise geleert (#336)', 'contacts', $text);
+                } catch (\Throwable $e) {
+                    // Protokoll darf die Migration nicht aufhalten.
+                }
+            }
+
+            return $meldungen;
         });
 
         // 31d. horses.breeding_station_id zeigt jetzt auf contacts. Der
         // Spaltenname bleibt - die Aussage hat sich nicht geändert, nur die
         // Zieltabelle, und ein Umbenennen träfe jedes Addon, das den Spiegel
         // liest, ohne irgendetwas zu verbessern.
-        $dataStep('336_horses_station_umhaengen', function () use ($pdo, $tabelleExistiert, $dropForeignKey): ?array {
+        $dataStep('336_horses_station_umhaengen', function (callable $vermerke) use ($pdo, $tabelleExistiert, $spalteExistiert, $dropForeignKey): ?array {
             if (!$tabelleExistiert('horses') || !$tabelleExistiert('contact_id_map')) {
                 return null;
             }
@@ -1537,40 +1990,112 @@ final class SchemaMigrator {
                 return null; // Neuinstallation.
             }
             // Erst den alten Fremdschlüssel lösen, sonst scheitert das UPDATE an
-            // ihm (die neuen IDs gibt es in breeding_stations nicht).
+            // ihm (die neuen IDs gibt es in breeding_stations nicht). VOR der
+            // Transaktion: DDL committet implizit.
             $dropForeignKey('horses', 'breeding_station_id');
-            $pdo->exec("
-                UPDATE horses h
-                JOIN contact_id_map m ON m.old_type = 'station' AND m.old_id = h.breeding_station_id
-                SET h.breeding_station_id = m.contact_id
-                WHERE h.breeding_station_id IS NOT NULL
-            ");
-            $anzahl = (int)$pdo->query(
-                "SELECT COUNT(*) FROM horses WHERE breeding_station_id IS NOT NULL"
-            )->fetchColumn();
 
-            $verwaist = (int)$pdo->query("
-                SELECT COUNT(*) FROM horses h
-                LEFT JOIN contacts c ON c.id = h.breeding_station_id
-                WHERE h.breeding_station_id IS NOT NULL AND c.id IS NULL
-            ")->fetchColumn();
-            if ($verwaist > 0) {
-                // Nicht abbrechen: Ein verwaister Spiegel-Verweis ist im Bestand
-                // real (hart gelöschte Station) und darf den Fremdschlüssel
-                // nicht sprengen. Nullen und melden.
+            // Spiegel, die der NEUE Code geschrieben hat, nicht umschlüsseln
+            // (Audit M42). Hing die Migration zwischen 31b und hier, hat
+            // HorseController schon Kontakt-IDs in breeding_station_id
+            // geschrieben - samt einer horse_persons-Zeile, die NUR den neuen
+            // Steckplatz trägt. Solche Werte als alte Stations-ID zu lesen,
+            // hieße eine fremde Deckstation einzutragen.
+            $neuCode = $spalteExistiert('horse_persons', 'breeding_station_id')
+                ? "NOT EXISTS (SELECT 1 FROM horse_persons hp
+                               WHERE hp.horse_id = h.id AND hp.breeding_station_id IS NULL
+                                 AND hp.station_contact_id = h.breeding_station_id)"
+                : '1 = 1';
+
+            // Die Heuristik erfasst nicht jeden Spiegel aus der Hängezeit:
+            // HorseController::store/update schreibt breeding_station_id auch
+            // direkt aus dem Formular, ohne horse_persons-Zeile. Deshalb
+            // zusätzlich MELDEN, welche Pferde nach der Kontaktübernahme
+            // bearbeitet wurden. Nicht automatisch auslassen: updated_at
+            // ändert sich auch durch Bearbeitungen, die die Deckstation nicht
+            // berühren. Beide Spalten sind TIMESTAMP derselben Datenbankuhr,
+            // das ist zeitzonenfest. VOR dem Umschlüsseln gelesen, weil das
+            // UPDATE unten updated_at selbst fortschreibt.
+            $verdacht = [];
+            try {
+                $verdacht = $pdo->query(
+                    "SELECT h.id FROM horses h
+                     WHERE h.breeding_station_id IS NOT NULL
+                       AND h.updated_at > (SELECT MIN(m.created_at) FROM contact_id_map m)
+                     ORDER BY h.id ASC LIMIT 20"
+                )->fetchAll(PDO::FETCH_COLUMN);
+            } catch (\Throwable $e) {
+                // Nur eine Meldung - sie darf den Schritt nicht aufhalten.
+            }
+
+            $pdo->beginTransaction();
+            try {
+                // (a) ZUERST Alt-IDs ohne Map-Eintrag nullen, DANN
+                // umschlüsseln. Andersherum (die frühere Fassung prüfte erst
+                // hinterher gegen contacts) blieb eine nicht zuordenbare
+                // Stations-ID, die zufällig einer Personen-ID entspricht, als
+                // falsche Deckstation stehen - Personen behalten ihre IDs.
+                $ohneGegenstueck = (int)$pdo->exec("
+                    UPDATE horses h
+                    SET h.breeding_station_id = NULL
+                    WHERE h.breeding_station_id IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM contact_id_map m
+                                      WHERE m.old_type = 'station' AND m.old_id = h.breeding_station_id)
+                      AND {$neuCode}
+                ");
+                // (b) Umschlüsseln. Nicht idempotent - deshalb Marker in
+                // derselben Transaktion und die Migrationssperre in run()
+                // (Audit N75: zwei parallele Läufe schlüsselten doppelt um).
                 $pdo->exec("
+                    UPDATE horses h
+                    JOIN contact_id_map m ON m.old_type = 'station' AND m.old_id = h.breeding_station_id
+                    SET h.breeding_station_id = m.contact_id
+                    WHERE h.breeding_station_id IS NOT NULL
+                      AND {$neuCode}
+                ");
+                $anzahl = (int)$pdo->query(
+                    "SELECT COUNT(*) FROM horses WHERE breeding_station_id IS NOT NULL"
+                )->fetchColumn();
+
+                // (c) Nachlauf gegen contacts: Verweise auf Kontakte, die in
+                // der Hängezeit hart gelöscht wurden. Nicht abbrechen - ein
+                // verwaister Spiegel darf den Fremdschlüssel nicht sprengen.
+                $verwaist = (int)$pdo->exec("
                     UPDATE horses h
                     LEFT JOIN contacts c ON c.id = h.breeding_station_id
                     SET h.breeding_station_id = NULL
                     WHERE h.breeding_station_id IS NOT NULL AND c.id IS NULL
                 ");
+                $verwaist += $ohneGegenstueck;
+
+                $vermerke();
+                $pdo->commit();
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
             }
 
-            return [sprintf(
+            $meldungen = [sprintf(
                 'Kontaktliste (#336): %d horses.breeding_station_id auf contacts umgehängt%s',
                 $anzahl,
                 $verwaist > 0 ? sprintf(' (%d verwaiste Verweise geleert)', $verwaist) : ''
             )];
+            if ($verdacht !== []) {
+                $text = sprintf(
+                    'Deckstation bitte prüfen (in der Zeit zwischen abgebrochener und abgeschlossener Migration '
+                    . 'bearbeitet): Pferd #%s',
+                    implode(', #', array_map('intval', $verdacht))
+                );
+                $meldungen[] = 'Kontaktliste (#336): ' . $text;
+                try {
+                    \App\Service\AuditLogger::log('Deckstation prüfen (#336)', 'horses', $text);
+                } catch (\Throwable $e) {
+                    // Protokoll darf die Migration nicht aufhalten.
+                }
+            }
+
+            return $meldungen;
         });
 
         // 31e. Rechte NUR als Schnittmenge.
@@ -1645,7 +2170,7 @@ final class SchemaMigrator {
         // gebraucht wird. Ihn im selben Release zu kappen wäre die falsche
         // Reihenfolge. Wer den Termin erneut verschiebt, ändert BEIDE Stellen:
         // diesen Kommentar und die Meldung an den Betreiber weiter unten.
-        $dataStep('336_altbestand_stilllegen', function () use ($pdo, $tabelleExistiert, $dropForeignKey): ?array {
+        $dataStep('336_altbestand_stilllegen', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert, $spalteExistiert, $dropForeignKey): ?array {
             if (!$tabelleExistiert('persons') && !$tabelleExistiert('breeding_stations')) {
                 return null;
             }
@@ -1656,10 +2181,11 @@ final class SchemaMigrator {
             $marker->execute(['migration_336_contacts_uebernahme']);
             $uebernommen = $marker->fetchColumn() !== false;
             if (!$uebernommen) {
-                return null;
+                return $offen('Kontaktliste (#336): Altbestand nicht stillgelegt - die Übernahme nach contacts ist noch nicht abgeschlossen');
             }
 
             $meldungen = [];
+            $fehler = [];
             if ($umgehaengt) {
                 $dropForeignKey('horse_persons', 'person_id');
                 $dropForeignKey('horse_persons', 'breeding_station_id');
@@ -1670,7 +2196,9 @@ final class SchemaMigrator {
                             $pdo->exec("ALTER TABLE `horse_persons` DROP COLUMN `{$spalte}`");
                             $meldungen[] = "Spalte horse_persons.{$spalte} entfernt (ersetzt durch contact_id/station_contact_id)";
                         }
-                    } catch (\Throwable $e) {}
+                    } catch (\Throwable $e) {
+                        $fehler[] = $e->getMessage();
+                    }
                 }
             }
 
@@ -1682,19 +2210,48 @@ final class SchemaMigrator {
                 }
             }
 
+            // Das Entfernen der Altspalten schluckt Fehler oben bewusst (ein
+            // fremder Fremdschlüssel o. ä. soll nicht die ganze Migration
+            // aufhalten). Setzte der Schritt dann trotzdem seinen Marker,
+            // bliebe 336_fremdschluessel für immer offen - 31f liefe nie
+            // wieder (Audit N76). Deshalb: offen melden, nicht vermerken.
+            $uebrig = [];
+            if ($umgehaengt) {
+                foreach (['person_id', 'breeding_station_id'] as $spalte) {
+                    if ($spalteExistiert('horse_persons', $spalte)) {
+                        $uebrig[] = "horse_persons.{$spalte}";
+                    }
+                }
+            }
+            foreach (['persons', 'breeding_stations'] as $alt) {
+                if ($tabelleExistiert($alt)) {
+                    $uebrig[] = "Tabelle {$alt}";
+                }
+            }
+            if ($uebrig !== []) {
+                return $offen(sprintf(
+                    'Kontaktliste (#336): Altspalte/Alttabelle %s konnte nicht entfernt werden%s%s',
+                    implode(', ', $uebrig),
+                    $fehler !== [] ? ': ' . implode('; ', $fehler) : '',
+                    $meldungen !== [] ? ' (bereits erledigt: ' . implode('; ', $meldungen) . ')' : ''
+                ));
+            }
+
             return $meldungen;
         });
 
         // 31g. Fremdschlüssel auf die neue Zieltabelle. Nach dem Umhängen und
         // erst, wenn keine verwaisten Verweise mehr übrig sind - sonst
         // scheitert das ALTER und der ganze Lauf bliebe stehen.
-        $dataStep('336_fremdschluessel', function () use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('336_fremdschluessel', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
             if (!$tabelleExistiert('contacts') || !$tabelleExistiert('horse_persons')) {
                 return null;
             }
             $spalten = $pdo->query("SHOW COLUMNS FROM `horse_persons`")->fetchAll(PDO::FETCH_COLUMN);
             if (in_array('person_id', $spalten, true)) {
-                return null; // Stilllegung lief noch nicht - später erneut versuchen.
+                // Stilllegung lief noch nicht - offen, nicht "nicht zuständig":
+                // run() soll dann nicht stempeln.
+                return $offen('Kontaktliste (#336): Fremdschlüssel auf contacts noch nicht gesetzt - die Altspalten in horse_persons stehen noch');
             }
 
             $meldungen = [];
@@ -1749,11 +2306,13 @@ final class SchemaMigrator {
         // Kopieren, Inhalt vergleichen, erst dann die Quelle löschen. Ein
         // move/rename wäre kürzer, aber wenn es auf halbem Weg scheitert
         // (volle Platte, Rechte), ist das Foto weg - und Fotos gibt es nur
-        // einmal. Bleibt etwas liegen, wird KEIN Marker gesetzt: Der Rückfall
-        // in MediaController liefert die Datei weiter, das harte
+        // einmal. Bleibt etwas liegen, meldet sich der Schritt als offen:
+        // kein Marker, kein Versionsstempel (Audit N76). Der Rückfall in
+        // MediaController liefert die Datei weiter, das harte
         // public/uploads/horses/.htaccess hält den statischen Weg zu, und der
-        // nächste Migrationslauf nimmt sich den Rest vor.
-        $dataStep('366_pferdefotos_aus_dem_webroot', function () use (&$performed): ?array {
+        // nächste Migrationslauf (implizit nach 15 Minuten) nimmt sich den
+        // Rest vor.
+        $dataStep('366_pferdefotos_aus_dem_webroot', function (callable $vermerke, callable $offen): ?array {
             $quelle = \App\Helper\HorseImagePath::legacyDir();
             $ziel   = \App\Helper\HorseImagePath::dir();
 
@@ -1768,8 +2327,7 @@ final class SchemaMigrator {
 
             $eintraege = @scandir($quelle);
             if ($eintraege === false) {
-                $performed[] = 'Pferdefotos (#366): public/uploads/horses ist nicht lesbar - Verschiebung übersprungen, wird erneut versucht';
-                return null;
+                return $offen('Pferdefotos (#366): public/uploads/horses ist nicht lesbar - Verschiebung übersprungen - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
             }
 
             $bilder = [];
@@ -1795,8 +2353,7 @@ final class SchemaMigrator {
             }
 
             if (!is_dir($ziel) && !@mkdir($ziel, 0755, true) && !is_dir($ziel)) {
-                $performed[] = 'Pferdefotos (#366): storage/horses lässt sich nicht anlegen - Verschiebung übersprungen, wird erneut versucht';
-                return null;
+                return $offen('Pferdefotos (#366): storage/horses lässt sich nicht anlegen - Verschiebung übersprungen - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
             }
 
             $verschoben = 0;
@@ -1830,15 +2387,14 @@ final class SchemaMigrator {
             }
 
             if ($liegengeblieben > 0) {
-                $performed[] = sprintf(
+                return $offen(sprintf(
                     'Pferdefotos (#366): %d von %d Datei(en) nach storage/horses verschoben, %d liegen noch in '
                     . 'public/uploads/horses (Rechte prüfen). Sie werden weiter ausgeliefert und sind statisch '
-                    . 'gesperrt; der nächste Migrationslauf versucht es erneut.',
+                    . 'gesperrt - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php',
                     $verschoben,
                     count($bilder),
                     $liegengeblieben
-                );
-                return null;
+                ));
             }
 
             return [sprintf(
@@ -1855,7 +2411,7 @@ final class SchemaMigrator {
         // Zusaetzlich wird der Karenzbeginn gesetzt: Der erste Lauf nach dem
         // Update darf nicht den kompletten Altbestand am selben Tag
         // abraeumen, ohne dass jemand die Vorwarnung gesehen hat.
-        $dataStep('a358_fristanker_backfill', function () use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('a358_fristanker_backfill', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
             if (!$tabelleExistiert('users')) {
                 return null;
             }
@@ -1883,7 +2439,7 @@ final class SchemaMigrator {
                      ON DUPLICATE KEY UPDATE setting_value = setting_value"
                 )->execute([gmdate('Y-m-d H:i:s')]);
             } catch (\Throwable $e) {
-                return null;
+                return $offen('Ruhende Konten (#358): Fristanker nicht gesetzt (' . $e->getMessage() . ')');
             }
 
             if ($betroffen === 0) {
@@ -1915,7 +2471,7 @@ final class SchemaMigrator {
         // Hauptbild und bekommt eine eigene Medienzeile - sonst kennte die
         // Medienliste ausgerechnet das wichtigste Bild nicht. Hat ein Pferd
         // kein Hauptbild, aber Galeriebilder, wird das erste dazu.
-        $dataStep('339_galerie_uebernahme', function () use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('339_galerie_uebernahme', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
             if (!$tabelleExistiert('horse_media') || !$tabelleExistiert('horses')) {
                 return null;
             }
@@ -1939,11 +2495,11 @@ final class SchemaMigrator {
                      ORDER BY g.horse_id ASC, g.sort_order ASC, g.id ASC"
                 )->fetchAll(\PDO::FETCH_ASSOC);
             } catch (\Throwable $e) {
-                return null;
+                return $offen('Galerie (#339): Addon-Medien nicht lesbar (' . $e->getMessage() . ') - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
             }
 
-            if (!is_dir($ziel) && !mkdir($ziel, 0755, true) && !is_dir($ziel)) {
-                return null;
+            if (!is_dir($ziel) && !@mkdir($ziel, 0755, true) && !is_dir($ziel)) {
+                return $offen('Galerie (#339): storage/horses lässt sich nicht anlegen - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
             }
 
             $einfuegen = $pdo->prepare(
@@ -2076,13 +2632,13 @@ final class SchemaMigrator {
         // Migration nicht wissen.
         //
         // Gemeldet wird EINMAL, beim Sprung auf diese Fassung. Ein Marker
-        // wird dabei gesetzt (Rueckgabe ist eine Liste, kein null) - das ist
-        // hier auch die einzige Wahl: $dataStep verwirft die Meldung eines
-        // Schrittes, der null zurueckgibt, eine Wiederholung waere also eine
-        // Wiederholung von nichts. Der Hinweis steht damit im Protokoll des
-        // Updates, und der Laufzeitschutz (fail-closed bei der Anmeldung)
-        // traegt unabhaengig davon weiter.
-        $dataStep('348_mehrdeutige_kennungen', function () use ($pdo, $tabelleExistiert): ?array {
+        // wird dabei gesetzt (Rueckgabe ist eine Liste, kein null). Nur wenn
+        // die Abfrage selbst scheitert, meldet sich der Schritt als offen
+        // ($offen, Audit N76) - dann wird er wiederholt, statt still zu
+        // entfallen. Der Hinweis steht im Protokoll des Updates, und der
+        // Laufzeitschutz (fail-closed bei der Anmeldung) traegt unabhaengig
+        // davon weiter.
+        $dataStep('348_mehrdeutige_kennungen', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
             if (!$tabelleExistiert('users')) {
                 return null;
             }
@@ -2095,7 +2651,7 @@ final class SchemaMigrator {
                      ORDER BY u.username ASC"
                 )->fetchAll(\PDO::FETCH_COLUMN);
             } catch (\Throwable $e) {
-                return null;
+                return $offen('Anmeldung (#348): Pruefung auf mehrdeutige Kennungen gescheitert (' . $e->getMessage() . ')');
             }
 
             if (!$treffer) {
@@ -2125,7 +2681,18 @@ final class SchemaMigrator {
         //
         // created_at ist dagegen beweisbar vergangen: Der Schlüssel wurde
         // ausgestellt, bevor diese Migration lief.
-        $dataStep('340_bestandsschluessel_ablaufen', function () use ($pdo, $tabelleExistiert): ?array {
+        //
+        // NUR Schlüssel, deren Ablauf höchstens einen Tag in der Zukunft
+        // liegt (Audit M42). Bestandsschlüssel tragen den Zeitpunkt des ALTER
+        // - höchstens um den Zeitzonenversatz aus dem Absatz oben verschoben,
+        // also weniger als einen Tag. Hing die Migration zwischen dem ALTER
+        // und hier, hat der neue Code inzwischen Schlüssel mit ausdrücklichem
+        // Ablauf von mindestens einem Tag ausgestellt (ApiKey::create,
+        // max(1, …)); die sollen beim Nachholen nicht ablaufen. Ein solcher
+        // Schlüssel mit weniger als 24 h Restlaufzeit läuft vorzeitig ab -
+        // vernachlässigbar. Im normalen Lauf (ALTER und dieser Schritt in
+        // derselben Sitzung) ändert die Bedingung nichts.
+        $dataStep('340_bestandsschluessel_ablaufen', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
             if (!$tabelleExistiert('api_keys')) {
                 return null;
             }
@@ -2134,9 +2701,11 @@ final class SchemaMigrator {
                 if (!$stmt || $stmt->rowCount() === 0) {
                     return null;
                 }
-                $betroffen = $pdo->exec('UPDATE `api_keys` SET `expires_at` = `created_at`');
+                $betroffen = $pdo->exec(
+                    'UPDATE `api_keys` SET `expires_at` = `created_at` WHERE `expires_at` <= NOW() + INTERVAL 1 DAY'
+                );
             } catch (\Throwable $e) {
-                return null;
+                return $offen('API-Schlüssel (#340): Bestandsschlüssel nicht abgelaufen (' . $e->getMessage() . ')');
             }
 
             if (!$betroffen) {
@@ -2226,25 +2795,53 @@ final class SchemaMigrator {
         // schmalen Index fuer erledigt halten. Deshalb hier ausdruecklich ueber
         // die Spaltenzahl - und Neuanlage vor Loeschung, damit zwischen beiden
         // Schritten kein Zustand ganz ohne Index steht.
-        $dataStep('412_horse_persons_contact_deckend', function () use ($pdo, $tabelleExistiert): ?array {
-            if (!$tabelleExistiert('horse_persons')) {
+        //
+        // WIEDERAUFSETZBAR (Audit N77): Jede der drei DDL-Anweisungen
+        // committet implizit. Stirbt der Prozess dazwischen (FPM-Timeout,
+        // Container-Neustart), fand der naechste Lauf frueher einen Zustand,
+        // den er nicht kannte, scheiterte an "Duplicate key name" - bei jedem
+        // Lauf, fuer immer. Deshalb eine Zustandsmaschine ueber beide Namen:
+        //   Ziel zweispaltig, _deckend vorhanden -> _deckend aufraeumen
+        //   Ziel zweispaltig, kein _deckend      -> nichts zu tun
+        //   weder Ziel noch _deckend             -> Ziel zweispaltig anlegen
+        //   Ziel einspaltig, kein _deckend       -> _deckend anlegen, weiter:
+        //   Ziel einspaltig, _deckend vorhanden  -> Ziel loeschen, weiter:
+        //   nur _deckend                         -> umbenennen
+        // In jedem Zwischenzustand traegt ein Index den FK auf contact_id.
+        $dataStep('412_horse_persons_contact_deckend', function () use ($pdo, $tabelleExistiert, $spalteExistiert): ?array {
+            if (!$tabelleExistiert('horse_persons') || !$spalteExistiert('horse_persons', 'contact_id')) {
                 return null;
             }
-            try {
-                $spalten = $pdo->query(
-                    "SHOW INDEX FROM `horse_persons` WHERE Key_name = 'idx_horse_persons_contact'"
+            $indexSpalten = function (string $name) use ($pdo): array {
+                $zeilen = $pdo->query(
+                    "SHOW INDEX FROM `horse_persons` WHERE Key_name = " . $pdo->quote($name)
                 )->fetchAll(\PDO::FETCH_ASSOC);
-            } catch (\Throwable $e) {
-                return null;
-            }
-            if ($spalten === [] || count($spalten) >= 2) {
-                return null;      // fehlt ganz (dann legt ihn schema.sql an) oder ist schon deckend
-            }
+                usort($zeilen, static fn($a, $b) => (int)$a['Seq_in_index'] <=> (int)$b['Seq_in_index']);
+                return array_map(static fn($z) => (string)$z['Column_name'], $zeilen);
+            };
 
-            $pdo->exec(
-                "CREATE INDEX `idx_horse_persons_contact_deckend` ON `horse_persons` (`contact_id`, `horse_id`)"
-            );
-            $pdo->exec("DROP INDEX `idx_horse_persons_contact` ON `horse_persons`");
+            $ziel = $indexSpalten('idx_horse_persons_contact');
+            $zwischen = $indexSpalten('idx_horse_persons_contact_deckend');
+
+            if (count($ziel) >= 2) {
+                if ($zwischen !== []) {
+                    $pdo->exec("DROP INDEX `idx_horse_persons_contact_deckend` ON `horse_persons`");
+                    return ['aufgeräumt' => 'horse_persons.idx_horse_persons_contact_deckend (Rest eines abgebrochenen Laufs, #412)'];
+                }
+                return null; // schon deckend (frisches schema.sql)
+            }
+            if ($ziel === [] && $zwischen === []) {
+                $pdo->exec("CREATE INDEX `idx_horse_persons_contact` ON `horse_persons` (`contact_id`, `horse_id`)");
+                return ['angelegt' => 'horse_persons.idx_horse_persons_contact (contact_id, horse_id) (#412)'];
+            }
+            if (count($ziel) === 1 && $zwischen === []) {
+                $pdo->exec(
+                    "CREATE INDEX `idx_horse_persons_contact_deckend` ON `horse_persons` (`contact_id`, `horse_id`)"
+                );
+            }
+            if (count($ziel) === 1) {
+                $pdo->exec("DROP INDEX `idx_horse_persons_contact` ON `horse_persons`");
+            }
             $pdo->exec(
                 "ALTER TABLE `horse_persons` RENAME INDEX `idx_horse_persons_contact_deckend` TO `idx_horse_persons_contact`"
             );
@@ -2268,22 +2865,32 @@ final class SchemaMigrator {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // Reset-Token liegen nur noch als SHA-256-Abdruck in der Tabelle
-        // (siehe AuthController::hashResetToken()). Bestehende Zeilen enthalten
-        // noch Klartext-Token, die gegen den Abdruck nie treffen würden - sie
-        // werden entfernt statt umgerechnet: Aus dem Klartext ließe sich der
-        // Abdruck zwar bilden, aber die Zeilen sind höchstens 15 Minuten
-        // gültig, und ein laufender Reset ist mit einem Klick neu angefordert.
-        // Ein Vorrat gültiger Klartext-Token soll die Migration nicht
-        // überleben.
-        try {
-            $offen = (int)$pdo->query("SELECT COUNT(*) FROM password_resets")->fetchColumn();
-            if ($offen > 0) {
-                $pdo->exec("DELETE FROM password_resets");
-                $performed[] = "password_resets geleert ({$offen} offene Anforderung(en)) - Token liegen jetzt nur als Abdruck vor";
+        // (siehe AuthController::hashResetToken(), #318, v0.7.1 =
+        // SCHEMA_VERSION 9). Ältere Bestände enthalten noch Klartext-Token,
+        // die gegen den Abdruck nie treffen würden - sie werden entfernt statt
+        // umgerechnet: Aus dem Klartext ließe sich der Abdruck zwar bilden,
+        // aber die Zeilen sind höchstens 15 Minuten gültig, und ein laufender
+        // Reset ist mit einem Klick neu angefordert. Ein Vorrat gültiger
+        // Klartext-Token soll die Migration nicht überleben.
+        //
+        // EINMALIG und nur für Bestände von vor #318 (Audit N76). Bis zum
+        // Fix lief das DELETE ungegatet in jedem Voll-Lauf - seit offene
+        // Schritte alle 15 Minuten wiederholt werden, hätte es gültige
+        // Reset-Links (nur noch Abdrücke) laufend vernichtet. 0 = unbekannt
+        // (etwa ein Restore ohne Stand) zählt fail-closed zu den Altbeständen.
+        $dataStep('318_reset_token_klartext', function () use ($pdo, $tabelleExistiert, $vorherigeVersion): ?array {
+            if (!$tabelleExistiert('password_resets')) {
+                return null; // Setup-Fall - dann gibt es auch nichts zu bereinigen.
             }
-        } catch (\Throwable $e) {
-            // Tabelle existiert im Setup-Fall noch nicht - dann gibt es auch
-            // nichts zu bereinigen.
-        }
+            if ($vorherigeVersion >= 9) {
+                return []; // Nur Abdrücke im Bestand - nur vermerken.
+            }
+            $anzahl = (int)$pdo->query("SELECT COUNT(*) FROM password_resets")->fetchColumn();
+            if ($anzahl === 0) {
+                return [];
+            }
+            $pdo->exec("DELETE FROM password_resets");
+            return ["password_resets geleert ({$anzahl} offene Anforderung(en)) - Token liegen jetzt nur als Abdruck vor"];
+        });
     }
 }

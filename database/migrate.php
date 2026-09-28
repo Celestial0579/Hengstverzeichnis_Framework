@@ -43,6 +43,21 @@ try {
         }
     }
 
+    // Offene Datenschritte (Audit N76): Der Stand wurde NICHT gestempelt.
+    // Eigener Exit-Code 2, damit Deploy-Skripte das von Erfolg (0) und
+    // Fehler (1) unterscheiden können.
+    $status = SchemaMigrator::status($pdo);
+    if ($status !== null && $status['zustand'] === 'offen' && $status['ziel'] > SchemaMigrator::storedVersion($pdo)) {
+        echo "===============================================\n";
+        echo "[UNVOLLSTÄNDIG] Schema bleibt auf Version {$status['von']}, Datenschritte offen:\n";
+        foreach ($status['meldungen'] as $meldung) {
+            echo "  - {$meldung}\n";
+        }
+        echo "Ursache beheben und php database/migrate.php erneut ausführen.\n";
+        echo "===============================================\n";
+        exit(2);
+    }
+
     echo "===============================================\n";
     echo "[SUCCESS] Migration erfolgreich abgeschlossen!\n";
     echo "===============================================\n";

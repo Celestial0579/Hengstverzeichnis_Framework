@@ -276,7 +276,9 @@ Backup-/Digest-Konfiguration (Zugangsdaten verschlüsselt), `update_channel`,
 `tracking_code` und `base_url`. Wird bei jedem Request in
 `BaseController::__construct()` komplett geladen. Außerdem liegt hier
 `schema_version` — der zuletzt vollständig migrierte Schema-Stand (#213,
-siehe [Schema-Migration](#schema-migration-versioniert-idempotent)).
+siehe [Schema-Migration](#schema-migration-versioniert-idempotent)), dazu
+`schema_migration_status` (offener oder gescheiterter Lauf) und je
+Einmal-Datenschritt ein Marker `migration_<key>`.
 
 ## Schema-Migration (versioniert, idempotent)
 
@@ -287,10 +289,11 @@ per `SHOW COLUMNS`/`SHOW TABLES`/`SHOW INDEX` bzw.
 `App\Service\SchemaMigrator` (#230). Zwei Aufrufwege, EINE Quelle:
 
 - **Automatisch:** `Database::ensureSchemaUpToDate()` delegiert beim ersten
-  Verbindungsaufbau pro Request an `SchemaMigrator::run()`. Über den in
-  `settings.schema_version` persistierten Stand (#213) kostet das im
+  Verbindungsaufbau pro Request an `SchemaMigrator::run($pdo, true)`. Über
+  den in `settings.schema_version` persistierten Stand (#213) kostet das im
   Normalfall genau eine Abfrage; die Schritte laufen nur nach einem Update
   mit erhöhter `SchemaMigrator::SCHEMA_VERSION` (bzw. beim Setup) einmal.
+  Das zweite Argument schaltet die Drosselung ein (siehe unten).
 - **Explizit:** `SchemaMigrator::run($pdo): array` für Restore-/Import-Wege
   (z. B. ein Datenmigrations-Addon), die nach dem Einspielen eines Dumps
   einer **älteren** Kern-Version das Schema ohne `shell_exec` heben müssen.
@@ -329,6 +332,78 @@ Ein fehlendes Recht kann ein Admin bewusst entzogen haben, und ein Update darf
 es nicht zurückbringen. Stand 0 allein ist kein Beweis für einen Altstand,
 er entsteht auch bei einem Restore oder Settings-Import ohne
 `schema_version`. Künftige Seeds folgen demselben Muster.
+
+**Sperre gegen parallele Läufe** (Audit N75). `run()` serialisiert sich über
+`GET_LOCK('hv_schema_' + MD5(Datenbankname))` und prüft den Stand nach Erhalt
+der Sperre erneut – wer gewartet hat, findet die Arbeit meist erledigt vor.
+Beim ersten Lauf einer neuen Version warten parallele Requests bis zu 30 s;
+danach wirft `run()` „Schema-Migration läuft bereits in einem anderen
+Prozess“ (`Database` verschluckt das, `migrate.php` zeigt es an). Ein
+Wiederholungslauf des impliziten Wegs wartet gar nicht. Liefert der Server
+kein Ergebnis (Galera, Proxy ohne `GET_LOCK`), läuft die Migration wie
+bisher ohne Sperre. Ein verschachtelter `run()` im selben Prozess (etwa über
+`AuditLogger` → `Database::getInstance()` während `migrate.php` läuft) kehrt
+sofort zurück.
+
+**Offene Datenschritte, Status und Drosselung** (Audit N76). Kann ein
+Datenschritt nicht abschließen (Beispiel: `storage/horses` für #366 nicht
+anlegbar) oder scheitert eine Tabellenanlage, wird `schema_version` **nicht**
+hochgesetzt. Der Zustand steht in `settings.schema_migration_status` als JSON
+`{zustand, von, ziel, zeit, meldungen[]}` (`zustand` = `offen` oder
+`fehler`, höchstens 10 Meldungen zu je 500 Zeichen); eine geworfene Ausnahme
+landet dort als `fehler`. Das Admin-Dashboard zeigt Administratoren den
+Hinweis „Datenbank-Migration unvollständig“ bzw. „… gescheitert“, solange
+`ziel` über `schema_version` liegt. Der implizite Weg versucht es frühestens
+nach 15 Minuten (`offen`) bzw. 60 Sekunden (`fehler`) erneut
+(`SchemaMigrator::WIEDERHOLEN_NACH`); `php database/migrate.php` läuft sofort.
+Ein erfolgreicher Lauf stempelt den Stand und löscht den Status.
+
+`php database/migrate.php` endet mit **Exit-Code 0** (erledigt), **1**
+(Fehler, auch „läuft bereits“) oder **2** mit `[UNVOLLSTÄNDIG]` (Datenschritte
+offen, Stand nicht gestempelt).
+
+**Vertrag für Datenschritte** (`$dataStep($key, $arbeit)` in `migrate()`).
+`$arbeit($vermerke, $offen)` – Closures ohne Parameter bleiben gültig.
+
+| Ergebnis | Wirkung |
+|---|---|
+| Rückgabe `array` | erledigt: Marker `migration_<key>` in `settings`, Zeilen in die Schrittliste |
+| Rückgabe `null` ohne `$offen` | „nicht zuständig“ (etwa Setup-Fall): kein Marker, der nächste Lauf fragt erneut |
+| `return $offen('…')` | „zuständig, aber nicht fertig“: kein Marker, kein Versionsstempel, Status `offen` |
+| Ausnahme | Status `fehler`, weitergeworfen mit Präfix „Datenschritt <key>: “ |
+
+- `$vermerke()` schreibt den Marker sofort. Nicht idempotente Schritte rufen
+  es **innerhalb ihrer Transaktion vor `commit()`** auf, damit Daten und Marker
+  atomar sind (Audit M41: Daten festgeschrieben, Marker nicht – jeder weitere
+  Lauf hing).
+- Ein Schritt, der ein Teilergebnis still verschluckt (leeres `catch`), darf
+  keinen Marker setzen, sondern meldet sich über `$offen`.
+- Jeder Block in `migrate()`, der Daten ändert und nicht über den
+  Versionsstempel hinaus idempotent ist, wird ein `$dataStep`. Seit
+  SCHEMA_VERSION 23 gilt das auch für das Leeren von `password_resets`
+  (`migration_318_reset_token_klartext`, nur für Bestände von vor v0.7.1).
+- Fehler beim Anlegen einer Tabelle (`$createTable`) melden sich als offen
+  unter `tabelle:<name>`.
+
+**Rückweg #336** (`php database/rollback-336.php`). Ohne Argument prüft das
+Skript nur und zählt, was verloren ginge: nach der Migration angelegte
+Kontakte und Zuordnungen ohne Rückschreibziel („über Kreuz“, etwa ein
+Stationskontakt als Besitzer, Audit N40). Mit `--ich-weiss` rollt es zurück;
+gibt es Zuordnungen ohne Rückschreibziel, zusätzlich mit
+`--zuordnungen-verwerfen`. Vorbedingungen, geprüft vor jeder Änderung:
+
+- Keine andere Tabelle zeigt per Fremdschlüssel auf `contacts` – das Addon
+  **mitgliedsstatus** vorher deinstallieren.
+- `horse_persons.contact_id`/`station_contact_id` stehen noch.
+
+Vor dem ersten Schritt setzt das Skript `var/wartung.lock` **ohne
+Prozesskennung und mit Migrationssperre** (Audit N39). Der Marker verfällt
+nicht von selbst, und `SchemaMigrator::run()` wirft, solange er liegt – sonst
+machte der nächste Request den Rückweg sofort rückgängig. Er bleibt nach
+Erfolg wie nach einem Fehler stehen. Danach: alte Version (v0.7.x) von Hand
+einspielen, **dann** `var/wartung.lock` löschen. Wer auf der aktuellen
+Fassung bleiben will, löscht den Marker gleich; der nächste Request führt
+#336 erneut aus.
 
 ## Soft-Delete / Papierkorb
 

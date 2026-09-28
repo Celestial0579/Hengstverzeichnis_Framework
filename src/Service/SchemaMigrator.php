@@ -2425,6 +2425,28 @@ final class SchemaMigrator {
                 return [];
             }
 
+            // Im Container nur auf ein eigenes Volume verschieben (Audit M31).
+            //
+            // public/uploads ist dort das Volume uploads_data. Wer das Image
+            // mit einer eigenen Compose-Datei ohne horses_data betreibt,
+            // hätte die Fotos sonst aus dem Volume ins Container-Dateisystem
+            // geholt - und beim nächsten Neuerstellen (Watchtower,
+            // `docker compose pull && up -d`) wären sie weg. Bis storage/horses
+            // ein eigenes benanntes Volume oder Bind-Mount ist, bleiben sie
+            // deshalb liegen: MediaController::resolveUploadPath() liefert sie
+            // aus legacyDir() weiter aus, der statische Weg ist im Image per
+            // docker/apache-uploads.conf gesperrt (N41), und das
+            // Admin-Dashboard zeigt einen Hinweis. Offen statt null: Nach dem
+            // Nachrüsten des Volumes holt der gedrosselte Wiederholungslauf
+            // (Audit N76) die Verschiebung nach. Ohne HV_CONTAINER gilt jedes
+            // Ziel als dauerhaft - außerhalb des Images ändert sich nichts.
+            if (!\App\Helper\ContainerAblage::istPersistent($ziel)) {
+                return $offen('Pferdefotos (#366): storage/horses ist in diesem Container kein eigenes Volume - '
+                    . 'Verschiebung ausgesetzt, die Fotos bleiben in public/uploads/horses und werden weiter '
+                    . 'ausgeliefert (Hinweis im Admin-Dashboard) - nach dem Einbinden von horses_data nächster '
+                    . 'Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
+            }
+
             if (!is_dir($ziel) && !@mkdir($ziel, 0755, true) && !is_dir($ziel)) {
                 return $offen('Pferdefotos (#366): storage/horses lässt sich nicht anlegen - Verschiebung übersprungen - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
             }
@@ -2569,6 +2591,38 @@ final class SchemaMigrator {
                 )->fetchAll(\PDO::FETCH_ASSOC);
             } catch (\Throwable $e) {
                 return $offen('Galerie (#339): Addon-Medien nicht lesbar (' . $e->getMessage() . ') - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
+            }
+
+            // Im Container nicht aus einem Volume in den Container holen
+            // (Audit M31, wie Schritt 366). Ältere Stände des Addons legten
+            // unter public/uploads/plugin_galerie ab, also im Volume
+            // uploads_data. rename() fällt über Dateisystemgrenzen hinweg auf
+            // Kopieren und Löschen zurück - ohne horses_data landeten die
+            // Bilder im Container-Dateisystem und wären beim nächsten
+            // Neuerstellen weg.
+            //
+            // Ausgesetzt wird der GANZE Schritt, nicht nur die Datei: Sonst
+            // zählte die Zeile als "ohne Datei", der Marker würde gesetzt und
+            // die Übernahme wäre endgültig verloren. Bis dahin bleibt die
+            // Galerie-Tabelle die Quelle; die Bilder erscheinen erst nach dem
+            // Einbinden von horses_data in horse_media.
+            if (!\App\Helper\ContainerAblage::istPersistent($ziel)) {
+                foreach ($quellen as $quelle) {
+                    $imVolume = str_contains(str_replace('\\', '/', $quelle) . '/', '/public/uploads/')
+                        || \App\Helper\ContainerAblage::art($quelle) !== \App\Helper\ContainerAblage::KEIN_MOUNT;
+                    if (!$imVolume || !is_dir($quelle)) {
+                        continue;
+                    }
+                    foreach (@scandir($quelle) ?: [] as $eintrag) {
+                        if ($eintrag !== '.' && $eintrag !== '..' && is_file($quelle . '/' . $eintrag)) {
+                            return $offen('Galerie (#339): storage/horses ist in diesem Container kein eigenes '
+                                . 'Volume - Übernahme aus public/uploads/plugin_galerie ausgesetzt, die Bilder '
+                                . 'bleiben im Volume (Hinweis im Admin-Dashboard) - nach dem Einbinden von '
+                                . 'horses_data nächster Versuch automatisch in 15 Minuten oder sofort per '
+                                . 'php database/migrate.php');
+                        }
+                    }
+                }
             }
 
             if (!is_dir($ziel) && !@mkdir($ziel, 0755, true) && !is_dir($ziel)) {

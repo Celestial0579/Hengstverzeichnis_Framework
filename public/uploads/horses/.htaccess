@@ -23,4 +23,8 @@
 # Gegenstueck in die Serverkonfiguration:
 #     location ^~ /uploads/horses/ { deny all; }
 # Wo die Verschiebung durchgelaufen ist, ist das Verzeichnis ohnehin leer.
+#
+# Im offiziellen Docker-Image gilt stattdessen die gleichlautende Sperre aus
+# docker/apache-uploads.conf (Audit N41) - diese Datei laege dort im Volume
+# uploads_data und wird nicht ausgewertet.
 Require all denied

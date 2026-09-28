@@ -111,3 +111,27 @@ jobs:
           ADMIN_EMAIL: e2e-admin@example.com
           ADMIN_PASSWORD: FunctionalTest123!
         run: composer test -- --testsuite Functional
+
+  # Rauchtest fuer das offizielle Docker-Image (Audit M31, N38, N41).
+  #
+  # PHPUnit sieht das Image nie: Ob Apache die Upload-Sperren aus
+  # docker/apache-uploads.conf wirklich laedt, ob www-data var/ beschreiben
+  # kann und ob storage/horses als Volume deklariert ist, zeigt nur ein
+  # gebautes Image. Laeuft ueber workflow_call auch im Release-Gate, also
+  # bevor ein Image nach GHCR geht. Ohne Datenbank - geprueft werden nur
+  # Apache, Dateirechte und statische Auslieferung.
+  docker-image:
+    name: Docker-Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build image and run smoke test
+        run: tests/docker/image-smoke.sh

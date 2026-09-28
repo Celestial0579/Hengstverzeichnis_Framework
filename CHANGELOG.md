@@ -10,6 +10,25 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Docker: Die Schutzregeln für `public/uploads` kamen bei
+  Bestandsinstallationen nie an** (Audit N41; #262, #366, #367).
+  `public/uploads` ist das Volume `uploads_data`, und Docker füllt ein Volume
+  nur beim ersten Start aus dem Image. Die `.htaccess` darin blieb auf dem
+  Stand der Erstinstallation:
+  - Auf Installationen aus 0.7.x stand dort weiter die Referer-Regel, die das
+    eigene Logo mit 403 beantwortete (#367).
+  - Die harte Sperre `public/uploads/horses/.htaccess` (#366) fehlte im Image
+    ganz, weil `.dockerignore` sie ausschloss. Liegengebliebene Altfotos waren
+    damit statisch abrufbar, auch die depublizierter Pferde.
+
+  Das Image bringt die Regeln jetzt als Apache-Konfiguration mit
+  (`docker/apache-uploads.conf`, aktiviert als `zz-uploads`):
+  `AllowOverride None` für `/uploads`, kein Skript, Punktdateien gesperrt,
+  Einbettungsschutz für Bilder und eine harte Sperre für `/uploads/horses/`.
+  Das gilt unabhängig vom Inhalt des Volumes; eine eingeschleuste `.htaccess`
+  im Volume kann keinen PHP-Handler mehr einschalten. Ein Test hält die
+  Endungsliste von Konfiguration und `public/uploads/.htaccess` gleich.
+
 - **Zusammenführen von Kontakten konnte private Kontaktdaten veröffentlichen**
   (Audit M9). War der behaltene Kontakt für die Veröffentlichung seiner
   Kontaktdaten freigegeben, der aufgegebene aber nicht, wanderten
@@ -457,6 +476,72 @@ Breaking Changes sind jederzeit möglich).
   bereinigt wurde.
 - Die manuelle Personensuche der DSGVO-Verwaltung nannte „ab 2 Zeichen“,
   verlangt aber seit #318 drei.
+- **Docker: Ein Update konnte Pferdefotos aus dem Volume holen und beim
+  nächsten Neuerstellen des Containers verlieren** (Audit M31; #366, #339).
+  Zwei Migrationsschritte haben Dateien aus `public/uploads` (Volume
+  `uploads_data`) nach `storage/horses` verschoben, ohne zu prüfen, ob dort
+  ein Volume hängt:
+  - `366_pferdefotos_aus_dem_webroot` für die Pferdefotos,
+  - `339_galerie_uebernahme` für die Bilder des früheren Galerie-Addons aus
+    `public/uploads/plugin_galerie`.
+
+  Wer das Image mit einer eigenen Compose-Konfiguration ohne `horses_data`
+  betreibt, typischerweise mit Watchtower, hatte die Fotos danach nur noch
+  im Container-Dateisystem. Beim nächsten Neuerstellen waren sie weg.
+
+  Im Container (neue Variable `HV_CONTAINER=1`) verschieben beide Schritte
+  jetzt nur noch, wenn `storage/horses` in einem eigenen benannten Volume
+  oder Bind-Mount liegt; ein anonymes Volume zählt nicht. Sonst bleiben die
+  Dateien, wo sie sind, und werden weiter ausgeliefert. Der Schritt meldet
+  sich als offen, das Admin-Dashboard zeigt „Datenbank-Migration
+  unvollständig“ und zusätzlich einen Hinweis samt Rettungsweg. Ist das
+  Volume eingebunden, holt der nächste Migrationslauf (spätestens nach 15
+  Minuten, sofort per `php database/migrate.php`) die Verschiebung nach.
+  Das Image legt für `storage/horses` außerdem ein Volume an, damit neue
+  Fotos ohne Compose-Anpassung nicht mehr im Container-Dateisystem landen.
+  Außerhalb des Images (Shared Hosting, VPS) ändert sich nichts.
+
+  > **⚠️ Vor dem Update, wer das Image ohne `horses_data` betreibt:** Liegen
+  > seit v0.8.0 Fotos im Container, gehen sie beim Wechsel auf ein neues Image
+  > verloren, wenn sie nicht vorher gesichert werden. Watchtower vorher
+  > anhalten, dann prüfen und sichern:
+  >
+  > ```bash
+  > docker compose exec app sh -c 'grep -q " /var/www/html/storage/horses " /proc/self/mountinfo && echo VOLUME || echo KEIN-VOLUME'
+  > docker compose cp app:/var/www/html/storage/horses ./horses-sicherung
+  > ```
+  >
+  > Danach ergänzen:
+  >
+  > - `- horses_data:/var/www/html/storage/horses` unter `volumes:` des
+  >   Dienstes `app`,
+  > - `horses_data:` im obersten `volumes:` (siehe `docker-compose.yml` im
+  >   Repository).
+  >
+  > Dann `docker compose pull && docker compose up -d` ausführen und die
+  > Fotos zurückspielen:
+  >
+  > ```bash
+  > docker compose cp ./horses-sicherung/. app:/var/www/html/storage/horses/
+  > docker compose exec app chown -R www-data:www-data /var/www/html/storage/horses
+  > ```
+  >
+  > Wer sie schon verloren hat: Jede Sicherung unter `/admin/backups` enthält
+  > sie unter `uploads/horses/`. Achtung: `docker volume prune` löscht anonyme
+  > Volumes, auch eines mit Fotos.
+
+- **Docker: Wartungsmodus und Addon `datenmigration` funktionierten im
+  Container nicht** (Audit N38). `var/` gehörte im Image `root`. Der
+  Wartungsmodus (#232) konnte seinen Marker nicht schreiben, die
+  Datenmigration weder Archive noch Sicherungs-Dumps ablegen.
+
+  `var/` ist jetzt wie `storage/` für den Webserver beschreibbar. Es liegt
+  bewusst in keinem Volume, damit ein hängender Wartungs-Marker ein
+  Neuerstellen des Containers nicht überlebt. Einen hängenden Marker entfernt
+  `docker compose exec app rm var/wartung.lock`. Den Sicherungs-Dump der
+  Datenmigration nach dem Import mit
+  `docker compose cp app:/var/www/html/var/datenmigration ./` herausholen;
+  `docker-compose.yml` enthält dafür auch eine auskommentierte Volume-Zeile.
 
 - **Zusammenführen ließ alte Adressen und Addon-Daten zurück** (Audit M33).
   Die Zuordnung alter Personen- und Stationskennungen (`contact_id_map`)
@@ -743,6 +828,27 @@ Breaking Changes sind jederzeit möglich).
   nach dem alten Format durchsuchen.
 - `SCHEMA_VERSION` 28: keine Tabellenänderung, nur der einmalige
   DSGVO-Abgleich beim Update.
+- **Docker-Image** (Audit M31, N38, N41):
+  - Neue Umgebungsvariable `HV_CONTAINER=1`, sie kennzeichnet den
+    Container-Betrieb. Abgeleitete Images erben sie, der Wert `0` schaltet
+    die Volume-Prüfung ab.
+  - `VOLUME /var/www/html/storage/horses` als letzte Anweisung. Ohne
+    Compose-Eintrag entsteht damit ein anonymes Volume, das jedes
+    Neuerstellen verwaist zurücklässt; Pflicht bleibt `horses_data`. Ein
+    abgeleitetes Image kann das VOLUME nicht aufheben.
+  - `var/` ist für `www-data` beschreibbar.
+  - **`.htaccess`-Dateien im Volume unter `public/uploads` werden im
+    offiziellen Image nicht mehr ausgewertet.** Wer eigene Regeln braucht,
+    legt eine Apache-Konfiguration in ein abgeleitetes Image.
+  - Lokal gebaute Images (`./docker-start.sh`, `docker compose up --build`)
+    nehmen keine Laufzeitreste aus `var/`, `storage/logs/` und
+    `storage/horses/` mehr mit; `public/uploads/horses/.htaccess` ist wieder
+    im Image.
+  - Neuer CI-Job „Docker-Image“ (`tests/docker/image-smoke.sh`, auch im
+    Release-Gate): baut das Image und prüft Apache-Konfiguration, VOLUME,
+    Schreibrechte auf `var/`, die Volume-Erkennung und die Upload-Sperren
+    gegen ein Alt-Volume aus 0.7.x.
+  - Das Verzeichnis `docker/` gehört nicht ins Shared-Hosting-Archiv.
 
 - **Neuer Hook `contact.merged` für Addons** (Audit M33). Er feuert nach dem
   erfolgreichen Zusammenführen, nach dem Commit, mit

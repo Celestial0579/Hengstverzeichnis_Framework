@@ -110,14 +110,31 @@ ENV UPDATE_IN_PLACE=0
 # entwickeln will, überschreibt APP_ENV in seiner .env.
 ENV APP_ENV=production
 
+# Kennzeichnet den Container-Betrieb (Audit M31). App\Helper\ContainerAblage
+# prüft damit, ob storage/horses in einem eigenen Volume liegt, bevor die
+# Migration Pferdefotos aus dem Volume uploads_data dorthin verschiebt, und
+# das Admin-Dashboard warnt sonst. Ausdrücklich gesetzt statt aus
+# UPDATE_IN_PLACE=0 abgeleitet, das auch VPS-Betreiber ohne Container setzen.
+# Abgeleitete Images erben den Wert; HV_CONTAINER=0 schaltet die Prüfung ab.
+ENV HV_CONTAINER=1
+
 # Nur die DATEN-/Laufzeitverzeichnisse für www-data beschreibbar machen -
 # der Code bleibt root und ist für den Web-Prozess nicht überschreibbar.
 #   public/uploads  Bild-Uploads          - reine Daten, rekursiv www-data
 #   plugins/        Addon-Store (admin-gated) kopiert Addons hierher
-#   storage/        Logs und temporäre Dateien
-RUN mkdir -p plugins storage \
-    && chown -R www-data:www-data public/uploads plugins storage \
-    && chmod -R u+rwX public/uploads plugins storage
+#   storage/        Logs, Pferdefotos (storage/horses, #366), temporäre Dateien
+#   var/            Laufzeitzustand (Audit N38): der Wartungs-Marker
+#                   var/wartung.lock (#232) und die Ablagen des Addons
+#                   datenmigration (var/datenmigration: Archive,
+#                   Sicherungs-Dumps). Gehörte bisher root - der
+#                   Wartungsmodus griff im Container nie, die Datenmigration
+#                   scheiterte. Kein RCE-Verstärker: var/ liegt außerhalb des
+#                   Docroots, und aus var/ wird kein Code geladen.
+#                   Bewusst OHNE Volume: wartung.lock soll ein Neuerstellen
+#                   des Containers nicht überleben (siehe docs/releasing.md).
+RUN mkdir -p plugins storage/horses storage/logs var \
+    && chown -R www-data:www-data public/uploads plugins storage var \
+    && chmod -R u+rwX public/uploads plugins storage var
 
 # config/ ist ein Sonderfall: der Setup-Wizard muss hier db_config.php ANLEGEN,
 # aber config/config.php ist CODE und darf NICHT überschreibbar werden. Lösung:
@@ -133,3 +150,25 @@ RUN chown root:www-data config \
     && chmod 1775 config \
     && chown root:root config/config.php \
     && chmod 0644 config/config.php
+
+# Schutzregeln für public/uploads als Apache-Konfiguration (Audit N41).
+# public/uploads ist das Volume uploads_data, und die .htaccess darin bleibt
+# auf dem Stand des ersten Starts stehen. Die Konfiguration liegt dagegen im
+# Image und gilt in der Fassung des laufenden Images: AllowOverride None,
+# kein Skript, harte Sperre für /uploads/horses. Sie nennt den Docroot als
+# ${APACHE_DOCUMENT_ROOT} (ENV oben), das Apache beim Start auflöst - dieselbe
+# Technik wie der sed-Aufruf, der deshalb nicht über sie laufen muss. Als
+# zz-*, damit sie nach docker-php.conf geladen wird.
+COPY docker/apache-uploads.conf /etc/apache2/conf-available/zz-uploads.conf
+RUN a2enconf zz-uploads
+
+# Pferdefotos nie im Container-Dateisystem (Audit M31). Das ist nur der
+# RÜCKFALL für Betreiber ohne eigenes Volume: Docker legt dann ein ANONYMES
+# Volume an, das ein Neuerstellen (Watchtower, `docker compose down && up`)
+# verwaist zurücklässt und `docker volume prune` löscht. Pflicht bleibt das
+# benannte Volume horses_data aus docker-compose.yml.
+# Ein abgeleitetes Image kann ein VOLUME nicht mehr aufheben - bewusst so: Ein
+# Datenverzeichnis gehört nie in den Container-Layer. Deshalb die LETZTE
+# Anweisung: Was danach noch in storage/horses geschrieben würde, verwürfe
+# Docker still.
+VOLUME ["/var/www/html/storage/horses"]

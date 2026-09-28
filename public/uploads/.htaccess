@@ -1,5 +1,11 @@
 # Security .htaccess for Public Uploads Directory
 # Disables PHP script execution to prevent web shell / remote code execution attacks
+#
+# IM OFFIZIELLEN DOCKER-IMAGE wird diese Datei NICHT ausgewertet (Audit N41):
+# public/uploads ist dort ein Volume, das sie auf dem Stand des ersten Starts
+# einfrieren wuerde. Dieselben Regeln stehen in docker/apache-uploads.conf
+# (AllowOverride None). Wer hier etwas aendert, aendert es dort mit - die
+# Endungsliste unten prueft tests/Unit/Views/DockerImageTest.php.
 
 Options -Indexes -ExecCGI
 

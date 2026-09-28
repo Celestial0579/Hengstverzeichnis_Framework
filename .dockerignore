@@ -6,8 +6,26 @@ config/db_config.php
 # Sperr- und Temp-Dateien des atomaren Schreibens (Audit N56)
 config/.db_config.lock
 config/.db_config.php.*.tmp
+# Nutzdaten und Laufzeitreste - Paritaet zu .gitignore (Audit N38/N41). Ein
+# lokal gebautes Image (./docker-start.sh, docker compose up --build) nahm sonst
+# mit, was im Arbeitsbaum liegt: Logs, Testfotos, ein liegengebliebenes
+# var/wartung.lock (jede neue Instanz stuende auf 503).
+#
+# Das Verzeichnis public/uploads/horses muss ausdruecklich zurueckgeholt werden,
+# sonst fehlt die harte Sperre public/uploads/horses/.htaccess (#366) im Image.
+# Im Container gilt ohnehin docker/apache-uploads.conf; die .htaccess-Dateien
+# sind fuer Erstinstallationen und fuer Kopien aus dem Volume da.
 public/uploads/*
 !public/uploads/.htaccess
+!public/uploads/horses
+public/uploads/horses/*
+!public/uploads/horses/.htaccess
+var/*
+!var/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+storage/horses/*
+!storage/horses/.gitkeep
 
 # Dev-only Testtooling (siehe docs/development.md, Abschnitt "Tests") - die
 # vendor/ bleibt AUSGESPERRT, obwohl das Image es seit #353 braucht - es wird

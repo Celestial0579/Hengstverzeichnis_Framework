@@ -34,7 +34,9 @@ scripts/            Werkzeuge fuer den Release-Bau (nicht Teil der Auslieferung)
 public/             Docroot des Webservers (Apache DocumentRoot zeigt hierher)
   index.php          Front-Controller: Autoloader, Routing-Tabelle, Dispatch
   css/, js/          Statische Assets
-  uploads/           Branding-Dateien, z. B. das Logo (persistentes Docker-Volume).
+  uploads/           Branding-Dateien, z. B. das Logo (persistentes Docker-Volume;
+                     im Image gelten die Schutzregeln aus docker/apache-uploads.conf,
+                     nicht die .htaccess im Volume - Audit N41).
                      Pferdefotos liegen seit #366 NICHT mehr hier, sondern unter
                      storage/horses - im Webroot lieferte der Webserver sie an der
                      Sichtbarkeitspruefung vorbei aus.
@@ -48,10 +50,13 @@ src/
   Plugin/                 PluginManager, HookManager (Plugin-System, siehe unten)
   Permission/             PermissionRegistry, GroupMembership, FeatureRegistry, FeatureGate (Gruppen-/Berechtigungssystem, siehe unten)
   I18n/                   Translator (Mehrsprachigkeit, siehe unten)
-  Helper/                 Markdown (einfacher Markdown→HTML-Parser), Paginator
-tests/               PHPUnit-Suite (Unit/Integration/Functional, siehe development.md)
+  Helper/                 Markdown (einfacher Markdown→HTML-Parser), Paginator, ContainerAblage (Volume-Erkennung im Container, Audit M31)
+tests/               PHPUnit-Suite (Unit/Integration/Functional, siehe development.md); tests/docker/ Rauchtest fuer das Image
 security/            DAST-Scan-Harness (run-security-scan.sh, checks/, baseline/)
 storage/logs/        Audit-Log-Ablage (wird zur Laufzeit angelegt)
+storage/horses/      Pferdefotos (#366); im Container Pflicht-Volume horses_data
+var/                 Laufzeitzustand (Wartungs-Marker, Addon-Ablagen); im Image www-data-beschreibbar, kein Volume
+docker/              Nur fuer das Docker-Image: apache-uploads.conf (Upload-Schutzregeln, Audit N41); nicht im Shared-Hosting-Archiv
 .github/             CI-Workflows (Tests, CodeQL, Semgrep, Scorecard, Release)
 ```
 

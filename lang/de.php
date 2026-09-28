@@ -306,6 +306,11 @@ return [
     'admin.dashboard.tile_backups' => 'Backups',
     'admin.dashboard.tile_digest' => 'E-Mail-Digest',
     'admin.dashboard.tile_updates' => 'Updates',
+    // Container ohne eigenes Volume für storage/horses (Audit M31)
+    'admin.dashboard.storage_warning_title' => 'Pferdefotos ohne eigenes Volume:',
+    'admin.dashboard.storage_warning_no_mount' => 'storage/horses liegt in diesem Container in keinem eigenen Volume. Neu hochgeladene Fotos landen im Container-Dateisystem und sind beim nächsten Neuerstellen des Containers (Update, Watchtower) verloren. Fotos aus der Zeit vor v0.8.0 bleiben bis dahin in public/uploads/horses und werden von dort ausgeliefert; die Migration verschiebt sie erst, wenn das Volume eingebunden ist.',
+    'admin.dashboard.storage_warning_anonymous' => 'storage/horses liegt nur im anonymen Volume, das das Image als Rückfall anlegt. Neu hochgeladene Fotos liegen dort, verwaisen aber beim nächsten Neuerstellen des Containers (Update, Watchtower): Der neue Container bekommt ein leeres anonymes Volume, und docker volume prune löscht das alte. Fotos aus der Zeit vor v0.8.0 bleiben bis dahin in public/uploads/horses.',
+    'admin.dashboard.storage_warning_action' => 'Vor dem nächsten Update sichern, in der Compose-Datei das benannte Volume horses_data für /var/www/html/storage/horses ergänzen (siehe docker-compose.yml im Repository), neu starten und die Sicherung zurückspielen:',
 
     // Selfservice-Registrierung (#83)
     'register.title' => 'Registrieren',

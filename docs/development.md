@@ -81,7 +81,7 @@ gedacht – **nicht in Produktion ausführen**, ohne die Konsequenzen zu kennen:
 |---|---|
 | `php database/migrate.php` | Dünner CLI-Wrapper um `App\Service\SchemaMigrator::run()` (#230): führt den vollständigen, idempotenten Schema-Migrationslauf aus und listet die durchgeführten Schritte auf. Im normalen Betrieb übernimmt das die App automatisch bei jedem Verbindungsaufbau; explizit relevant nach einem Restore/Import eines älteren Dumps (Reihenfolge Restore → Migration → App, siehe [database.md](database.md#schema-migration-versioniert-idempotent)) |
 | `php database/seed.php` | Legt einen Test-Admin an (`admin@example.com` / `admin123`) oder setzt dessen Passwort zurück – **nur für lokale Entwicklung**, niemals in Produktion |
-| `php database/reset.php` | **Destruktiv:** Leert alle Kern-Tabellen (`TRUNCATE`) und löscht `config/db_config.php`, sodass die App wieder im Setup-Modus startet. Nur für lokales Zurücksetzen des Entwicklungsstands gedacht |
+| `php database/reset.php` | **Destruktiv:** Leert alle Kern-Tabellen, alle Addon-Tabellen (`plugin_*`), den #336-Altbestand (`*_pre_contacts`) und `login_attempts` per `DELETE` (die ID-Zähler laufen weiter), würfelt eine neue Installationsepoche (alle Anmeldungen enden) und löscht `config/db_config.php`, sodass die App wieder im Setup-Modus startet. Erhalten bleiben Audit-Log, Gruppen samt Berechtigungen, `plugins`, `addon_repos` und hochgeladene Dateien. Dieselbe Liste wie der Reset in der Oberfläche (`App\Service\SystemReset`). Nur für lokales Zurücksetzen des Entwicklungsstands gedacht |
 
 ## Tests
 

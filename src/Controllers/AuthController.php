@@ -479,7 +479,7 @@ class AuthController extends BaseController {
         // ausschliesslich faktorPfad().
         $faktoren = SecondFactors::fromRow($konto);
         if ($faktoren !== []) {
-            $_SESSION['pending_2fa_user_id'] = $userId;
+            \App\Service\LoginSession::beginSecondFactor($userId);
             $this->lokalerFaktorVerlangt();
             $pfad = self::faktorPfad($faktoren);
 
@@ -502,7 +502,7 @@ class AuthController extends BaseController {
         // Kein Bestandsschutz: Wird die Pflicht später aktiviert, greift sie
         // automatisch beim nächsten Login.
         if ($this->userRequires2fa($userId)) {
-            $_SESSION['pending_2fa_user_id'] = $userId;
+            \App\Service\LoginSession::beginSecondFactor($userId);
             $this->lokalerFaktorVerlangt();
             header("Location: /2fa/setup");
             exit;
@@ -592,7 +592,7 @@ class AuthController extends BaseController {
             \App\Permission\GroupMembership::isAdmin($userId)
             && !SecondFactors::has($userId, SecondFactors::TOTP)
         ) {
-            $_SESSION['pending_2fa_user_id'] = $userId;
+            \App\Service\LoginSession::beginSecondFactor($userId);
             $_SESSION['zweiter_faktor_bestanden'] = ['user_id' => $userId, 'at' => time()];
             header("Location: /2fa/setup?grund=starker_faktor");
             exit;
@@ -612,23 +612,11 @@ class AuthController extends BaseController {
      * nach dem Identitätswechsel nicht mehr abzuschliessen sein.
      */
     private function discardExistingSessionState(): void {
-        unset(
-            $_SESSION['user_id'],
-            $_SESSION['username'],
-            $_SESSION['user_agent_hash'],
-            $_SESSION['session_version'],
-            $_SESSION['pending_2fa_user_id'],
-            $_SESSION['zweiter_faktor_bestanden'],
-            $_SESSION['anmeldeweg'],
-            $_SESSION['twofa_reauth'],
-            $_SESSION['passkey_stepup'],
-            $_SESSION['passkey_registrierung'],
-            $_SESSION['totp_setup'],
-            $_SESSION['must_change_password'],
-            $_SESSION['last_activity'],
-            $_SESSION['last_token_rotation'],
-            $_SESSION['created_time']
-        );
+        // Die Liste der identitätsgebundenen Schlüssel steht seit Audit M24
+        // an EINER Stelle - dieselbe verwirft auch eine Sitzung aus einer
+        // früheren Installation (BaseController) oder eine ungültige Sitzung
+        // auf einer öffentlichen Seite (LoginSession::currentUserId()).
+        \App\Service\LoginSession::forgetIdentity();
     }
 
     /**

@@ -22,7 +22,20 @@ try {
 
     // Dieselbe Tabellenliste wie AdminController::resetSystem() (#451).
     // Das Audit-Log bleibt über Resets hinweg erhalten.
+    $tabellen = SystemReset::tabellen($db);
     SystemReset::truncateAll($db);
+
+    echo sprintf(
+        "[INFO] Geleert: %d Kerntabelle(n), %d Addon-Tabelle(n), %d Altbestandstabelle(n).\n",
+        count($tabellen['kern']),
+        count($tabellen['addons']),
+        count($tabellen['altbestand'])
+    );
+    foreach ($tabellen['uebersprungen'] as $name) {
+        echo "[WARNUNG] Tabelle mit unzulässigem Namen nicht geleert: {$name}\n";
+    }
+    echo "[INFO] Alle bestehenden Anmeldungen sind ungültig (neue Installationsepoche).\n";
+    echo "[INFO] Erhalten bleiben Audit-Log, Benutzergruppen samt Berechtigungen, installierte Addons, Addon-Quellen und hochgeladene Dateien.\n";
 
     $dbConfigFile = __DIR__ . '/../config/db_config.php';
     if (file_exists($dbConfigFile)) {

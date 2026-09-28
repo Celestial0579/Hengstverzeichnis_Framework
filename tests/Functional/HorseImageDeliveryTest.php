@@ -306,6 +306,78 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
     }
 
     /**
+     * Audit N44: Eine ungültige Sitzung wird auf der Bildroute wie ein Gast
+     * behandelt - 404, keine Weiterleitung auf /login. Die Weiterleitung kam
+     * aus checkAuth(), das die Bildroute nicht mehr aufruft.
+     */
+    public function testGeloeschtesKontoBekommt404OhneWeiterleitung(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $url = '/media/horse-image?id=' . $this->seedHorseWithPhoto(false);
+
+        $groupId = $this->createCustomGroup($admin, "Bildleser 404 {$unique}");
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view']]);
+        $email = "bildleser-404-{$unique}@example.com";
+        $leser = $this->createAndLoginEditor($admin, "bildleser404{$unique}", $email, [$groupId]);
+        $this->assertSame(200, $leser->get($url)->statusCode, 'Vorbedingung: gültige Sitzung sieht das Bild');
+
+        $db->prepare("UPDATE users SET deleted_at = NOW() WHERE email = ?")->execute([$email]);
+
+        $nachher = $leser->get($url);
+        $this->assertSame(404, $nachher->statusCode);
+        $this->assertNull($nachher->location());
+        // Die Identität ist verworfen: Das Backend verlangt eine neue Anmeldung.
+        $this->assertStringStartsWith('/login', (string)$leser->get('/admin')->location());
+    }
+
+    /**
+     * Audit N44: Bildanfragen rotieren die Sitzungs-ID nicht. Rotierte eine
+     * von Dutzenden parallelen Bildanfragen, legten die übrigen mit der alten
+     * ID leere Sitzungen an und überschrieben das Cookie.
+     *
+     * Die Rotation fällt nach 15 Minuten an. Der Test stellt den Zeitpunkt
+     * der letzten Rotation in der Sitzungsdatei zurück; eine Seitenanfrage
+     * rotiert danach (Gegenprobe), die Bildanfrage nicht.
+     */
+    public function testBildanfrageRotiertDieSitzungNicht(): void {
+        $admin = $this->authenticatedClient();
+        $url = '/media/horse-image?id=' . $this->seedHorseWithPhoto(true);
+        $this->assertSame(200, $admin->get('/admin')->statusCode);
+
+        $this->rotationZuruecksetzen($admin);
+        $bild = $admin->get($url);
+        $this->assertSame(200, $bild->statusCode);
+        $this->assertNull($bild->header('set-cookie'), 'Eine Bildanfrage darf die Sitzungs-ID nicht rotieren.');
+
+        // Gegenprobe: Dieselbe Manipulation lässt eine Seitenanfrage rotieren.
+        $this->rotationZuruecksetzen($admin);
+        $this->assertNotNull($admin->get('/admin')->header('set-cookie'), 'Gegenprobe: checkAuth() rotiert nach 15 Minuten.');
+    }
+
+    /** Stellt last_token_rotation in der Sitzungsdatei des Clients auf 1970. */
+    private function rotationZuruecksetzen(\Tests\Support\HttpClient $client): void {
+        $jar = (new \ReflectionProperty($client, 'cookieJar'))->getValue($client);
+        $sid = null;
+        foreach (file((string)$jar) ?: [] as $zeile) {
+            $felder = explode("\t", trim($zeile));
+            if (count($felder) === 7 && str_contains($felder[5], 'SESSID')) {
+                $sid = $felder[6];
+            }
+        }
+        $pfad = (session_save_path() ?: sys_get_temp_dir());
+        $pfad = substr($pfad, (int)strrpos($pfad, ';') + (str_contains($pfad, ';') ? 1 : 0));
+        $datei = $pfad . '/sess_' . $sid;
+        if ($sid === null || !is_file($datei) || !is_writable($datei)) {
+            $this->markTestSkipped("Sitzungsdatei nicht erreichbar ({$datei}) - anderer Session-Handler?");
+        }
+        $inhalt = (string)file_get_contents($datei);
+        $neu = preg_replace('/last_token_rotation\|i:\d+;/', 'last_token_rotation|i:1;', $inhalt, 1, $ersetzt);
+        $this->assertSame(1, $ersetzt, 'last_token_rotation nicht in der Sitzung gefunden');
+        file_put_contents($datei, $neu);
+    }
+
+    /**
      * #315: Die Cache-Direktive folgt der Sichtbarkeit.
      *
      * Ein gemeinsam genutzter Zwischenspeicher (nginx proxy_cache, Varnish,

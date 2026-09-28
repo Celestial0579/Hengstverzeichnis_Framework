@@ -60,7 +60,7 @@ use PDO;
 final class PluginDataRegistry {
 
     /** Pflicht-Präfix für Tabellen und Einstellungsschlüssel eines Addons. */
-    private const PRAEFIX = 'plugin_';
+    public const PRAEFIX = 'plugin_';
 
     /**
      * Verzeichnisse, die ein Addon niemals als "seins" beanspruchen darf -

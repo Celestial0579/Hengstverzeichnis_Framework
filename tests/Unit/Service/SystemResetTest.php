@@ -7,13 +7,18 @@ use App\Service\SystemReset;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Hält die Tabellenliste des Werksresets vollständig (#451).
+ * Hält die Tabellenliste des Werksresets vollständig (#451, Audit N79).
  *
- * TRUNCATE feuert kein ON DELETE CASCADE. Jede Tabelle, die per
+ * Der Reset leert unter FOREIGN_KEY_CHECKS = 0, und dann feuert weder
+ * TRUNCATE noch DELETE ein ON DELETE CASCADE. Jede Tabelle, die per
  * Fremdschlüssel an einer geleerten Tabelle hängt, überlebte den Reset
- * sonst mit Zeilen, die nach der Neuvergabe der Kennungen einem fremden
- * Datensatz gehören - bei users bis hin zu Gruppenrechten, API-Schlüsseln
- * und Passkeys des Vorgängerkontos.
+ * sonst mit verwaisten Zeilen, die einem späteren Datensatz mit derselben
+ * Kennung zugeschlagen würden - bei users bis hin zu Gruppenrechten,
+ * API-Schlüsseln und Passkeys des Vorgängerkontos.
+ *
+ * Seit Audit N79 leert der Reset per DELETE, damit die Zähler weiterlaufen;
+ * das Verhalten gegen eine echte Datenbank prüft
+ * tests/Integration/SystemResetTest.php.
  */
 class SystemResetTest extends TestCase {
 
@@ -74,5 +79,42 @@ class SystemResetTest extends TestCase {
             $this->assertStringContainsString('SystemReset::truncateAll(', $code, $file);
             $this->assertDoesNotMatchRegularExpression('/TRUNCATE\s+TABLE/i', $code, "{$file} leert Tabellen an SystemReset vorbei");
         }
+    }
+
+    /**
+     * Die Addon-Tabellen erkennt der Reset am Präfix. Trüge eine
+     * Kerntabelle es, verschwände sie mit den Addon-Daten - oder, schlimmer,
+     * das Präfix wäre keine Grenze mehr.
+     */
+    public function testKeinKerntabellennameTraegtDasAddonPraefix(): void {
+        $sql = (string)file_get_contents(self::ROOT . '/database/schema.sql');
+        preg_match_all('/CREATE TABLE (?:IF NOT EXISTS )?`?(\w+)`?/i', $sql, $treffer);
+        $this->assertNotEmpty($treffer[1]);
+        foreach ($treffer[1] as $name) {
+            $this->assertStringStartsNotWith(\App\Plugin\PluginDataRegistry::PRAEFIX, $name, "Kerntabelle {$name} trägt das Addon-Präfix");
+        }
+        $this->assertSame('plugin_', \App\Plugin\PluginDataRegistry::PRAEFIX);
+        $this->assertContains('login_attempts', SystemReset::TABLES);
+        $this->assertNotContains('plugins', SystemReset::TABLES);
+        $this->assertNotContains('addon_repos', SystemReset::TABLES);
+    }
+
+    /**
+     * Kein TRUNCATE mehr im Code von SystemReset (Audit N79): TRUNCATE stellt
+     * den AUTO_INCREMENT zurück, und die Kennungen würden neu vergeben.
+     * Geprüft wird über die Tokens, Kommentare zählen nicht - der
+     * Klassenkommentar erklärt TRUNCATE ausdrücklich.
+     */
+    public function testResetLeertOhneZaehlerRueckstellung(): void {
+        $code = (string)file_get_contents(self::ROOT . '/src/Service/SystemReset.php');
+        $literale = [];
+        foreach (token_get_all($code) as $token) {
+            if (is_array($token) && in_array($token[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)) {
+                $literale[] = $token[1];
+            }
+        }
+        $alle = implode("\n", $literale);
+        $this->assertDoesNotMatchRegularExpression('/TRUNCATE\s+TABLE/i', $alle);
+        $this->assertMatchesRegularExpression('/DELETE\s+FROM/i', $alle);
     }
 }

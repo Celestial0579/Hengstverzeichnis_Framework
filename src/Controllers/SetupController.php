@@ -443,6 +443,15 @@ class SetupController extends BaseController {
         }
 
         try {
+            // Neue Installationsepoche (Audit M24, App\Service\InstallEpoch):
+            // NACH dem Schema-Import (vorher gibt es keine settings-Tabelle)
+            // und VOR dem Anlegen des Admins. Bei overwrite_db und bei einer
+            // neuen Datenbank vergibt MariaDB die Benutzer-IDs wieder ab 1 -
+            // eine Alt-Sitzung mit user_id 1 aus der vorherigen Installation
+            // trüge sonst das neue Admin-Konto. In beiden Wegen, auch wenn
+            // die Env-Einrichtung selbst keine Sitzung vergibt.
+            $epoche = \App\Service\InstallEpoch::renew($testPdo);
+
             // Save Site Name setting
             $stmt = $testPdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('site_name', ?) ON DUPLICATE KEY UPDATE setting_value = ?");
             $stmt->execute([$siteName, $siteName]);
@@ -465,18 +474,24 @@ class SetupController extends BaseController {
             if ($startSession) {
                 // Wizard: Der Anfragende hat das Passwort soeben selbst
                 // eingegeben - das ist der Nachweis des ersten Faktors.
-                $_SESSION['pending_2fa_user_id'] = (int)$newUserId;
+                // Die Epoche kommt aus $testPdo: Das ist die Datenbank, in der
+                // das Konto soeben entstanden ist - App\Database kann beim
+                // Wizard noch auf die alte zeigen.
+                \App\Service\LoginSession::forgetIdentity();
+                \App\Service\LoginSession::beginSecondFactor((int)$newUserId, $epoche);
                 header("Location: /2fa/setup");
                 exit;
             }
 
-            // Env-Einrichtung (Audit H2): keine Sitzung. ALLE drei Schluessel
-            // werden abgeraeumt, nicht nur die Pending-ID:
+            // Env-Einrichtung (Audit H2): keine Sitzung. Die GANZE Identität
+            // wird abgeraeumt, nicht nur die Pending-ID:
             // AuthController::twofaTargetUserId() nimmt `pending_2fa_user_id ??
-            // user_id`, und nach einem Werksreset beginnen die Benutzer-IDs
+            // user_id`, und nach einer Neueinrichtung beginnen die Benutzer-IDs
             // wieder bei 1 - eine alte user_id in dieser Sitzung zeigte sonst
-            // auf das neue, faktorlose Konto.
-            unset($_SESSION['pending_2fa_user_id'], $_SESSION['user_id'], $_SESSION['twofa_reauth']);
+            // auf das neue, faktorlose Konto. Die neue Installationsepoche
+            // (oben) verwirft solche Sitzungen ohnehin überall; das hier ist
+            // der doppelte Boden für genau diese Anfrage.
+            \App\Service\LoginSession::forgetIdentity();
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_regenerate_id(true);
             }

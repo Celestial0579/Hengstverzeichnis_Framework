@@ -47,7 +47,11 @@ final class FeatureGate {
             return true;
         }
 
-        $userId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+        // Gültig angemeldet, nicht bloss "user_id steht in der Sitzung"
+        // (Audit N14): Sitzungen gelöschter oder deaktivierter Konten und
+        // solche nach einem Passwortwechsel galten hier sonst weiter als
+        // Mitglied. Dieselbe Regel wie BaseController::checkAuth().
+        $userId = \App\Service\LoginSession::currentUserId();
         if (!$userId) {
             return false;
         }

@@ -107,6 +107,47 @@ class FeatureVisibilityTest extends FunctionalTestCase {
     }
 
     /**
+     * Audit N14: Eine gesperrte Sitzung verliert die Mitgliederfunktion
+     * sofort - die Premium-Seite ist eine öffentliche Route ohne
+     * checkAuth(), FeatureGate las vorher nur die rohe user_id.
+     */
+    public function testGesperrteSitzungVerliertMitgliederfunktion(): void {
+        $admin = $this->authenticatedClient();
+        self::installPluginFixture();
+        $toggleResponse = $admin->post('/admin/plugins/toggle', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => 'demo-plugin',
+            'enable' => '1',
+        ]);
+        $this->assertSame('/admin/plugins?success=1', $toggleResponse->location());
+
+        try {
+            $this->saveVisibility($admin, 'members');
+            $unique = uniqid();
+            $groupId = $this->createCustomGroup($admin, "Premium gesperrt {$unique}");
+            $this->setGroupPermissions($admin, $groupId, ['feature_demo-premium' => ['read']]);
+            $db = \App\Database::getInstance();
+
+            foreach (['session_version = session_version + 1', 'deactivated_at = NOW()'] as $i => $sperre) {
+                $email = "premium-gesperrt{$i}-{$unique}@example.com";
+                $member = $this->createAndLoginEditor($admin, "premiumgesperrt{$i}{$unique}", $email, [$groupId]);
+                $this->assertSame(200, $member->get(self::PREMIUM_URL)->statusCode, "Vorbedingung ({$sperre}): Mitglied sieht die Funktion");
+
+                $db->prepare("UPDATE users SET {$sperre} WHERE email = ?")->execute([$email]);
+
+                $this->assertSame(403, $member->get(self::PREMIUM_URL)->statusCode, "Nach {$sperre} keine Mitgliederfunktion mehr");
+                $this->assertStringStartsWith('/login', (string)$member->get('/admin')->location());
+            }
+        } finally {
+            $admin->post('/admin/plugins/toggle', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'slug' => 'demo-plugin',
+                'enable' => '0',
+            ]);
+        }
+    }
+
+    /**
      * Supply-Chain-Schranke (#129, siehe PluginManager::loadEnabledPlugins()):
      * Werden die Dateien eines aktivierten Plugins verändert, OHNE die Version
      * in plugin.json zu erhöhen, darf das Plugin fail-closed nicht mehr geladen

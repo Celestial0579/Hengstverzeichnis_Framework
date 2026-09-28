@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 24; // 24: users.totp_secret auf VARCHAR(255), Klartext-TOTP-Secrets verschlüsseln (Audit N8)
+    public const SCHEMA_VERSION = 25; // 25: settings.install_epoch für Bestandsinstallationen (Audit M24)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -3034,6 +3034,30 @@ final class SchemaMigrator {
                 );
             }
             return $meldungen;
+        });
+
+        // 3. Installationsepoche (Audit M24, SCHEMA_VERSION 25, siehe
+        // App\Service\InstallEpoch). Frische Installationen bekommen sie aus
+        // SetupController::provision(), der Werksreset aus
+        // SystemReset::truncateAll(); dieser Schritt versorgt den Bestand.
+        //
+        // INSERT IGNORE und NIE überschreiben: Nach einem Werksreset fehlen
+        // alle Marker und schema_version, dieser Schritt läuft beim nächsten
+        // Verbindungsaufbau also erneut - ein Überschreiben würfe den
+        // Setup-Admin mitten in der 2FA-Einrichtung hinaus. Gegen parallele
+        // Läufe ist INSERT IGNORE auf den eindeutigen Schlüssel sicher.
+        //
+        // Bestehende Sitzungen kennen die Epoche noch nicht und enden einmal
+        // (Linie aus #113).
+        //
+        // Rückgabe immer [] (Marker, keine Meldung): Die Epoche ist kein
+        // Befund für den Betreiber, und auf einem frisch importierten
+        // schema.sql darf run() nur den Versionsstempel melden
+        // (SchemaMigratorTest::testRunOnCurrentSchemaOnlyPersistsVersion).
+        $dataStep('installationsepoche', function () use ($pdo): ?array {
+            $pdo->prepare("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)")
+                ->execute([InstallEpoch::SETTING, bin2hex(random_bytes(16))]);
+            return [];
         });
     }
 }

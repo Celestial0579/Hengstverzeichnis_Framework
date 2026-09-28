@@ -226,4 +226,86 @@ class CatalogFilterOptionsTest extends FunctionalTestCase {
         $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'owner_list'),
             'Ein Kontakt im Papierkorb wird nicht mehr vorgeschlagen.');
     }
+
+    /**
+     * Wie datalistWerte(), für das Farb-Auswahlfeld. Bricht ab, wenn der
+     * Block fehlt; die leere Option "alle Farben" fällt weg.
+     *
+     * @return array<int, string>
+     */
+    private function farbWerte(string $rumpf): array {
+        if (preg_match('#<select id="filter-q-color"[^>]*>(.*?)</select>#s', $rumpf, $block) !== 1) {
+            self::fail('Das Farb-Auswahlfeld steht nicht im Seiten-HTML.');
+        }
+        preg_match_all('/value="([^"]*)"/', $block[1], $werte);
+
+        return array_values(array_filter(array_map(
+            static fn(string $v): string => html_entity_decode($v, ENT_QUOTES, 'UTF-8'),
+            $werte[1]
+        ), static fn(string $v): bool => $v !== ''));
+    }
+
+    /**
+     * Farbe und Rasse nur aus veröffentlichten Pferden (Audit N12). Beide
+     * sind Freitext; ein Wert, den nur ein zurückgehaltenes Pferd trägt,
+     * verriet dessen Existenz.
+     */
+    public function testFarbeUndRasseNurVonVeroeffentlichtenPferden(): void {
+        $u = uniqid();
+        $db = Database::getInstance();
+        $oeffentlich = $this->seedPferd("Farbpferd pub {$u}", true);
+        $intern = $this->seedPferd("Farbpferd intern {$u}", false);
+        $setze = $db->prepare('UPDATE horses SET color = ?, breed = ? WHERE id = ?');
+        $setze->execute(["Farbe-pub-{$u}", "Rasse-pub-{$u}", $oeffentlich]);
+        $setze->execute(["Farbe-intern-{$u}", "Rasse-intern-{$u}", $intern]);
+
+        $rumpf = $this->katalogSeite();
+        $farben = $this->farbWerte($rumpf);
+        $rassen = $this->datalistWerte($rumpf, 'breed_list');
+        $this->assertContains("Farbe-pub-{$u}", $farben);
+        $this->assertContains("Rasse-pub-{$u}", $rassen);
+        $this->assertNotContains("Farbe-intern-{$u}", $farben, 'Farbe eines unveröffentlichten Pferds');
+        $this->assertNotContains("Rasse-intern-{$u}", $rassen, 'Rasse eines unveröffentlichten Pferds');
+        $this->assertStringNotContainsString("-intern-{$u}", $rumpf);
+
+        // Gegenprobe: veröffentlicht erscheint der Wert.
+        $db->prepare('UPDATE horses SET is_published = 1 WHERE id = ?')->execute([$intern]);
+        $rumpf = $this->katalogSeite();
+        $this->assertContains("Farbe-intern-{$u}", $this->farbWerte($rumpf));
+        $this->assertContains("Rasse-intern-{$u}", $this->datalistWerte($rumpf, 'breed_list'));
+    }
+
+    /**
+     * Ohne horses.view der Gast-Gruppe gibt es keine Auswahllisten (Audit
+     * N12/M18) - weder Farbe und Rasse noch Kontaktnamen. Bis dahin liefen
+     * sie auch bei leerem Katalog.
+     */
+    public function testOhneHorsesViewKeineAttributlisten(): void {
+        $u = uniqid();
+        $db = Database::getInstance();
+        $pferd = $this->seedPferd("Listenpferd {$u}", true);
+        $db->prepare('UPDATE horses SET color = ?, breed = ? WHERE id = ?')
+            ->execute(["Farbe-liste-{$u}", "Rasse-liste-{$u}", $pferd]);
+        $kontakt = $this->seedKontakt("Listenperson {$u}", true);
+        $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'breeder')")
+            ->execute([$pferd, $kontakt]);
+
+        $admin = $this->authenticatedClient();
+        $gast = $this->findBuiltinGroupId($admin, 'Gast');
+        try {
+            $this->assertContains("Farbe-liste-{$u}", $this->farbWerte($this->katalogSeite()), 'Vorbedingung');
+
+            $this->setGroupPermissions($admin, $gast, ['contacts' => ['view']]);
+            $rumpf = $this->katalogSeite();
+            $this->assertSame([], $this->farbWerte($rumpf));
+            $this->assertSame([], $this->datalistWerte($rumpf, 'breed_list'));
+            $this->assertSame([], $this->datalistWerte($rumpf, 'breeder_list'));
+            $this->assertSame([], $this->datalistWerte($rumpf, 'station_list'));
+            foreach (["Farbe-liste-{$u}", "Rasse-liste-{$u}", "Listenperson {$u}"] as $wert) {
+                $this->assertStringNotContainsString($wert, $rumpf);
+            }
+        } finally {
+            $this->setGroupPermissions($admin, $gast, self::GUEST_DEFAULT_PERMISSIONS);
+        }
+    }
 }

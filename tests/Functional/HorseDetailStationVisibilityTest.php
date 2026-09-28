@@ -165,6 +165,64 @@ class HorseDetailStationVisibilityTest extends FunctionalTestCase {
     }
 
     /**
+     * Ort und Website gehören zur Person und fallen mit ihr (Audit N11).
+     *
+     * Ohne contacts.view nullte horseDetail() nur Name und Kennungen. Trug
+     * die Zuordnungszeile zusätzlich eine Freitext-Station oder ein
+     * Herkunftsland, blieb sie stehen - und die View gab Ort, Bundesland,
+     * Land und den Website-Link der ausgeblendeten Person unter der
+     * Freitext-Station aus.
+     */
+    public function testPlaceAndWebsiteOfAHiddenContactStayHidden(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $gastGruppe = $this->findBuiltinGroupId($admin, 'Gast');
+
+        $name = "Erika Muster {$unique}";
+        $db->prepare(
+            "INSERT INTO contacts (name, city, state, website, is_published, created_at)
+             VALUES (?, ?, ?, ?, 1, NOW())"
+        )->execute([$name, "Musterdorf{$unique}", "Bayern{$unique}", "https://erika-{$unique}.example"]);
+        $kontaktId = (int)$db->lastInsertId();
+        $this->stationIds[] = $kontaktId;
+
+        $db->prepare("INSERT INTO horses (name, sex, is_published, created_at) VALUES (?, 'stallion', 1, NOW())")
+           ->execute(["Ortsprobe {$unique}"]);
+        $horseId = (int)$db->lastInsertId();
+        $this->horseIds[] = $horseId;
+
+        // Person, Freitext-Station ohne Datensatz und Herkunftsland in EINER
+        // Zeile - so speichert sie das Admin-Formular.
+        $db->prepare(
+            "INSERT INTO horse_persons (horse_id, role, contact_id, station_contact_id, breeding_station_text, origin_country)
+             VALUES (?, 'keeper', ?, NULL, ?, 'NO')"
+        )->execute([$horseId, $kontaktId, "Hof {$unique}"]);
+
+        $gast = $this->newClient();
+        $pfad = '/horse?id=' . $horseId;
+
+        try {
+            $this->setGroupPermissions($admin, $gastGruppe, self::GAST_RECHTE);
+            $mit = $gast->get($pfad);
+            $this->assertSame(200, $mit->statusCode);
+            foreach ([$name, "Musterdorf{$unique}", "Bayern{$unique}", "erika-{$unique}.example"] as $erwartet) {
+                $this->assertStringContainsString($erwartet, $mit->body, "Vorbedingung: {$erwartet} steht mit contacts.view da");
+            }
+
+            $this->setGroupPermissions($admin, $gastGruppe, ['horses' => ['view']]);
+            $ohne = $gast->get($pfad);
+            $this->assertSame(200, $ohne->statusCode);
+            $this->assertStringContainsString("Hof {$unique}", $ohne->body, 'Die Freitext-Station bleibt (Positivprobe)');
+            foreach ([$name, "Musterdorf{$unique}", "Bayern{$unique}", "erika-{$unique}.example", '/kontakt?id=' . $kontaktId] as $verboten) {
+                $this->assertStringNotContainsString($verboten, $ohne->body, "Ohne contacts.view darf {$verboten} nicht erscheinen");
+            }
+        } finally {
+            $this->setGroupPermissions($admin, $gastGruppe, self::GAST_RECHTE);
+        }
+    }
+
+    /**
      * Gegenprobe zur Abgrenzung: Freitext OHNE Stations-Datensatz benennt
      * keinen verborgenen Datensatz und bleibt deshalb stehen (#151). Ohne
      * diesen Fall wäre die naheliegende „Vereinfachung" - jeden Freitext

@@ -79,6 +79,7 @@ return [
     'catalog.search_placeholder' => 'Full-text search (horse, UELN, breeder, owner, breeding station, sire, dam)...',
     'catalog.search_button' => 'Search',
     'catalog.reset_filters' => 'Reset Filters',
+    'catalog.contact_filter_unavailable' => 'Searching by breeder, owner, keeper or breeding station is not available here.',
     'catalog.advanced_filters' => '⚙️ Advanced Attribute Filters (Horse, Breeder, Breeding Station, Pedigree)',
     'catalog.horse_name' => 'Horse Name',
     'catalog.horse_name_placeholder' => 'e.g. Storm',

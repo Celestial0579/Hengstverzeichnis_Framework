@@ -9,11 +9,23 @@
  * @var array<int, string> $persons Namen der Kontakte, die einem
  *   veröffentlichten Pferd als Züchter/Besitzer/Halter zugeordnet sind (#336)
  *
+ * @var bool $kontakteSichtbar Darf der Besucher Kontakte sehen
+ *   (contacts.view, Audit M18)? Ohne das Recht entfallen die Felder Züchter
+ *   und Besitzer samt Vorschlagslisten; das Stationsfeld bleibt für
+ *   Freitext-Stationen, seine Liste ist leer.
+ * @var bool $kontaktfilterGesperrt Die Anfrage trägt einen Kontaktfilter,
+ *   den der Besucher nicht nutzen darf - er trifft nichts, und ein Hinweis
+ *   sagt warum.
+ *
  * Beide Listen stammen seit der Zusammenlegung aus derselben Tabelle
  * `contacts` und bleiben trotzdem getrennt: Sie enthalten je nur die Namen,
  * für die der zugehörige Filter überhaupt einen Treffer liefern kann - siehe
  * die Begründung in PublicController::catalog().
  */
+
+// Fehlt die Angabe, gilt die strengere Lesart.
+$kontakteSichtbar = $kontakteSichtbar ?? false;
+$kontaktfilterGesperrt = $kontaktfilterGesperrt ?? false;
 
 $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $v !== null));
 ?>
@@ -62,6 +74,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
                     <input type="text" id="filter-q-ueln" name="q_ueln" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.ueln_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_ueln'] ?? '') ?>">
                 </div>
 
+                <?php if ($kontakteSichtbar): ?>
                 <!-- Züchter -->
                 <div class="form-group">
                     <label for="filter-q-breeder" style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeder')) ?></label>
@@ -83,6 +96,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
                         <?php endforeach; ?>
                     </datalist>
                 </div>
+                <?php endif; ?>
 
                 <!-- Deckstation / Gestüt -->
                 <div class="form-group">
@@ -174,6 +188,17 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
             </div>
         </details>
     </form>
+
+    <?php if ($kontaktfilterGesperrt): ?>
+        <?php // Audit M18: Ein vorgefilterter Aufruf (etwa aus einer
+              // Einbettung) trifft ohne contacts.view nichts. Ohne diesen
+              // Hinweis stünde er kommentarlos bei "Keine Treffer". Der
+              // Filterwert selbst wird hier bewusst nicht wiederholt. ?>
+        <p id="catalog-contact-filter-note" role="status" style="margin: 0 0 1.5rem; padding: 0.8rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-muted);">
+            <?= htmlspecialchars(App\I18n\Translator::t('catalog.contact_filter_unavailable')) ?>
+            <a href="/katalog<?= !empty($embed) ? '?embed=1' : '' ?>"><?= htmlspecialchars(App\I18n\Translator::t('catalog.reset_filters')) ?></a>
+        </p>
+    <?php endif; ?>
 
     <!-- Async Horse Card Grid -->
     <div id="catalog-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; transition: opacity 0.15s ease-in-out;">

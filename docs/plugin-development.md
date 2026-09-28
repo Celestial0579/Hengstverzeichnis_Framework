@@ -253,7 +253,7 @@ und bricht nur diesen einen Aufruf ab, nie den restlichen Request.
 | `horse.restored` | Action | Nach der Wiederherstellung aus dem Papierkorb | `function(int $horseId, array $horse): void` — `$horse` ist der aktuelle Stand (mit `deleted_at = NULL`) |
 | `horse.deleted` | Action | Nach dem endgültigen Löschen (einzeln wie beim Papierkorb-Leeren, je Pferd) | `function(int $horseId, array $horse): void` — `$horse` ist der letzte Stand vor dem `DELETE`; abhängige Zeilen mit FK-`ON DELETE CASCADE` sind zu diesem Zeitpunkt bereits weg |
 | `horse.detail_sections` | Filter | Beim Rendern der öffentlichen Pferde-Detailseite | `function(array $sections, array $horse, array $horsePersons, ?array $pedigree): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$pedigree` ist der bereits berechnete 6-Generationen-Baum (siehe `App\Service\PedigreeBuilder` unten), `null` falls das Pferd nicht gefunden wurde. Zum Inhalt von `$horse`/`$horsePersons` siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
-| `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten. `$horse` unterliegt denselben Sichtbarkeitsfiltern, siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
+| `catalog.card_sections` | Filter | Beim Rendern jeder einzelnen Karte im öffentlichen Katalog (`src/Views/public_catalog_cards.php`) — sowohl im normalen als auch im AJAX-Filterpfad, da beide dieselbe View nutzen | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben, direkt vor dem "Profil ansehen"-Button eingefügt. Läuft für jede sichtbare Karte einzeln, siehe Performance-Hinweis unten. `breeder_name`, `owner_name` und `station_name` sind `null`, wenn der Besucher `contacts.view` nicht hat (Audit M18); ebenso die Namenskopie in `breeding_station` bei gesetzter `breeding_station_id`. `$horse` unterliegt denselben Sichtbarkeitsfiltern, siehe [Was in `$horse` und `$horsePersons` steht](#was-in-horse-und-horsepersons-steht--und-wann-felder-null-sind) |
 | `horse.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars eines Hengstes (`HorseController::edit()`) | `function(array $sections, array $horse): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. Feuert **nur beim Bearbeiten**, nicht beim Anlegen. `$horse` ist hier der **rohe** Datensatz, siehe Warnkasten unten |
 | `contact.detail_sections` | Filter | Beim Rendern der öffentlichen Kontaktseite (`/kontakt?id=`) | `function(array $sections, array $contact, array $horsesByRole, array $stationHorses): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben. `$contact` enthält **nur die öffentlichen Spalten**; `email`/`phone`/`mobile`/`street`/`house_number`/`postal_code`/`address`/`contact_person` sind ausschließlich dann gesetzt, wenn der Datensatz sie per `contact_public` freigibt, sonst fehlen die Schlüssel ganz. `contact_info` fehlt immer. `$horsesByRole` ist nach Rolle gruppiert (`breeder`, `owner`, `keeper`), `$stationHorses` sind die Pferde, die diesen Kontakt als Deckstation nennen |
 | `contact.edit_sections` | Filter | Beim Rendern des Admin-Bearbeitungsformulars eines Kontakts (`ContactController::edit()`) | `function(array $sections, array $contact): array` — jedes Element ist ein fertiger HTML-String, wird **unescaped** ausgegeben und **außerhalb** des Kern-Formulars gerendert (verschachtelte `<form>` wären ungültig). Feuert nur beim Bearbeiten, nicht beim Anlegen. Damit kann ein Addon eigene Angaben am Datensatz pflegen — etwa ein Opt-out für Kontaktanfragen —, **ohne** dass der Kern dafür eine Spalte mitbringt |
@@ -497,8 +497,8 @@ sind **gemeinsam** `null`, wenn
 - die verknüpfte Deckstation unveröffentlicht ist (`is_published = 0` — neu
   angelegte Stationen sind das per Default),
 - die Deckstation im Papierkorb liegt (`deleted_at IS NOT NULL`),
-- oder die Gast-Gruppe die Leseberechtigung `breeding_stations.view` nicht
-  besitzt (dann fehlen sie auch bei veröffentlichter Station).
+- oder der Besucher `contacts.view` nicht besitzt – weder selbst noch über
+  die Gast-Gruppe (dann fehlen sie auch bei veröffentlichter Station).
 
 `$horse['breeding_station_id']` bleibt in allen drei Fällen gesetzt und ist
 deshalb **kein** Indikator dafür, dass Stationsdaten vorliegen.
@@ -509,7 +509,7 @@ wird in den drei Fällen oben ebenfalls auf `null` gesetzt; ohne
 immer erhalten.
 
 **`$horsePersons`** enthält die Zeilen aus `horse_persons` (`role`, `from_year`,
-`until_year`, `breeding_station_id`, `breeding_station_text`, `origin_country`) plus `person_name`,
+`until_year`, `contact_id`, `station_contact_id`, `breeding_station_text`, `origin_country`) plus `person_name`,
 `city`, `state`, `country`, `website`, `station_name`,
 `station_id`. Von den Personenfeldern (#188, `state` seit #256, Kontaktfelder
 seit #293) sind das **bewusst die einzigen vier** im Payload: `email`, `phone`,
@@ -546,6 +546,11 @@ Dabei gilt:
   nicht nachzubilden;
 - `station_name`/`station_id` sind `null`, wenn die Station unveröffentlicht oder
   gelöscht ist (#122);
+- ohne `contacts.view` (Audit N11) sind `person_name`, `city`, `state`,
+  `country`, `website`, `contact_id`, `station_name`, `station_id` **und**
+  `station_contact_id` in jeder Zeile `null` – Ort und Website gehören zur
+  Person und fallen mit ihr, auch wenn die Zeile wegen einer
+  Freitext-Station oder eines Herkunftslands erhalten bleibt;
 - Zeilen, bei denen danach weder `person_name` noch `station_name` noch der
   Freitext `breeding_station_text` übrig bleibt, sind gar nicht erst enthalten.
   `$horsePersons` kann also leer sein, obwohl im Admin-Bereich Personen zugeordnet

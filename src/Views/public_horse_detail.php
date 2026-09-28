@@ -543,7 +543,18 @@ $galerie = array_values(array_filter(
                         // Einen einzurichten hiesse, die Freigabe des Addons an
                         // einer zweiten Stelle nachbauen zu muessen. Wer den
                         // Status sucht, findet ihn auf der Kontaktseite.
-                        $placeParts = array_filter([$hp['city'] ?? '', $hp['state'] ?? '', $hp['country'] ?? '']);
+                        //
+                        // Ort und Website stammen ausschliesslich aus dem
+                        // Personen-Kontakt (p.*) und erscheinen deshalb nur,
+                        // wenn die Person selbst sichtbar ist (Audit N11) -
+                        // sonst stuenden sie unter einer Freitext-Station oder
+                        // "Person unbekannt", ohne dass jemand sie dort
+                        // vermutet. Der Controller nullt sie ohne
+                        // contacts.view bereits; das hier ist die zweite Linie.
+                        $personSichtbar = !empty($hp['person_name']);
+                        $placeParts = $personSichtbar
+                            ? array_filter([$hp['city'] ?? '', $hp['state'] ?? '', $hp['country'] ?? ''])
+                            : [];
                     ?>
                     <?php if (!empty($placeParts)): ?>
                         <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.3rem;">
@@ -556,7 +567,7 @@ $galerie = array_values(array_filter(
                         // ausdrücklich Telefonnummern einlud, gehört nicht auf
                         // die öffentliche Seite. Die Website ist die einzige
                         // Kontaktangabe, die zur Veröffentlichung bestimmt ist.
-                        $personWebsite = App\Helper\ExternalUrl::hrefOrNull($hp['website'] ?? null);
+                        $personWebsite = $personSichtbar ? App\Helper\ExternalUrl::hrefOrNull($hp['website'] ?? null) : null;
                     ?>
                     <?php if ($personWebsite !== null): ?>
                         <div style="font-size: 0.85rem; margin-top: 0.3rem;">

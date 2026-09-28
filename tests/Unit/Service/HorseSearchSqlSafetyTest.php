@@ -54,8 +54,8 @@ class HorseSearchSqlSafetyTest extends TestCase {
      * @param array<string, mixed> $request
      * @return array{HorseSearchSql, HorseSearchCriteria}
      */
-    private static function suche(array $request, bool $nurOeffentlich, ?int $publishedFilter = null): array {
-        $sql = new HorseSearchSql($nurOeffentlich);
+    private static function suche(array $request, bool $nurOeffentlich, ?int $publishedFilter = null, bool $kontakteSichtbar = true): array {
+        $sql = new HorseSearchSql($nurOeffentlich, $kontakteSichtbar);
         $criteria = HorseSearchCriteria::fromRequest($request, $nurOeffentlich, $publishedFilter);
         $criteria->applyTo($sql);
 
@@ -63,13 +63,16 @@ class HorseSearchSqlSafetyTest extends TestCase {
     }
 
     /**
-     * @param bool $nurOeffentlich beide Kontexte, denn sie erzeugen
+     * @param bool $nurOeffentlich   alle Kontexte, denn sie erzeugen
      *        unterschiedliche Klauseln
+     * @param bool $kontakteSichtbar mit und ohne Kontaktsperre (Audit M18/N7)
      */
-    #[\PHPUnit\Framework\Attributes\TestWith([true])]
-    #[\PHPUnit\Framework\Attributes\TestWith([false])]
-    public function testNoRequestCharacterEverReachesTheSql(bool $nurOeffentlich): void {
-        [$sqlBau] = self::suche(self::feindseligeAnfrage(), $nurOeffentlich, 1);
+    #[\PHPUnit\Framework\Attributes\TestWith([true, true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true, false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false, true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false, false])]
+    public function testNoRequestCharacterEverReachesTheSql(bool $nurOeffentlich, bool $kontakteSichtbar): void {
+        [$sqlBau] = self::suche(self::feindseligeAnfrage(), $nurOeffentlich, 1, $kontakteSichtbar);
 
         $sql = $sqlBau->whereSql() . ' ' . $sqlBau->joinSql() . ' ' . $sqlBau->personAggregateJoin();
 
@@ -93,7 +96,7 @@ class HorseSearchSqlSafetyTest extends TestCase {
         foreach (HorseSearchCriteria::FILTER_KEYS as $key) {
             $harmlos[$key] = 'Bella';
         }
-        [$zwilling] = self::suche($harmlos, $nurOeffentlich, 1);
+        [$zwilling] = self::suche($harmlos, $nurOeffentlich, 1, $kontakteSichtbar);
 
         $this->assertSame($zwilling->whereSql(), $sqlBau->whereSql());
         $this->assertSame($zwilling->joinSql(), $sqlBau->joinSql());
@@ -152,12 +155,14 @@ class HorseSearchSqlSafetyTest extends TestCase {
      * zu viel und der andere einen zu wenig hat, ergäben in der Summe wieder
      * die richtige Zahl - und eine Suche, die stumm falsche Treffer liefert.
      */
-    #[\PHPUnit\Framework\Attributes\TestWith([true])]
-    #[\PHPUnit\Framework\Attributes\TestWith([false])]
-    public function testEveryConditionAnnouncesItsPlaceholderCountCorrectly(bool $nurOeffentlich): void {
+    #[\PHPUnit\Framework\Attributes\TestWith([true, true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([true, false])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false, true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false, false])]
+    public function testEveryConditionAnnouncesItsPlaceholderCountCorrectly(bool $nurOeffentlich, bool $kontakteSichtbar): void {
         foreach (HorseSearchCondition::cases() as $condition) {
-            $leer = new HorseSearchSql($nurOeffentlich);
-            $mit = new HorseSearchSql($nurOeffentlich);
+            $leer = new HorseSearchSql($nurOeffentlich, $kontakteSichtbar);
+            $mit = new HorseSearchSql($nurOeffentlich, $kontakteSichtbar);
             $mit->add($condition);
 
             // placeholdersFor() statt placeholders(): Der Addon-Filter hat
@@ -348,6 +353,77 @@ class HorseSearchSqlSafetyTest extends TestCase {
             $nurOeffentlich
         );
         $this->assertCount(5, $mit->activeParams());
+    }
+
+    /**
+     * Die Kontaktsperre (Audit M18/N7): Ohne contacts.view trifft kein
+     * Ausschnitt mit Kontaktbezug etwas - Filter, Suchbegriff, bs-JOIN und
+     * die Namensabfragen. Sire und dam sind Pferde und bleiben unberührt.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith([true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false])]
+    public function testOhneKontaktrechtTrifftKeinKontaktbezug(bool $nurOeffentlich): void {
+        foreach ([
+            HorseSearchCondition::Breeder, HorseSearchCondition::Owner,
+            HorseSearchCondition::Keeper, HorseSearchCondition::FullText,
+        ] as $condition) {
+            $sql = new HorseSearchSql($nurOeffentlich, false);
+            $sql->add($condition);
+            $this->assertMatchesRegularExpression(
+                '/JOIN contacts \w+ ON [^\n]*AND 0 = 1/',
+                $sql->whereSql(),
+                "{$condition->name}: Der contacts-JOIN braucht die Kontaktsperre."
+            );
+        }
+
+        $gesperrt = new HorseSearchSql($nurOeffentlich, false);
+        $this->assertFalse($gesperrt->kontakteSichtbar());
+        $this->assertStringContainsString('AND 0 = 1', $gesperrt->personNamesSql());
+        $this->assertStringContainsString('AND 0 = 1', $gesperrt->personAggregateJoin());
+
+        $zeilen = array_values(array_filter(array_map('trim', explode("\n", $gesperrt->joinSql()))));
+        foreach ($zeilen as $zeile) {
+            if (str_contains($zeile, 'JOIN contacts bs')) {
+                $this->assertStringEndsWith('AND 0 = 1', $zeile, 'bs ist ein Kontakt.');
+            } elseif (str_contains($zeile, 'JOIN horses')) {
+                $this->assertStringNotContainsString('0 = 1', $zeile, 'sire und dam sind keine Kontakte.');
+            }
+        }
+
+        // Die Stationskopie in horses.breeding_station zählt unter der
+        // Sperre nur als echter Freitext, auch in der Verwaltung.
+        $station = new HorseSearchSql($nurOeffentlich, false);
+        $station->add(HorseSearchCondition::Station);
+        $this->assertStringContainsString('h.breeding_station_id IS NULL AND h.breeding_station LIKE ?', $station->whereSql());
+
+        // Gegenprobe: mit Recht keine Sperre.
+        $offen = new HorseSearchSql($nurOeffentlich, true);
+        foreach (HorseSearchCondition::cases() as $condition) {
+            if ($condition !== HorseSearchCondition::PluginIds) {
+                $offen->add($condition);
+            }
+        }
+        $this->assertStringNotContainsString('0 = 1', $offen->whereSql() . $offen->joinSql() . $offen->personNamesSql() . $offen->personAggregateJoin());
+    }
+
+    /**
+     * Der Standardwert des zweiten Schalters ändert nichts: Alle bisherigen
+     * Aufrufer bekommen bytegleiches SQL.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith([true])]
+    #[\PHPUnit\Framework\Attributes\TestWith([false])]
+    public function testStandardfassungBleibtBytegleich(bool $nurOeffentlich): void {
+        $standard = new HorseSearchSql($nurOeffentlich);
+        $ausdruecklich = new HorseSearchSql($nurOeffentlich, true);
+        foreach (HorseSearchCondition::cases() as $condition) {
+            $standard->add($condition);
+            $ausdruecklich->add($condition);
+        }
+        $this->assertTrue($standard->kontakteSichtbar());
+        $this->assertSame($standard->whereSql(), $ausdruecklich->whereSql());
+        $this->assertSame($standard->joinSql(), $ausdruecklich->joinSql());
+        $this->assertSame($standard->personNamesSql(), $ausdruecklich->personNamesSql());
+        $this->assertSame($standard->personAggregateJoin(), $ausdruecklich->personAggregateJoin());
     }
 
     public function testPlaceholdersWithoutMatchingParametersAreRefused(): void {

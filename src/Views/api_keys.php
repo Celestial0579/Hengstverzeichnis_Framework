@@ -113,6 +113,9 @@ $limitReached = $activeCount >= $maxKeys;
                 <p style="margin: 0.8rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);">
                     Angezeigt werden nur Rechte, die du selbst besitzt &ndash; mehr kann ein Schlüssel nie erhalten.
                 </p>
+                <p style="margin: 0.4rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);">
+                    Die Namen von Züchtern, Besitzern und Deckstationen liefert <code>/api/horses</code> nur, wenn der Schlüssel zusätzlich &bdquo;Kontakte &rarr; Lesen&ldquo; trägt; sonst sind diese Felder leer (<code>null</code>).
+                </p>
             </fieldset>
 
             <label for="lifetime_days" style="display: block; font-weight: bold; margin-top: 1.2rem;">Gültig für</label>

@@ -335,9 +335,12 @@ CREATE TABLE IF NOT EXISTS `horses` (
     INDEX `idx_horses_name` (`name`),
     INDEX `idx_horses_foreign_ueln` (`foreign_ueln`),
     -- Katalog-Filteroptionen (#221): SELECT DISTINCT color/breed als
-    -- Index-Only-Scan statt Full Table Scan
-    INDEX `idx_horses_color` (`color`, `deleted_at`),
-    INDEX `idx_horses_breed` (`breed`, `deleted_at`),
+    -- Index-Only-Scan statt Full Table Scan. is_published seit Audit N12
+    -- (SCHEMA_VERSION 27): Die öffentliche Liste zählt nur veröffentlichte
+    -- Pferde und bliebe ohne die dritte Spalte kein reiner Indexzugriff;
+    -- die Verwaltung nutzt weiter das Präfix (color|breed, deleted_at).
+    INDEX `idx_horses_color` (`color`, `deleted_at`, `is_published`),
+    INDEX `idx_horses_breed` (`breed`, `deleted_at`, `is_published`),
     -- Blutlinien-Vorfilter des MatchSuggestionFinder (#215)
     INDEX `idx_horses_sire_unlinked` (`deleted_at`, `sire_id`),
     INDEX `idx_horses_dam_unlinked` (`deleted_at`, `dam_id`)

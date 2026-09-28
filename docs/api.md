@@ -55,7 +55,8 @@ Daraus folgt beides bewusst:
 - Ein Schlüssel kann bewusst **weniger** dürfen (Least Privilege), z. B. ein
   reiner Lese-Schlüssel für ein Drittsystem, obwohl der Besitzer selbst
   Schreibrechte hat. Für `/api/horses` ist `horses.view` das relevante Recht,
-  für `/api/stats` das eigene Recht `stats.view` (siehe unten).
+  für die Kontaktnamen darin zusätzlich `contacts.view` (siehe unten), für
+  `/api/stats` das eigene Recht `stats.view`.
 
 ## Sicherheits-/Sichtbarkeitsmodell
 
@@ -72,7 +73,16 @@ HTML-Katalog** (`/katalog`, `/horse?id=...`) einsehbar sind:
   wenn im Backend ein Name gepflegt ist (die denormalisierte Namenskopie
   wird bewusst unterdrückt, damit sie kein Leck bildet); reiner Freitext
   ohne Stations-Verknüpfung bleibt erhalten.
-- Fehlt der Gast-Gruppe `horses.view`, liefert `GET /api/horses` eine
+- **Kontaktnamen verlangen `contacts.view`** (Audit N7). `breeder`, `owner`
+  und `breeding_station` sind `null`, wenn dem Schlüssel „Kontakte → Lesen“
+  fehlt – beim Besitzer oder im Scope. Dieselbe Regel wie im Katalog, dort
+  für den Besucher. Die Feldmenge bleibt gleich, und reiner Freitext einer
+  Deckstation ohne Verknüpfung bleibt erhalten. Ein Schlüssel mit dem Scope
+  nur „Pferde → Lesen“ bekommt die Namen also nicht; Scopes lassen sich
+  nicht nachträglich ändern, dafür einen neuen Schlüssel mit beiden Rechten
+  ausstellen.
+- Fehlt dem Schlüssel `horses.view` (beim Besitzer oder im Scope), liefert
+  `GET /api/horses` eine
   **leere Liste mit `200`** (kein `403`) und `GET /api/horses/show` ein
   `404` - die API verrät dann nicht, ob Daten existieren.
 - **Kein Wildcard-CORS mehr.** Seit der Schlüsselpflicht wird kein

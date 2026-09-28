@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 23; // 23: ohne DDL - holt Datenschritte nach, die der Stempel trotz "wird erneut versucht" übersprang (Audit N76)
+    public const SCHEMA_VERSION = 24; // 24: users.totp_secret auf VARCHAR(255), Klartext-TOTP-Secrets verschlüsseln (Audit N8)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -649,8 +649,35 @@ final class SchemaMigrator {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
         // 2. 2-Faktor-Authentifizierung & Passkeys für Benutzer
-        $addColumn('users', 'totp_secret', 'VARCHAR(64) NULL AFTER `role`');
+        $addColumn('users', 'totp_secret', 'VARCHAR(255) NULL AFTER `role`');
         $addColumn('users', 'totp_enabled', 'TINYINT(1) DEFAULT 0 AFTER `totp_secret`');
+
+        // 2a. users.totp_secret auf die Breite aus schema.sql (Audit N8,
+        // SCHEMA_VERSION 24). Hier stand bis dahin VARCHAR(64), schema.sql
+        // hatte längst 255 - eine Drift, die erst mit der Verschlüsselung
+        // Folgen hat: Ein 16-Zeichen-Secret ergibt 60 Zeichen Chiffretext und
+        // passt noch, ab 20 Zeichen Klartext nicht mehr. Deshalb VOR dem
+        // Datenschritt totp_klartext_verschluesseln weiter unten, und als
+        // eigener Schritt statt darin: Die Breite ist Schema, keine Daten.
+        // Idempotent über die gemeldete Breite; scheitert das ALTER, bleibt
+        // der Lauf offen statt still.
+        try {
+            $spalte = $pdo->query("SHOW COLUMNS FROM `users` LIKE 'totp_secret'");
+            $zeile = $spalte ? $spalte->fetch() : false;
+            $typ = is_array($zeile) ? (string)($zeile['Type'] ?? '') : '';
+            if (preg_match('/^varchar\((\d+)\)/i', $typ, $breite) === 1 && (int)$breite[1] < 255) {
+                try {
+                    $pdo->exec("ALTER TABLE `users` MODIFY `totp_secret` VARCHAR(255) NULL");
+                    $performed[] = 'Spalte users.totp_secret auf VARCHAR(255) erweitert';
+                } catch (\Throwable $e) {
+                    $meldung = 'Spalte users.totp_secret konnte nicht auf VARCHAR(255) erweitert werden: ' . $e->getMessage();
+                    $offeneSchritte['spalte:users.totp_secret'] = $meldung;
+                    $performed[] = $meldung;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Keine Tabelle users - dann gibt es auch keine Secrets.
+        }
         $addColumn('users', 'backup_codes', 'TEXT NULL AFTER `totp_enabled`');
         // 39. Passkeys (#353). Die Spalte users.passkeys stand seit Langem im
         // Schema und wurde NIRGENDS gelesen oder geschrieben - sie versprach
@@ -2891,6 +2918,80 @@ final class SchemaMigrator {
             }
             $pdo->exec("DELETE FROM password_resets");
             return ["password_resets geleert ({$anzahl} offene Anforderung(en)) - Token liegen jetzt nur als Abdruck vor"];
+        });
+
+        // 2b. Alte Klartext-TOTP-Secrets verschlüsseln (Audit N8,
+        // SCHEMA_VERSION 24). Läuft nach 2a (Spaltenbreite).
+        //
+        // Die Laufzeit liest users.totp_secret seit N8 fail-closed
+        // (Totp::entschluesseleSecret()): Entschlüsselbar, oder Base32-
+        // Klartext aus der Zeit vor der Verschlüsselung - sonst nichts. Dieser
+        // Schritt räumt den Klartext-Bestand auf, damit der Rückfall im
+        // nächsten Minor-Release entfallen kann, und MELDET Konten, deren
+        // Secret mit dem aktuellen APP_KEY nicht lesbar ist (APP_KEY
+        // gewechselt?) - sie kommen nur noch per Backup-Code herein.
+        //
+        // Wiederholbar: Jede Zeile wird per Compare-and-swap umgeschrieben;
+        // bricht der Lauf mittendrin ab, sind die schon verschlüsselten
+        // Zeilen beim nächsten Mal kein Klartext mehr. Ohne APP_KEY gibt es
+        // nichts zu verschlüsseln - dann meldet sich der Schritt offen, statt
+        // den Klartext mit einem Marker für erledigt zu erklären.
+        $dataStep('totp_klartext_verschluesseln', function (callable $vermerke, callable $offen) use ($pdo, $spalteExistiert): ?array {
+            if (!$spalteExistiert('users', 'totp_secret')) {
+                return null;
+            }
+            $zeilen = $pdo->query(
+                "SELECT id, totp_secret, totp_enabled FROM `users` WHERE totp_secret IS NOT NULL AND totp_secret <> ''"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            if ($zeilen === []) {
+                return [];
+            }
+
+            $mitSchluessel = defined('APP_KEY') && (string)constant('APP_KEY') !== '';
+            if (!$mitSchluessel) {
+                $klartext = count(array_filter(
+                    $zeilen,
+                    static fn(array $z): bool => \App\Security\Totp::istKlartextSecret((string)$z['totp_secret'])
+                ));
+                if ($klartext > 0) {
+                    return $offen(sprintf(
+                        'TOTP (Audit N8): %d Klartext-Secret(s) nicht verschlüsselt - APP_KEY ist nicht gesetzt',
+                        $klartext
+                    ));
+                }
+                return null; // Ohne Schlüssel lässt sich der Rest nicht beurteilen.
+            }
+
+            $tausch = $pdo->prepare("UPDATE `users` SET totp_secret = ? WHERE id = ? AND totp_secret = ?");
+            $verschluesselt = 0;
+            $unlesbar = 0;
+            foreach ($zeilen as $z) {
+                $wert = (string)$z['totp_secret'];
+                if (\App\Security\Crypto::decrypt($wert) !== null) {
+                    continue;
+                }
+                if (\App\Security\Totp::istKlartextSecret($wert)) {
+                    $tausch->execute([\App\Security\Crypto::encrypt($wert), (int)$z['id'], $wert]);
+                    $verschluesselt += $tausch->rowCount();
+                    continue;
+                }
+                if ((int)$z['totp_enabled'] === 1) {
+                    $unlesbar++;
+                }
+            }
+
+            $meldungen = [];
+            if ($verschluesselt > 0) {
+                $meldungen[] = sprintf('TOTP: %d Klartext-Secret(s) verschlüsselt', $verschluesselt);
+            }
+            if ($unlesbar > 0) {
+                $meldungen[] = sprintf(
+                    'TOTP: %d Konto/Konten haben ein mit dem aktuellen APP_KEY nicht lesbares Secret '
+                    . '(APP_KEY gewechselt?) – bitte deren 2FA zurücksetzen',
+                    $unlesbar
+                );
+            }
+            return $meldungen;
         });
     }
 }

@@ -262,7 +262,7 @@ return [
     'auth.login_button' => 'Anmelden',
     'auth.rate_limited_login' => 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuchen Sie es in 15 Minuten erneut.',
     'auth.invalid_credentials' => 'Ungültige Zugangsdaten.',
-    'auth.email_not_verified' => 'Bitte bestätigen Sie zunächst Ihre E-Mail-Adresse über den Link, den wir Ihnen bei der Registrierung gesendet haben.',
+    'auth.email_not_verified' => 'Bitte bestätigen Sie zunächst Ihre E-Mail-Adresse über den Link aus unserer E-Mail (bitte auch im Spam-Ordner nachsehen). Ist er abgelaufen oder verloren gegangen, senden wir Ihnen bei der Anmeldung mit Ihrem Passwort automatisch einen aktuellen Link.',
     'auth.email_verified_success' => '✓ E-Mail-Adresse bestätigt. Sie können sich jetzt anmelden.',
     'auth.register_link' => 'Noch kein Konto? Jetzt registrieren',
     'auth.entra_login_button' => '🪟 Mit Microsoft anmelden',
@@ -322,7 +322,7 @@ return [
     'register.email_invalid' => 'Bitte geben Sie eine gültige E-Mail-Adresse an.',
     'register.password_invalid' => 'Die Passwörter stimmen nicht überein oder sind zu kurz (mindestens 8 Zeichen).',
     'register.already_taken' => 'Benutzername oder E-Mail-Adresse ist bereits vergeben.',
-    'register.verification_invalid' => 'Der Bestätigungslink ist ungültig oder abgelaufen. Bitte registrieren Sie sich erneut oder wenden Sie sich an den Betreiber.',
+    'register.verification_invalid' => 'Der Bestätigungslink ist ungültig oder abgelaufen. Melden Sie sich mit Benutzername oder E-Mail-Adresse und Passwort an – wir senden Ihnen dann automatisch einen neuen Link.',
 
     'auth.2fa_heading' => '🔐 2FA Bestätigung',
     'auth.2fa_instructions' => 'Bitte geben Sie den 6-stelligen Code aus Ihrer Authentikator-App ein.',

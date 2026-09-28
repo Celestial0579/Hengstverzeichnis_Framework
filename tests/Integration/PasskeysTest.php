@@ -238,7 +238,89 @@ class PasskeysTest extends TestCase {
         SecondFactors::fromRow(['username' => 'ohne-alles', 'totp_enabled' => 0]);
     }
 
+    // ---- RP-ID ohne Konfiguration (Audit M36) ----------------------------
+
+    /**
+     * Auslieferungszustand: weder base_url noch APP_URL. Bis hierher rief
+     * rpId() dann eine Methode auf, die es nicht gab - Fatal Error, HTTP 500.
+     */
+    public function testRpIdFaelltOhneBaseUrlAufDenGeprueftenHostZurueck(): void {
+        $this->ohneKonfiguration(function (): void {
+            $_SERVER['HTTP_HOST'] = 'Verband.PK-Test.example:8443';
+            $this->assertSame('verband.pk-test.example', Passkeys::rpId());
+        });
+    }
+
+    public function testRpIdOhneBestimmbarenHostWirftRuntimeException(): void {
+        $this->ohneKonfiguration(function (): void {
+            $_SERVER['HTTP_HOST'] = '';
+            try {
+                Passkeys::rpId();
+                $this->fail('Ohne Host darf es keine RP-ID geben.');
+            } catch (\Error $e) {
+                $this->fail('Erwartet war eine RuntimeException, kein ' . get_class($e) . ': ' . $e->getMessage());
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('Keine RP-ID bestimmbar', $e->getMessage());
+            }
+        });
+    }
+
+    /**
+     * Die Optionen lassen sich überhaupt erzeugen (Audit M36). Hinter dem
+     * RP-ID-Absturz lag ein zweiter: Der Serializer bekam die Algorithmen
+     * statt der Attestation-Formate - ein TypeError bei jeder Zeremonie.
+     */
+    public function testOptionenLassenSichSerialisieren(): void {
+        $this->setzeBaseUrl('https://verband.pk-test.example/');
+        $this->legePasskeyAn($this->userId, 'IT-TEST optionen', base64_encode('IT-TEST-optionen-' . $this->userId));
+
+        $anmeldung = json_decode(Passkeys::anmeldeOptionen($this->userId), true);
+        $this->assertIsArray($anmeldung);
+        $this->assertArrayHasKey('challenge', $anmeldung);
+        $this->assertSame('verband.pk-test.example', $anmeldung['rpId'] ?? null);
+        $this->assertCount(1, $anmeldung['allowCredentials'] ?? []);
+
+        $registrierung = json_decode(Passkeys::registrierungsOptionen($this->userId, 'pk', 'pk'), true);
+        $this->assertIsArray($registrierung);
+        $this->assertSame('verband.pk-test.example', $registrierung['rp']['id'] ?? null);
+    }
+
     // ---- Hilfen ----------------------------------------------------------
+
+    /**
+     * Führt $pruefung ohne base_url, APP_URL und TRUSTED_HOSTS aus und stellt
+     * danach alles wieder her.
+     */
+    private function ohneKonfiguration(callable $pruefung): void {
+        $stmt = $this->db->query("SELECT setting_value FROM settings WHERE setting_key = 'base_url'");
+        $baseUrl = $stmt->fetchColumn();
+        $appUrl = getenv('APP_URL');
+        $trusted = getenv('TRUSTED_HOSTS');
+        $host = $_SERVER['HTTP_HOST'] ?? null;
+
+        $this->db->exec("DELETE FROM settings WHERE setting_key = 'base_url'");
+        putenv('APP_URL');
+        putenv('TRUSTED_HOSTS');
+        try {
+            $pruefung();
+        } finally {
+            if ($baseUrl !== false) {
+                $this->setzeBaseUrl((string)$baseUrl);
+            }
+            if ($appUrl !== false) {
+                putenv('APP_URL=' . $appUrl);
+            }
+            if ($trusted !== false) {
+                putenv('TRUSTED_HOSTS=' . $trusted);
+            }
+            if ($host === null) {
+                unset($_SERVER['HTTP_HOST']);
+            } else {
+                $_SERVER['HTTP_HOST'] = $host;
+            }
+        }
+    }
+
 
     private function legePasskeyAn(int $userId, string $label, ?string $credentialId = null): int {
         $stmt = $this->db->prepare(

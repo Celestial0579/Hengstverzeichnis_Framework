@@ -202,6 +202,11 @@ deaktiviert Konten, die länger als 180 Tage weder einen zweiten Faktor noch
 eine E-Mail-Adresse führen, und verschont dabei das letzte aktive Admin-Konto.
 Die Vorwarnung läuft 14 Tage vorher über den Digest an die Administratoren; der
 Betroffene selbst ist definitionsgemäss nicht erreichbar.
+Seit Audit N54 kommt `users.purge_unverified` (täglich,
+`App\Service\EmailVerification`) dazu: Sie löscht selbstregistrierte Konten,
+deren E-Mail-Adresse 9 Tage nach der Registrierung noch unbestätigt ist,
+endgültig (höchstens 500 je Lauf, Admin-Gruppenmitglieder ausgenommen) und
+gibt damit Benutzername und Adresse wieder frei.
 | `UpdateController` | Auto-Update mit Pflicht-Backup und Kanalwahl |
 
 Details zu den einzelnen Features (Merge-Tool, Pedigree-Aufbau, GDPR-Workflow

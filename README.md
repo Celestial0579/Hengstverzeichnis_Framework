@@ -103,7 +103,7 @@ Diese Variante braucht keine `config/db_config.php` und funktioniert zuverlässi
 | `DB_SSL_VERIFY`  | –  | `true`, sobald `DB_SSL_CA` gesetzt ist, sonst `false` | Server-Zertifikat der DB verifizieren. Ohne Prüfung ist die Verbindung zwar verschlüsselt, aber nicht authentifiziert – eine hinterlegte CA-Datei bliebe wirkungslos |
 | `DB_SSL_CA`      | –  | –                    | Pfad zur CA-Datei, falls `DB_SSL=true` |
 | `APP_KEY`        | ✅ | –                    | 32-Byte-Hex-Schlüssel (AES-256-GCM) für verschlüsselte Werte (u. a. SMTP-Passwort, TOTP-Secrets) |
-| `APP_URL`        | –  | dynamisch aus Request | Feste Basis-URL, falls automatische Erkennung nicht passt |
+| `APP_URL`        | –  | dynamisch aus Request | Feste Basis-URL, falls automatische Erkennung nicht passt. Ohne sie und ohne `base_url` binden Passkeys an den geprüften Host der Anfrage — ein späterer Wechsel auf einen anderen Hostnamen macht so registrierte Passkeys unbrauchbar (siehe `docs/security.md`, „Passkeys“) |
 | `APP_ENV`        | –  | `production`, sobald die Instanz konfiguriert ist (DB-Env-Variablen oder `db_config.php`); `development` nur im unkonfigurierten Checkout | `production` deaktiviert Fehlerausgaben im Browser. Protokolliert wird in **beiden** Betriebsarten alles (`error_log`) |
 | `TRUSTED_PROXIES`| –  | – (kein Proxy vertraut) | Kommagetrennte Liste vertrauenswürdiger Reverse-Proxy-IPs/-Netze, siehe unten |
 | `TRACKING_DOMAINS`| – | – (kein Tracking) | Kommagetrennte Liste von `https://`-Origins (Matomo/Google Analytics o. Ä.), die in der Content-Security-Policy freigeschaltet werden. Alternative ohne Env-Var: Admin → Systemeinstellungen. |
@@ -186,7 +186,7 @@ Betrifft: Client-IP in `AuditLogger`/`RateLimiter` (Login-Rate-Limiting, Audit-L
 
 ### Priorität & Rotation
 
-Ist sowohl eine Umgebungsvariable als auch `config/db_config.php` vorhanden, gewinnt die Umgebungsvariable pro Einzelwert. Beim Rotieren von `DB_PASS` oder `APP_KEY`: Anwendung danach neu starten, damit die neuen Werte geladen werden. Ein neuer `APP_KEY` macht bereits verschlüsselte Werte (SMTP-Passwort, TOTP-Secrets) unlesbar — diese müssen anschließend neu gesetzt bzw. neu eingerichtet werden.
+Ist sowohl eine Umgebungsvariable als auch `config/db_config.php` vorhanden, gewinnt die Umgebungsvariable pro Einzelwert. Beim Rotieren von `DB_PASS` oder `APP_KEY`: Anwendung danach neu starten, damit die neuen Werte geladen werden. Ein neuer `APP_KEY` macht bereits verschlüsselte Werte (SMTP-Passwort, TOTP-Secrets) unlesbar — diese müssen anschließend neu gesetzt bzw. neu eingerichtet werden. Ein nicht lesbares TOTP-Secret wird fail-closed abgelehnt (Audit-Log „TOTP-Secret nicht lesbar“): Betroffene melden sich per Backup-Code an, die Verwaltung setzt ihre 2FA zurück.
 
 ## Lizenz & Copyright
 

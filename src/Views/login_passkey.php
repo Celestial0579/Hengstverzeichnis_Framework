@@ -48,15 +48,22 @@ $hatMail = in_array(App\Security\SecondFactors::EMAIL, $andereFaktoren, true);
         <p style="text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
             Gerät nicht zur Hand?
         </p>
-        <p style="text-align: center;">
-            <?php if ($hatTotp): ?>
+        <?php if ($hatTotp): ?>
+            <p style="text-align: center;">
                 <a href="/login/2fa">Code aus der Authentikator-App</a>
-            <?php endif; ?>
-            <?php if ($hatTotp && $hatMail): ?> &middot; <?php endif; ?>
-            <?php if ($hatMail): ?>
-                <a href="/login/2fa/email">Code per E-Mail</a>
-            <?php endif; ?>
-        </p>
+            </p>
+        <?php endif; ?>
+        <?php if ($hatMail): ?>
+            <?php // Ein POST, kein Link (Audit N42): Der GET auf /login/2fa/email
+                  // verschickt bewusst nichts - wer von hier kommt, stuende
+                  // sonst vor einem Codefeld ohne Code. ?>
+            <form action="/login/2fa/email/senden" method="POST" style="text-align: center;">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+                <button type="submit" style="background: none; border: none; padding: 0; cursor: pointer; color: var(--primary-fg); text-decoration: underline; font-size: inherit;">
+                    Code per E-Mail senden
+                </button>
+            </form>
+        <?php endif; ?>
     <?php else: ?>
         <?php // Kein anderer Faktor. Wer hier nicht weiterkommt, braucht einen
               // Administrator - und soll das wissen, statt es zu raten. ?>
@@ -66,9 +73,13 @@ $hatMail = in_array(App\Security\SecondFactors::EMAIL, $andereFaktoren, true);
         </p>
     <?php endif; ?>
 
-    <p style="text-align: center; margin-top: 1.5rem;">
-        <a href="/logout" style="color: var(--text-muted); font-size: 0.85rem;">Abbrechen</a>
-    </p>
+    <?php // Abmelden geht nur per POST mit CSRF-Token (Audit N86) - der
+          // fruehere Link auf GET /logout endete in "Seite nicht gefunden",
+          // und der Anmeldevorgang blieb stehen. ?>
+    <form action="/logout" method="POST" style="text-align:center; margin-top:1.5rem;">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+        <button type="submit" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-muted); font-size:0.85rem; text-decoration:underline;">Abbrechen</button>
+    </form>
 </div>
 
 <script defer src="/js/passkeys.js"></script>

@@ -96,8 +96,8 @@ class RegistrationController extends BaseController {
         }
 
         $db = Database::getInstance();
-        $token = bin2hex(random_bytes(32));
-        $expiresAt = date('Y-m-d H:i:s', time() + 48 * 3600);
+        // Token und Ablauf aus einer Hand mit dem Neuversand (Audit N54).
+        [$token, $expiresAt] = \App\Service\EmailVerification::neuesToken();
 
         try {
             $stmt = $db->prepare(

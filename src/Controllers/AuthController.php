@@ -6,8 +6,10 @@ namespace App\Controllers;
 use App\Database;
 use App\Security\EmailSecondFactor;
 use App\Security\LoginIdentifier;
+use App\Security\Passkeys;
 use App\Security\SecondFactors;
 use App\Security\Totp;
+use App\Service\EmailVerification;
 
 class AuthController extends BaseController {
 
@@ -96,6 +98,14 @@ class AuthController extends BaseController {
             // Passwortprüfung gemeldet, damit die Meldung nichts über fremde
             // Konten verrät).
             if (!empty($user['email_verification_token'])) {
+                // Abgelaufener oder verlorener Link war bis hierher eine
+                // Sackgasse (Audit N54): Wer sein Passwort kennt, bekommt
+                // einen aktuellen - gedrosselt und nie über die
+                // Höchstlebensdauer des Kontos hinaus (siehe
+                // EmailVerification::erneutSenden()). Nur hier, nach der
+                // Passwortprüfung: Dritte können so weder abfragen, ob es ein
+                // unbestätigtes Konto gibt, noch Mail auslösen.
+                EmailVerification::erneutSenden($user);
                 $this->render('login', [
                     'title' => \App\I18n\Translator::t('meta.title_login_failed'),
                     'error' => \App\I18n\Translator::t('auth.email_not_verified')
@@ -107,46 +117,10 @@ class AuthController extends BaseController {
             // die Spuren von Spraying-Versuchen gegen andere Konten löscht.
             \App\Security\RateLimiter::clearAttempts($accountIdentifier, 'login');
 
-            // Ein neuer Login löst jede bestehende Anmeldung dieser Sitzung ab.
-            // Ohne das laufen zwei Identitäten nebeneinander: die alte in
-            // `user_id`, die neue in `pending_2fa_user_id` - und alles, was
-            // zwischen Faktor 1 und Faktor 2 passiert, kann die Nachweise der
-            // einen für das Konto der anderen verwenden.
-            $this->discardExistingSessionState();
-
-            // Welche zweiten Faktoren hat das Konto? Die Frage beantwortet
-            // ausschliesslich SecondFactors (#354) - hier steht nur noch,
-            // wohin die einzelnen Verfahren fuehren.
-            $faktoren = SecondFactors::fromRow($user);
-            if ($faktoren !== []) {
-                $_SESSION['pending_2fa_user_id'] = $user['id'];
-
-                // Bei mehreren Faktoren fuehrt der Weg zum staerkeren; der
-                // Mailcode bleibt von dort aus als Ausweichweg erreichbar.
-                if (in_array(SecondFactors::TOTP, $faktoren, true)) {
-                    header("Location: /login/2fa");
-                    exit;
-                }
-
-                // Der Code wird HIER erzeugt und versendet, nicht beim
-                // Anzeigen des Formulars: Ein GET, der Mail verschickt, tut
-                // das auch beim Neuladen und beim Vorausladen des Browsers.
-                $this->sendeAnmeldecode((int)$user['id'], (string)($user['email'] ?? ''));
-                exit;
-            }
-
-            // 2FA-Pflicht pro Gruppe (#84): Nur wenn mindestens eine Gruppe des
-            // Benutzers (oder die fest verdrahtete Admin-Pflicht) 2FA verlangt,
-            // wird das Setup erzwungen - sonst ist der Login hier abgeschlossen.
-            // Kein Bestandsschutz: Wird die Pflicht später aktiviert, greift sie
-            // automatisch beim nächsten Login.
-            if ($this->userRequires2fa((int)$user['id'])) {
-                $_SESSION['pending_2fa_user_id'] = $user['id'];
-                header("Location: /2fa/setup");
-                exit;
-            }
-
-            $this->completeLogin((int)$user['id']);
+            // Wohin es nach dem Passwort geht, entscheidet die zentrale
+            // Faktorweiche (Audit N42) - dieselbe, die auch /2fa/setup und
+            // später der SSO-Weg benutzen.
+            $this->nachErstemFaktor($user);
         }
 
         \App\Security\RateLimiter::recordAttempt($accountIdentifier, 'login');
@@ -198,7 +172,8 @@ class AuthController extends BaseController {
 
         $db = Database::getInstance();
         $stmt = $db->prepare(
-            "SELECT id, username, email, password_hash, totp_enabled, email_2fa_enabled, email_verification_token
+            "SELECT id, username, email, password_hash, totp_enabled, email_2fa_enabled, email_verification_token,
+                    email_verification_expires_at, created_at
              FROM users
              WHERE (email = ? OR username = ?) AND deleted_at IS NULL AND deactivated_at IS NULL
              LIMIT 2"
@@ -261,7 +236,7 @@ class AuthController extends BaseController {
      * die Backup-Codes hin.
      */
     private function sendeAnmeldecode(int $userId, string $email): void {
-        $ziel = '/login/2fa/email';
+        $ziel = self::PFAD_MAILCODE;
 
         // Faktor aktiv, aber keine Adresse: Diesen Zustand verhindern
         // UserController (Adresse entfernt -> Faktor aus) und
@@ -305,6 +280,72 @@ class AuthController extends BaseController {
         header("Location: {$ziel}" . ($versandt ? '' : '?fehler=versand'));
     }
 
+    /** Eingabeseiten der zweiten Faktoren - Ziele von faktorPfad(). */
+    public const PFAD_PASSKEY = '/login/passkey';
+    public const PFAD_TOTP = '/login/2fa';
+    public const PFAD_MAILCODE = '/login/2fa/email';
+
+    /**
+     * Die zentrale Faktorweiche nach bestandenem ersten Faktor (Audit N42).
+     *
+     * @internal Prüft KEIN Passwort und darf nie als Route registriert
+     * werden. Öffentlich nur, damit andere erste Faktoren (SSO) dieselbe
+     * Weiche benutzen statt einer Kopie - bis hierher prüfte loginSubmit()
+     * nur auf TOTP und schickte jedes andere Konto zum Mailcode, auch eines,
+     * dessen einziger Faktor ein Passkey war. Das Ergebnis war ein Code für
+     * einen gar nicht aktivierten Faktor und eine Sackgasse.
+     *
+     * $konto braucht id, totp_enabled, email_2fa_enabled und email;
+     * SecondFactors::fromRow() holt die Passkeys über die id. Beendet den
+     * Request.
+     *
+     * @param array<string, mixed> $konto
+     */
+    public function nachErstemFaktor(array $konto, string $ziel = '/admin'): void {
+        $userId = (int)$konto['id'];
+
+        // Ein neuer Login löst jede bestehende Anmeldung dieser Sitzung ab.
+        // Ohne das laufen zwei Identitäten nebeneinander: die alte in
+        // `user_id`, die neue in `pending_2fa_user_id` - und alles, was
+        // zwischen Faktor 1 und Faktor 2 passiert, kann die Nachweise der
+        // einen für das Konto der anderen verwenden.
+        $this->discardExistingSessionState();
+
+        // Welche zweiten Faktoren hat das Konto? Die Frage beantwortet
+        // ausschliesslich SecondFactors (#354), wohin sie fuehren
+        // ausschliesslich faktorPfad().
+        $faktoren = SecondFactors::fromRow($konto);
+        if ($faktoren !== []) {
+            $_SESSION['pending_2fa_user_id'] = $userId;
+            $pfad = self::faktorPfad($faktoren);
+
+            if ($pfad === self::PFAD_MAILCODE) {
+                // Der Code wird HIER erzeugt und versendet, nicht beim
+                // Anzeigen des Formulars: Ein GET, der Mail verschickt, tut
+                // das auch beim Neuladen und beim Vorausladen des Browsers.
+                // Und nur, wenn der Mailcode der gewaehlte Faktor ist - wer
+                // zuerst zum Passkey geht, fordert ihn dort per Knopf an.
+                $this->sendeAnmeldecode($userId, (string)($konto['email'] ?? ''));
+            } else {
+                header('Location: ' . $pfad);
+            }
+            exit;
+        }
+
+        // 2FA-Pflicht pro Gruppe (#84): Nur wenn mindestens eine Gruppe des
+        // Benutzers (oder die fest verdrahtete Admin-Pflicht) 2FA verlangt,
+        // wird das Setup erzwungen - sonst ist der Login hier abgeschlossen.
+        // Kein Bestandsschutz: Wird die Pflicht später aktiviert, greift sie
+        // automatisch beim nächsten Login.
+        if ($this->userRequires2fa($userId)) {
+            $_SESSION['pending_2fa_user_id'] = $userId;
+            header("Location: /2fa/setup");
+            exit;
+        }
+
+        $this->completeLogin($userId, $ziel);
+    }
+
     /**
      * Wohin ein Konto mit diesen Faktoren zum Nachweis geschickt wird.
      *
@@ -319,10 +360,19 @@ class AuthController extends BaseController {
         // ein abgetippter Code ist es nicht. Wer mehrere Faktoren hat,
         // bekommt den staerksten angeboten und kann auf der Seite selbst
         // umschalten.
+        //
+        // Ausnahme (Audit N42): Auf einer Verbindung, auf der Passkeys gar
+        // nicht funktionieren (HTTP ausserhalb von localhost), geht es direkt
+        // zum naechsten Verfahren - die Passkey-Seite zeigte dort nur "nicht
+        // gesichert, bitte ausweichen". Ist der Passkey der einzige Faktor,
+        // bleibt es bei seiner Seite; sie erklaert dann wenigstens, warum.
         if (in_array(SecondFactors::PASSKEY, $faktoren, true)) {
-            return '/login/passkey';
+            $andere = array_diff($faktoren, [SecondFactors::PASSKEY]);
+            if ($andere === [] || Passkeys::verfuegbar()) {
+                return self::PFAD_PASSKEY;
+            }
         }
-        return in_array(SecondFactors::TOTP, $faktoren, true) ? '/login/2fa' : '/login/2fa/email';
+        return in_array(SecondFactors::TOTP, $faktoren, true) ? self::PFAD_TOTP : self::PFAD_MAILCODE;
     }
 
     /**
@@ -350,6 +400,19 @@ class AuthController extends BaseController {
      * als einzigen Faktor einen Mailcode. Statt das hinzunehmen oder das
      * Konto auszusperren, verlangt die Anmeldung an dieser Stelle die
      * Einrichtung von TOTP: nach bestandenem zweiten Faktor, nicht davor.
+     *
+     * Dasselbe gilt für einen Admin, dessen einziger Faktor ein Passkey ist
+     * (etwa nach dem Zurücksetzen der eigenen 2FA): App und Backup-Codes sind
+     * der Rückweg, wenn das Gerät verloren geht.
+     *
+     * DIE MARKE `zweiter_faktor_bestanden` (Audit M32). Die Einrichtung
+     * verlangt für Konten mit vorhandenem Faktor eine angemeldete Sitzung
+     * plus Step-up - die gibt es während des Logins nie. Ohne die Marke
+     * schickte /2fa/setup das Konto zurück zur Faktorseite, die wieder
+     * hierher, und so fort. Sie hält fest, dass Passwort und ein vorhandener
+     * Faktor in GENAU diesem Login bestanden sind, und öffnet damit nur die
+     * TOTP-Einrichtung dieses einen Kontos (siehe
+     * zweiterFaktorInDiesemLoginBestanden()).
      */
     private function afterSecondFactor(int $userId, string $redirectSuccess = '/admin'): void {
         if (
@@ -357,6 +420,7 @@ class AuthController extends BaseController {
             && !SecondFactors::has($userId, SecondFactors::TOTP)
         ) {
             $_SESSION['pending_2fa_user_id'] = $userId;
+            $_SESSION['zweiter_faktor_bestanden'] = ['user_id' => $userId, 'at' => time()];
             header("Location: /2fa/setup?grund=starker_faktor");
             exit;
         }
@@ -377,6 +441,7 @@ class AuthController extends BaseController {
             $_SESSION['user_agent_hash'],
             $_SESSION['session_version'],
             $_SESSION['pending_2fa_user_id'],
+            $_SESSION['zweiter_faktor_bestanden'],
             $_SESSION['twofa_reauth'],
             $_SESSION['totp_setup'],
             $_SESSION['must_change_password'],
@@ -482,6 +547,30 @@ class AuthController extends BaseController {
         return (time() - (int)$reauth['at']) <= self::TWOFA_REAUTH_TTL;
     }
 
+    /**
+     * Hat GENAU dieses Konto in diesem Login schon Passwort UND einen
+     * vorhandenen zweiten Faktor bestanden (Audit M32)?
+     *
+     * Das ist derselbe Nachweis, den process2faReauth() verlangt - Passwort
+     * plus vorhandener Faktor -, nur im Anmeldeweg erbracht. Er gilt nur,
+     * solange der Anmeldevorgang für dieses Konto noch läuft und höchstens
+     * TWOFA_REAUTH_TTL lang; danach führt der Weg wieder über die
+     * Faktorseite, und afterSecondFactor() setzt eine frische Marke.
+     */
+    private function zweiterFaktorInDiesemLoginBestanden(int $userId): bool {
+        $marke = $_SESSION['zweiter_faktor_bestanden'] ?? null;
+        if (!is_array($marke) || !isset($marke['user_id'], $marke['at'])) {
+            return false;
+        }
+        if ((int)$marke['user_id'] !== $userId) {
+            return false;
+        }
+        if ((int)($_SESSION['pending_2fa_user_id'] ?? 0) !== $userId) {
+            return false;
+        }
+        return (time() - (int)$marke['at']) <= self::TWOFA_REAUTH_TTL;
+    }
+
     public function show2faSetup(): void {
         $userId = $this->twofaTargetUserId();
         if ($userId === null) {
@@ -509,8 +598,14 @@ class AuthController extends BaseController {
         // ein frisches TOTP-Secret, bestätigte es mit dem eigenen Gerät und
         // wäre angemeldet - mit dem Mailcode nie in Berührung gekommen und mit
         // den Backup-Codes des Opfers überschrieben.
+        //
+        // Ausnahme (Audit M32): Wer in diesem Login Passwort und einen
+        // vorhandenen Faktor schon bestanden hat und nur noch die für
+        // Administratoren vorgeschriebene App einrichten muss, hat den
+        // Step-up-Nachweis bereits erbracht.
         $vorhandeneFaktoren = SecondFactors::fromRow($user);
-        if ($vorhandeneFaktoren !== []) {
+        $grundStarkerFaktor = $this->zweiterFaktorInDiesemLoginBestanden($userId);
+        if ($vorhandeneFaktoren !== [] && !$grundStarkerFaktor) {
             // Die Neukonfiguration darf nur die eigene, angemeldete Sitzung
             // dieses Kontos anstoßen. Eine Sitzung, die als jemand anderes
             // angemeldet ist, zählt hier ausdrücklich NICHT als Nachweis -
@@ -552,7 +647,8 @@ class AuthController extends BaseController {
             'title' => '2FA Einrichtung',
             'secret' => $secret,
             'otpAuthUrl' => $otpAuthUrl,
-            'backupCodes' => $backupCodes
+            'backupCodes' => $backupCodes,
+            'grundStarkerFaktor' => $grundStarkerFaktor,
         ]);
     }
 
@@ -603,9 +699,14 @@ class AuthController extends BaseController {
             $bestanden = false;
 
             if (in_array(SecondFactors::TOTP, $faktoren, true) && !empty($user['totp_secret'])) {
-                $decryptedSecret = \App\Security\Crypto::decrypt($user['totp_secret']) ?? $user['totp_secret'];
+                // Fail-closed (Audit N8): Ein nicht lesbares Secret besteht
+                // nie - auch nicht mit einem Code, der aus dem Chiffretext
+                // berechnet wurde.
+                $decryptedSecret = Totp::secretAusSpeicher((string)$user['totp_secret'], (int)$userId);
                 $lastSlice = $user['last_totp_timeslice'] !== null ? (int)$user['last_totp_timeslice'] : null;
-                $matchedSlice = Totp::verifyCodeReturnSlice($decryptedSecret, trim($_POST['totp_code'] ?? ''), $lastSlice);
+                $matchedSlice = $decryptedSecret === null
+                    ? null
+                    : Totp::verifyCodeReturnSlice($decryptedSecret, trim($_POST['totp_code'] ?? ''), $lastSlice);
 
                 if ($matchedSlice !== null) {
                     $update = $db->prepare("UPDATE users SET last_totp_timeslice = ? WHERE id = ?");
@@ -723,7 +824,8 @@ class AuthController extends BaseController {
         // /2fa/setup gibt das neue Secret bereits aus, ein Fix nur hier käme
         // zu spät. Zur Frage "welcher Faktor zählt" siehe show2faSetup().
         $vorhandeneFaktoren = SecondFactors::fromRow($dbUser);
-        if ($vorhandeneFaktoren !== []) {
+        $grundStarkerFaktor = $this->zweiterFaktorInDiesemLoginBestanden($userId);
+        if ($vorhandeneFaktoren !== [] && !$grundStarkerFaktor) {
             if ((int)($_SESSION['user_id'] ?? 0) !== $userId) {
                 header("Location: " . self::faktorPfad($vorhandeneFaktoren));
                 exit;
@@ -768,6 +870,7 @@ class AuthController extends BaseController {
                 'secret' => $secret,
                 'otpAuthUrl' => Totp::getOtpAuthUrl($this->totpLabel($dbUser), $siteName, $secret),
                 'backupCodes' => $backupCodesRaw,
+                'grundStarkerFaktor' => $grundStarkerFaktor,
                 'error' => 'Ungültiger 6-stelliger Code. Bitte versuchen Sie es erneut.'
             ]);
             return;
@@ -784,8 +887,10 @@ class AuthController extends BaseController {
         $stmt = $db->prepare("UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ?, last_totp_timeslice = ? WHERE id = ?");
         $stmt->execute([$encryptedSecret, json_encode($hashedBackupCodes), $matchedSlice, $userId]);
 
-        // Server-State der Einrichtung und Reauth-Freischaltung verbrauchen.
-        unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth']);
+        // Server-State der Einrichtung und Reauth-Freischaltung verbrauchen -
+        // ebenso die Marke aus dem Anmeldeweg (Audit M32): Sie hat ihren
+        // einen Zweck erfüllt, afterSecondFactor() findet jetzt TOTP vor.
+        unset($_SESSION['totp_setup'], $_SESSION['twofa_reauth'], $_SESSION['zweiter_faktor_bestanden']);
 
         $this->afterSecondFactor($userId, '/admin?2fa=enabled');
     }
@@ -845,12 +950,15 @@ class AuthController extends BaseController {
         $stmt->execute([$userId]);
         $user = $stmt->fetch();
 
-        if ($user && !empty($user['totp_secret'])) {
-            $decryptedSecret = \App\Security\Crypto::decrypt($user['totp_secret']);
-            // Fallback for unencrypted secrets if any existed previously
-            if ($decryptedSecret === null) {
-                $decryptedSecret = $user['totp_secret'];
-            }
+        // Fail-closed (Audit N8): Laesst sich das Secret nicht lesen, wird
+        // gar nicht erst verglichen - der Versuch zaehlt als Fehlversuch.
+        // Bis hierher wurde dann der Rohwert zum Secret, nach einem Wechsel
+        // des APP_KEY also der Chiffretext, den jeder mit einem Dump kennt.
+        $decryptedSecret = ($user && !empty($user['totp_secret']))
+            ? Totp::secretAusSpeicher((string)$user['totp_secret'], (int)$userId)
+            : null;
+
+        if ($decryptedSecret !== null) {
 
             // Replay-Schutz (#111): Codes sind single-use - der getroffene
             // Zeitschlitz wird persistiert, bereits verbrauchte Schlitze lehnt
@@ -1072,9 +1180,24 @@ class AuthController extends BaseController {
         if (!\App\Router::verifyCsrfToken($_POST['csrf_token'] ?? '')) {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
-        \App\Service\AuditLogger::log("Benutzer ausgeloggt", "auth", "Erfolgreich abgemeldet");
+        // Ohne `user_id` gibt es nur einen laufenden Anmeldevorgang, etwa
+        // "Abbrechen" auf der Passkey-Seite (Audit N86). Der Weg zurück führt
+        // dann zur Anmeldung, nicht zur Startseite. Das Ziel wird VOR
+        // session_destroy() bestimmt - danach ist die Sitzung leer.
+        $nurAnmeldevorgang = !isset($_SESSION['user_id']);
+        if ($nurAnmeldevorgang) {
+            $pendingId = $_SESSION['pending_2fa_user_id'] ?? null;
+            \App\Service\AuditLogger::log(
+                "Anmeldevorgang abgebrochen",
+                "auth",
+                "Abbruch vor dem zweiten Faktor",
+                $pendingId !== null ? (int)$pendingId : null
+            );
+        } else {
+            \App\Service\AuditLogger::log("Benutzer ausgeloggt", "auth", "Erfolgreich abgemeldet");
+        }
         session_destroy();
-        header("Location: /");
+        header("Location: " . ($nurAnmeldevorgang ? '/login' : '/'));
         exit;
     }
 
@@ -1251,8 +1374,15 @@ class AuthController extends BaseController {
         // ist danach noch bis zu 15 Minuten gültig. Ohne den Filter setzte er
         // dem gesperrten Konto ein frisches Passwort - und die Sperre haette
         // ein Zeitfenster, in dem sie sich aushebeln laesst.
+        //
+        // Der Reset-Link bestaetigt zugleich die Adresse (Audit N54): Er
+        // beweist die Kontrolle ueber das Postfach genauso wie der
+        // Bestaetigungslink der Selbstregistrierung. Hat jemand ein Konto auf
+        // eine fremde Adresse registriert, uebernimmt der Postfachinhaber es
+        // damit samt eigenem Passwort.
         $stmt = $db->prepare(
-            "UPDATE users SET password_hash = ?, session_version = session_version + 1
+            "UPDATE users SET password_hash = ?, session_version = session_version + 1,
+                    email_verification_token = NULL, email_verification_expires_at = NULL
              WHERE email = ? AND deleted_at IS NULL AND deactivated_at IS NULL"
         );
         $stmt->execute([$newPasswordHash, $reset['email']]);

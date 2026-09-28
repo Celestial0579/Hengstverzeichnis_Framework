@@ -142,4 +142,41 @@ class TotpTest extends TestCase {
         $this->assertStringContainsString('issuer=Hengstverzeichnis', $url);
         $this->assertStringContainsString(rawurlencode('Hengstverzeichnis:admin@example.com'), $url);
     }
+
+    // ---- Audit N8: fail-closed lesen ----------------------------------------
+
+    public function testEntschluesseltVerschluesseltesSecret(): void {
+        $gespeichert = \App\Security\Crypto::encrypt('JBSWY3DPEHPK3PXP');
+
+        $this->assertSame('JBSWY3DPEHPK3PXP', Totp::entschluesseleSecret($gespeichert));
+    }
+
+    public function testBase32KlartextWirdAlsAltbestandAkzeptiert(): void {
+        $this->assertSame('JBSWY3DPEHPK3PXP', Totp::entschluesseleSecret('JBSWY3DPEHPK3PXP'));
+        $lang = str_repeat('ABCDEFGH', 8);
+        $this->assertSame($lang, Totp::entschluesseleSecret($lang));
+    }
+
+    /**
+     * Der eigentliche Befund: Nach einem APP_KEY-Wechsel wurde der
+     * Chiffretext selbst zum Secret - und den kennt jeder mit einem Dump.
+     */
+    public function testFremderChiffretextWirdAbgelehnt(): void {
+        $this->assertNull(Totp::entschluesseleSecret(base64_encode(random_bytes(44))));
+
+        $echt = base64_decode(\App\Security\Crypto::encrypt('JBSWY3DPEHPK3PXP'), true);
+        $manipuliert = $echt;
+        $manipuliert[strlen($manipuliert) - 1] = chr(ord($manipuliert[strlen($manipuliert) - 1]) ^ 0x01);
+        $this->assertNull(Totp::entschluesseleSecret(base64_encode($manipuliert)));
+    }
+
+    public function testKeinKlartext(): void {
+        $this->assertTrue(Totp::istKlartextSecret('JBSWY3DPEHPK3PXP'));
+        $this->assertFalse(Totp::istKlartextSecret('jbswy3dpehpk3pxp'), 'Kleinbuchstaben');
+        $this->assertFalse(Totp::istKlartextSecret('JBSWY3DPEHPK3PX'), 'zu kurz');
+        $this->assertFalse(Totp::istKlartextSecret(str_repeat('A', 65)), 'zu lang');
+        $this->assertFalse(Totp::istKlartextSecret('JBSWY3DPEHPK3PXP='), 'Base64 mit =');
+        $this->assertFalse(Totp::istKlartextSecret('JBSWY3DPEHPK3PX1'), '1 ist kein Base32');
+        $this->assertFalse(Totp::istKlartextSecret(''));
+    }
 }

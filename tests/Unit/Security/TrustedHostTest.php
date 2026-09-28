@@ -24,6 +24,36 @@ class TrustedHostTest extends TestCase {
         putenv('TRUSTED_HOSTS');
     }
 
+    /**
+     * Audit M36: Die RP-ID der Passkeys braucht den Hostnamen ohne Port und
+     * ohne IPv6-Klammern - der frühere Aufruf existierte gar nicht.
+     */
+    public function testResolveHostnameOhnePort(): void {
+        $_SERVER['HTTP_HOST'] = 'verband.example:8443';
+        $this->assertSame('verband.example', TrustedHost::resolveHostname());
+
+        $_SERVER['HTTP_HOST'] = 'Verband.Example';
+        $this->assertSame('verband.example', TrustedHost::resolveHostname());
+
+        $_SERVER['HTTP_HOST'] = '[::1]:8080';
+        $this->assertSame('::1', TrustedHost::resolveHostname());
+
+        $_SERVER['HTTP_HOST'] = '[2001:DB8::1]';
+        $this->assertSame('2001:db8::1', TrustedHost::resolveHostname());
+
+        $_SERVER['HTTP_HOST'] = 'evil.example/foo';
+        $this->assertSame('', TrustedHost::resolveHostname());
+
+        unset($_SERVER['HTTP_HOST']);
+        $this->assertSame('', TrustedHost::resolveHostname());
+
+        putenv('TRUSTED_HOSTS=verband.example');
+        $_SERVER['HTTP_HOST'] = 'fremd.example:8443';
+        $this->assertSame('', TrustedHost::resolveHostname());
+        $_SERVER['HTTP_HOST'] = 'VERBAND.example:8443';
+        $this->assertSame('verband.example', TrustedHost::resolveHostname());
+    }
+
     public function testMissingHostHeaderResolvesToEmptyString(): void {
         $this->assertSame('', TrustedHost::resolve());
     }

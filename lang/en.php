@@ -243,7 +243,7 @@ return [
     'auth.login_button' => 'Sign In',
     'auth.rate_limited_login' => 'Too many failed login attempts. Please try again in 15 minutes.',
     'auth.invalid_credentials' => 'Invalid credentials.',
-    'auth.email_not_verified' => 'Please confirm your email address first using the link we sent you during registration.',
+    'auth.email_not_verified' => 'Please confirm your email address first using the link in our email (please also check your spam folder). If it has expired or got lost, we will automatically send you a current link when you sign in with your password.',
     'auth.email_verified_success' => '✓ Email address confirmed. You can sign in now.',
     'auth.register_link' => 'No account yet? Register now',
     'auth.entra_login_button' => '🪟 Sign in with Microsoft',
@@ -300,7 +300,7 @@ return [
     'register.email_invalid' => 'Please provide a valid email address.',
     'register.password_invalid' => 'The passwords do not match or are too short (at least 8 characters).',
     'register.already_taken' => 'Username or email address is already taken.',
-    'register.verification_invalid' => 'The confirmation link is invalid or has expired. Please register again or contact the operator.',
+    'register.verification_invalid' => 'The confirmation link is invalid or has expired. Sign in with your username or email address and password – we will then automatically send you a new link.',
 
     'auth.2fa_heading' => '🔐 2FA Verification',
     'auth.2fa_instructions' => 'Please enter the 6-digit code from your authenticator app.',

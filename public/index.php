@@ -103,6 +103,7 @@ $pluginManager->boot();
 \App\Service\DigestService::registerScheduledTask();
 \App\Service\UpdateService::registerScheduledTask();
 \App\Service\DormantAccountService::registerScheduledTask();
+\App\Service\EmailVerification::registerScheduledTask();
 
 $router = new Router();
 

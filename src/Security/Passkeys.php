@@ -11,6 +11,8 @@ use Cose\Algorithm\Signature\ECDSA\ES384;
 use Cose\Algorithm\Signature\ECDSA\ES512;
 use Cose\Algorithm\Signature\EdDSA\Ed25519;
 use Cose\Algorithm\Signature\RSA\RS256;
+use Webauthn\AttestationStatement\AttestationStatementSupportManager;
+use Webauthn\AttestationStatement\NoneAttestationStatementSupport;
 use Webauthn\AuthenticatorAssertionResponse;
 use Webauthn\AuthenticatorAssertionResponseValidator;
 use Webauthn\AuthenticatorAttestationResponse;
@@ -120,9 +122,21 @@ final class Passkeys {
         }
 
         // Rückfall: der geprüfte Host, ohne Port. Ein Port gehört nicht in die
-        // RP-ID - die Spezifikation kennt dort nur die Domain.
-        $host = TrustedHost::current();
-        $host = strtolower(trim(explode(':', (string)$host)[0]));
+        // RP-ID - die Spezifikation kennt dort nur die Domain. Bis hierher
+        // stand an dieser Stelle ein Aufruf einer Methode, die es nicht gab:
+        // Ohne base_url und APP_URL (Auslieferungszustand) endete jede
+        // Passkey-Zeremonie mit HTTP 500 (Audit M36).
+        //
+        // Wird base_url später auf einen ANDEREN Hostnamen gesetzt, sind
+        // Passkeys, die über diesen Rückfall registriert wurden, an die alte
+        // RP-ID gebunden und nicht mehr nutzbar (docs/security.md).
+        $host = TrustedHost::resolveHostname();
+        if ($host === '') {
+            throw new \RuntimeException(
+                'Keine RP-ID bestimmbar: Weder base_url (Systemeinstellungen) noch APP_URL ist gesetzt, '
+                . 'und der Host der Anfrage ist ungültig oder steht nicht in TRUSTED_HOSTS.'
+            );
+        }
 
         return $host;
     }
@@ -450,10 +464,19 @@ final class Passkeys {
         );
     }
 
+    /**
+     * Der Serializer der Bibliothek erwartet die Attestation-Formate, NICHT
+     * die Algorithmen. Hier stand bis Audit M36 self::algorithmen() - ein
+     * TypeError bei jeder Zeremonie, der hinter dem ebenfalls kaputten
+     * RP-ID-Rückfall nie sichtbar wurde. Nur `none`, passend zu
+     * `attestation: none` und zur Vorgabe der CeremonyStepManagerFactory.
+     */
     private static function serializer(): \Symfony\Component\Serializer\SerializerInterface {
         static $serializer = null;
         if ($serializer === null) {
-            $serializer = (new WebauthnSerializerFactory(self::algorithmen()))->create();
+            $serializer = (new WebauthnSerializerFactory(
+                AttestationStatementSupportManager::create([NoneAttestationStatementSupport::create()])
+            ))->create();
         }
         return $serializer;
     }

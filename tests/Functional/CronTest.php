@@ -25,6 +25,7 @@ class CronTest extends FunctionalTestCase {
         'digest.admin_editor',
         'update.check',
         'users.deactivate_dormant',
+        'users.purge_unverified',
     ];
 
     public function testCronSettingsPageRequiresAdmin(): void {

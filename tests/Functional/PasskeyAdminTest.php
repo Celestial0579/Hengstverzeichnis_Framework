@@ -143,6 +143,44 @@ class PasskeyAdminTest extends FunctionalTestCase {
         );
     }
 
+    /**
+     * Auslieferungszustand ohne base_url (Audit M36): Die RP-ID fällt auf den
+     * geprüften Host zurück. Bis hierher rief Passkeys::rpId() dann eine
+     * Methode auf, die es nicht gab - HTTP 500 ohne Text.
+     *
+     * Voraussetzung: Der Testserver setzt weder APP_URL noch TRUSTED_HOSTS
+     * (tests/Support/PhpBuiltInServer.php gibt nur die Umgebung des
+     * PHPUnit-Prozesses weiter).
+     */
+    public function testRegistrierungsOptionenOhneBaseUrlLiefernJson(): void {
+        if (getenv('APP_URL') !== false || getenv('TRUSTED_HOSTS') !== false) {
+            $this->markTestSkipped('APP_URL/TRUSTED_HOSTS gesetzt - der Rückfall ist so nicht erreichbar.');
+        }
+        $admin = $this->authenticatedClient();
+
+        $db = \App\Database::getInstance();
+        $vorher = $db->query("SELECT setting_value FROM settings WHERE setting_key = 'base_url'")->fetchColumn();
+        $db->exec("DELETE FROM settings WHERE setting_key = 'base_url'");
+        try {
+            $antwort = $admin->post('/passkeys/optionen', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+            ]);
+
+            $this->assertSame(200, $antwort->statusCode, "Body: {$antwort->body}");
+            $daten = json_decode($antwort->body, true);
+            $this->assertIsArray($daten, "Body: {$antwort->body}");
+            $this->assertArrayHasKey('challenge', $daten);
+            $this->assertSame('127.0.0.1', $daten['rp']['id'] ?? null);
+        } finally {
+            if ($vorher !== false) {
+                $db->prepare(
+                    "INSERT INTO settings (setting_key, setting_value) VALUES ('base_url', ?)
+                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+                )->execute([(string)$vorher]);
+            }
+        }
+    }
+
     // ---- Der Abschnitt im Profil -----------------------------------------
 
     /**

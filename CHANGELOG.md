@@ -10,6 +10,45 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Entzogene Rechte kamen mit einem Update zurück** (Audit M22, N18). Zwei
+  Standardrechte-Seeds im Schema-Migrator haben aus dem aktuellen
+  Rechtebestand geschlossen, ob sie schon gelaufen waren. Dadurch haben sie
+  bewusst entzogene Rechte wieder eingesetzt:
+  - Wer allen Gruppen sämtliche Leserechte entzogen hatte, etwa für eine rein
+    interne Instanz, bekam beim nächsten Update mit Schemaänderung
+    `horses.view` für die Gruppe „Gast“ zurück. Die Gruppe „Editor“ erhielt
+    wieder die vollen Pferde- und Kontaktrechte. Der öffentliche Katalog war
+    damit ohne Hinweis wieder offen.
+  - Beim Update von v0.7.x hat die Migration das Gast-Recht `persons.view`
+    wieder eingesetzt, auch wenn ein Admin es entzogen hatte. Die
+    Zusammenlegung zu `contacts` (#336) machte daraus `contacts.view`. Nicht
+    angemeldete Besucher sahen damit die Kontaktseiten unter `/kontakt` mit
+    zugeordneten Pferden und, wo `contact_public` gesetzt ist, auch mit
+    Telefon, E-Mail und Anschrift. Der Kommentar im Code behauptete das
+    Gegenteil.
+
+  Beide Seeds laufen jetzt genau einmal und halten das in `settings` fest
+  (`migration_66_standardrechte_seed`,
+  `migration_293_gastrecht_personenseite`). Maßgeblich sind der Schema-Stand
+  vor dem Update und der vorgefundene Tabellenaufbau, nicht der
+  Rechtebestand. Upgrades von Ständen vor v0.4.0 (ohne Leserecht) bzw. vor
+  v0.6.0 (ohne Personenseite) erhalten die Vorgaben weiterhin, genau einmal.
+  Bestehende Installationen werden beim Update nur markiert, an ihren Rechten
+  ändert sich nichts. `SCHEMA_VERSION` steigt auf 22, die Migration läuft
+  beim nächsten Seitenaufruf.
+
+  **Wer schon von v0.7.x aktualisiert hat** und der Gruppe „Gast
+  (Öffentlich)“ damals `persons.view` entzogen hatte, sollte unter
+  „Gruppen & Berechtigungen“ (`/admin/groups`) prüfen, ob die Gruppe beim
+  Bereich Kontakte das Leserecht (`contacts.view`) hat, und das
+  Recht bei Bedarf entfernen. Automatisch geht das nicht: Aus dem Bestand ist
+  nicht erkennbar, ob das Recht bewusst vergeben oder durch den Fehler
+  eingesetzt wurde. Auch der Rückweg `database/rollback-336.php` würde in
+  diesem Fall das fälschlich gesetzte `persons.view` wiederherstellen; das
+  Archiv `migration_336_rechte_vorher` in `settings` enthält dann einen
+  Eintrag `{"module":"persons","action":"view"}` für die Gast-Gruppe, der
+  vor dem Rückweg zu entfernen ist.
+
 - **Die vollautomatische Ersteinrichtung gibt dem ersten Besucher keine
   Admin-Sitzung mehr** (Audit H2). Mit `ADMIN_*` in der Umgebung richtete
   schon ein beliebiger erster Aufruf von `/setup` die Instanz ein – und der

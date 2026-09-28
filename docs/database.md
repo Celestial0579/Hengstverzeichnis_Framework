@@ -287,6 +287,19 @@ Append-only Protokoll aller sicherheits-/datenrelevanten Aktionen
 Wird von `AuditLogger::log()` aus praktisch jedem schreibenden Controller
 heraus befüllt. Siehe [security.md](security.md#audit-log).
 
+**Einzige Ausnahme vom Append-only-Prinzip: die DSGVO-Pseudonymisierung**
+(Audit N45, Entscheidung D18). Beim Anonymisieren oder Löschen eines Kontakts
+über `/admin/gdpr` ersetzt `AuditLogger::kontaktPseudonymisieren()` in den
+Einträgen, die über ihre Kennung am Kontakt hängen, den Namens- bzw.
+Notizteil durch `[DSGVO entfernt]` und Adressen des Kontakts in der Kategorie
+`email` durch `[Adresse]`. Erfasste Formate: `Kontakt ID {id}: …`, die
+Merge-Einträge (`Quelle ID … (…) -> Ziel ID … (…)`, nur die Seite des
+Kontakts), aus der Zeit vor #336 `Person ID {id}: …` und `Deckstation ID
+{alte id}: …` (über `contact_id_map`) sowie die Notiz einer
+Dubletten-Entscheidung (`contact a/b: label (Notiz)`). Das Ereignis (wer, wann,
+welche Kennung) und `created_at` bleiben. Neue Einträge zu Kontakten tragen
+seit Audit N45 ohnehin nur Kennungen.
+
 ### `settings`
 Generisches Key/Value-Store für Branding (`site_name`, `primary_color`,
 `secondary_color`, `site_logo` - Pfad zum hochgeladenen Logo, `logo_url` nur
@@ -438,6 +451,42 @@ Ein künftiges Entfernen der Alttabellen darf erst laufen, wenn
 `MitgliedsstatusAltbestand::offen()` 0 ergibt; eine Pseudonymisierung muss
 `id` und `membership_status` bis dahin stehen lassen.
 
+**Die Alttabellen werden DSGVO-seitig mitgeführt** (Audit M23,
+`App\Service\KontaktDsgvo`). DSGVO-Löschung und endgültiges Löschen aus dem
+Papierkorb entfernen die Altzeilen des Kontakts (Personen ID-treu und über
+`contact_id_map`, Stationen über `contact_id_map`), die DSGVO-Anonymisierung
+anonymisiert sie schemagetrieben (`name` wird der Anonymname, NULL-fähige
+Spalten – auch `membership_status` – werden `NULL`, NOT-NULL-Textspalten `''`;
+`id` und die Kennzeichen bleiben). Mit dem obigen Vertrag verträgt sich das:
+Eine Personen-Altzeile wird außerhalb eines DSGVO-Falls nur gelöscht, wenn kein
+lebender Kontakt mehr an ihr hängt – dann zählt sie für
+`MitgliedsstatusAltbestand::offen()` und das Addon ohnehin nicht mehr (beide
+lesen per JOIN auf `contacts`). Die Auskunft (Art. 15) zeigt die Altkopie unter
+`/admin/gdpr/legacy-copy?id=…`. Alte Sicherungen enthalten die Tabellen weiter;
+ein Werksreset leert sie (`SystemReset`).
+
+**Datenschritt `dsgvo_nachfuehrung`** (SCHEMA_VERSION 28, Entscheidung D18:
+gezielt rückwirkend). Einmalig, in EINER Transaktion samt Marker, idempotent,
+nach den #336-Schritten (stehen `persons`/`breeding_stations` noch, meldet er
+sich offen):
+
+1. Kontakte, die im `gdpr`-Protokoll als anonymisiert bzw. endgültig gelöscht
+   stehen (`Person ID {id}` seit #135) oder den Anonymnamen tragen: Namenskopie
+   am Pferd (Anonymname bzw. NULL), Merge-Reste, wörtliche
+   Deckstations-Freitexte neben einer verknüpften Station, Dubletten-Notizen,
+   Altkopien und ihre Protokolleinträge – wie bei einer neuen DSGVO-Aktion.
+   Existiert ein Kontakt trotz Protokolleintrag und trägt er nicht den
+   Anonymnamen, bleibt er unberührt (Meldung „übersprungen“).
+2. Altkopien, an denen kein Kontakt mehr hängt (seit der Umstellung hart
+   gelöscht). `database/rollback-336.php` holt sie danach nicht mehr zurück.
+3. Einmalcodes (`Anmeldecode 123456` → `Anmeldecode ******`) und E-Mail-Adressen
+   (→ `[Adresse]`) in allen Einträgen der Kategorie `email` (Audit N17).
+
+Historische Einträge existierender, nicht DSGVO-bearbeiteter Kontakte bleiben
+unverändert (Umfang b, nicht c). Namenskopien am Pferd, deren Verknüpfung
+schon früher auf NULL ging, lassen sich nicht sicher von importiertem Freitext
+unterscheiden und bleiben stehen (Prüfabfrage im CHANGELOG).
+
 **Rückweg #336** (`php database/rollback-336.php`). Ohne Argument prüft das
 Skript nur und zählt, was verloren ginge: nach der Migration angelegte
 Kontakte und Zuordnungen ohne Rückschreibziel („über Kreuz“, etwa ein
@@ -447,6 +496,11 @@ gibt es Zuordnungen ohne Rückschreibziel, zusätzlich mit
 
 - Keine andere Tabelle zeigt per Fremdschlüssel auf `contacts` – das Addon
   **mitgliedsstatus** vorher deinstallieren.
+
+Der Prüfmodus warnt mit `[WARNUNG] n Altkopie(n) gehören zu inzwischen
+gelöschten, m zu anonymisierten Kontakten` (Audit M23); mit `--ich-weiss`
+gleicht das Skript vor Schritt 1 über `KontaktDsgvo::nachholen()` ab, damit
+DSGVO-Fälle nicht zurückkehren.
 - `horse_persons.contact_id`/`station_contact_id` stehen noch.
 
 Vor dem ersten Schritt setzt das Skript `var/wartung.lock` **ohne

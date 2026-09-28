@@ -518,7 +518,11 @@ class ContactController extends BaseController {
         $stmt->execute([$name, ...array_values($fields), $isBreeder, $contactPublic, $isPublished]);
         $newContactId = (int)$db->lastInsertId();
 
-        \App\Service\AuditLogger::log("Kontakt angelegt", "contacts", "Kontakt ID {$newContactId}: {$name}");
+        // Nur die Kennung, nie der Name (Audit N45): Das Protokoll überlebt
+        // jede DSGVO-Löschung, und über "Anonymisierte Person (#id)" ließe
+        // sich ein anonymisierter Datensatz sonst wieder zuordnen. Siehe
+        // docs/plugin-development.md, "Was nicht hineingehört".
+        \App\Service\AuditLogger::log("Kontakt angelegt", "contacts", "Kontakt ID {$newContactId}");
 
         // Muster wie horse.after_save: erst speichern, dann melden - ein Addon
         // soll den fertigen Datensatz vorfinden, nicht einen halben.
@@ -652,7 +656,8 @@ class ContactController extends BaseController {
             }
         }
 
-        \App\Service\AuditLogger::log("Kontakt aktualisiert", "contacts", "Kontakt ID {$id}: {$name}");
+        // Nur die Kennung (Audit N45), siehe store().
+        \App\Service\AuditLogger::log("Kontakt aktualisiert", "contacts", "Kontakt ID {$id}");
 
         $this->hooks()->doAction('contact.after_save', $id, $_POST, false);
 
@@ -1009,12 +1014,13 @@ class ContactController extends BaseController {
             exit;
         }
 
-        // Nur Feldnamen und Zahlen, niemals Werte: Das Audit-Log ist fuer
-        // mehr Leute lesbar als die zurueckgehaltenen Angaben selbst.
+        // Nur Kennungen, Feldnamen und Zahlen, niemals Werte oder Namen: Das
+        // Audit-Log ist fuer mehr Leute lesbar als die Angaben selbst, und es
+        // ueberlebt jede DSGVO-Loeschung (Audit N45).
         \App\Service\AuditLogger::log(
             "Kontakte zusammengeführt",
             "contacts",
-            "Quelle ID {$sourceId} ({$source['name']}) -> Ziel ID {$targetId} ({$target['name']}): "
+            "Quelle ID {$sourceId} -> Ziel ID {$targetId}: "
             . "{$umgehaengt} Zuordnung(en) umgehängt, {$verworfen} doppelte verworfen, "
             . "{$stationen} Deckstations-Verweis(e) umgehängt, "
             . count($fill) . " Feld(er) ergänzt"
@@ -1074,12 +1080,12 @@ class ContactController extends BaseController {
             $stmt = $db->prepare("SELECT * FROM contacts WHERE id = ?");
             $stmt->execute([$id]);
             $contact = $stmt->fetch() ?: [];
-            $contactName = $contact['name'] ?? "ID {$id}";
 
             $stmt = $db->prepare("UPDATE contacts SET deleted_at = NOW() WHERE id = ?");
             $stmt->execute([$id]);
 
-            \App\Service\AuditLogger::log("Kontakt in Papierkorb verschoben", "contacts", "Kontakt ID {$id}: {$contactName}");
+            // Nur die Kennung (Audit N45), siehe store().
+            \App\Service\AuditLogger::log("Kontakt in Papierkorb verschoben", "contacts", "Kontakt ID {$id}");
 
             // contact.deleted meldet den Weg in den Papierkorb - den Zeitpunkt,
             // an dem der Kontakt aus der Oberflaeche verschwindet und ein Addon

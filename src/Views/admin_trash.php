@@ -58,6 +58,12 @@
         </div>
     <?php endif; ?>
 
+    <?php if (($_GET['error'] ?? '') === 'not_in_trash'): ?>
+        <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+            Nicht gelöscht: Das Element liegt nicht (mehr) im Papierkorb &ndash; vermutlich wurde es inzwischen wiederhergestellt.
+        </div>
+    <?php endif; ?>
+
     <?php if ($totalCount === 0): ?>
         <div style="padding: 3rem; text-align: center; color: var(--text-subtle); background: var(--surface-muted); border-radius: 6px; border: 1px dashed var(--border-color); margin-top: 1rem;">
             <span style="font-size: 2.5rem;">✨</span>

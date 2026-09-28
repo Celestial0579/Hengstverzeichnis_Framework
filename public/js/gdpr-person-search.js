@@ -29,6 +29,8 @@
         var selection = container.querySelector('.gdpr-manual-selection');
         var label = container.querySelector('.gdpr-selected-label');
         var link = container.querySelector('.gdpr-selected-link');
+        // Altkopie aus #336 (Audit M23), nur bei Auskunftsanfragen im HTML.
+        var legacyLink = container.querySelector('.gdpr-legacy-link');
         var idFields = container.querySelectorAll('.gdpr-selected-id');
 
         if (!input || !datalist || !selection) {
@@ -49,6 +51,9 @@
 
         function clearSelection() {
             selection.hidden = true;
+            if (legacyLink) {
+                legacyLink.hidden = true;
+            }
             idFields.forEach(function (field) { field.value = ''; });
         }
 
@@ -63,6 +68,10 @@
                 // leitet nur noch dauerhaft um, und zwar ueber die ALTE
                 // Kennung; ein Link darauf traefe deshalb den falschen Satz).
                 link.href = '/admin/contacts/edit?id=' + encodeURIComponent(person.id);
+            }
+            if (legacyLink) {
+                legacyLink.href = '/admin/gdpr/legacy-copy?id=' + encodeURIComponent(person.id);
+                legacyLink.hidden = !person.has_legacy_copy;
             }
             selection.hidden = false;
         }

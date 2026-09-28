@@ -30,7 +30,7 @@ use PDO;
  *    womöglich überholte Stand der #336-Umstellung - kein Hinweis.
  *  - gezählt wird per JOIN auf `contacts` (gelöschte und zusammengeführte
  *    Kontakte fallen heraus), ohne vom Kern anonymisierte Kontakte (Name exakt
- *    wie in GdprController::anonymizePerson()) und ohne Werte, die nur aus
+ *    wie KontaktDsgvo::anonymName()) und ohne Werte, die nur aus
  *    Leerraum bestehen (dieselbe REGEXP_REPLACE-Regel wie im Addon, Audit N32).
  *  - 0, sobald das Addon übernommen hat: Der Addon-Marker
  *    `plugin_mitgliedsstatus_uebernahme` (JSON) existiert UND trägt ein Feld
@@ -41,9 +41,14 @@ use PDO;
  * Dieses Markerformat ist ein Vertrag zwischen den Repos (README des Addons).
  *
  * WOFÜR NOCH. Ein künftiges Entfernen oder Pseudonymisieren der
- * *_pre_contacts-Tabellen (Audit M23) muss offen() === 0 abwarten bzw.
+ * *_pre_contacts-Tabellen muss offen() === 0 abwarten bzw.
  * `persons_pre_contacts.id` und `membership_status` stehen lassen - siehe den
- * Kommentar am Schritt 336_altbestand_stilllegen im SchemaMigrator.
+ * Kommentar am Schritt 336_altbestand_stilllegen im SchemaMigrator. Die
+ * DSGVO-Behandlung je Kontakt (Audit M23, App\Service\KontaktDsgvo) hält das
+ * ein: Sie anonymisiert nur die Altzeile eines DSGVO-Falls (id bleibt,
+ * membership_status wird genullt) und löscht außerhalb eines DSGVO-Falls nur
+ * Altzeilen, an denen kein Kontakt mehr hängt - die zählt offen() ohnehin
+ * nicht.
  */
 final class MitgliedsstatusAltbestand {
 

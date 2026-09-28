@@ -166,4 +166,28 @@ class Rollback336Test extends TestCase {
         $this->assertTrue(AltbestandV072::tabelleExistiert($this->pdo, 'contact_id_map'));
         $this->assertFalse(Maintenance::isActive());
     }
+
+    /**
+     * Audit M23: Die Alttabellen sind der Stand vom Migrationszeitpunkt. Ein
+     * seitdem gelöschter bzw. anonymisierter Kontakt käme über den Rückweg
+     * zurück. Der Prüfmodus warnt, --ich-weiss gleicht vor Schritt 1 ab.
+     */
+    public function testRueckwegHoltKeineDsgvoFaelleZurueck(): void {
+        // Alter Stil: Kontakt 2 hart gelöscht (Karte per CASCADE weg),
+        // Kontakt 1 nur in contacts anonymisiert.
+        $this->pdo->exec("DELETE FROM contacts WHERE id = 2");
+        $this->pdo->exec("UPDATE contacts SET name = 'Anonymisierte Person (#1)' WHERE id = 1");
+
+        [$code, $aus] = $this->rueckweg();
+        $this->assertSame(0, $code, $aus);
+        $this->assertStringContainsString('[WARNUNG] 1 Altkopie(n) gehören zu inzwischen gelöschten, 1 zu anonymisierten Kontakten', $aus);
+        $this->assertSame('Max', $this->pdo->query("SELECT name FROM persons_pre_contacts WHERE id = 2")->fetchColumn(), 'Prüfmodus ändert nichts');
+
+        [$code, $aus] = $this->rueckweg('--ich-weiss');
+        $this->assertSame(0, $code, $aus);
+        $this->assertStringContainsString('DSGVO-Abgleich:', $aus);
+        $this->assertTrue(AltbestandV072::tabelleExistiert($this->pdo, 'persons'));
+        $this->assertSame(0, (int)$this->pdo->query("SELECT COUNT(*) FROM persons WHERE id = 2")->fetchColumn(), 'Die gelöschte Person kommt nicht zurück');
+        $this->assertSame('Anonymisierte Person (#1)', $this->pdo->query("SELECT name FROM persons WHERE id = 1")->fetchColumn());
+    }
 }

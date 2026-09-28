@@ -348,6 +348,91 @@ Breaking Changes sind jederzeit möglich).
   95,6 ms ohne, 0,5 ms mit erweitertem Index). Das Update baut die beiden
   Indizes einmalig online neu auf, je Index mit einem einzigen
   `ALTER TABLE`.
+- **DSGVO-Löschung und -Anonymisierung ließen Deckstationsnamen zurück**
+  (Audit M11). Beim Speichern eines Pferds übernimmt der Kern den Namen der
+  Deckstation als Kopie in den Pferdedatensatz. Nach dem endgültigen Löschen
+  eines Kontakts (DSGVO oder Papierkorb) wurde diese Kopie zum öffentlichen
+  Freitext: Katalog, Detailseite, Deckstationssuche und `/api/horses`
+  zeigten sie an, auch bei nie veröffentlichten Kontakten. Nach einer
+  Anonymisierung stand der alte Name weiter klein unter „Anonymisierte
+  Person (#…)“. Die Kopie wird jetzt in derselben Transaktion geleert bzw.
+  auf den anonymisierten Namen gesetzt. Das gilt auch für Pferde, die nach
+  einem Zusammenführen noch den Namen des aufgegebenen Kontakts trugen – sie
+  zeigen jetzt den Namen der tatsächlich verknüpften Station.
+  Deckstations-Freitexte neben einer verknüpften Station, die wörtlich einem
+  bekannten Namen des Kontakts entsprechen (auch einem früheren, laut
+  Protokoll), werden ebenfalls geleert. Abweichender Freitext bleibt als
+  Pferdehistorie stehen, Schreibvarianten eines Namens werden nicht
+  erkannt. Die öffentliche Detailseite zeigt unter einer verknüpften
+  Deckstation keine abweichende Namenskopie mehr.
+
+  Kopien aus **früheren** Papierkorb-Löschungen, deren Verknüpfung schon auf
+  NULL steht, lassen sich nicht sicher von importiertem Freitext
+  unterscheiden und bleiben stehen. Prüfabfrage für Betreiber:
+  `SELECT id, name, breeding_station FROM horses WHERE breeding_station_id IS
+  NULL AND breeding_station IS NOT NULL;` – bei Bedarf von Hand leeren.
+
+- **Die automatische Personensuche der DSGVO-Verwaltung war unbegrenzt**
+  (Audit M12). Eine anonyme Anfrage mit einem Ein-Buchstaben-Namen ließ
+  `/admin/gdpr` nahezu jeden Kontakt samt Lösch-Schaltflächen ausgeben, bei
+  größeren Beständen bis zum Speicherabbruch – und die Seite ist der einzige
+  Ort, an dem sich Anfragen bearbeiten lassen. Der Abgleich beginnt jetzt
+  erst ab drei Zeichen, bei kürzerem Namen über die E-Mail-Adresse.
+  Platzhalter wie `%` und `_` werden wörtlich genommen, auch in der
+  manuellen Suche. Je Anfrage erscheinen höchstens 50 Treffer, mit Hinweis
+  auf die manuelle Suche.
+
+- **Die stillgelegten Alttabellen der Kontaktlisten-Umstellung (#336)
+  blieben von DSGVO-Aktionen unberührt** (Audit M23).
+  `persons_pre_contacts` und `breeding_stations_pre_contacts` behielten
+  Name, Anschrift, E-Mail, Telefon und Mitgliedsstatus. Sie wanderten in
+  jede Sicherung, und `database/rollback-336.php` hätte sie zurückgeholt.
+  Löschung (DSGVO wie Papierkorb) und Anonymisierung erfassen die Altkopie
+  jetzt mit; bei der Anonymisierung bleibt die Zeile mit ihrer Kennung
+  stehen, alle Angaben einschließlich des Mitgliedsstatus werden geleert.
+  Für Auskunftsanfragen zeigt die DSGVO-Verwaltung die Altkopie an (neue
+  Admin-Seite `/admin/gdpr/legacy-copy`, die manuelle Suche liefert
+  zusätzlich `has_legacy_copy`). Der Rückweg warnt im Prüfmodus und gleicht
+  vor dem Zurückrollen erneut ab.
+
+- **Kontaktnamen im Audit-Log** (Audit N45). Anlegen, Ändern, Papierkorb und
+  Zusammenführen von Kontakten sowie Dubletten-Entscheidungen schrieben
+  Klarnamen bzw. Freitext-Notizen ins Protokoll. Über die Kennung im Namen
+  „Anonymisierte Person (#…)“ ließ sich ein anonymisierter Datensatz damit
+  wieder zuordnen. Das Protokoll speichert jetzt nur noch Kennungen
+  (Dubletten-Entscheidungen: „(Notiz hinterlegt)“). Bei einer
+  DSGVO-Löschung oder -Anonymisierung werden Namensangaben in früheren
+  Einträgen zu diesem Kontakt durch „[DSGVO entfernt]“ ersetzt, E-Mail-
+  Adressen des Kontakts im Mail-Protokoll durch „[Adresse]“.
+  Dubletten-Entscheidungen zum Kontakt werden gelöscht (Löschung) bzw. ihre
+  Notiz geleert (Anonymisierung). Addons erfahren davon über zwei neue Hooks
+  (siehe „Geändert“).
+
+- **Einmaliger DSGVO-Abgleich des Bestands beim Update** (Audit M11, M23,
+  N45, N17; `SCHEMA_VERSION` 28, Datenschritt `dsgvo_nachfuehrung`). Gezielt
+  rückwirkend, nicht vollständig:
+  - Kontakte, die im DSGVO-Protokoll als anonymisiert bzw. gelöscht stehen
+    oder den Anonymnamen tragen, werden nachgezogen wie bei einer neuen
+    DSGVO-Aktion (Namenskopien, Dubletten-Notizen, Altkopien, Protokoll).
+  - Altkopien (#336) endgültig gelöschter Kontakte – DSGVO wie Papierkorb –
+    werden entfernt. **`database/rollback-336.php` holt diese Datensätze
+    danach nicht mehr zurück.** Die Altkopien bestehender Kontakte samt
+    Mitgliedsstatus bleiben unberührt (Vertrag mit dem Addon
+    `mitgliedsstatus`, Audit N78).
+  - Im Mail-Protokoll (Kategorie `email`) werden Anmeldecodes
+    (`Anmeldecode ******`) und E-Mail-Adressen (`[Adresse]`) in allen
+    Einträgen maskiert. Neue Mail-Einträge schreiben Adresse und Betreff
+    weiterhin, bis der Mailer selbst umgestellt ist (Audit N17, eigenes
+    Paket).
+  - Historische Protokolleinträge existierender, nicht DSGVO-bearbeiteter
+    Kontakte bleiben unverändert.
+  - **Bereits erstellte Sicherungen (lokal, S3, WebDAV, FTPS) und extern
+    exportierte Protokolle bleiben unverändert** und enthalten die alten
+    Angaben weiter, bis sie nach ihrer Aufbewahrungsfrist verfallen.
+
+  Das Update läuft in einer Transaktion; auf großen `audit_logs`-Tabellen
+  bedeutet die Maskierung einen Durchlauf über die Kategorie `email`. Das
+  Migrationsprotokoll nennt die Zahlen.
 
 ### Entfernt
 
@@ -363,6 +448,15 @@ Breaking Changes sind jederzeit möglich).
   dem Update.
 
 ### Behoben
+
+- **Eine DSGVO-Aktion auf einen nicht mehr vorhandenen Kontakt meldete
+  Erfolg** und schloss die Anfrage ab (Audit M11). Jetzt erscheint eine
+  Fehlermeldung, und die Anfrage bleibt offen. Scheitert eine DSGVO-Aktion,
+  wird sie vollständig zurückgenommen und als „fehlgeschlagen“ gemeldet
+  (Protokoll nur mit Kennungen). Der Bearbeitungsvermerk nennt, was
+  bereinigt wurde.
+- Die manuelle Personensuche der DSGVO-Verwaltung nannte „ab 2 Zeichen“,
+  verlangt aber seit #318 drei.
 
 - **Zusammenführen ließ alte Adressen und Addon-Daten zurück** (Audit M33).
   Die Zuordnung alter Personen- und Stationskennungen (`contact_id_map`)
@@ -624,6 +718,31 @@ Breaking Changes sind jederzeit möglich).
   Gast behandelt.
 
 ### Geändert
+
+- **Neue Hooks `contact.anonymized` und `contact.erased` für Addons**
+  (Audit N45). `contact.anonymized(int $contactId, array $vorher)` feuert
+  nach einer DSGVO-Anonymisierung – dabei greift **kein**
+  Fremdschlüssel-CASCADE, Addons müssen eigene Daten zum Kontakt selbst
+  entfernen. `contact.erased(int $contactId, array $contact, string $anlass)`
+  feuert nach **jedem** endgültigen Löschen, `$anlass` ist `dsgvo` oder
+  `papierkorb`. Beide nach dem Commit. Siehe `docs/plugin-development.md`.
+  Das Lehrbeispiel-Addon (`beispiel-erweiterungspunkte`) muss beide Hooks mit
+  dem Framework-Bump belegen.
+- **Das Audit-Log ist nicht mehr ausnahmslos unveränderlich** (Entscheidung
+  D18). Die einzige Ausnahme ist die DSGVO-Pseudonymisierung von
+  Namensangaben (und die einmalige Maskierung im Mail-Protokoll). Das
+  Ereignis selbst – wer, wann, welche Kennung – bleibt erhalten.
+- Beim endgültigen Löschen eines Kontakts aus dem Papierkorb verschwinden
+  auch die als Kopie am Pferd gespeicherten Deckstationsnamen und die
+  Altkopie aus der Kontaktlisten-Umstellung. Endgültig gelöscht wird nur
+  noch, was unter Sperre tatsächlich im Papierkorb liegt (für Editoren
+  zusätzlich älter als 30 Tage); ein inzwischen wiederhergestellter Kontakt
+  bleibt erhalten, die Meldung lautet dann „nicht (mehr) im Papierkorb“.
+- Die Merge-Zeile im Audit-Log lautet jetzt `Quelle ID {a} -> Ziel ID {b}: …`
+  (ohne Namen in Klammern) – betrifft nur Auswertungen, die das Protokoll
+  nach dem alten Format durchsuchen.
+- `SCHEMA_VERSION` 28: keine Tabellenänderung, nur der einmalige
+  DSGVO-Abgleich beim Update.
 
 - **Neuer Hook `contact.merged` für Addons** (Audit M33). Er feuert nach dem
   erfolgreichen Zusammenführen, nach dem Commit, mit

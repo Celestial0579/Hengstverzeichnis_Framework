@@ -660,6 +660,56 @@ schlägt das DB-Insert fehl (z. B.
 Tabelle noch nicht vorhanden), wird stattdessen nach `storage/logs/audit_errors.log`
 geschrieben (mit automatischer Rotation bei > 5 MB oder > 30 Tagen).
 
+**Kontakte nur mit Kennung** (Audit N45). Anlegen, Ändern, Papierkorb und
+Zusammenführen von Kontakten protokollieren nur `Kontakt ID {id}` bzw.
+`Quelle ID {a} -> Ziel ID {b}`, Dubletten-Entscheidungen nur „(Notiz
+hinterlegt)“. Über „Anonymisierte Person (#id)“ ließe sich ein anonymisierter
+Datensatz sonst anhand älterer Einträge wieder zuordnen.
+
+**Ausnahme vom Append-only-Prinzip: DSGVO-Pseudonymisierung** (Entscheidung
+D18). Beim Anonymisieren oder Löschen eines Kontakts über `/admin/gdpr`
+ersetzt der Kern Namens- und Notizteile der ID-verankerten Einträge zu diesem
+Kontakt durch `[DSGVO entfernt]` (Formate siehe
+[database.md](database.md#audit_logs)); das Ereignis selbst bleibt. Der
+Update-Schritt `dsgvo_nachfuehrung` holt das einmalig für früher bearbeitete
+Kontakte nach und maskiert Einmalcodes und Adressen in der Kategorie `email`.
+Nicht erfasst werden: Freitext in anderen Kategorien, Einträge von Addons,
+extern exportierte Protokolle und **bereits erstellte Sicherungen** – die
+bleiben unverändert und müssen über ihre Aufbewahrungsfrist auslaufen.
+
+## DSGVO-Löschung und -Anonymisierung (`src/Service/KontaktDsgvo.php`)
+
+„Kontakt anonymisieren“ und „Kontakt endgültig löschen“ (DSGVO wie Papierkorb)
+behandeln in EINER Transaktion auch die abhängigen Kopien (Audit M11, M23,
+N45):
+
+- **Namenskopie der Deckstation am Pferd** (`horses.breeding_station`): beim
+  Löschen `NULL`, beim Anonymisieren der Anonymname. Nach dem früheren
+  `ON DELETE SET NULL` galt sie sonst als öffentlicher Freitext – Katalog,
+  Detailseite, Stationssuche und `/api/horses` zeigten den Namen, auch bei nie
+  veröffentlichten Kontakten. Kopien nach einem Zusammenführen werden auf die
+  tatsächlich verknüpfte Station synchronisiert. Wörtliche Namenskopien in
+  `horse_persons.breeding_station_text` neben einer verknüpften Station
+  werden geleert; abweichender Freitext bleibt Pferdehistorie. Abgeglichen
+  wird gegen alle bekannten Namen (aktuell, Altkopie, ID-verankerte
+  Protokolleinträge), wörtlich, ab drei Zeichen – Schreibvarianten bleiben.
+- **Dubletten-Entscheidungen** (`match_labels`): gelöscht bzw. Notiz geleert.
+- **Altkopien** aus #336 (`persons_pre_contacts`,
+  `breeding_stations_pre_contacts`): gelöscht bzw. anonymisiert, siehe
+  [database.md](database.md#audit_logs).
+- **Protokoll**: nur beim DSGVO-Anlass pseudonymisiert.
+- **Addons**: `contact.anonymized` bzw. `contact.erased` (Anlass `dsgvo` oder
+  `papierkorb`) feuern nach dem Commit.
+
+Ein fehlender Kontakt (Doppelklick, veraltetes Formular) führt zu einer
+Fehlermeldung, die Anfrage bleibt offen; ein Fehler rollt alles zurück.
+`gdpr_requests` selbst (Name und E-Mail des Anfragenden) bleibt als Nachweis
+der Bearbeitung bestehen.
+
+Die automatische Zuordnung von Anfragen zu Kontakten (Audit M12) folgt den
+Regeln der manuellen Suche: ab drei Zeichen (sonst über die E-Mail-Adresse),
+LIKE-Platzhalter wörtlich, höchstens 50 Treffer je Anfrage mit Hinweis.
+
 ## E-Mail-Versand (`src/Service/Mailer.php`)
 
 Eigener minimaler SMTP-Client (kein PHPMailer/Symfony-Mailer-Abhängigkeit).

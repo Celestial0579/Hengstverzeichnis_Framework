@@ -242,6 +242,9 @@ $router->post('/admin/gdpr/update-status', [App\Controllers\GdprController::clas
 // Manuelle Personensuche (#266): Rueckfallweg, wenn der Automatch nichts findet.
 // Admin-only ueber den Konstruktor von GdprController, liefert JSON mit Trefferdeckel.
 $router->get('/admin/gdpr/search-persons', [App\Controllers\GdprController::class, 'searchPersons']);
+// Altkopie aus der Kontaktlisten-Umstellung (#336) fuer Auskunftsanfragen
+// (Art. 15, Audit M23). Admin-only ueber den Konstruktor, no-store.
+$router->get('/admin/gdpr/legacy-copy', [App\Controllers\GdprController::class, 'legacyCopy']);
 $router->post('/admin/gdpr/anonymize-person', [App\Controllers\GdprController::class, 'anonymizePerson']);
 $router->post('/admin/gdpr/delete-person', [App\Controllers\GdprController::class, 'deletePerson']);
 

@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 27; // 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 28; // 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -2238,8 +2238,10 @@ final class SchemaMigrator {
         //  - Eine Pseudonymisierung (M23) muss `persons_pre_contacts.id` und
         //    `membership_status` bis dahin stehen lassen.
         //  - DSGVO-Löschung und -Anonymisierung je Kontakt müssen dagegen
-        //    `membership_status` dieser ID mit NULLen (siehe den Kommentar in
-        //    GdprController::anonymizePerson()).
+        //    `membership_status` dieser ID mit NULLen - umgesetzt in
+        //    App\Service\KontaktDsgvo (Audit M23), der die Alttabellen
+        //    DSGVO-seitig mitführt; siehe dort und Schritt dsgvo_nachfuehrung.
+        //    N79 (Werksreset) leert die Alttabellen weiterhin selbst.
         // Wer das ändert, ändert auch die Meldung an den Betreiber weiter unten.
         $dataStep('336_altbestand_stilllegen', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert, $spalteExistiert, $dropForeignKey): ?array {
             if (!$tabelleExistiert('persons') && !$tabelleExistiert('breeding_stations')) {
@@ -3204,6 +3206,73 @@ final class SchemaMigrator {
                 $meldungen[] = "Index horses.{$name} um is_published erweitert (Audit N12)";
             }
             return $meldungen === [] ? null : $meldungen;
+        });
+
+        // 6. DSGVO-Nachführung des Bestands (Audit M11, M23, N45, N17;
+        // Entscheidung D18, SCHEMA_VERSION 28). Keine DDL - der Sprung ist
+        // trotzdem nötig, sonst liefe der Schritt auf Bestandsinstallationen
+        // wegen des Kurzschlusses (#213) nie.
+        //
+        // Gezielt rückwirkend, nicht vollständig (siehe
+        // App\Service\KontaktDsgvo::nachholen()):
+        //  - Kontakte, die im gdpr-Protokoll als anonymisiert/gelöscht stehen
+        //    oder den Anonymnamen tragen: Namenskopien am Pferd, Dubletten-
+        //    Notizen, Altkopien (#336) und ihre Protokolleinträge wie bei einer
+        //    neuen DSGVO-Aktion ('[DSGVO entfernt]').
+        //  - Altkopien, an denen kein Kontakt mehr hängt. `id` und
+        //    `membership_status` jeder Personenzeile, die
+        //    MitgliedsstatusAltbestand::offen() noch zählen könnte, bleiben
+        //    (Audit N78, siehe Schritt 336_altbestand_stilllegen).
+        //  - Einmalcodes und Adressen im Mail-Protokoll (Kategorie `email`).
+        // Historische Einträge existierender, nicht DSGVO-bearbeiteter
+        // Kontakte bleiben unverändert. Alte Sicherungen erreicht das nicht.
+        //
+        // Nach den #336-Schritten: Stehen `persons`/`breeding_stations` noch
+        // unumbenannt, meldet sich der Schritt offen. Sonst EINE Transaktion,
+        // der Marker in derselben ($vermerke vor dem Commit, Audit M41); der
+        // Schritt ist zudem idempotent.
+        $dataStep('dsgvo_nachfuehrung', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('contacts') || !$tabelleExistiert('audit_logs')) {
+                return null; // Setup-Fall.
+            }
+            if ($tabelleExistiert('persons') || $tabelleExistiert('breeding_stations')) {
+                return $offen('DSGVO-Nachführung (Audit M23): wartet auf die Stilllegung der Alttabellen (#336)');
+            }
+            $z = KontaktDsgvo::nachholen($pdo, $vermerke);
+            if ($z === null) {
+                return $offen('DSGVO-Nachführung (Audit M23): Bestand unvollständig (contact_id_map/match_labels fehlen)');
+            }
+
+            $meldungen = [];
+            if ($z['kontakte'] > 0) {
+                $meldungen[] = sprintf(
+                    'DSGVO-Nachführung (Audit M11/M23/N45): %d früher anonymisierte bzw. gelöschte Kontakt(e) nachgezogen - '
+                    . 'bereinigt: %s',
+                    $z['kontakte'],
+                    KontaktDsgvo::zaehlerText($z)
+                );
+            }
+            if ($z['verwaist'] > 0) {
+                $meldungen[] = sprintf(
+                    'DSGVO-Nachführung (Audit M23): %d Altkopie(n) (#336) endgültig gelöschter Kontakte entfernt - '
+                    . 'database/rollback-336.php holt sie nicht mehr zurück',
+                    $z['verwaist']
+                );
+            }
+            if ($z['mail'] > 0) {
+                $meldungen[] = sprintf(
+                    'DSGVO-Nachführung (Audit N17): Einmalcodes und E-Mail-Adressen in %d Eintrag/Einträgen des Mail-Protokolls maskiert',
+                    $z['mail']
+                );
+            }
+            if ($z['uebersprungen'] > 0) {
+                $meldungen[] = sprintf(
+                    'DSGVO-Nachführung: %d Kennung(en) aus dem DSGVO-Protokoll übersprungen - der Kontakt existiert '
+                    . 'und trägt nicht den Anonymnamen (bitte unter /admin/gdpr prüfen)',
+                    $z['uebersprungen']
+                );
+            }
+            return $meldungen;
         });
     }
 }

@@ -46,6 +46,14 @@ Deshalb gilt ab v0.8 für **alle** Kontakte die strengere Regel:
 * **Kein `SELECT *` auf `contacts` in einem öffentlichen Pfad.** Was gar nicht
   erst ankommt, kann der nächste nicht versehentlich ausgeben — das ist die
   Lehre aus #293, und sie darf beim Zusammenlegen nicht verlorengehen.
+* **Die Alttabellen `persons_pre_contacts` und `breeding_stations_pre_contacts`
+  werden DSGVO-seitig mitgeführt** (Audit M23): DSGVO-Löschung und endgültiges
+  Löschen entfernen die Altkopie, die Anonymisierung anonymisiert sie, und die
+  Auskunft zeigt sie an (`App\Service\KontaktDsgvo`, siehe
+  [database.md](database.md)). Der Update-Schritt `dsgvo_nachfuehrung` hat den
+  Bestand einmalig abgeglichen, `database/rollback-336.php` gleicht vor dem
+  Zurückrollen erneut ab. Alte Sicherungen enthalten die Tabellen unverändert.
+  Ein Werksreset muss sie weiterhin selbst leeren (`SystemReset`).
 
 ## Namen
 

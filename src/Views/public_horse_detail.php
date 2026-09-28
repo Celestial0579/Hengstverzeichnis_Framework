@@ -226,9 +226,12 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
                             <?php else: ?>
                                 <?= htmlspecialchars($horse['station_name'] ?: $horse['breeding_station']) ?>
                             <?php endif; ?>
-                            <?php if (!empty($horse['breeding_station']) && !empty($horse['station_name']) && $horse['breeding_station'] !== $horse['station_name']): ?>
-                                <br><small style="color: var(--text-muted); font-weight: normal;"><?= htmlspecialchars($horse['breeding_station']) ?></small>
-                            <?php endif; ?>
+                            <?php // Keine abweichende Kopie mehr in Kleinschrift darunter
+                                  // (Audit M11): Bei verknüpfter Station ist
+                                  // horses.breeding_station nur der Spiegel ihres Namens
+                                  // zum Speicherzeitpunkt - nach einer Umbenennung,
+                                  // einem Zusammenführen oder einer DSGVO-Anonymisierung
+                                  // stand hier der alte Name unter dem neuen. ?>
                         </dd>
                     </div>
                 <?php endif; ?>

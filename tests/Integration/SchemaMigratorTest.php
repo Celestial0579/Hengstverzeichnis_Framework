@@ -187,6 +187,17 @@ class SchemaMigratorTest extends TestCase {
             $steps
         );
 
+        // Rechte-Seeds (Audit M22/N18): group_permissions entstand in diesem
+        // Lauf, also Standardrechte (Pfad a); der Stand war 0 und persons
+        // ohne is_breeder, also auch der Gast-Seed aus #293. Beide halten
+        // ihren Lauf in settings fest und laufen danach nie wieder.
+        $this->assertContains('Standardrechte für die Gruppen editor/public geseedet (group_permissions)', $steps);
+        foreach (['migration_66_standardrechte_seed', 'migration_293_gastrecht_personenseite'] as $marker) {
+            $stmt = self::$pdo->prepare('SELECT COUNT(*) FROM settings WHERE setting_key = ?');
+            $stmt->execute([$marker]);
+            $this->assertSame(1, (int)$stmt->fetchColumn(), "Marker {$marker} fehlt");
+        }
+
         // Und das Schema ist wirklich gehoben (Stichproben; die vollständige
         // Spalten-für-Spalte-Prüfung des Migrationsinhalts leistet weiterhin
         // DatabaseTest.php über den impliziten Weg beim Verbindungsaufbau).

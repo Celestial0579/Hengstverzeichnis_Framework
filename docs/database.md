@@ -317,6 +317,19 @@ erst dann, und bis dahin liefe die App gegen das alte Schema.
 Quellen: Auf einem frisch importierten `schema.sql` darf ein Lauf nur noch
 den Versionsstempel setzen.
 
+**Rechte-Seeds laufen genau einmal** (Audit M22/N18). Ein Seed in
+`group_permissions` läuft immer über `$dataStep` mit einem Marker in
+`settings` (`migration_66_standardrechte_seed`,
+`migration_293_gastrecht_personenseite`). Ob eine Bestandsinstallation ihn
+schon erhalten hat, entscheiden der Stand vor der Migration
+(`schema_version`, von `run()` an `migrate()` übergeben) und ein
+struktureller Befund vom Anfang des Laufs (etwa: steht das Kontaktschema
+schon, gibt es `persons.is_breeder` schon). Nie aus dem Rechtebestand selbst:
+Ein fehlendes Recht kann ein Admin bewusst entzogen haben, und ein Update darf
+es nicht zurückbringen. Stand 0 allein ist kein Beweis für einen Altstand,
+er entsteht auch bei einem Restore oder Settings-Import ohne
+`schema_version`. Künftige Seeds folgen demselben Muster.
+
 ## Soft-Delete / Papierkorb
 
 `horses`, `persons`, `breeding_stations` und `users` besitzen alle eine

@@ -42,7 +42,18 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 21;
+    public const SCHEMA_VERSION = 22; // 22: Rechte-Seeds einmalig, Marker in settings (Audit M22/N18)
+
+    /**
+     * Der Stand, mit dem der Gast-Seed persons.view für die öffentliche
+     * Personenseite kam (#293, v0.6.0; im v0.7.1-Migrator im Block
+     * "Kontaktfelder für Personen (#293, SCHEMA_VERSION 6)"). Wer schon auf
+     * diesem Stand war, hat den Seed erhalten - fehlt das Recht heute, hat
+     * ein Admin es entzogen (Audit M22). Sollte es eine Zwischenfassung auf 6
+     * ohne Seed gegeben haben, wirkt die Schwelle fail-closed: Der Gast
+     * bekommt die Personenseite dann nicht, ein Admin schaltet sie frei.
+     */
+    private const VERSION_GASTRECHT_PERSONENSEITE = 6;
 
     /**
      * Der zuletzt vollständig migrierte, in settings.schema_version
@@ -99,7 +110,7 @@ final class SchemaMigrator {
         }
 
         $performed = [];
-        self::migrate($pdo, $performed);
+        self::migrate($pdo, $performed, $current);
 
         $pdo->prepare(
             "INSERT INTO settings (setting_key, setting_value) VALUES ('schema_version', ?)
@@ -125,10 +136,19 @@ final class SchemaMigrator {
      * DISZIPLIN: Jede Schemaänderung hier erhöht zwingend SCHEMA_VERSION -
      * siehe den Kommentar an der Konstante.
      *
-     * @param PDO      $pdo       Aktive Datenbankverbindung
-     * @param string[] $performed Sammelliste der durchgeführten Schritte
+     * @param PDO      $pdo              Aktive Datenbankverbindung
+     * @param string[] $performed        Sammelliste der durchgeführten Schritte
+     * @param int      $vorherigeVersion Stand VOR dieser Migration
+     *                                   (settings.schema_version, siehe
+     *                                   storedVersion()). 0 heißt: vor #213
+     *                                   (v0.4.0), unbekannt, Setup-Fall ODER
+     *                                   Restore/Settings-Import ohne
+     *                                   schema_version. Deshalb 0 nie allein als
+     *                                   Beweis für einen Altstand verwenden,
+     *                                   sondern stets mit einem strukturellen
+     *                                   Befund kombinieren (Audit M22/N18).
      */
-    private static function migrate(PDO $pdo, array &$performed): void {
+    private static function migrate(PDO $pdo, array &$performed, int $vorherigeVersion): void {
         // Steht das Kontaktschema (#336) bereits? EINMAL am Anfang bestimmt,
         // bevor irgendein Schritt läuft - der Wert muss den Stand VOR dieser
         // Migration beschreiben, nicht den, den Schritt 31a gleich herstellt.
@@ -149,6 +169,28 @@ final class SchemaMigrator {
             }
         })();
 
+        // Hat diese Instanz den Gast-Seed persons.view aus #293 schon
+        // erhalten? Ebenfalls EINMAL vor allen Schritten bestimmt, denn
+        // Schritt 30 legt persons.is_breeder im selben Lauf an. Zwei Signale,
+        // die beide nur in Richtung "nicht seeden" wirken (fail-closed):
+        //  - der gespeicherte Stand vor dieser Migration (#293 kam mit
+        //    SCHEMA_VERSION 6), und
+        //  - strukturell: persons.is_breeder kam mit demselben #293. Steht die
+        //    Spalte schon, lief der Seed auch dann, wenn schema_version fehlt
+        //    oder nicht stimmt (Restore, Settings-Import über ein Addon).
+        // Warum nicht einfach im Rechtebestand nachsehen: Ein fehlendes
+        // persons.view ist dort kein Beweis für "nie geseedet" - ein Admin
+        // kann es bewusst entzogen haben (Audit M22).
+        $gastrechtSeedBelegt = $vorherigeVersion >= self::VERSION_GASTRECHT_PERSONENSEITE
+            || (static function () use ($pdo): bool {
+                try {
+                    $stmt = $pdo->query("SHOW COLUMNS FROM `persons` LIKE 'is_breeder'");
+                    return (bool)($stmt && $stmt->rowCount() > 0);
+                } catch (\Throwable $e) {
+                    return false;
+                }
+            })();
+
         // Tabellen, die es nach #336 nicht mehr geben darf.
         $abgeloest = ['persons', 'breeding_stations'];
 
@@ -159,6 +201,58 @@ final class SchemaMigrator {
         // Minor-Sprung leer wieder, und dann stünde neben jedem echten
         // Verweis eine leere Altspalte, die aussieht, als fehlte die Zuordnung.
         $abgeloesteSpalten = ['horse_persons.person_id', 'horse_persons.breeding_station_id'];
+
+        // Einmal-Datenschritte (seit #336): $dataStep führt einen
+        // Datenschritt genau einmal aus und hält das in settings fest.
+        // Rückgabe null = "war nicht zuständig" (z. B. Setup-Fall), dann wird
+        // NICHTS vermerkt und der nächste Lauf versucht es erneut.
+        $dataStep = function (string $key, callable $arbeit) use ($pdo, &$performed): void {
+            $markerKey = 'migration_' . $key;
+            try {
+                $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+                $stmt->execute([$markerKey]);
+                if ($stmt->fetchColumn() !== false) {
+                    return; // Schritt ist nachweislich schon gelaufen.
+                }
+            } catch (\Throwable $e) {
+                return; // settings existiert noch nicht - dann gibt es auch keinen Altbestand.
+            }
+
+            $ergebnis = $arbeit();
+            if ($ergebnis === null) {
+                return; // Nicht zuständig - kein Marker, damit ein späterer Lauf es erneut versucht.
+            }
+
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+            )->execute([$markerKey, gmdate('c')]);
+
+            foreach ((array)$ergebnis as $zeile) {
+                $performed[] = $zeile;
+            }
+        };
+
+        // Gibt es diese Spalte? Bewusst neben $tabelleExistiert und mit
+        // derselben Vorsicht: Scheitert SHOW COLUMNS, gibt es die Tabelle
+        // nicht - und dann gibt es die Spalte erst recht nicht.
+        $spalteExistiert = function (string $table, string $column) use ($pdo): bool {
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column));
+                return $stmt !== false && $stmt->fetch() !== false;
+            } catch (\Throwable) {
+                return false;
+            }
+        };
+
+        $tabelleExistiert = function (string $table) use ($pdo): bool {
+            try {
+                $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
+                return $stmt && $stmt->rowCount() > 0;
+            } catch (\Throwable $e) {
+                return false;
+            }
+        };
 
         // Helper-Funktion zum schrittweisen Hinzufügen fehlender Spalten
         // Der try/catch umfasst BEWUSST nur die Existenzprüfung, nicht das
@@ -601,54 +695,70 @@ final class SchemaMigrator {
 
         // Standardrechte für Editor (voller Verwaltungszugriff inkl. der Standard-Aktionen
         // 'view'/'publish') und Gast (`public`: nur Lese-Rechte für die öffentlich sichtbare
-        // Fläche) seeden. Ausgelöst wird das genau einmal:
-        //  (a) group_permissions wurde gerade NEU angelegt, ODER
-        //  (b) die Tabelle existierte bereits, kennt aber noch keine 'view'-Zeile
-        //      (Upgrade von einer früheren #66-Version ohne Leseberechtigung) - damit
-        //      Editoren den Zugriff auf die Backend-Listen und Gäste den öffentlichen
-        //      Katalog nicht verlieren.
-        // Die einmalige Ausführung verhindert, dass eine spätere, bewusste Rechte-
-        // Entziehung durch einen Admin bei jedem Lauf rückgängig gemacht wird
-        // (siehe docs/user-groups-plan.md, 3.4/8). INSERT IGNORE macht das Seeden
-        // zusätzlich idempotent gegenüber bereits vorhandenen Editor-Zeilen.
-        $needsPermissionSeed = !$groupPermissionsExisted;
-        if (!$needsPermissionSeed) {
-            try {
-                $needsPermissionSeed = (int)$pdo->query("SELECT COUNT(*) FROM `group_permissions` WHERE `action` = 'view'")->fetchColumn() === 0;
-            } catch (\Throwable $e) {
-                $needsPermissionSeed = false;
+        // Fläche) seeden - genau EINMAL je Instanz, durchgesetzt über den Marker
+        // migration_66_standardrechte_seed in settings (Audit N18). Geseedet wird nur:
+        //  (a) wenn group_permissions in DIESEM Lauf neu angelegt wurde (Upgrade von
+        //      vor #66), oder
+        //  (b) beim Upgrade eines #66-Stands ohne Leserecht (v0.2.0-beta.1, vor #213
+        //      also ohne gespeicherte schema_version), in dem es noch keine einzige
+        //      'view'-Zeile gibt - damit Editoren die Backend-Listen und Gäste den
+        //      öffentlichen Katalog nicht verlieren.
+        //
+        // Der Rechtebestand allein ist KEIN Beweis für "nie geseedet": Bis zum Fix lief
+        // diese Prüfung bei jedem Voll-Lauf, und ein Admin, der bewusst alle Leserechte
+        // entzogen hatte (rein interne Instanz), bekam sie mit dem nächsten Update
+        // zurück. Deshalb gilt (b) nur, wenn der Stand vor der Migration 0 war UND das
+        // Kontaktschema (#336, ab v0.8.0) noch nicht steht. Stand 0 allein reicht nicht:
+        // Er entsteht auch bei einem Restore oder Settings-Import ohne schema_version.
+        // Ab v0.4.0 lief dieser Seed in jedem versionierten Voll-Lauf mindestens
+        // einmal; fehlt dort heute jedes Leserecht, war das Absicht.
+        //
+        // Bestand und frisches database/schema.sql werden nur still markiert. Ein
+        // echter Fehler schlägt nach oben durch (#309): run() persistiert dann
+        // weder Marker noch Version, der nächste Lauf versucht es erneut. Der Seed
+        // ist per INSERT IGNORE gegen bereits vorhandene Zeilen idempotent.
+        $dataStep('66_standardrechte_seed', function () use ($pdo, $groupPermissionsExisted, $vorherigeVersion, $kontaktschemaAktiv, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('group_permissions')) {
+                return null; // Setup-Fall - nichts vermerken, später erneut.
             }
-        }
 
-        if ($needsPermissionSeed) {
-            try {
-                $insertPermStmt = $pdo->prepare("INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`) VALUES (?, ?, ?)");
+            $seedNoetig = !$groupPermissionsExisted;
+            if (!$seedNoetig && $vorherigeVersion === 0 && !$kontaktschemaAktiv) {
+                $seedNoetig = (int)$pdo->query("SELECT COUNT(*) FROM `group_permissions` WHERE `action` = 'view'")->fetchColumn() === 0;
+            }
+            if (!$seedNoetig) {
+                return []; // Bestand oder frisches schema.sql: nur vermerken, still.
+            }
 
-                $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
-                if ($editorGroupId) {
-                    $defaultEditorPermissions = [
-                        ['horses', 'view'], ['horses', 'create'], ['horses', 'edit'], ['horses', 'delete'], ['horses', 'publish'],
-                        ['persons', 'view'], ['persons', 'create'], ['persons', 'edit'], ['persons', 'delete'], ['persons', 'publish'],
-                        ['breeding_stations', 'view'], ['breeding_stations', 'create'], ['breeding_stations', 'edit'], ['breeding_stations', 'delete'], ['breeding_stations', 'publish'],
-                    ];
-                    foreach ($defaultEditorPermissions as [$module, $action]) {
+            $insertPermStmt = $pdo->prepare("INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`) VALUES (?, ?, ?)");
+
+            // Parität zu database/schema.sql: Steht das Kontaktschema schon (nur im
+            // Fall (a) denkbar), direkt contacts.* - sonst die Altmodule, die
+            // Schritt 31e danach als Schnittmenge nach contacts.* umhängt.
+            $kontaktModule = $kontaktschemaAktiv ? ['contacts'] : ['persons', 'breeding_stations'];
+
+            $editorGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'editor'")->fetchColumn();
+            if ($editorGroupId) {
+                foreach (array_merge(['horses'], $kontaktModule) as $module) {
+                    foreach (['view', 'create', 'edit', 'delete', 'publish'] as $action) {
                         $insertPermStmt->execute([$editorGroupId, $module, $action]);
                     }
                 }
+            }
 
-                // Gast-Gruppe: ausschließlich die Lese-Rechte der heute öffentlich
-                // sichtbaren Fläche. Bewusst nichts weiter - neue/Plugin-Bereiche
-                // bleiben für Gäste fail-closed unsichtbar, bis ein Admin sie freischaltet.
-                $publicGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'public'")->fetchColumn();
-                if ($publicGroupId) {
-                    foreach ([['horses', 'view'], ['breeding_stations', 'view']] as [$module, $action]) {
-                        $insertPermStmt->execute([$publicGroupId, $module, $action]);
-                    }
+            // Gast-Gruppe: ausschließlich die Lese-Rechte der heute öffentlich
+            // sichtbaren Fläche. Bewusst nichts weiter - neue/Plugin-Bereiche
+            // bleiben für Gäste fail-closed unsichtbar, bis ein Admin sie freischaltet.
+            $publicGroupId = $pdo->query("SELECT id FROM `groups` WHERE slug = 'public'")->fetchColumn();
+            if ($publicGroupId) {
+                $gastModule = $kontaktschemaAktiv ? ['horses', 'contacts'] : ['horses', 'breeding_stations'];
+                foreach ($gastModule as $module) {
+                    $insertPermStmt->execute([$publicGroupId, $module, 'view']);
                 }
+            }
 
-                $performed[] = 'Standardrechte für die Gruppen editor/public geseedet (group_permissions)';
-            } catch (\Throwable $e) {}
-        }
+            return ['Standardrechte für die Gruppen editor/public geseedet (group_permissions)'];
+        });
 
         // 13b. Rollensystem entfernt: Bestandsinstallationen hatten bislang
         // zusätzlich zum Gruppensystem eine users.role-Spalte (admin/editor), die
@@ -1059,26 +1169,40 @@ final class SchemaMigrator {
         //
         // Es entstehen dadurch KEINE neuen öffentlichen Daten: Die Seite zeigt
         // ausschließlich Felder, die auf der Pferde-Detailseite ohnehin schon
-        // öffentlich sind (Ort, Bundesland, Land, Mitgliedsstatus) plus die
-        // dafür vorgesehene Website. Wer die Seite nicht möchte, nimmt der
-        // Gruppe `public` das Recht wieder weg - diese Migration setzt es
-        // dank INSERT IGNORE nicht erneut.
+        // öffentlich sind (Ort, Bundesland, Land) plus die dafür vorgesehene
+        // Website. Wer die Seite nicht möchte, nimmt der Gruppe `public` das
+        // Recht wieder weg.
+        //
+        // Dass es dann weg BLEIBT, sichern der Marker
+        // migration_293_gastrecht_personenseite und $gastrechtSeedBelegt (Stand
+        // vor der Migration >= 6 oder persons.is_breeder schon vorhanden) - NICHT
+        // das INSERT IGNORE: Das verhindert nur Duplikate, eine gelöschte Zeile
+        // legte es bei jedem Voll-Lauf neu an. Bis zum Fix geschah genau das, und
+        // Schritt 31e machte aus dem wieder eingesetzten persons.view über die
+        // Schnittmenge contacts.view für die Gast-Gruppe - samt verfälschtem
+        // Vorzustand in migration_336_rechte_vorher (Audit M22).
         //
         // Ab #336 heißt das Recht `contacts`.`view` und wird vom Seed in
         // database/schema.sql bzw. von Schritt 31e vergeben. Der Seed hier
-        // darf dann NICHT mehr laufen: Er trüge sonst bei jedem künftigen
-        // Minor-Sprung ein `persons`.`view` nach, das kein Modul mehr kennt -
-        // eine Zeile, die in der Rechte-Matrix nirgends auftaucht und
-        // trotzdem in der Datenbank steht.
+        // darf dann NICHT mehr laufen: Er trüge sonst ein `persons`.`view`
+        // nach, das kein Modul mehr kennt - eine Zeile, die in der
+        // Rechte-Matrix nirgends auftaucht und trotzdem in der Datenbank steht.
         if (!$kontaktschemaAktiv) {
-            try {
-                $pdo->exec(
+            $dataStep('293_gastrecht_personenseite', function () use ($pdo, $gastrechtSeedBelegt, $tabelleExistiert): ?array {
+                if (!$tabelleExistiert('group_permissions')) {
+                    return null; // Setup-Fall - nichts vermerken, später erneut.
+                }
+                if ($gastrechtSeedBelegt) {
+                    return []; // Seed schon erhalten - nur vermerken.
+                }
+                $neu = (int)$pdo->exec(
                     "INSERT IGNORE INTO `group_permissions` (`group_id`, `module`, `action`)
                      SELECT `id`, 'persons', 'view' FROM `groups` WHERE `slug` = 'public'"
                 );
-            } catch (\Throwable $e) {
-                // Tabelle/Gruppe existiert im Setup-Fall noch nicht.
-            }
+                return $neu > 0
+                    ? ['Gast-Gruppe: Leserecht persons.view für die öffentliche Personenseite vergeben (#293)']
+                    : [];
+            });
         }
 
         // 31. Kontaktliste (#336, SCHEMA_VERSION 10): persons + breeding_stations
@@ -1094,36 +1218,11 @@ final class SchemaMigrator {
         // IHM stammt. Ohne Wächter verdoppelte der nächste Minor-Sprung den
         // gesamten Kontaktbestand.
         //
-        // Deshalb hier das fehlende Primitiv: $dataStep führt einen
-        // Datenschritt genau einmal aus und hält das in settings fest.
-        // Rückgabe null = "war nicht zuständig" (z. B. Setup-Fall), dann wird
-        // NICHTS vermerkt und der nächste Lauf versucht es erneut.
-        $dataStep = function (string $key, callable $arbeit) use ($pdo, &$performed): void {
-            $markerKey = 'migration_' . $key;
-            try {
-                $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
-                $stmt->execute([$markerKey]);
-                if ($stmt->fetchColumn() !== false) {
-                    return; // Schritt ist nachweislich schon gelaufen.
-                }
-            } catch (\Throwable $e) {
-                return; // settings existiert noch nicht - dann gibt es auch keinen Altbestand.
-            }
-
-            $ergebnis = $arbeit();
-            if ($ergebnis === null) {
-                return; // Nicht zuständig - kein Marker, damit ein späterer Lauf es erneut versucht.
-            }
-
-            $pdo->prepare(
-                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
-                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
-            )->execute([$markerKey, gmdate('c')]);
-
-            foreach ((array)$ergebnis as $zeile) {
-                $performed[] = $zeile;
-            }
-        };
+        // Deshalb braucht es das Primitiv $dataStep: Es führt einen
+        // Datenschritt genau einmal aus und hält das in settings fest. Es ist
+        // (samt $spalteExistiert/$tabelleExistiert) an den Anfang von
+        // migrate() gezogen, weil auch die Rechte-Seeds in Schritt 13 und vor
+        // Schritt 31 es brauchen (Audit M22/N18).
 
         // Fremdschlüssel heißen auf Bestandsinstallationen, wie MariaDB sie
         // benannt hat (horses_ibfk_3 o. ä.) - der Name steht nirgends im Repo.
@@ -1141,27 +1240,6 @@ final class SchemaMigrator {
                 }
             } catch (\Throwable $e) {
                 // Tabelle/Spalte gibt es (noch) nicht - Setup-Fall.
-            }
-        };
-
-        // Gibt es diese Spalte? Bewusst neben $tabelleExistiert und mit
-        // derselben Vorsicht: Scheitert SHOW COLUMNS, gibt es die Tabelle
-        // nicht - und dann gibt es die Spalte erst recht nicht.
-        $spalteExistiert = function (string $table, string $column) use ($pdo): bool {
-            try {
-                $stmt = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column));
-                return $stmt !== false && $stmt->fetch() !== false;
-            } catch (\Throwable) {
-                return false;
-            }
-        };
-
-        $tabelleExistiert = function (string $table) use ($pdo): bool {
-            try {
-                $stmt = $pdo->query('SHOW TABLES LIKE ' . $pdo->quote($table));
-                return $stmt && $stmt->rowCount() > 0;
-            } catch (\Throwable $e) {
-                return false;
             }
         };
 

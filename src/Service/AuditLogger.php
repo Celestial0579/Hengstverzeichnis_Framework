@@ -54,7 +54,10 @@ class AuditLogger {
      *                         Werte also weiterhin an.
      * @param string|null $details Zusatzinformationen / Kontext zur Aktion
      * @param int|null $userId Optionale Überschreibung der Benutzer-ID (Standard: $_SESSION['user_id'] oder NULL)
-     * @param string|null $username Optionale Überschreibung des Benutzernamens (Standard: $_SESSION['username'] oder 'SYSTEM')
+     * @param string|null $username Optionale Überschreibung des Benutzernamens. Ohne beide Angaben gilt
+     *                              $_SESSION['username'] bzw. 'SYSTEM'. Wird nur eine Benutzer-ID > 0
+     *                              übergeben, wird der Name nachgeladen (Session, wenn sie diesem
+     *                              Benutzer gehört, sonst `users`; unbekannte ID: 'Unbekannt').
      */
     public static function log($action, string $category = 'general', $details = null, ?int $userId = null, ?string $username = null): void {
         try {
@@ -87,6 +90,25 @@ class AuditLogger {
                 } else {
                     $userId = null;
                     $username = 'SYSTEM';
+                }
+            } elseif ($userId !== null && $userId > 0 && ($username === null || $username === '')) {
+                // Nur die Benutzer-ID übergeben (Audit N64): Namen nachladen,
+                // sonst stünde der Eintrag unter "SYSTEM" und fehlte beim
+                // Filtern nach dem Benutzer. Hauptfall ist
+                // AuthController::sendeAnmeldecode() in der Pending-2FA-Phase:
+                // discardExistingSessionState() hat den Namen dort absichtlich
+                // entfernt, erst LoginSession::establish() setzt ihn wieder.
+                // Deshalb wird der Name hier auch NICHT in die Session
+                // geschrieben - das hieße, die Anmeldung vorwegzunehmen.
+                // Ebenso abgedeckt: Aufrufer mit `$_SESSION['username'] ?? null`.
+                // "> 0", damit ein übergebenes 0 wie bisher zu SYSTEM wird.
+                $sessionName = (string)($_SESSION['username'] ?? '');
+                if ((int)($_SESSION['user_id'] ?? 0) === $userId && $sessionName !== '') {
+                    $username = $sessionName;
+                } else {
+                    $stmt = $db->prepare("SELECT username FROM users WHERE id = ?");
+                    $stmt->execute([$userId]);
+                    $username = (string)($stmt->fetchColumn() ?: 'Unbekannt');
                 }
             }
 
@@ -328,6 +350,22 @@ class AuditLogger {
         );
         $stmt->execute(['Anmeldecode ' . self::CODE, self::ADRESSE]);
         return $stmt->rowCount();
+    }
+
+    /**
+     * Ersetzt jede E-Mail-Adresse in einem Text durch ADRESSE - das
+     * PHP-Gegenstück zum Adressmuster in emailProtokollMaskieren(), für NEUE
+     * Einträge (Audit N17). Gedacht für Fremdtext, der ins Protokoll soll,
+     * allen voran SMTP-Serverantworten: Server zitieren bei Ablehnungen die
+     * Adresse ("550 5.1.1 <max@verein.de>: Recipient address rejected").
+     */
+    public static function adressenMaskieren(string $text): string {
+        $muster = '[^\s<>"\'(),;:]+@[^\s<>"\'(),;:]+';
+        // Mit /u, damit Umlaute in Adressen (IDN) nicht zerschnitten werden;
+        // ungültiges UTF-8 (Serverantworten sind Fremdtext) lässt preg_replace
+        // mit /u scheitern - dann bytweise.
+        return preg_replace('/' . $muster . '/u', self::ADRESSE, $text)
+            ?? (string)preg_replace('/' . $muster . '/', self::ADRESSE, $text);
     }
 
     /**

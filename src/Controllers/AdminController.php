@@ -462,16 +462,19 @@ class AdminController extends BaseController {
         exit;
     }
 
-    public function mailSettings(): void {
-        $this->requireAdmin();
-        $db = Database::getInstance();
-        $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'mail_%' OR setting_key LIKE 'smtp_%' OR setting_key = 'admin_notification_email'");
-        $rows = $stmt->fetchAll();
-
+    /** Die Mail-/SMTP-Einstellungen, wie sie in `settings` stehen. */
+    private function ladeMailSettings(): array {
+        $stmt = Database::getInstance()->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'mail_%' OR setting_key LIKE 'smtp_%' OR setting_key = 'admin_notification_email'");
         $settings = [];
-        foreach ($rows as $r) {
+        foreach ($stmt->fetchAll() as $r) {
             $settings[$r['setting_key']] = $r['setting_value'];
         }
+        return $settings;
+    }
+
+    public function mailSettings(): void {
+        $this->requireAdmin();
+        $settings = $this->ladeMailSettings();
 
         $errorMessages = [
             'invalid_mail_from_email' => 'Ungültiges Format der Absender-E-Mail-Adresse. Es wurden keine Änderungen gespeichert.',
@@ -527,14 +530,44 @@ class AdminController extends BaseController {
         ];
 
         // Encrypt SMTP password if updated
-        if (!empty($_POST['smtp_pass'])) {
+        $passwortGeaendert = !empty($_POST['smtp_pass']);
+        if ($passwortGeaendert) {
             $settings['smtp_pass'] = \App\Security\Crypto::encrypt($_POST['smtp_pass']);
         }
+
+        // Altwerte erst nach der Validierung: Ein abgelehnter Versuch ändert
+        // nichts und erzeugt keinen Eintrag.
+        $alt = $this->ladeMailSettings();
 
         foreach ($settings as $key => $val) {
             $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
             $stmt->execute([$key, $val, $val]);
         }
+
+        // Audit N6: Wer Host, Benutzer oder Absender umstellt, kann jede
+        // Mail des Systems - Reset-Links, Anmeldecodes - über ein fremdes
+        // Relay leiten. Das muss nachvollziehbar sein. Die Adressen hier sind
+        // Betriebs- und Funktionsadressen, keine Kontaktdaten (vgl. N45).
+        // Vom Passwort steht nur, OB es geändert wurde - weder Klartext noch
+        // Chiffrat. (string)-Vergleich: smtp_port wird als int geschrieben
+        // und als String gelesen, sonst entstünde ein Scheindiff.
+        $kuerzen = static fn(string $w): string => mb_strlen($w) > 200 ? mb_substr($w, 0, 200) . '…' : $w;
+        $diff = [];
+        foreach ($settings as $key => $neu) {
+            if ($key === 'smtp_pass') {
+                continue;
+            }
+            $vorher = (string)($alt[$key] ?? '');
+            if ($vorher !== (string)$neu) {
+                $diff[] = $key . ': "' . $kuerzen($vorher) . '" → "' . $kuerzen((string)$neu) . '"';
+            }
+        }
+        \App\Service\AuditLogger::log(
+            'Mail-Einstellungen aktualisiert',
+            'settings',
+            'Geändert: ' . ($diff === [] ? 'keine' : implode(', ', $diff))
+                . '; Passwort geändert: ' . ($passwortGeaendert ? 'ja' : 'nein')
+        );
 
         header("Location: /admin/mail-settings?success=saved");
         exit;

@@ -1091,13 +1091,26 @@ class PublicController extends BaseController {
             $old['request_type'],
             $old['message'] ?: null
         ]);
+        // Sofort lesen: Die Protokolleinträge des Mailers überschreiben
+        // lastInsertId() (Audit N71).
+        $anfrageId = (int)$db->lastInsertId();
 
         // Send Email Notification to Admin
         $mailer = new \App\Service\Mailer();
         $typeName = $old['request_type'] === 'deletion'
             ? 'Löschung / Anonymisierung von Daten (Art. 17 DSGVO)'
             : 'Auskunft über Daten (Art. 15 DSGVO)';
-        $mailer->sendDsgvoNotification($old['email'], $typeName, $old['message'], $old['name']);
+        if (!$mailer->sendDsgvoNotification($old['email'], $typeName, $old['message'], $old['name'])) {
+            // Die Anfrage ist gespeichert, der Antragsteller bekommt deshalb
+            // die normale Bestätigung. Dass niemand benachrichtigt wurde,
+            // gehört aber ins Protokoll - mit der Nummer, ohne Name und
+            // Adresse (Audit N45/N71).
+            \App\Service\AuditLogger::log(
+                'DSGVO-Benachrichtigung fehlgeschlagen',
+                'gdpr',
+                'Anfrage #' . $anfrageId . ' - bitte unter /admin/gdpr bearbeiten'
+            );
+        }
 
         header("Location: /dsgvo?success=1");
         exit;

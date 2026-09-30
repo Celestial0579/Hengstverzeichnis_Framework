@@ -404,7 +404,7 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
 
     public function testDerFaktorLaesstSichEinschaltenUndTraegtDieAnmeldung(): void {
         $unique = uniqid();
-        [$client, $username, , $passwort] = $this->angemeldetesKonto($unique);
+        [$client, $username, $email, $passwort] = $this->angemeldetesKonto($unique);
 
         $this->mailcodeEinschalten($client, $username, $passwort);
 
@@ -418,6 +418,7 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
         $this->assertCount(10, $codes, 'Beim Einschalten muessen Backup-Codes entstehen.');
 
         // Neue Sitzung: Das Passwort fuehrt jetzt zur Codeeingabe, nicht ins Ziel.
+        $start = (int)$db->query("SELECT COALESCE(MAX(id), 0) FROM audit_logs")->fetchColumn();
         $zweiter = $this->newClient();
         $loginPage = $zweiter->get('/login');
         $login = $zweiter->post('/login', [
@@ -426,6 +427,7 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
             'password' => $passwort,
         ]);
         $this->assertStringStartsWith('/login/2fa/email', (string)$login->location(), "Body: {$login->body}");
+        $this->protokollNachAnmeldecodePruefen($username, $email, $start);
 
         $this->codeUnterschieben($username, EmailSecondFactor::PURPOSE_LOGIN);
 
@@ -436,6 +438,31 @@ class EmailSecondFactorLoginTest extends FunctionalTestCase {
         ]);
         $this->assertSame('/admin', $fertig->location(), "Anmeldung mit Mailcode fehlgeschlagen, Body: {$fertig->body}");
         $this->assertSame(200, $zweiter->get('/admin')->statusCode);
+    }
+
+    /**
+     * Nach dem Passwort-Login eines Mailfaktor-Kontos: Der Versandeintrag
+     * trägt den Benutzernamen, nicht "SYSTEM" (Audit N64) - die Session
+     * kennt ihn in der Pending-2FA-Phase absichtlich nicht. Und keine
+     * Protokollzeile, gleich welcher Kategorie, enthält die Adresse oder
+     * einen Anmeldecode (Audit N17).
+     */
+    private function protokollNachAnmeldecodePruefen(string $username, string $email, int $start): void {
+        $stmt = \App\Database::getInstance()->prepare("SELECT action, category, username, details FROM audit_logs WHERE id > ? ORDER BY id");
+        $stmt->execute([$start]);
+        $zeilen = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $versand = array_values(array_filter(
+            $zeilen,
+            static fn(array $z): bool => in_array($z['action'], ['Anmeldecode versendet', 'Anmeldecode konnte nicht versendet werden'], true)
+        ));
+        $this->assertCount(1, $versand, json_encode($zeilen, JSON_UNESCAPED_UNICODE));
+        $this->assertSame($username, $versand[0]['username']);
+
+        foreach ($zeilen as $z) {
+            $this->assertStringNotContainsString($email, (string)$z['details'], "Adresse im Protokoll: {$z['action']}");
+            $this->assertDoesNotMatchRegularExpression('/Anmeldecode \d/', (string)$z['details'], "Code im Protokoll: {$z['action']}");
+        }
     }
 
     public function testEinFalscherCodeLaesstNichtHereinUndVerbrauchtDenRichtigen(): void {

@@ -390,7 +390,9 @@ class ProfileTest extends FunctionalTestCase {
     /**
      * Nach dem Bestätigen geht ein Hinweis an die ALTE Adresse. Die Suite hat
      * kein Postfach; der Versand scheitert hier und landet samt Empfänger im
-     * Audit-Log - das belegt, dass und wohin er versucht wurde.
+     * Audit-Log - das belegt, dass und wohin er versucht wurde. Der Empfänger
+     * steht dort als pseudonyme Referenz (Audit N17), berechnet mit dem
+     * Schlüssel des Servers (Umgebung), nicht mit dem des Testprozesses.
      */
     public function testNachDemWechselGehtEinHinweisAnDieAlteAdresse(): void {
         $konto = $this->angemeldetOhneFaktor($this->authenticatedClient(), 'profhinweis');
@@ -407,8 +409,14 @@ class ProfileTest extends FunctionalTestCase {
         $stmt = Database::getInstance()->prepare(
             "SELECT COUNT(*) FROM audit_logs WHERE action = 'Kontohinweis nicht zugestellt' AND details LIKE ?"
         );
-        $stmt->execute(['%an ' . $konto['email'] . ': Ihre E-Mail-Adresse wurde geändert%']);
+        $referenz = \App\Service\Mailer::externeEmpfaengerReferenz($konto['email'], (string)getenv('APP_KEY'));
+        $this->assertStringStartsWith('extern:', $referenz);
+        $stmt->execute(['%an ' . $referenz . ': Ihre E-Mail-Adresse wurde geändert%']);
         $this->assertSame(1, (int)$stmt->fetchColumn(), 'Der Hinweis muss an die ALTE Adresse gegangen sein.');
+
+        $stmt = Database::getInstance()->prepare("SELECT COUNT(*) FROM audit_logs WHERE category IN ('email', 'security') AND details LIKE ?");
+        $stmt->execute(['%' . $konto['email'] . '%']);
+        $this->assertSame(0, (int)$stmt->fetchColumn(), 'Die alte Adresse darf nicht im Klartext im Protokoll stehen.');
     }
 
     // ---- Vergebene Adressen (Audit N52) ---------------------------------

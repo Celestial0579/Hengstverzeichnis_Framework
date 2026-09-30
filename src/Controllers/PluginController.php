@@ -22,9 +22,23 @@ class PluginController extends BaseController {
     }
 
     public function index(): void {
+        // Das Deinstallationsprotokoll (Audit N51) ist ein einmaliger Hinweis:
+        // lesen und sofort entfernen, damit es beim nächsten Aufruf nicht
+        // wieder erscheint.
+        $uninstallProtokoll = null;
+        $gespeichert = $_SESSION['plugin_uninstall_protokoll'] ?? null;
+        unset($_SESSION['plugin_uninstall_protokoll']);
+        if (is_array($gespeichert) && isset($gespeichert['eintraege']) && is_array($gespeichert['eintraege'])) {
+            $uninstallProtokoll = [
+                'slug' => (string)($gespeichert['slug'] ?? ''),
+                'eintraege' => array_values(array_map('strval', $gespeichert['eintraege'])),
+            ];
+        }
+
         $this->render('admin_plugins', [
             'title' => 'Plugins verwalten',
             'plugins' => PluginManager::getInstance()->getDiscoveredPlugins(),
+            'uninstallProtokoll' => $uninstallProtokoll,
         ]);
     }
 
@@ -84,6 +98,10 @@ class PluginController extends BaseController {
             'slug' => $slug,
             'plugin' => $plugins[$slug],
             'vorschau' => $manager->deinstallationsVorschau($slug),
+            // Läuft beim Löschen Code des Addons (uninstall())? Lädt selbst
+            // keinen Addon-Code, liest höchstens Dateien für den Fingerabdruck
+            // (Audit N15).
+            'codePruefung' => $manager->uninstallHookPruefung($slug),
         ]);
     }
 
@@ -119,7 +137,8 @@ class PluginController extends BaseController {
 
         // Das Protokoll gehört dem Betreiber - es steht sonst nur im
         // Audit-Log, und dort sucht nach einem Klick niemand.
-        $_SESSION['plugin_uninstall_protokoll'] = $protokoll;
+        // Angezeigt einmalig von index() (Audit N51).
+        $_SESSION['plugin_uninstall_protokoll'] = ['slug' => $slug, 'eintraege' => $protokoll];
 
         header("Location: /admin/plugins?uninstalled=" . urlencode($slug));
         exit;

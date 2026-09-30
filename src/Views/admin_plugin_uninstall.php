@@ -10,7 +10,11 @@
  * @var string $slug
  * @var array  $plugin    Eintrag aus PluginManager::getDiscoveredPlugins()
  * @var array  $vorschau  PluginManager::deinstallationsVorschau()
+ * @var array{laeuft: bool, grund: string} $codePruefung
+ *      PluginManager::uninstallHookPruefung() - läuft beim Löschen Code des
+ *      Addons? (Audit N15)
  */
+$codePruefung = $codePruefung ?? ['laeuft' => false, 'grund' => 'nicht prüfbar'];
 
 $name = $plugin['manifest']['name'] ?? $slug;
 $zeilenGesamt = array_sum($vorschau['tables']);
@@ -97,6 +101,7 @@ $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vo
                 <input type="radio" name="daten" value="behalten" checked>
                 <strong>Daten behalten</strong> — das Addon wird deaktiviert und aus der
                 Übersicht genommen, Tabellen und Dateien bleiben unverändert stehen.
+                Der Addon-Code (<code>plugins/<?= htmlspecialchars($slug) ?></code>) wird entfernt.
                 Wird das Addon später erneut installiert, ist alles wieder da.
             </label>
 
@@ -106,8 +111,21 @@ $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vo
                     ? 'entfernt <strong>' . number_format($zeilenGesamt, 0, ',', '.') . '</strong> Datensätze und <strong>'
                       . number_format($dateienGesamt, 0, ',', '.') . '</strong> Dateien'
                     : 'entfernt die oben aufgeführten Bestandteile' ?>.
+                Der Addon-Code (<code>plugins/<?= htmlspecialchars($slug) ?></code>) wird entfernt.
                 <span style="color: var(--danger-fg);">Das lässt sich nicht rückgängig machen.</span>
             </label>
+
+            <p class="uninstall-code-hinweis" style="color: var(--text-muted); font-size: 0.9rem; margin: 0.8rem 0 0 0;">
+                <?php if ($codePruefung['laeuft']): ?>
+                    Beim Löschen läuft zuerst die Aufräumroutine des Addons (<code>uninstall()</code>,
+                    falls vorhanden) &ndash; dabei wird Code des Addons ausgeführt (freigegeben und
+                    seit der Freigabe unverändert).
+                <?php else: ?>
+                    Es wird kein Code des Addons ausgeführt (<?= htmlspecialchars($codePruefung['grund']) ?>).
+                    Gelöscht wird nur, was das Addon in seiner <code>plugin.json</code> angibt.
+                    Soll seine Aufräumroutine laufen, das Addon vorher aktivieren.
+                <?php endif; ?>
+            </p>
 
             <div id="bestaetigung-block" style="display: none; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border);">
                 <p style="margin: 0 0 0.4rem 0;">

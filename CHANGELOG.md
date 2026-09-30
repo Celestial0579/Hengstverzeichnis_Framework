@@ -71,6 +71,24 @@ Breaking Changes sind jederzeit möglich).
   die eine feste Edge-TTL erzwingen, heben den Schutz auf (siehe
   `docs/security.md`). Proxies fragen häufiger nach (304 über PHP), und alle
   Browser laden die Fotos nach dem Update einmal neu.
+- **Deinstallieren mit Datenlöschung führte Code nie freigegebener oder
+  veränderter Addons aus** (Audit N15). Die Aufräumroutine eines Addons
+  (`uninstall()`) lief auch für Addons, die nie aktiviert wurden oder deren
+  Code seit der Freigabe ausgetauscht war; wer Schreibzugriff auf `plugins/`
+  hatte, bekam so seinen Code über einen Admin-Klick ausgeführt. Sie läuft
+  jetzt nur noch in zwei Fällen: Ein aktiviertes Addon hat im selben Aufruf
+  die Ladeprüfung bestanden, oder ein deaktiviertes Addon ist exakt
+  unverändert gegenüber seiner letzten Freigabe (voller Fingerabdruck; eine
+  erhöhte Versionsnummer genügt hier bewusst nicht). Sonst wird nur
+  abgearbeitet, was das Addon in seiner `plugin.json` angibt. Die
+  Bestätigungsseite sagt vorher, ob Code des Addons ausgeführt wird.
+
+  **Für Betreiber:** Bei nie aktivierten, veränderten oder inkompatiblen
+  Addons, bei Addons, die vor diesem Release deaktiviert wurden, und bei
+  deaktivierten Addons, die ein Kern-Update seitdem aktualisiert hat,
+  entfällt die eigene Aufräumroutine (etwa zurückgesetzte Captcha-Auswahl,
+  Zählerstände). Soll sie laufen, das Addon vor dem Deinstallieren
+  aktivieren.
 
 - **Zusammenführen von Kontakten konnte private Kontaktdaten veröffentlichen**
   (Audit M9). War der behaltene Kontakt für die Veröffentlichung seiner
@@ -527,6 +545,46 @@ Breaking Changes sind jederzeit möglich).
   Kameras lagen in Katalog, Detailseite, Verwaltungsliste und Galerie quer,
   sobald die Vorschaubilder eingeschaltet waren. Die Vorschau berücksichtigt
   jetzt die gespeicherte Ausrichtung des Fotos.
+- **Nach einem Addon-Update lief die Einrichtung der alten Version** (Audit
+  M35). Beim Update über `/admin/updates` und beim Mitziehen der Addons
+  während eines Kern-Updates rief der Kern `install()` im selben Aufruf auf,
+  in dem der alte Addon-Code schon geladen war. Neue Tabellen oder Spalten
+  einer Addon-Version entstanden deshalb erst, wenn jemand das Addon von Hand
+  deaktivierte und wieder aktivierte; bis dahin endeten Zugriffe mit
+  SQL-Fehlern. Jetzt läuft `install()` der neuen Version beim ersten
+  Seitenaufruf nach dem Update, genau einmal, auch wenn mehrere Aufrufe
+  gleichzeitig eintreffen; auch der Audit-Eintrag „Plugin automatisch
+  aktualisiert“ entsteht nur noch einmal. Deaktivierte Addons richten sich
+  bei der nächsten Aktivierung ein.
+
+  **Für Betreiber:** Der erste Seitenaufruf nach einem Addon-Update kann
+  spürbar länger dauern. Beim Update auf dieses Release führt der alte Kern
+  noch einmal das alte `install()` aus (harmlos); der neue Kern holt
+  `install()` im nächsten Aufruf nach.
+
+- **„Deinstallieren“ ließ das Addon stehen** (Audit N62). Die
+  Bestätigungsseite versprach, das Addon verschwinde aus der Übersicht.
+  Tatsächlich blieben Code und Verwaltungseintrag stehen, und jedes
+  Kern-Update lud das Addon neu herunter und führte seine Einrichtung aus;
+  gelöschte Tabellen entstanden dabei leer wieder. Deinstallieren entfernt
+  jetzt in beiden Varianten, auch bei „Daten behalten“, das Verzeichnis
+  `plugins/<slug>` und den Verwaltungseintrag – auch bei von Hand kopierten
+  Addons. Ist das Verzeichnis eine Verknüpfung, wird nur die Verknüpfung
+  entfernt; ein Mountpunkt bleibt mit Warnung stehen. Die Löschroutine
+  verfolgt auch für die Verzeichnisse aus dem Datenregister keinen Symlink
+  auf oberster Ebene mehr.
+
+  **Für Betreiber:** Der Webserver-Benutzer braucht Schreibrecht auf
+  `plugins/`; fehlt es, bleibt der Code liegen, und das Protokoll sagt es.
+  **Addons, die vor diesem Release „deinstalliert“ wurden, liegen noch da
+  und werden weiter mitaktualisiert. Bitte bei Bedarf erneut
+  deinstallieren.**
+
+- **Das Deinstallationsprotokoll wurde nie angezeigt** (Audit N51).
+  Warnungen wie „Sicherung fehlgeschlagen – trotzdem gelöscht“ oder „NICHT
+  gelöscht: …“ standen nur im Audit-Log. Nach der Deinstallation erscheint
+  das Protokoll jetzt einmalig unter `/admin/plugins`, Warnungen sind
+  hervorgehoben.
 
 - **Eine DSGVO-Aktion auf einen nicht mehr vorhandenen Kontakt meldete
   Erfolg** und schloss die Anfrage ab (Audit M11). Jetzt erscheint eine
@@ -983,6 +1041,17 @@ Breaking Changes sind jederzeit möglich).
   `App\Service\BildMetadaten::bestandBereinigen($pdo)`, und
   `App\Helper\AtomicFile` hat `ersetzen()` (Inhalt von einem Schreiber, mit
   optionalem Prüfer) und `resteEntfernen()` dazubekommen.
+- **Deaktivieren eines Addons lässt seine letzte Freigabe stehen** (Audit
+  N15). Version und Fingerabdruck bleiben in der Tabelle `plugins`; sie
+  dienen bei einer späteren Deinstallation als Nachweis, dass der vorliegende
+  Code der freigegebene ist. Für den Betrieb unsichtbar. Das Addon
+  `datenmigration` exportiert für deaktivierte Addons damit die zuletzt
+  freigegebene Version; deinstallierte Addons fehlen im Export.
+- **`install()` eines Addons kann in jedem Seitenaufruf laufen** (Audit
+  M35), auch ohne Anmeldung, jeweils vor `register()`. Addon-Entwickler:
+  siehe `docs/plugin-development.md`, Abschnitt zu `install()`; neu dort ist
+  auch der Abschnitt, wann `uninstall()` läuft, und die dokumentierte API
+  `PluginManager::uninstallHookPruefung()`.
 
 - **Neue Hooks `contact.anonymized` und `contact.erased` für Addons**
   (Audit N45). `contact.anonymized(int $contactId, array $vorher)` feuert

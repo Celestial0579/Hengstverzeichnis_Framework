@@ -209,11 +209,30 @@ Der Kern ruft `install()` auf:
 
 - bei jeder **(Re-)Aktivierung** über `/admin/plugins`
   (`PluginManager::setEnabled(..., true)`), und
-- nach jedem eingespielten **Addon-Update**
-  (`AddonUpdateService` → `PluginManager::runInstallHook()`).
+- im **ersten Seitenaufruf, der eine aktualisierte Version lädt** und sie
+  übernimmt (neue Manifest-Version aus einem Release-Tag, siehe
+  `PluginManager::loadEnabledPlugins()`). Das geschieht innerhalb von
+  `boot()`, **vor** `register()` dieses Addons und vor `register()` später
+  geladener Addons. Treffen mehrere Aufrufe gleichzeitig ein, führt genau
+  einer `install()` aus (bedingtes `UPDATE` auf `plugins.installed_version`).
+
+Der Update-Aufruf selbst (`/admin/updates`, Kern-Update) ruft `install()`
+**nicht** mehr auf: Dort ist noch die alte Plugin-Klasse geladen, und
+`require_once` lädt die neue nicht nach — `install()` liefe mit dem alten
+Code (Audit M35). Ein **deaktiviertes** Addon, das ein Kern-Update
+mitgezogen hat, richtet sich erst bei der nächsten Aktivierung ein.
 
 Daraus folgt der Vertrag:
 
+- **Keine Session, kein angemeldeter Benutzer.** Der erste Aufruf nach einem
+  Update kann ein beliebiger, auch anonymer Seitenaufruf sein (oder ein
+  API-/Cron-Aufruf). `install()` darf nur Datenbank und Dateisystem
+  voraussetzen.
+- **Hilfsklassen oben in `Plugin.php` einbinden**, nicht erst in
+  `register()` — `install()` läuft vor `register()`.
+- **Lange `ALTER TABLE` vermeiden** oder in kleine Schritte teilen: Sie
+  blockieren den ersten Seitenaufruf nach dem Update und über den
+  Metadata-Lock auch parallele Zugriffe auf die Tabelle.
 - **`install()` muss idempotent sein.** Der Hook garantiert "mindestens
   einmal nach Installation/Update", nicht "genau einmal" —
   `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN` hinter einer
@@ -221,7 +240,9 @@ Daraus folgt der Vertrag:
   `Database::runMigrations()` im Kern).
 - **Fehler brechen die Admin-Aktion nicht ab.** Eine Exception in
   `install()` wird abgefangen und im Audit-Log (Kategorie `plugin`)
-  protokolliert; Aktivierung bzw. Update bleiben bestehen.
+  protokolliert; Aktivierung bzw. Update bleiben bestehen. Ein
+  fehlgeschlagenes `install()` wird **nicht** automatisch wiederholt —
+  nachholen lässt es sich durch Deaktivieren und erneutes Aktivieren.
 - **`register()` führt kein DDL mehr aus.** `register()` läuft im Bootstrap
   **jedes** Requests — ein `CREATE TABLE IF NOT EXISTS` dort ist ein echtes
   DDL-Statement gegen den Datenbank-Server bei jeder Anfrage, inklusive
@@ -1216,6 +1237,56 @@ public function uninstall(): void {
     $db->exec("DELETE FROM audit_logs WHERE category = 'mein-addon'");
 }
 ```
+
+#### Wann `uninstall()` läuft — und wann nicht (Audit N15)
+
+`uninstall()` läuft nur bei **„Daten löschen“** und nur, wenn der Code des
+Addons der freigegebene ist. Die Deinstallation ist kein Weg, Code
+auszuführen, den der Kern sonst nicht laden würde
+(`PluginManager::uninstallHookPruefung()`):
+
+| Zustand des Addons | `uninstall()` läuft? |
+|---|---|
+| aktiviert und im selben Aufruf geprüft geladen | ja |
+| aktiviert, aber „muss erneut freigegeben werden“ | nein |
+| deaktiviert, Code exakt gleich der letzten Freigabe (voller SHA-256) | ja |
+| deaktiviert, Code seitdem verändert — **auch** mit erhöhter Version und Release-Herkunft, etwa nach einem Kern-Update | nein |
+| nie aktiviert, deaktiviert vor Einführung dieser Regel (keine gespeicherte Freigabe), fehlerhaftes oder inkompatibles Manifest | nein |
+
+Deaktivieren lässt dafür die letzte Freigabe (Fingerabdruck) in der
+Datenbank stehen. Läuft `uninstall()` nicht, arbeitet der Kern nur das
+Datenregister ab; das Protokoll und vorher schon die Bestätigungsseite sagen
+das. Ausweg für den Betreiber: das Addon vorher aktivieren. Für Addons
+heisst das: **Alles, was sich deklarieren lässt, gehört ins Register** —
+`uninstall()` ist ein Zusatz, auf den sich ein Addon nicht verlassen kann.
+
+#### Was Deinstallieren sonst noch tut (Audit N62)
+
+In **beiden** Varianten, auch bei „Daten behalten“, entfernt der Kern
+anschliessend den Addon-Code `plugins/<slug>` und die Zeile in der Tabelle
+`plugins`. Ohne diese Zeile (und damit ohne Herkunft) zieht ein Kern-Update
+das Addon nicht mehr mit. Das Verzeichnis wird zuerst per `rename()`
+beiseitegelegt und dann gelöscht:
+
+- Ist `plugins/<slug>` eine **Verknüpfung** (Entwickler-Setup), wird nur die
+  Verknüpfung entfernt; ihr Ziel bleibt unangetastet. Verknüpfungen **im**
+  Addon-Verzeichnis werden ebenfalls nicht verfolgt.
+- Ist es ein **Mountpunkt** oder fehlen Schreibrechte auf `plugins/`, bleibt
+  der Code liegen, und das Protokoll meldet eine WARNUNG. Die Zeile wird
+  trotzdem entfernt.
+
+Das Protokoll erscheint nach der Deinstallation einmalig unter
+`/admin/plugins` (Audit N51). Die Präfixe `WARNUNG` und `NICHT gelöscht`
+werden dort als Fehler, `HINWEIS` als Hinweis hervorgehoben.
+
+Für Verwaltungsoberflächen und Addons, die auf der Deinstallation aufbauen,
+gilt die API von `App\Plugin\PluginManager`:
+
+| Methode | Zweck |
+|---|---|
+| `uninstall(string $slug, bool $datenLoeschen): string[]` | Deinstallation wie oben, liefert das Protokoll. Den Request danach beenden — das Addon-Verzeichnis ist weg. |
+| `uninstallHookPruefung(string $slug): array{laeuft: bool, grund: string}` | Läuft beim Löschen `uninstall()`? Ohne Seiteneffekt, lädt keinen Addon-Code. `grund` ist unescaped. |
+| `deinstallationsVorschau(string $slug)` / `datenRegister(string $slug)` | Was „Daten löschen“ entfernen würde. |
 
 ### Grenzen, die der Kern durchsetzt
 

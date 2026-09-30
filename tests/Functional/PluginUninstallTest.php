@@ -19,6 +19,15 @@ use Tests\Support\HttpClient;
  * Deshalb prüft dieser Test zuerst schlicht, dass es die Routen GIBT - und
  * danach die drei Hürden, die zwischen dem Klick und dem DROP TABLE stehen:
  * Admin-Pflicht, CSRF und der von Hand abgetippte Slug.
+ *
+ * Dazu (Audit N15, N51, N62):
+ * - Der uninstall()-Hook läuft nur für freigegebenen, unveränderten Code.
+ *   Die Fixture-Plugin.php schreibt beim Laden und in uninstall() je einen
+ *   Marker ins Audit-Log (Kategorie plugin-test) - daran sieht der Test, ob
+ *   Addon-Code lief.
+ * - Deinstallieren entfernt plugins/<slug> und die plugins-Zeile. Das Fixture
+ *   wird deshalb in setUp() jedes Mal neu angelegt.
+ * - Das Protokoll erscheint einmalig und escaped unter /admin/plugins.
  */
 class PluginUninstallTest extends FunctionalTestCase {
 
@@ -27,14 +36,32 @@ class PluginUninstallTest extends FunctionalTestCase {
     private const TABELLE = 'plugin_uninstall_fixture_daten';
     private const EINSTELLUNG = 'plugin_uninstall_fixture_option';
 
-    public static function setUpBeforeClass(): void {
-        parent::setUpBeforeClass();
+    private const MARKER_GELADEN = 'uninstall-fixture: Datei geladen';
+    private const MARKER_UNINSTALL = 'uninstall-fixture: uninstall() lief';
+
+    /**
+     * Das Fixture liegt vor JEDEM Test frisch da - jede erfolgreiche
+     * Deinstallation entfernt es jetzt (Audit N62). Reine Dateisystem-
+     * Operation, also auch vor der Ersteinrichtung unkritisch.
+     */
+    protected function setUp(): void {
+        parent::setUp();
         self::installPluginFixture();
     }
 
-    public static function tearDownAfterClass(): void {
+    protected function tearDown(): void {
         self::removePluginDir();
-        parent::tearDownAfterClass();
+        foreach (glob(dirname(self::PLUGIN_DEST) . '/' . self::SLUG . '.entfernt-*') ?: [] as $rest) {
+            self::removeTree($rest);
+        }
+        try {
+            $db = \App\Database::getInstance();
+            $db->prepare('DELETE FROM plugins WHERE slug = ?')->execute([self::SLUG]);
+            $db->exec("DELETE FROM audit_logs WHERE category = 'plugin-test'");
+        } catch (\Throwable $e) {
+            // Schema evtl. noch nicht angelegt (erster Test vor der Ersteinrichtung).
+        }
+        parent::tearDown();
     }
 
     /**
@@ -48,6 +75,8 @@ class PluginUninstallTest extends FunctionalTestCase {
     private function adminMitFixtureDaten(): HttpClient {
         $admin = $this->authenticatedClient();
         $this->seedPluginData();
+        $this->db()->prepare('DELETE FROM plugins WHERE slug = ?')->execute([self::SLUG]);
+        $this->markerZuruecksetzen();
         return $admin;
     }
 
@@ -153,6 +182,9 @@ class PluginUninstallTest extends FunctionalTestCase {
         $this->assertStringContainsString('uninstalled=', (string)$antwort->location());
         $this->assertTrue($this->tabelleExistiert(), '"Daten behalten" darf die Tabelle nicht anfassen');
         $this->assertTrue($this->einstellungExistiert(), '"Daten behalten" darf die Einstellung nicht anfassen');
+
+        // Audit N62: Code und Verwaltungseintrag sind trotzdem weg.
+        $this->assertCodeUndZeileEntfernt($admin);
     }
 
     /**
@@ -173,9 +205,191 @@ class PluginUninstallTest extends FunctionalTestCase {
         $this->assertStringContainsString('uninstalled=', (string)$antwort->location());
         $this->assertFalse($this->tabelleExistiert(), 'Die Tabelle des Addons muss weg sein');
         $this->assertFalse($this->einstellungExistiert(), 'Die Einstellung des Addons muss weg sein');
+
+        $this->assertCodeUndZeileEntfernt($admin);
+    }
+
+    // ---- Wann läuft Code des Addons? (Audit N15) -----------------------
+
+    /**
+     * (a) + (f): Ein nie aktiviertes Addon. Weder die Rückfrage noch das
+     * Löschen darf seine Plugin-Datei laden; das Register wird trotzdem
+     * abgearbeitet.
+     */
+    public function testNeverActivatedAddonRunsNoCode(): void {
+        $admin = $this->adminMitFixtureDaten();
+
+        $formular = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG);
+        $this->assertSame(200, $formular->statusCode);
+        $this->assertStringContainsString('Es wird kein Code des Addons ausgeführt', $formular->body);
+        $this->assertStringContainsString('nie freigegeben', $formular->body);
+        $this->assertSame(0, $this->marker(self::MARKER_GELADEN), 'Die Rückfrage darf keinen Addon-Code laden');
+
+        $this->loeschen($admin);
+
+        $this->assertSame(0, $this->marker(self::MARKER_GELADEN), 'Ein nie aktiviertes Addon darf beim Löschen nicht geladen werden');
+        $this->assertSame(0, $this->marker(self::MARKER_UNINSTALL));
+        $this->assertFalse($this->tabelleExistiert(), 'Das Register wird trotzdem abgearbeitet');
+        $this->assertStringContainsString('NICHT ausgeführt', $admin->get('/admin/plugins')->body);
+    }
+
+    /** (b) + (f): aktiviert und unverändert - der Hook läuft. */
+    public function testActivatedUnchangedAddonRunsUninstallHook(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $this->aktivieren($admin, true);
+
+        $formular = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG);
+        $this->assertStringContainsString('wird Code des Addons ausgeführt', $formular->body);
+
+        $this->loeschen($admin);
+
+        $this->assertSame(1, $this->marker(self::MARKER_UNINSTALL), 'uninstall() eines freigegebenen Addons muss laufen');
+    }
+
+    /** (c): aktiviert, danach Code bei gleicher Version geändert - kein Hook. */
+    public function testActivatedThenChangedAddonRunsNoHook(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $this->aktivieren($admin, true);
+        file_put_contents(self::PLUGIN_DEST . '/Plugin.php', "\n// nachträglich geändert\n", FILE_APPEND);
+        $this->markerZuruecksetzen();
+
+        $formular = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG);
+        $this->assertStringContainsString('Es wird kein Code des Addons ausgeführt', $formular->body);
+
+        $this->loeschen($admin);
+
+        $this->assertSame(0, $this->marker(self::MARKER_UNINSTALL), 'Veränderter Code darf bei der Deinstallation nicht laufen');
+        $this->assertSame(0, $this->marker(self::MARKER_GELADEN), 'Veränderter Code darf gar nicht geladen werden');
+    }
+
+    /** (d): aktiviert, deaktiviert, unverändert - die Baseline trägt, der Hook läuft. */
+    public function testDeactivatedUnchangedAddonRunsUninstallHook(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $this->aktivieren($admin, true);
+        $this->aktivieren($admin, false);
+
+        $formular = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG);
+        $this->assertStringContainsString('wird Code des Addons ausgeführt', $formular->body);
+
+        $this->loeschen($admin);
+
+        $this->assertSame(1, $this->marker(self::MARKER_UNINSTALL));
+    }
+
+    /**
+     * (e): der Umgehungsversuch. Deaktiviert, dann Code geändert UND Version
+     * erhöht UND Release-Herkunft eingetragen - beim Laden griffe die
+     * #212-Übernahme, bei der Deinstallation eines deaktivierten Addons nicht.
+     */
+    public function testDeactivatedChangedAddonWithVersionBumpRunsNoHook(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $this->aktivieren($admin, true);
+        $this->aktivieren($admin, false);
+
+        file_put_contents(self::PLUGIN_DEST . '/Plugin.php', "\n// untergeschoben\n", FILE_APPEND);
+        self::writeManifest('9.9.9');
+        $this->db()->prepare("UPDATE plugins SET source = 'Celestial0579/Hengstverzeichnis_Addons@v9.9.9' WHERE slug = ?")
+            ->execute([self::SLUG]);
+        $this->markerZuruecksetzen();
+
+        $formular = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG);
+        $this->assertStringContainsString('Es wird kein Code des Addons ausgeführt', $formular->body);
+
+        $this->loeschen($admin);
+
+        $this->assertSame(0, $this->marker(self::MARKER_UNINSTALL), 'Eine erhöhte Version darf bei deaktivierten Addons keinen Code freischalten');
+        $this->assertSame(0, $this->marker(self::MARKER_GELADEN));
+    }
+
+    // ---- Das Protokoll (Audit N51) -------------------------------------
+
+    public function testProtocolIsShownOnceAfterUninstall(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $this->loeschen($admin);
+
+        $erste = $admin->get('/admin/plugins')->body;
+        $this->assertStringContainsString('deinstalliert', $erste);
+        $this->assertStringContainsString('Tabelle ' . self::TABELLE . ' entfernt.', $erste);
+        $this->assertStringContainsString('HINWEIS: Keine Sicherung eingerichtet', $erste);
+        $this->assertStringContainsString('Addon-Code (plugins/' . self::SLUG . ') entfernt.', $erste);
+
+        $zweite = $admin->get('/admin/plugins')->body;
+        $this->assertStringNotContainsString('Tabelle ' . self::TABELLE . ' entfernt.', $zweite, 'Das Protokoll erscheint nur einmal');
+    }
+
+    public function testKeepingDataShowsProtocol(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $admin->post('/admin/plugins/uninstall', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::SLUG,
+            'daten' => 'behalten',
+        ]);
+
+        $this->assertStringContainsString('Daten behalten', $admin->get('/admin/plugins')->body);
+    }
+
+    public function testProtocolIsEscaped(): void {
+        self::installPluginFixture(['<i>x</i>']);
+        $admin = $this->adminMitFixtureDaten();
+        $this->loeschen($admin);
+
+        $body = $admin->get('/admin/plugins')->body;
+        $this->assertStringContainsString('&lt;i&gt;x&lt;/i&gt;', $body);
+        $this->assertStringNotContainsString('<i>x</i>', $body);
+        $this->assertStringContainsString('Bitte die markierten Einträge prüfen', $body, 'Ein "NICHT gelöscht" ist eine Warnung');
+    }
+
+    public function testFallbackEscapesSlugParameter(): void {
+        $admin = $this->authenticatedClient();
+
+        $body = $admin->get('/admin/plugins?uninstalled=' . urlencode('<script>alert(1)</script>'))->body;
+
+        $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $body);
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
     }
 
     // ---- Hilfsmittel ---------------------------------------------------
+
+    private function loeschen(HttpClient $admin): void {
+        $antwort = $admin->post('/admin/plugins/uninstall', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::SLUG,
+            'daten' => 'loeschen',
+            'bestaetigung' => self::SLUG,
+        ]);
+        $this->assertStringContainsString('uninstalled=', (string)$antwort->location());
+    }
+
+    private function aktivieren(HttpClient $admin, bool $an): void {
+        $antwort = $admin->post('/admin/plugins/toggle', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::SLUG,
+            'enable' => $an ? '1' : '',
+        ]);
+        $this->assertSame('/admin/plugins?success=1', $antwort->location());
+    }
+
+    private function markerZuruecksetzen(): void {
+        $this->db()->exec("DELETE FROM audit_logs WHERE category = 'plugin-test'");
+    }
+
+    private function marker(string $aktion): int {
+        $stmt = $this->db()->prepare("SELECT COUNT(*) FROM audit_logs WHERE category = 'plugin-test' AND action = ?");
+        $stmt->execute([$aktion]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    private function assertCodeUndZeileEntfernt(HttpClient $admin): void {
+        $this->assertDirectoryDoesNotExist(self::PLUGIN_DEST, 'Deinstallieren muss plugins/<slug> entfernen');
+        $this->assertSame([], glob(dirname(self::PLUGIN_DEST) . '/' . self::SLUG . '.entfernt-*') ?: []);
+        $stmt = $this->db()->prepare('SELECT COUNT(*) FROM plugins WHERE slug = ?');
+        $stmt->execute([self::SLUG]);
+        $this->assertSame(0, (int)$stmt->fetchColumn(), 'Die plugins-Zeile muss entfernt sein');
+
+        // Erster Aufruf zeigt das Protokoll (mit Slug), der zweite die Übersicht.
+        $admin->get('/admin/plugins');
+        $this->assertStringNotContainsString(self::SLUG, $admin->get('/admin/plugins')->body, 'Das Addon darf nicht mehr in der Übersicht stehen');
+    }
 
     private function db(): PDO {
         return \App\Database::getInstance();
@@ -205,51 +419,72 @@ class PluginUninstallTest extends FunctionalTestCase {
     }
 
 
-    private static function installPluginFixture(): void {
+    /** @param string[] $zusatzTabellen weitere owns.tables-Einträge (etwa ungültige) */
+    private static function installPluginFixture(array $zusatzTabellen = []): void {
         self::removePluginDir();
         mkdir(self::PLUGIN_DEST, 0777, true);
 
+        self::writeManifest('1.0.0', $zusatzTabellen);
+
+        file_put_contents(self::PLUGIN_DEST . '/Plugin.php', <<<'PHP'
+<?php
+// Test-Fixture für die Addon-Deinstallation (#373, Audit N15). Registriert
+// nichts - geprüft wird der Weg über das deklarative Register in plugin.json.
+// Die beiden Audit-Marker zeigen, ob Code des Addons lief.
+
+namespace Plugin\UninstallFixture;
+
+use App\Plugin\HookManager;
+
+\App\Service\AuditLogger::log('uninstall-fixture: Datei geladen', 'plugin-test');
+
+class Plugin {
+    public function register(HookManager $hooks): void {}
+
+    public function uninstall(): void {
+        \App\Service\AuditLogger::log('uninstall-fixture: uninstall() lief', 'plugin-test');
+    }
+}
+PHP);
+    }
+
+    /** @param string[] $zusatzTabellen */
+    private static function writeManifest(string $version, array $zusatzTabellen = []): void {
         file_put_contents(self::PLUGIN_DEST . '/plugin.json', json_encode([
             'slug' => self::SLUG,
             'name' => 'Deinstallations-Fixture (Test)',
-            'version' => '1.0.0',
+            'version' => $version,
             'core_compatibility' => '>=0.1.0-beta.1',
             'core_supported_max' => '9.9',
             'description' => 'Erklärt eine eigene Tabelle und eine Einstellung, damit die Deinstallation (#338/#373) etwas zu löschen hat.',
             'author' => 'tests/Functional/PluginUninstallTest',
             'entry' => 'Plugin.php',
             'owns' => [
-                'tables' => [self::TABELLE],
+                'tables' => array_merge([self::TABELLE], $zusatzTabellen),
                 'settings' => [self::EINSTELLUNG],
             ],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-        file_put_contents(self::PLUGIN_DEST . '/Plugin.php', <<<'PHP'
-<?php
-// Test-Fixture für die Addon-Deinstallation (#373). Registriert bewusst nichts -
-// geprüft wird der Weg über das deklarative Register in plugin.json.
-
-namespace Plugin\UninstallFixture;
-
-use App\Plugin\HookManager;
-
-class Plugin {
-    public function register(HookManager $hooks): void {}
-}
-PHP);
     }
 
     private static function removePluginDir(): void {
-        if (!is_dir(self::PLUGIN_DEST)) {
+        self::removeTree(self::PLUGIN_DEST);
+    }
+
+    private static function removeTree(string $pfad): void {
+        if (is_link($pfad)) {
+            unlink($pfad);
+            return;
+        }
+        if (!is_dir($pfad)) {
             return;
         }
         $iterator = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator(self::PLUGIN_DEST, \FilesystemIterator::SKIP_DOTS),
+            new \RecursiveDirectoryIterator($pfad, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($iterator as $item) {
-            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+            ($item->isDir() && !$item->isLink()) ? rmdir($item->getPathname()) : unlink($item->getPathname());
         }
-        rmdir(self::PLUGIN_DEST);
+        rmdir($pfad);
     }
 }

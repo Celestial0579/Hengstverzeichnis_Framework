@@ -75,11 +75,19 @@ use PDO;
  *   Hash-Vergleich, die Fail-Closed-Garantien bleiben vollständig bestehen.
  * - Installations-Hook (Addons#75): Definiert ein Plugin eine öffentliche
  *   install()-Methode, ruft setEnabled(..., true) sie bei jeder
- *   (Re-)Aktivierung auf; der AddonUpdateService ruft sie über
- *   runInstallHook() nach einem eingespielten Update erneut auf. install()
- *   ist damit der Ort für DDL/Migrationen eines Plugins (idempotent,
- *   z. B. CREATE TABLE IF NOT EXISTS) - register() läuft bei JEDEM Request
- *   und soll kein DDL mehr ausführen (siehe docs/plugin-development.md).
+ *   (Re-)Aktivierung auf. Nach einem Update läuft sie im ERSTEN Request,
+ *   der die neue Version lädt und über acceptPluginUpdate() übernimmt - vor
+ *   register() und genau einmal (bedingtes UPDATE als Claim, Audit M35).
+ *   Früher rief der AddonUpdateService sie im Update-Request selbst auf; dort
+ *   war aber noch die ALTE Klasse geladen, und require_once lud die neue
+ *   nicht nach. install() ist der Ort für DDL/Migrationen eines Plugins
+ *   (idempotent, z. B. CREATE TABLE IF NOT EXISTS) - register() läuft bei
+ *   JEDEM Request und soll kein DDL mehr ausführen (siehe
+ *   docs/plugin-development.md).
+ * - Deinstallations-Hook (#338, Audit N15): uninstall() eines Addons läuft
+ *   nur, wenn sein Code freigegeben und unverändert ist - siehe
+ *   uninstallHookPruefung(). Deinstallieren entfernt außerdem den Addon-Code
+ *   und die plugins-Zeile (Audit N62), siehe uninstall().
  * - Nicht-destruktive Fail-Closed-Garantie: Wird ein Plugin als "muss erneut
  *   freigegeben werden" markiert (needsReapproval()), wird dafür NIE die
  *   `plugins`-Zeile verändert oder gelöscht - nur eine reine Laufzeit-Markierung
@@ -117,6 +125,26 @@ final class PluginManager {
 
     /** @var array<string, bool> slug => true, wenn der aktuelle Code vom freigegebenen Fingerabdruck abweicht */
     private array $needsReapproval = [];
+
+    /**
+     * slug => true, wenn das Addon in DIESEM Request die Ladeprüfung von
+     * loadEnabledPlugins() bestanden hat (Audit N15). Reine Laufzeit-Markierung:
+     * Grundlage von uninstallHookPruefung() für aktivierte Addons - ihr Code
+     * lief in diesem Request ohnehin.
+     *
+     * @var array<string, bool>
+     */
+    private array $vertrauensgeprueft = [];
+
+    /**
+     * slug => Verzeichnis-Stempel, mit dem das Addon in diesem Request geladen
+     * wurde (Audit M35). runInstallHook() vergleicht ihn mit dem aktuellen
+     * Stempel: Wurde der Code im selben Request ersetzt, ist noch die alte
+     * Klasse geladen, und install() würde den falschen Stand ausführen.
+     *
+     * @var array<string, string|null>
+     */
+    private array $geladeneStempel = [];
 
     /** @var array<int, array{method:string, path:string, callback:mixed, slug:string}> */
     private array $pluginRoutes = [];
@@ -355,7 +383,7 @@ final class PluginManager {
      * vor einem kompromittierten Dateisystem (siehe docs/plugin-development.md,
      * "Sicherheitsgrenzen").
      */
-    private function computeDirStamp(string $dir): string {
+    private function computeDirStamp(string $dir, bool $zaehlen = true): string {
         $maxMtime = 0;
         $count = 0;
         $bytes = 0;
@@ -378,7 +406,11 @@ final class PluginManager {
             // und erzwingt den vollen Hash-Vergleich (fail-closed).
         }
 
-        self::$stempelDateien += $count;
+        // $zaehlen = false: Kontrolllauf außerhalb der Ladeprüfung (etwa in
+        // runInstallHook()) - er soll die Anzeige aus #400 nicht verfälschen.
+        if ($zaehlen) {
+            self::$stempelDateien += $count;
+        }
 
         return $maxMtime . ':' . $count . ':' . $bytes;
     }
@@ -625,13 +657,21 @@ final class PluginManager {
                 // Release-Tag stammt (#212) - sonst wäre das Erhöhen der Manifest-
                 // Version ein trivialer Umweg um die Fingerabdruck-Kette.
                 if (self::isReleaseTagSource($this->sources[$slug] ?? null)) {
-                    $this->acceptPluginUpdate($slug, $currentVersion, $this->fingerprintOf($slug), $this->dirStampOf($slug));
-                    AuditLogger::log(
-                        "Plugin automatisch aktualisiert",
-                        "plugin",
-                        "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} (Versionsnummer im Manifest erhöht, Herkunft "
-                        . ($this->sources[$slug] ?? '?') . " ist ein Release-Tag, automatisch akzeptiert)."
-                    );
+                    $gewonnen = $this->acceptPluginUpdate($slug, $approvedVersion, $currentVersion, $this->fingerprintOf($slug), $this->dirStampOf($slug));
+                    if ($gewonnen) {
+                        // Audit M35: Nur der Request, dessen bedingtes UPDATE die
+                        // Übernahme tatsächlich geschrieben hat, richtet die neue
+                        // Version ein - mit dem frisch geladenen NEUEN Code und vor
+                        // register(), wie bei der Aktivierung. Parallele Requests
+                        // laden das Addon nur und loggen nichts.
+                        $this->runInstallHook($slug);
+                        AuditLogger::log(
+                            "Plugin automatisch aktualisiert",
+                            "plugin",
+                            "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} (Versionsnummer im Manifest erhöht, Herkunft "
+                            . ($this->sources[$slug] ?? '?') . " ist ein Release-Tag, automatisch akzeptiert). install() der neuen Version angestoßen."
+                        );
+                    }
                 } else {
                     // Fail-closed: manuell kopierte oder aus einem Branch-Stand
                     // installierte Plugins brauchen für einen Versionswechsel die
@@ -680,6 +720,12 @@ final class PluginManager {
                 }
             }
 
+            // Ab hier gilt der Code dieses Addons für diesen Request als geprüft
+            // (Grundlage von uninstallHookPruefung(), Audit N15), und der Stempel,
+            // mit dem er geladen wird, ist festgehalten (runInstallHook(), M35).
+            $this->vertrauensgeprueft[$slug] = true;
+            $this->geladeneStempel[$slug] = $this->dirStampOf($slug);
+
             try {
                 $this->loadPlugin($slug, $info);
             } catch (\Throwable $e) {
@@ -692,19 +738,32 @@ final class PluginManager {
      * Akzeptiert ein reguläres Plugin-Update (neue Manifest-Version aus einem
      * Release-Tag, siehe loadEnabledPlugins()) automatisch, ohne dass ein Admin
      * erneut aktiv werden muss.
+     *
+     * Das UPDATE ist bedingt auf den bisherigen Stand ($alteVersion) und damit
+     * ein Claim (Audit M35): Treffen mehrere Requests gleichzeitig auf die neue
+     * Version, schreibt genau einer die Übernahme und bekommt true - nur er
+     * führt install() aus und protokolliert. rowCount() ist hier verlässlich,
+     * weil sich installed_version immer ändert (MYSQL_ATTR_FOUND_ROWS ist nicht
+     * gesetzt). Die In-Memory-Baseline wird in jedem Fall gesetzt, damit das
+     * Addon in diesem Request lädt.
+     *
+     * @return bool true, wenn DIESER Request die Übernahme geschrieben hat.
      */
-    private function acceptPluginUpdate(string $slug, string $version, ?string $fingerprint, ?string $dirStamp): void {
+    private function acceptPluginUpdate(string $slug, string $alteVersion, string $version, ?string $fingerprint, ?string $dirStamp): bool {
         $this->approvedVersions[$slug] = $version;
         $this->approvedHashes[$slug] = $fingerprint;
         $this->approvedDirStamps[$slug] = $dirStamp;
 
         try {
             $db = Database::getInstance();
-            $stmt = $db->prepare("UPDATE plugins SET installed_version = ?, content_hash = ?, dir_stamp = ? WHERE slug = ?");
-            $stmt->execute([$version, $fingerprint, $dirStamp, $slug]);
+            $stmt = $db->prepare("UPDATE plugins SET installed_version = ?, content_hash = ?, dir_stamp = ? WHERE slug = ? AND installed_version = ?");
+            $stmt->execute([$version, $fingerprint, $dirStamp, $slug, $alteVersion]);
+            return $stmt->rowCount() === 1;
         } catch (\Throwable $e) {
             // Schreibfehler blockiert das Laden für DIESEN Request nicht - beim nächsten
-            // Request wird die Aktualisierung erneut versucht (idempotent).
+            // Request wird die Aktualisierung erneut versucht (idempotent), und erst
+            // der Request, der sie schreibt, führt install() aus.
+            return false;
         }
     }
 
@@ -951,6 +1010,10 @@ final class PluginManager {
      * (kein Hot-Reload nötig, PHP lädt ohnehin pro Request neu). Bei
      * Aktivierung wird zusätzlich der optionale install()-Hook des Plugins
      * aufgerufen (Addons#75, siehe runInstallHook()).
+     *
+     * Aktivieren setzt die Freigabe-Baseline (Version, Fingerabdruck,
+     * Stempel) neu. Deaktivieren setzt nur enabled=0 und lässt die Baseline
+     * stehen (Audit N15, siehe uninstallHookPruefung()).
      */
     public function setEnabled(string $slug, bool $enabled): void {
         if (!isset($this->discovered[$slug])) {
@@ -958,6 +1021,22 @@ final class PluginManager {
         }
 
         $db = Database::getInstance();
+
+        if (!$enabled) {
+            // Deaktivieren schreibt NUR enabled=0 (Audit N15). Die letzte
+            // Freigabe (installed_version, content_hash, dir_stamp) bleibt
+            // stehen: Sie ist bei einer späteren Deinstallation der Nachweis
+            // "dieser Code ist der freigegebene" (uninstallHookPruefung()).
+            // Unbedenklich, weil loadEnabledStates() nur enabled=1 liest und
+            // jede Aktivierung die Baseline neu setzt.
+            $stmt = $db->prepare(
+                "INSERT INTO plugins (slug, enabled, installed_version) VALUES (?, 0, ?)
+                 ON DUPLICATE KEY UPDATE enabled = 0, activated_at = NULL"
+            );
+            $stmt->execute([$slug, (string)($this->discovered[$slug]['manifest']['version'] ?? '0.0.0')]);
+            return;
+        }
+
         $version = (string)($this->discovered[$slug]['manifest']['version'] ?? '0.0.0');
         // Bei (erneuter) Aktivierung wird die aktuell vorgefundene Version + ihr
         // Fingerabdruck + der Verzeichnis-Stempel (#224) als neue Freigabe-Baseline
@@ -965,21 +1044,19 @@ final class PluginManager {
         // als auch eine bewusste manuelle Re-Freigabe nach einer als verdächtig
         // erkannten Änderung ab. `source` bleibt bewusst unangetastet - die
         // Herkunft schreibt ausschließlich der Store/AddonUpdateService.
-        $hash = $enabled ? $this->fingerprintOf($slug) : null;
-        $dirStamp = $enabled ? $this->dirStampOf($slug) : null;
+        $hash = $this->fingerprintOf($slug);
+        $dirStamp = $this->dirStampOf($slug);
 
         $stmt = $db->prepare(
             "INSERT INTO plugins (slug, enabled, installed_version, content_hash, dir_stamp, activated_at) VALUES (?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), installed_version = VALUES(installed_version), content_hash = VALUES(content_hash), dir_stamp = VALUES(dir_stamp), activated_at = VALUES(activated_at)"
         );
-        $stmt->execute([$slug, $enabled ? 1 : 0, $version, $hash, $dirStamp, $enabled ? date('Y-m-d H:i:s') : null]);
+        $stmt->execute([$slug, 1, $version, $hash, $dirStamp, date('Y-m-d H:i:s')]);
 
         // Installations-Hook (Addons#75): läuft bewusst NACH dem Persistieren
         // der Freigabe - ein fehlschlagender Hook nimmt dem Admin nicht die
         // gerade erteilte Aktivierung wieder weg (Fehler landet im Audit-Log).
-        if ($enabled) {
-            $this->runInstallHook($slug);
-        }
+        $this->runInstallHook($slug);
     }
 
     /**
@@ -988,11 +1065,19 @@ final class PluginManager {
      * eigener Tabellen - statt DDL in register(), das bei JEDEM Request liefe
      * (siehe docs/plugin-development.md, "Installation & Migrationen").
      *
-     * Aufrufer: setEnabled(..., true) bei jeder (Re-)Aktivierung und der
-     * AddonUpdateService nach einem eingespielten Addon-Update. install() muss
-     * deshalb idempotent sein (z. B. CREATE TABLE IF NOT EXISTS) - der Hook
-     * garantiert "mindestens einmal nach Installation/Update", nicht "genau
-     * einmal". Plugins ohne install()-Methode sind unverändert gültig (No-Op).
+     * Aufrufer im Kern: setEnabled(..., true) bei jeder (Re-)Aktivierung und
+     * loadEnabledPlugins() im ersten Request, der eine aktualisierte Version
+     * übernimmt (Audit M35) - dort vor register(), möglicherweise in einem
+     * anonymen Request. install() muss deshalb idempotent sein (z. B. CREATE
+     * TABLE IF NOT EXISTS) und darf keine Session voraussetzen. Plugins ohne
+     * install()-Methode sind unverändert gültig (No-Op).
+     *
+     * Schutz gegen im selben Request ersetzten Code (M35): Wurde das Addon in
+     * diesem Request bereits geladen und hat sich sein Verzeichnis-Stempel
+     * seitdem geändert, ist noch die ALTE Klasse geladen (require_once lädt
+     * nicht nach). install() läuft dann NICHT - Audit-Eintrag "Plugin-install()
+     * zurückgestellt". Der Kern selbst löst diesen Fall nicht mehr aus; die
+     * Methode bleibt aber öffentlich und signaturgleich.
      *
      * Fehler im Hook werden abgefangen und im Audit-Log protokolliert - sie
      * verhindern weder die Aktivierung noch das Update; das Plugin meldet
@@ -1002,6 +1087,18 @@ final class PluginManager {
     public function runInstallHook(string $slug): void {
         $info = $this->discovered[$slug] ?? null;
         if ($info === null || $info['error'] !== null) {
+            return;
+        }
+
+        if (array_key_exists($slug, $this->geladeneStempel)
+            && $this->geladeneStempel[$slug] !== $this->computeDirStamp($info['dir'], false)) {
+            AuditLogger::log(
+                "Plugin-install() zurückgestellt: {$slug}",
+                "plugin",
+                "Der Code des Addons wurde ersetzt, nachdem er in diesem Aufruf schon geladen war. install() "
+                . "liefe mit der alten Klasse und wurde deshalb nicht ausgeführt. Zum Nachholen das Addon unter "
+                . "/admin/plugins deaktivieren und wieder aktivieren."
+            );
             return;
         }
 
@@ -1047,19 +1144,90 @@ final class PluginManager {
     }
 
     /**
-     * Deinstalliert ein Addon (#338).
+     * Darf bei der Deinstallation Code dieses Addons laufen (uninstall()-Hook)?
+     * (Audit N15)
+     *
+     * Die Deinstallation ist KEIN Weg, Code auszuführen, den der Kern sonst nicht
+     * laden würde. Erlaubt ist der Hook deshalb nur in zwei Fällen:
+     *
+     * - Aktiviertes Addon: Es hat in DIESEM Request die Ladeprüfung von
+     *   loadEnabledPlugins() bestanden (inklusive der #212-Übernahme eines
+     *   Release-Updates). Sein Code lief in diesem Request ohnehin.
+     * - Deaktiviertes Addon: Sein voller SHA-256 stimmt exakt mit der zuletzt
+     *   gespeicherten Freigabe überein. Bewusst OHNE Stempel-Abkürzung und OHNE
+     *   die #212-Regel "Versionssprung plus Release-Tag-Herkunft" - sonst
+     *   genügte es, bei einem deaktivierten Addon Code zu ändern und die
+     *   Manifest-Version zu erhöhen, und er liefe beim Deinstallieren, obwohl
+     *   ein deaktiviertes Addon nie geladen wird.
+     *
+     * Die Prüfung lädt keinen Addon-Code; sie liest höchstens die Dateien für
+     * den Fingerabdruck. Die Bestätigungsseite nutzt sie, um vorher zu sagen,
+     * ob Code des Addons ausgeführt wird. Öffentlich und ohne Seiteneffekte,
+     * damit Verwaltungsoberflächen dieselbe Aussage treffen können.
+     *
+     * @return array{laeuft: bool, grund: string} grund ist ein kurzer,
+     *         menschenlesbarer Satzteil (unescaped - bei Ausgabe escapen).
+     */
+    public function uninstallHookPruefung(string $slug): array {
+        $info = $this->discovered[$slug] ?? null;
+        if ($info === null || $info['error'] !== null) {
+            return ['laeuft' => false, 'grund' => 'Manifest fehlerhaft'];
+        }
+        if (!$info['compatible']) {
+            return ['laeuft' => false, 'grund' => 'nicht mit dieser Kern-Version kompatibel'];
+        }
+
+        if ($this->isEnabled($slug)) {
+            if ($this->vertrauensgeprueft[$slug] ?? false) {
+                return ['laeuft' => true, 'grund' => 'aktiviert und in diesem Aufruf geprüft geladen'];
+            }
+            return ['laeuft' => false, 'grund' => 'Code seit der letzten Freigabe verändert (erneute Freigabe nötig)'];
+        }
+
+        try {
+            $stmt = Database::getInstance()->prepare('SELECT content_hash FROM plugins WHERE slug = ?');
+            $stmt->execute([$slug]);
+            $gespeichert = $stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            // Fail-closed: Ohne Nachweis läuft kein Code.
+            return ['laeuft' => false, 'grund' => 'Freigabe nicht prüfbar'];
+        }
+
+        if (!is_string($gespeichert) || $gespeichert === '') {
+            return ['laeuft' => false, 'grund' => 'nie freigegeben'];
+        }
+
+        $aktuell = $this->fingerprintOf($slug);
+        if ($aktuell === null || !hash_equals($gespeichert, $aktuell)) {
+            return ['laeuft' => false, 'grund' => 'Code seit der letzten Freigabe verändert oder aktualisiert - zum Aufräumen vorher aktivieren'];
+        }
+
+        return ['laeuft' => true, 'grund' => 'deaktiviert, Code unverändert seit der letzten Freigabe'];
+    }
+
+    /**
+     * Deinstalliert ein Addon (#338, Audit N15/N51/N62).
      *
      * DEAKTIVIEREN UND DEINSTALLIEREN SIND ZWEI DINGE. Deaktivieren ist
      * umkehrbar und lässt alles stehen - man tut es, um einen Fehler
-     * einzugrenzen. Deinstallieren fragt nach den Daten, und genau diese Frage
-     * gab es bis v0.7 nicht: Ein Addon verschwand aus dem Verzeichnis und
-     * liess seine Tabellen liegen, darunter Kontaktanfragen mit Namen und
-     * E-Mail-Adressen. Der Betreiber nahm an, er sei sie los.
+     * einzugrenzen. Deinstallieren fragt nach den Daten und nimmt das Addon
+     * selbst von der Installation.
      *
-     * REIHENFOLGE. Erst der uninstall()-Hook des Addons (es weiss Dinge, die
-     * kein Register aufzählen kann), dann das Register. Beides NUR, wenn
-     * $datenLoeschen gesetzt ist - sonst wird lediglich deaktiviert und der
-     * Bestand bleibt unangetastet.
+     * REIHENFOLGE.
+     * 1. uninstallHookPruefung() - VOR dem Deaktivieren, denn danach wäre ein
+     *    aktiviertes Addon nicht mehr als "geprüft geladen" erkennbar.
+     * 2. Deaktivieren.
+     * 3. Nur bei $datenLoeschen: Sicherung, der uninstall()-Hook des Addons
+     *    (nur wenn die Prüfung es erlaubt - er weiss Dinge, die kein Register
+     *    aufzählen kann), dann das Datenregister aus der plugin.json.
+     * 4. In BEIDEN Fällen: der Addon-Code (plugins/<slug>) wird entfernt,
+     *    danach die plugins-Zeile. Ohne Zeile (und damit ohne Herkunft) zieht
+     *    ein Kern-Update das Addon nicht mehr mit.
+     * 5. Audit-Log.
+     *
+     * $this->discovered[$slug] bleibt bis zum Ende stehen: PluginAudit muss das
+     * Addon während des Hooks als bekannt sehen. Der Aufrufer sollte den
+     * Request danach beenden (PluginController leitet sofort weiter).
      *
      * SICHERUNG. Vor dem Löschen wird gesichert, sofern eine Sicherung
      * eingerichtet ist. Nicht als Bequemlichkeit: Das hier ist die einzige
@@ -1067,7 +1235,12 @@ final class PluginManager {
      * verschwinden, und "ich wollte nur aufräumen" ist der häufigste Anlass
      * für so einen Klick.
      *
-     * @param bool $datenLoeschen false = nur deaktivieren, Daten behalten.
+     * PROTOKOLL. Jeder Schritt schreibt eine Zeile. Die Präfixe sind Vertrag
+     * mit der Anzeige unter /admin/plugins (Audit N51): 'WARNUNG' und
+     * 'NICHT gelöscht' werden als Fehler hervorgehoben, 'HINWEIS' als Hinweis.
+     *
+     * @param bool $datenLoeschen false = Daten behalten (Tabellen, Dateien,
+     *        Einstellungen bleiben), Code und Verwaltungseintrag gehen trotzdem.
      *
      * @return string[] Menschenlesbares Protokoll dessen, was geschehen ist.
      */
@@ -1077,18 +1250,38 @@ final class PluginManager {
         }
 
         $protokoll = [];
+        $pruefung = $this->uninstallHookPruefung($slug);
 
         if ($this->isEnabled($slug)) {
             $this->setEnabled($slug, false);
             $protokoll[] = 'Addon deaktiviert.';
         }
 
-        if (!$datenLoeschen) {
+        if ($datenLoeschen) {
+            $this->datenEntfernen($slug, $pruefung, $protokoll);
+        } else {
             $protokoll[] = 'Daten behalten - Tabellen, Dateien und Einstellungen bleiben unverändert stehen.';
-            AuditLogger::log('Addon deinstalliert (Daten behalten)', 'plugin', "Slug: {$slug}");
-            return $protokoll;
         }
 
+        $this->codeEntfernen($slug, $protokoll);
+        $this->verwaltungseintragEntfernen($slug, $protokoll);
+
+        AuditLogger::log(
+            $datenLoeschen ? 'Addon deinstalliert (Daten gelöscht)' : 'Addon deinstalliert (Daten behalten)',
+            'plugin',
+            "Slug: {$slug} - " . implode(' | ', $protokoll)
+        );
+
+        return $protokoll;
+    }
+
+    /**
+     * Sicherung, uninstall()-Hook und Datenregister (Schritt 3 von uninstall()).
+     *
+     * @param array{laeuft: bool, grund: string} $pruefung
+     * @param string[] $protokoll
+     */
+    private function datenEntfernen(string $slug, array $pruefung, array &$protokoll): void {
         // 1. Sicherung, solange noch alles da ist.
         try {
             if (\App\Service\BackupService::isConfigured($this->settingsFuerSicherung())) {
@@ -1106,18 +1299,7 @@ final class PluginManager {
 
         // 2. Der Hook des Addons zuerst: Er kennt Dinge, die kein Register
         //    aufzählen kann (etwa Zeilen in einer Kern-Tabelle).
-        $info = $this->discovered[$slug];
-        if ($info['error'] === null) {
-            try {
-                $instance = $this->instantiatePlugin($slug, $info);
-                if ($instance !== null && method_exists($instance, 'uninstall')) {
-                    $instance->uninstall();
-                    $protokoll[] = 'uninstall()-Hook des Addons ausgeführt.';
-                }
-            } catch (\Throwable $e) {
-                $protokoll[] = 'WARNUNG: uninstall()-Hook fehlgeschlagen: ' . $e->getMessage();
-            }
-        }
+        $this->runUninstallHook($slug, $pruefung, $protokoll);
 
         // 3. Das Register.
         $register = $this->datenRegister($slug);
@@ -1159,14 +1341,102 @@ final class PluginManager {
             // etwas ist.
             $protokoll[] = 'NICHT gelöscht: ' . $grund;
         }
+    }
 
-        AuditLogger::log(
-            'Addon deinstalliert (Daten gelöscht)',
-            'plugin',
-            "Slug: {$slug} - " . implode(' | ', $protokoll)
-        );
+    /**
+     * Der uninstall()-Hook des Addons - nur, wenn uninstallHookPruefung() es
+     * erlaubt (Audit N15). Sonst wird die Plugin-Datei gar nicht erst geladen
+     * (kein require_once), und das Protokoll sagt, warum.
+     *
+     * @param array{laeuft: bool, grund: string} $pruefung
+     * @param string[] $protokoll
+     */
+    private function runUninstallHook(string $slug, array $pruefung, array &$protokoll): void {
+        if (!$pruefung['laeuft']) {
+            $protokoll[] = 'HINWEIS: uninstall()-Hook des Addons NICHT ausgeführt (' . $pruefung['grund']
+                . ') - nur das Datenregister wurde abgearbeitet; eigene Aufräumarbeiten des Addons entfallen.';
+            return;
+        }
 
-        return $protokoll;
+        $info = $this->discovered[$slug];
+        try {
+            $instance = $this->instantiatePlugin($slug, $info);
+            if ($instance !== null && method_exists($instance, 'uninstall')) {
+                $instance->uninstall();
+                $protokoll[] = 'uninstall()-Hook des Addons ausgeführt.';
+            }
+        } catch (\Throwable $e) {
+            $protokoll[] = 'WARNUNG: uninstall()-Hook fehlgeschlagen: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Entfernt den Addon-Code plugins/<slug> (Audit N62).
+     *
+     * Zuerst wird das Verzeichnis per rename() beiseitegelegt
+     * ('<slug>.entfernt-<zufall>' - der Punkt verletzt das Slug-Muster, der
+     * Rest wird nie als Addon entdeckt). Scheitert das (keine Schreibrechte
+     * auf plugins/, Mountpunkt), wird NICHTS gelöscht. Eine Verknüpfung wird
+     * nur entfernt, ihr Ziel bleibt unangetastet. Ein echtes Verzeichnis
+     * verliert zuerst seine plugin.json und wird dann symlinksicher gelöscht.
+     *
+     * @param string[] $protokoll
+     */
+    private function codeEntfernen(string $slug, array &$protokoll): void {
+        $pfad = (string)($this->discovered[$slug]['dir'] ?? '');
+        $anzeige = 'plugins/' . $slug;
+
+        // Sicherheitsnetz: nur genau plugins/<slug>, nie etwas anderes.
+        if ($pfad === '' || basename($pfad) !== $slug || dirname($pfad) !== $this->pluginsDir()) {
+            $protokoll[] = "WARNUNG: Addon-Code in {$anzeige} wurde nicht entfernt (unerwarteter Pfad) - bitte von Hand prüfen.";
+            return;
+        }
+
+        if (!is_link($pfad) && !file_exists($pfad)) {
+            $protokoll[] = "Addon-Code ({$anzeige}) war bereits entfernt.";
+            return;
+        }
+
+        $weg = $pfad . '.entfernt-' . bin2hex(random_bytes(4));
+        if (!@rename($pfad, $weg)) {
+            $protokoll[] = "WARNUNG: Addon-Code in {$anzeige} konnte nicht entfernt werden (Schreibrechte auf plugins/ prüfen) - bitte von Hand löschen.";
+            return;
+        }
+
+        if (is_link($weg)) {
+            if (@unlink($weg)) {
+                $protokoll[] = "Verknüpfung {$anzeige} entfernt - ihr Ziel wurde nicht angefasst.";
+            } else {
+                $protokoll[] = 'WARNUNG: Verknüpfung ' . basename($weg) . ' in plugins/ liess sich nicht entfernen - bitte von Hand löschen.';
+            }
+            return;
+        }
+
+        // Erst das Manifest: Bleibt ein Rest liegen, wird er nie wieder als
+        // Addon entdeckt.
+        @unlink($weg . '/plugin.json');
+        if (self::verzeichnisLoeschen($weg)) {
+            $protokoll[] = "Addon-Code ({$anzeige}) entfernt.";
+        } else {
+            $protokoll[] = "WARNUNG: Addon-Code ({$anzeige}) nicht vollständig entfernt, Reste in plugins/"
+                . basename($weg) . ' bitte von Hand löschen.';
+        }
+    }
+
+    /**
+     * Löscht die plugins-Zeile (Audit N62) - auch wenn der Code nicht entfernt
+     * werden konnte. Ohne Zeile, also ohne Herkunft, zieht ein Kern-Update das
+     * Addon nicht mehr mit (AddonUpdateService::installedOfficialSlugs()).
+     *
+     * @param string[] $protokoll
+     */
+    private function verwaltungseintragEntfernen(string $slug, array &$protokoll): void {
+        try {
+            Database::getInstance()->prepare('DELETE FROM plugins WHERE slug = ?')->execute([$slug]);
+            $protokoll[] = 'Verwaltungseintrag entfernt - das Addon wird nicht mehr automatisch aktualisiert.';
+        } catch (\Throwable $e) {
+            $protokoll[] = 'WARNUNG: Verwaltungseintrag liess sich nicht entfernen: ' . $e->getMessage();
+        }
     }
 
     /**
@@ -1187,8 +1457,15 @@ final class PluginManager {
      * Verzeichnis samt Inhalt entfernen. Symlinks werden entfernt, nicht
      * verfolgt - sonst räumte eine Deinstallation über einen Symlink hinaus
      * auf, und das Register hat nur den Symlink geprüft.
+     *
+     * Das gilt auch für den Pfad SELBST (Audit N62): is_dir() folgt einem
+     * Symlink, und der Iterator hätte dann das ZIEL geleert. Tiefer im Baum
+     * verfolgt der Iterator Links ohnehin nicht.
      */
     private static function verzeichnisLoeschen(string $pfad): bool {
+        if (is_link($pfad)) {
+            return @unlink($pfad);
+        }
         if (!is_dir($pfad)) {
             return true;
         }

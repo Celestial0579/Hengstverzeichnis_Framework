@@ -138,6 +138,18 @@ PHP);
         return $row;
     }
 
+    private function autoUpdateLogs(): int {
+        $stmt = self::$db->prepare("SELECT COUNT(*) FROM audit_logs WHERE action = 'Plugin automatisch aktualisiert' AND details LIKE ?");
+        $stmt->execute(['Slug: ' . self::SLUG . ',%']);
+        return (int)$stmt->fetchColumn();
+    }
+
+    private function auditCount(string $action): int {
+        $stmt = self::$db->prepare("SELECT COUNT(*) FROM audit_logs WHERE action = ?");
+        $stmt->execute([$action]);
+        return (int)$stmt->fetchColumn();
+    }
+
     private function installCalls(): int {
         return \Plugin\PhpunitStampFixture\Plugin::$installCalls;
     }
@@ -223,12 +235,15 @@ PHP);
 
         // Nicht-destruktive Garantie: Die Freigabe-Baseline bleibt unangetastet.
         $this->assertSame('1.0.0', $this->pluginRow()['installed_version']);
+        // Audit M35: Ohne Übernahme kein install().
+        $this->assertSame(2, $this->installCalls());
 
         // Auch ein Branch-Stand ist keine Release-Herkunft - main-HEAD ist mutabel.
         self::$db->prepare("UPDATE plugins SET source = 'Celestial0579/Hengstverzeichnis_Addons@main' WHERE slug = ?")->execute([self::SLUG]);
         $manager = self::bootFreshManager();
         $this->assertTrue($manager->needsReapproval(self::SLUG), 'Versionswechsel aus einem Branch-Stand muss fail-closed zur Re-Freigabe führen');
         $this->assertSame('1.0.0', $this->pluginRow()['installed_version']);
+        $this->assertSame(2, $this->installCalls(), 'Ein Branch-Stand darf install() nicht auslösen');
     }
 
     #[Depends('testVersionBumpWithoutReleaseSourceRequiresReapproval')]
@@ -236,8 +251,15 @@ PHP);
         // Mit Release-Tag-Herkunft (unveränderlicher Stand) greift der bisherige
         // Auto-Accept: Update verliert seine Aktivierung nicht.
         self::$db->prepare("UPDATE plugins SET source = 'Celestial0579/Hengstverzeichnis_Addons@v0.4.1' WHERE slug = ?")->execute([self::SLUG]);
+        $logsVorher = $this->autoUpdateLogs();
 
         $manager = self::bootFreshManager();
+
+        // Audit M35: Der Request, der die neue Version übernimmt, führt
+        // install() genau einmal aus (mit dem neuen Code, vor register()) und
+        // protokolliert genau einmal.
+        $this->assertSame(3, $this->installCalls(), 'Die Übernahme eines Release-Updates muss install() genau einmal ausführen');
+        $this->assertSame($logsVorher + 1, $this->autoUpdateLogs(), 'Genau ein Audit-Eintrag "Plugin automatisch aktualisiert"');
 
         $this->assertFalse($manager->needsReapproval(self::SLUG));
         $row = $this->pluginRow();
@@ -249,6 +271,58 @@ PHP);
     }
 
     #[Depends('testVersionBumpFromReleaseTagIsAutoAccepted')]
+    public function testSecondBootAfterAcceptedUpdateDoesNotRunInstallAgain(): void {
+        $logsVorher = $this->autoUpdateLogs();
+        $vorher = $this->installCalls();
+
+        $manager = self::bootFreshManager();
+
+        $this->assertFalse($manager->needsReapproval(self::SLUG));
+        $this->assertSame($vorher, $this->installCalls(), 'Nach der Übernahme darf der nächste Request install() nicht erneut ausführen');
+        $this->assertSame($logsVorher, $this->autoUpdateLogs());
+    }
+
+    #[Depends('testSecondBootAfterAcceptedUpdateDoesNotRunInstallAgain')]
+    public function testLostAcceptRaceDoesNotRunInstallNorLog(): void {
+        // Ein paralleler Request hat die Übernahme schon geschrieben: Sein
+        // Altstand ('1.0.0') stimmt nicht mehr, das bedingte UPDATE trifft
+        // keine Zeile - dieser Request darf weder install() ausführen noch
+        // protokollieren.
+        $manager = self::bootFreshManager();
+        $vorher = $this->pluginRow();
+
+        $methode = new \ReflectionMethod(PluginManager::class, 'acceptPluginUpdate');
+        $gewonnen = $methode->invoke($manager, self::SLUG, '1.0.0', '1.1.0', str_repeat('a', 64), '1:1:1');
+
+        $this->assertFalse($gewonnen, 'Ein verlorenes Übernahme-Rennen muss false liefern');
+        $this->assertSame($vorher, $this->pluginRow(), 'Die Zeile darf unverändert bleiben');
+    }
+
+    #[Depends('testLostAcceptRaceDoesNotRunInstallNorLog')]
+    public function testRunInstallHookDefersWhenCodeReplacedInSameRequest(): void {
+        // Audit M35, Härtung: Wird der Code ersetzt, nachdem das Addon in
+        // diesem Request schon geladen wurde, ist noch die alte Klasse aktiv.
+        // install() darf dann nicht laufen.
+        $manager = self::bootFreshManager();
+        $vorher = $this->installCalls();
+        $zurueckgestelltVorher = $this->auditCount('Plugin-install() zurückgestellt: ' . self::SLUG);
+
+        $zusatz = self::$pluginDir . '/nachgeschoben.txt';
+        file_put_contents($zusatz, 'im selben Request ersetzt');
+        try {
+            $manager->runInstallHook(self::SLUG);
+        } finally {
+            unlink($zusatz);
+        }
+
+        $this->assertSame($vorher, $this->installCalls(), 'install() darf nicht mit der alten Klasse laufen');
+        $this->assertSame($zurueckgestelltVorher + 1, $this->auditCount('Plugin-install() zurückgestellt: ' . self::SLUG));
+
+        // Frischer Request für den folgenden Test.
+        self::bootFreshManager();
+    }
+
+    #[Depends('testRunInstallHookDefersWhenCodeReplacedInSameRequest')]
     public function testRunInstallHookIsPubliclyCallable(): void {
         // Öffentlicher Einstiegspunkt für den AddonUpdateService (Addons#75):
         // nach einem eingespielten Update erneut install() ausführen.

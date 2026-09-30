@@ -180,8 +180,31 @@ class PedigreeBuilder {
 
     /**
      * Searches for a matching parent horse by primary UELN, foreign UELN or Name if FK is NULL.
-     * Im publishedOnly-Modus werden unveröffentlichte Treffer ignoriert, sodass der
-     * Aufrufer stattdessen den Freitext-Platzhalter verwendet (kein Datenleck).
+     *
+     * Admin- und publishedOnly-Modus lösen DASSELBE Pferd auf (Audit N73); der
+     * Veröffentlichungsstatus entscheidet erst danach, ob verlinkt wird oder der
+     * Aufrufer den Freitext-Platzhalter zeigt. Früher filterte publishedOnly schon
+     * in der Suche: War das Pferd mit der hinterlegten UELN unveröffentlicht, fiel
+     * die Suche auf den NAMEN zurück und setzte einen gleichnamigen, aber anderen
+     * Hengst samt dessen Ahnen in den öffentlichen Baum. Gleichnamige Pferde sind
+     * real und nicht selten (siehe HorseSearchController::beschriftung).
+     *
+     * Regeln:
+     *  1. UELN (ueln, foreign_ueln, horse_registrations) hat Vorrang. Bei mehreren
+     *     Treffern gilt die kleinste ID (ORDER BY id) - dieselbe Regel wie
+     *     rememberSmallestId im Spiegel AncestorTreeBuilder (Addon
+     *     anpaarungs-empfehlung). Ein Treffer beendet die Suche immer, auch wenn er
+     *     im publishedOnly-Modus unveröffentlicht ist (dann Platzhalter).
+     *  2. Der Name greift nur ohne UELN-Treffer. Ist eine UELN hinterlegt, zählen
+     *     nur Kandidaten OHNE eigene UELN - ein Namensvetter mit anderer UELN
+     *     widerspricht der Angabe.
+     *  3. Ein mehrdeutiger Name (mehr als ein Kandidat) wird nicht aufs
+     *     Geratewohl aufgelöst: Platzhalter.
+     *
+     * Der Platzhalter enthält nur sire_name/dam_name und die UELN des Kindes, die
+     * ohnehin öffentlich sind (kein Datenleck). Das SQL bleibt bewusst portabel
+     * (kein FIELD()/IF()), weil der Gleichlauftest im Addons-Repo den echten
+     * PedigreeBuilder gegen eine SQLite-Attrappe laufen lässt.
      * Ergebnisse werden je build()-Aufruf memoisiert (#119).
      */
     private static function findParentByUelnOrName(\PDO $db, ?string $ueln, ?string $name, bool $publishedOnly = false): ?int {
@@ -192,25 +215,34 @@ class PedigreeBuilder {
             return self::$parentLookupCache[$cacheKey];
         }
 
-        $publishedFilter = $publishedOnly ? " AND is_published = 1" : "";
-        $result = null;
+        $sichtbar = static fn(array $row): ?int =>
+            (!$publishedOnly || (int)$row['is_published'] === 1) ? (int)$row['id'] : null;
 
-        if (!empty($cleanUeln)) {
+        if ($cleanUeln !== '') {
             // Seit #246 zählt auch eine weitere Lebensnummer (horse_registrations)
             // als Treffer; foreign_ueln bleibt als Kompatibilitäts-Fallback dabei.
-            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL{$publishedFilter} AND (ueln = ? OR foreign_ueln = ? OR id IN (SELECT horse_id FROM horse_registrations WHERE registration_number = ?)) LIMIT 1");
+            $stmt = $db->prepare("SELECT id, is_published FROM horses WHERE deleted_at IS NULL AND (ueln = ? OR foreign_ueln = ? OR id IN (SELECT horse_id FROM horse_registrations WHERE registration_number = ?)) ORDER BY id ASC LIMIT 1");
             $stmt->execute([$cleanUeln, $cleanUeln, $cleanUeln]);
-            $foundId = $stmt->fetchColumn();
-            if ($foundId) $result = (int)$foundId;
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($row) {
+                // Die UELN bezeichnet das Pferd eindeutig: kein Namens-Fallback,
+                // auch wenn der Treffer nicht angezeigt werden darf.
+                return self::$parentLookupCache[$cacheKey] = $sichtbar($row);
+            }
         }
 
-        if ($result === null && !empty($cleanName)) {
+        $result = null;
+        if ($cleanName !== '') {
             // Kein LOWER(): die Spalte ist utf8mb4_unicode_ci und damit ohnehin
             // case-insensitiv - LOWER() würde nur jede Index-Nutzung verhindern (#119).
-            $stmt = $db->prepare("SELECT id FROM horses WHERE deleted_at IS NULL{$publishedFilter} AND name = ? LIMIT 1");
+            // Festes Literal, kein Anfragewert im SQL.
+            $uelnGuard = $cleanUeln !== '' ? " AND (ueln IS NULL OR ueln = '')" : "";
+            $stmt = $db->prepare("SELECT id, is_published FROM horses WHERE deleted_at IS NULL AND name = ?{$uelnGuard} ORDER BY id ASC LIMIT 2");
             $stmt->execute([$cleanName]);
-            $foundId = $stmt->fetchColumn();
-            if ($foundId) $result = (int)$foundId;
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            if (count($rows) === 1) {
+                $result = $sichtbar($rows[0]);
+            }
         }
 
         self::$parentLookupCache[$cacheKey] = $result;

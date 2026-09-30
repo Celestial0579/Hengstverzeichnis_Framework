@@ -128,6 +128,48 @@ class AdminListSearchTest extends FunctionalTestCase {
     }
 
     /**
+     * Audit N70: Der Farbfilter der Admin-Liste ist dieselbe Auswahlliste
+     * exakter Werte wie im Katalog und läuft über dieselbe
+     * HorseSearchCriteria. "Braun" darf "Dunkelbraun" und "Braunschimmel"
+     * nicht mitliefern, % darf kein Jokerzeichen sein - auch nicht bei
+     * unveröffentlichten Pferden, die nur die Verwaltung sieht.
+     */
+    public function testFarbfilterTrifftNurDieGewaehlteFarbe(): void {
+        $token = $this->token();
+        $db = Database::getInstance();
+        $setze = $db->prepare("UPDATE horses SET color = ? WHERE id = ?");
+        $namen = [];
+        foreach (['Braun' => true, 'Dunkelbraun' => true, 'Braunschimmel' => false] as $farbe => $oeffentlich) {
+            $namen[$farbe] = "Farbpferd {$farbe} {$token}";
+            $setze->execute([$farbe, $this->seedHorse($namen[$farbe], $oeffentlich)]);
+        }
+
+        $basis = '/admin/horses?search=' . urlencode($token);
+        $alle = $this->listBody($this->admin, $basis);
+        foreach ($namen as $name) {
+            $this->assertStringContainsString(htmlspecialchars($name), $alle, 'Vorbedingung: ohne Farbfilter alle drei');
+        }
+
+        foreach (['Braun', 'braun'] as $wert) {
+            $body = $this->listBody($this->admin, $basis . '&q_color=' . urlencode($wert));
+            $this->assertStringContainsString(htmlspecialchars($namen['Braun']), $body);
+            $this->assertStringNotContainsString(htmlspecialchars($namen['Dunkelbraun']), $body,
+                "q_color={$wert} darf Dunkelbraun nicht mitliefern");
+            $this->assertStringNotContainsString(htmlspecialchars($namen['Braunschimmel']), $body,
+                "q_color={$wert} darf Braunschimmel nicht mitliefern");
+        }
+
+        $schimmel = $this->listBody($this->admin, $basis . '&q_color=Braunschimmel');
+        $this->assertStringContainsString(htmlspecialchars($namen['Braunschimmel']), $schimmel,
+            'Gegenprobe: die längere Farbe trifft sich selbst, auch unveröffentlicht');
+
+        $joker = $this->listBody($this->admin, $basis . '&q_color=' . urlencode('%'));
+        foreach ($namen as $name) {
+            $this->assertStringNotContainsString(htmlspecialchars($name), $joker, '% darf kein Jokerzeichen sein');
+        }
+    }
+
+    /**
      * Der Züchter-Filter im Admin - und zugleich die Kernzusicherung dieser
      * Änderung: Er trifft auch auf einen UNVERÖFFENTLICHTEN Kontakt. Wer die
      * Verwaltung sieht, soll gerade die Datensätze finden, die noch nicht

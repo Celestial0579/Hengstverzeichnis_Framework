@@ -206,6 +206,112 @@ class PedigreeBuilderTest extends TestCase {
         $this->assertSame('Vatername laut Papier', $tree['sire']['name']);
     }
 
+    /**
+     * Audit N73: Im publishedOnly-Modus fiel die Suche bei unveröffentlichtem
+     * UELN-Treffer auf den NAMEN zurück und setzte einen gleichnamigen, aber
+     * anderen Hengst samt dessen Ahnen in den öffentlichen Baum. Beide Modi
+     * lösen jetzt dasselbe Pferd auf; der Veröffentlichungsstatus entscheidet
+     * nur noch über Verlinkung oder Platzhalter.
+     */
+    public function testPublishedOnlyZeigtPlatzhalterStattGleichnamigemPferdMitAndererUeln(): void {
+        $name = 'Rune ' . uniqid();
+        $x = 'DE000N73X' . random_int(1000, 9999);
+        $runeX = $this->insertHorse(['name' => $name, 'ueln' => $x, 'is_published' => 0]);
+        $runeY = $this->insertHorse(['name' => $name, 'ueln' => 'DE000N73Y' . random_int(1000, 9999), 'is_published' => 1]);
+        $foalId = $this->insertHorse(['name' => 'N73-Fohlen-a', 'is_published' => 1, 'sire_name' => $name, 'sire_ueln' => $x]);
+
+        $oeffentlich = PedigreeBuilder::build($foalId, 2, true);
+        $this->assertNull($oeffentlich['sire']['id'], 'Der gleichnamige Hengst mit anderer UELN darf nicht eingesetzt werden');
+        $this->assertNotSame($runeY, $oeffentlich['sire']['id']);
+        $this->assertTrue($oeffentlich['sire']['is_placeholder']);
+        $this->assertSame($x, $oeffentlich['sire']['ueln']);
+
+        $admin = PedigreeBuilder::build($foalId, 2, false);
+        $this->assertSame($runeX, $admin['sire']['id'], 'Der Admin-Baum verlinkt das Pferd mit der hinterlegten UELN');
+    }
+
+    /** Audit N73: Ein Namensvetter mit einer anderen UELN widerspricht der Angabe. */
+    public function testNamensFallbackIgnoriertTrefferMitWidersprechenderUeln(): void {
+        $name = 'Rune ' . uniqid();
+        $this->insertHorse(['name' => $name, 'ueln' => 'DE000N73B' . random_int(1000, 9999), 'is_published' => 1]);
+        $foalId = $this->insertHorse([
+            'name' => 'N73-Fohlen-b', 'is_published' => 1,
+            'sire_name' => $name, 'sire_ueln' => 'DE000N73Z' . random_int(1000, 9999),
+        ]);
+
+        foreach ([true, false] as $publishedOnly) {
+            PedigreeBuilder::resetCache();
+            $tree = PedigreeBuilder::build($foalId, 2, $publishedOnly);
+            $this->assertNull($tree['sire']['id'], 'publishedOnly=' . var_export($publishedOnly, true));
+            $this->assertTrue($tree['sire']['is_placeholder']);
+            $this->assertSame($name, $tree['sire']['name']);
+        }
+    }
+
+    /** Audit N73: Ohne eigene UELN widerspricht der Kandidat nicht - Verlinkung wie bisher. */
+    public function testNamensFallbackGreiftBeiLeererUelnDesKandidaten(): void {
+        $name = 'Rune ' . uniqid();
+        $kandidat = $this->insertHorse(['name' => $name, 'ueln' => null, 'is_published' => 1]);
+        $leer = $this->insertHorse(['name' => 'Leer ' . uniqid(), 'ueln' => '', 'is_published' => 1]);
+        $foalId = $this->insertHorse([
+            'name' => 'N73-Fohlen-c', 'is_published' => 1,
+            'sire_name' => $name, 'sire_ueln' => 'DE000N73C' . random_int(1000, 9999),
+        ]);
+
+        foreach ([true, false] as $publishedOnly) {
+            PedigreeBuilder::resetCache();
+            $tree = PedigreeBuilder::build($foalId, 2, $publishedOnly);
+            $this->assertSame($kandidat, $tree['sire']['id'], 'publishedOnly=' . var_export($publishedOnly, true));
+            $this->assertArrayNotHasKey('is_placeholder', $tree['sire']);
+        }
+
+        // Auch eine leere Zeichenkette in ueln gilt als "keine UELN".
+        self::$db->prepare('UPDATE horses SET name = ? WHERE id = ?')->execute([$name . ' leer', $leer]);
+        $foal2 = $this->insertHorse([
+            'name' => 'N73-Fohlen-c2', 'is_published' => 1,
+            'dam_name' => $name . ' leer', 'dam_ueln' => 'DE000N73D' . random_int(1000, 9999),
+        ]);
+        PedigreeBuilder::resetCache();
+        $this->assertSame($leer, PedigreeBuilder::build($foal2, 2, true)['dam']['id']);
+    }
+
+    /**
+     * Audit N73: Ein mehrdeutiger Name wurde bisher aufs Geratewohl (ohne
+     * ORDER BY) aufgelöst. Jetzt: Platzhalter in beiden Modi - auch wenn nur
+     * einer der beiden Kandidaten veröffentlicht ist, sonst hinge das Ergebnis
+     * vom Modus ab.
+     */
+    public function testMehrdeutigerNameErgibtPlatzhalter(): void {
+        $name = 'Rune ' . uniqid();
+        $this->insertHorse(['name' => $name, 'is_published' => 1]);
+        $this->insertHorse(['name' => $name, 'is_published' => 0]);
+        $foalId = $this->insertHorse(['name' => 'N73-Fohlen-d', 'is_published' => 1, 'dam_name' => $name]);
+
+        foreach ([true, false] as $publishedOnly) {
+            PedigreeBuilder::resetCache();
+            $tree = PedigreeBuilder::build($foalId, 2, $publishedOnly);
+            $this->assertNull($tree['dam']['id'], 'publishedOnly=' . var_export($publishedOnly, true));
+            $this->assertTrue($tree['dam']['is_placeholder']);
+            $this->assertSame($name, $tree['dam']['name']);
+        }
+    }
+
+    /**
+     * Audit N73: Mehrere Pferde mit derselben Nummer (ueln, foreign_ueln,
+     * horse_registrations) - es gilt deterministisch die kleinste ID, wie
+     * rememberSmallestId im Spiegel des Addons anpaarungs-empfehlung.
+     */
+    public function testUelnTrefferMitKleinsterIdGewinnt(): void {
+        $nummer = 'DE000N73E' . random_int(1000, 9999);
+        $erstes = $this->insertHorse(['name' => 'Nummer-A ' . uniqid(), 'is_published' => 1]);
+        self::$db->prepare('INSERT INTO horse_registrations (horse_id, registration_number) VALUES (?, ?)')
+            ->execute([$erstes, $nummer]);
+        $this->insertHorse(['name' => 'Nummer-B ' . uniqid(), 'ueln' => $nummer, 'is_published' => 1]);
+        $foalId = $this->insertHorse(['name' => 'N73-Fohlen-e', 'is_published' => 1, 'sire_ueln' => $nummer]);
+
+        $this->assertSame($erstes, PedigreeBuilder::build($foalId, 2, true)['sire']['id']);
+    }
+
     public function testUnknownHorseIdReturnsNull(): void {
         $this->assertNull(PedigreeBuilder::build(999999999, 4));
     }

@@ -851,6 +851,40 @@ def run():
             index.append((n, fn, "Klick: #btn-reset-filters", "Filter-Reset per echtem Button-Klick", st2))
             log(f"{n} filter-reset-klick: {st2}")
 
+            # Einbettung (Audit N87/N88): Ohne Filter kein Reset-Knopf, obwohl
+            # embed=1 in der URL steht; nach dem Filtern bleibt embed=1 in der
+            # Adresse (pushState), damit ein Neuladen im Rahmen funktioniert.
+            # Leert man den Filter wieder, verschwindet der Knopf - embed=1
+            # allein zählt nicht als Filter.
+            counter[0] += 1; n = f"{counter[0]:03d}"; fn = f"{n}-filter-embed.png"
+            evis0 = evis1 = evis2 = False; eurl1 = eurl2 = ""; ebase = False
+            try:
+                page.goto(BASE + "/katalog?embed=1", wait_until="load", timeout=30000); page.wait_for_timeout(500)
+                ebase = page.query_selector('base[target="_top"]') is not None
+                er = page.query_selector('#btn-reset-filters')
+                evis0 = er.is_visible() if er else True
+                page.fill('#input-search', "Nordstern")
+                page.click('button:has-text("Suchen")')
+                page.wait_for_load_state("load", timeout=15000); page.wait_for_timeout(800)
+                eurl1 = page.url
+                er = page.query_selector('#btn-reset-filters')
+                evis1 = er.is_visible() if er else False
+                page.fill('#input-search', "")
+                page.click('button:has-text("Suchen")')
+                page.wait_for_load_state("load", timeout=15000); page.wait_for_timeout(800)
+                eurl2 = page.url
+                er = page.query_selector('#btn-reset-filters')
+                evis2 = er.is_visible() if er else True
+                page.screenshot(path=os.path.join(OUT, fn), full_page=True, timeout=15000)
+            except Exception as e:
+                log(f"  Embed-Filter Fehler: {e}")
+            ok_embed = (ebase and not evis0 and evis1 and not evis2
+                        and "embed=1" in eurl1 and "search=Nordstern" in eurl1 and "embed=1" in eurl2)
+            st3 = ("Einbettung: Reset nur mit Filter, embed=1 bleibt in der URL ✓" if ok_embed
+                   else f"FEHLER: Einbettung (base={ebase} reset leer={evis0} gefiltert={evis1} geleert={evis2}, URLs {eurl1} / {eurl2})")
+            index.append((n, fn, "/katalog?embed=1", "Eingebetteter Katalog: Filter, Reset, URL", st3))
+            log(f"{n} filter-embed: {st3}")
+
         # ---- Phase: API ----------------------------------------------------
         def phase_api():
             # Formular per echtem Klick abschicken; der Klartext-Schlüssel wird

@@ -272,6 +272,10 @@ class PublicController extends BaseController {
         }
 
         // Query-String der aktiven Filter (ohne page) für die Pagination-Links.
+        // Bewusst aus $_GET und nicht aus $criteria->activeParams() (Audit
+        // N87/N88): Die Blätter-Links müssen embed=1 weiterreichen, damit die
+        // Einbettung beim Blättern ohne JavaScript im Rahmen bleibt. Wer das
+        // umstellt, muss embed ausdrücklich ergänzen.
         $filterParams = $_GET;
         unset($filterParams['page'], $filterParams['ajax']);
         $filterParams = array_filter($filterParams, fn($v) => $v !== '' && $v !== null);
@@ -447,7 +451,13 @@ class PublicController extends BaseController {
             'title' => \App\I18n\Translator::t('meta.title_catalog') . ' - ' . ($this->settings['site_name'] ?? 'Hengstverzeichnis'),
             'horses' => $horses,
             'totalHorses' => $totalHorses,
-            'filters' => $_GET,
+            // Nur die tatsächlich gelesenen, getrimmten String-Filter (Audit N87).
+            // Mit $_GET endete /katalog?search[]=x in einem TypeError in
+            // htmlspecialchars(), und embed=1, page oder Fremdparameter zählten
+            // in der View als aktiver Filter (offene Detailfilter, sichtbarer
+            // Reset-Knopf). Die Admin-Liste (HorseController::index) macht es
+            // schon so.
+            'filters' => $criteria->activeParams(),
             'colors' => $colors,
             'breeds' => $breeds,
             'stations' => $stations,
@@ -825,6 +835,7 @@ class PublicController extends BaseController {
         // überhaupt sehen dürfen; der Lebenszyklus-Status ist für die
         // Sichtbarkeit unerheblich.
         $horsesByRole = [];
+        $horsesAngezeigt = 0;
         $stationHorses = [];
         $horsesGekuerzt = false;
         $stationHorsesGekuerzt = false;
@@ -855,6 +866,11 @@ class PublicController extends BaseController {
                 unset($row['role']);
                 $horsesByRole[$role][] = $row;
             }
+            // Zahl der angezeigten Zeilen für den Kürzungshinweis (Audit N89).
+            // Die View rechnete sie früher per COUNT_RECURSIVE aus und zählte
+            // dabei die Spalten jeder Zeile mit (Pferde x 9). Ein Pferd mit zwei
+            // Rollen zählt doppelt - genau so, wie es auch angezeigt wird.
+            $horsesAngezeigt = array_sum(array_map('count', $horsesByRole));
 
             // horses.breeding_station_id ist die AKTUELLE Deckstation eines
             // Pferdes, horse_persons.station_contact_id die einer einzelnen
@@ -907,6 +923,7 @@ class PublicController extends BaseController {
             'horsesByRole' => $horsesByRole,
             'stationHorses' => $stationHorses,
             'horsesGekuerzt' => $horsesGekuerzt,
+            'horsesAngezeigt' => $horsesAngezeigt,
             'stationHorsesGekuerzt' => $stationHorsesGekuerzt,
             'pluginDetailSections' => $pluginDetailSections,
         ]);

@@ -87,14 +87,20 @@ $catalogPagination = $catalogPagination ?? null;
               // übernimmt, blendet es diesen Block aus - zwei Bedienelemente für
               // dieselbe Sache (Seite anspringen vs. Seite anhängen) wären
               // widersprüchlich. Ohne JavaScript bleibt er stehen und ist der
-              // vollwertige Weg durch den Katalog. ?>
+              // vollwertige Weg durch den Katalog.
+              //
+              // target="_self" (Audit N88): In der Einbettung gilt
+              // <base target="_top">, Blättern soll aber im Rahmen bleiben. Die
+              // Datei wird auch per AJAX gerendert und kennt $embed nicht; das
+              // Attribut steht deshalb immer und ist im Normal-Layout wirkungslos.
+              // embed=1 steckt bereits in der Query (aus $_GET). ?>
         <div data-catalog-pagination style="grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; gap: 1rem; padding: 1rem 0;">
             <?php if ($catalogPagination['page'] > 1): ?>
-                <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] - 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&laquo;</a>
+                <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] - 1)) ?>" target="_self" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&laquo;</a>
             <?php endif; ?>
             <span style="font-size: 0.9rem; color: var(--text-muted);"><?= (int)$catalogPagination['page'] ?> / <?= (int)$catalogPagination['totalPages'] ?></span>
             <?php if ($catalogPagination['page'] < $catalogPagination['totalPages']): ?>
-                <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] + 1)) ?>" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&raquo;</a>
+                <a href="/katalog?<?= htmlspecialchars($pgQuery . 'page=' . ($catalogPagination['page'] + 1)) ?>" target="_self" class="btn btn-secondary" style="padding: 0.4rem 0.9rem;">&raquo;</a>
             <?php endif; ?>
         </div>
     <?php endif; ?>

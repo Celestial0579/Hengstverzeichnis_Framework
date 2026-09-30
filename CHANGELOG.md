@@ -635,6 +635,39 @@ Breaking Changes sind jederzeit möglich).
   `Mailer::send()` lehnt einen leeren Empfänger mit dem Eintrag „E-Mail-
   Versand abgelehnt (kein Empfänger)“ ab.
 
+- **Speichern eines Pferds entfernte Eltern und Kontakte, die im
+  Papierkorb lagen** (Audit M34). Die Auswahllisten des Formulars kannten
+  nur aktive Datensätze; eine Verknüpfung auf einen Elternteil oder
+  Kontakt im Papierkorb kam leer zurück und wurde beim Speichern gelöscht.
+  Solche Verknüpfungen bleiben jetzt erhalten und erscheinen als „(im
+  Papierkorb)“, nur in der Zeile, in der sie stehen. Neu setzen lassen sich
+  Datensätze aus dem Papierkorb nicht („Nicht gespeichert: Das gewählte
+  Elterntier liegt im Papierkorb.“). Eine Eltern-ID, die es nicht mehr
+  gibt, führt zu einer Meldung statt zu einer Fehlerseite. Eine erhaltene
+  Deckstation im Papierkorb wird nicht erneut in die Stationsangabe am
+  Pferd kopiert.
+
+  Hinweis für Betreiber: Im Bearbeitungsformular sind damit die Namen von
+  Kontakten im Papierkorb sichtbar, die dem Pferd bereits zugeordnet sind.
+  Per DSGVO endgültig gelöschte Kontakte betrifft das nicht.
+- **Match-Werkzeug und automatische Verknüpfung umgingen die
+  Abstammungsprüfungen** (Audit N47). Beide prüfen jetzt wie das Formular
+  Geschlecht, Alter und Vater ≠ Mutter, dazu überall Stammbaum-Zyklen (auch
+  ohne Geburtsjahre). Vorschläge mit unmöglichem Alter bleiben sichtbar,
+  „Jetzt verknüpfen“ ist dort gesperrt. Ein Pferd im Papierkorb wird über
+  einen veralteten Match-Tab nicht mehr verändert, und eine unvollständige
+  Anfrage meldet keinen Erfolg mehr. Die automatische Verknüpfung beim
+  Anlegen und Speichern lässt solche Fälle als Platzhalter im
+  Match-Werkzeug stehen.
+- **Fehlerseite bei doppelter UELN oder zu langen Eingaben** (Audit N48).
+  Anlegen und Bearbeiten melden jetzt verständlich, wenn eine UELN schon
+  vergeben ist (auch an ein Pferd im Papierkorb; Groß-/Kleinschreibung
+  zählt nicht) oder ein Feld zu lang ist. Ein beim Anlegen hochgeladenes
+  Foto bleibt dabei nicht mehr verwaist liegen. Das Formular nennt die
+  Feldgrenzen, Eltern-UELN haben höchstens 15 Zeichen. Der CSV-Import
+  erkennt doppelte UELN jetzt auch bei abweichender Schreibweise, gegen
+  den Bestand genau so, wie die Datenbank vergleicht; scheitert ein Import
+  dennoch an einer doppelten UELN, nennt die Meldung den Grund.
 - **„Endgültig löschen“ traf auch bereits wiederhergestellte Datensätze**
   (Audit N57). Aus einem veralteten Tab ließ sich ein inzwischen
   wiederhergestelltes Pferd, ein aktiver Kontakt oder ein aktives

@@ -464,6 +464,42 @@ class TrashedRecordGuardTest extends FunctionalTestCase {
     }
 
     /**
+     * Audit M34: Eine Eltern-ID, die es nicht (mehr) gibt - hart gelöscht,
+     * während das Formular offen war, oder nie vorhanden -, lief beim Anlegen
+     * bisher in den Fremdschlüssel (500). Jetzt: error=parent_missing, beim
+     * Anlegen wie beim Bearbeiten.
+     */
+    public function testUnknownParentIdIsRefusedWithoutServerError(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        $db->prepare("INSERT INTO horses (name) VALUES (?)")->execute(["Weg {$unique}"]);
+        $weg = (int)$db->lastInsertId();
+        $db->exec("DELETE FROM horses WHERE id = {$weg}");
+        $nie = (int)$db->query("SELECT COALESCE(MAX(id), 0) + 100000 FROM horses")->fetchColumn();
+
+        $form = $admin->get('/admin/horses/create');
+        foreach ([$weg, $nie] as $elternId) {
+            $response = $admin->post('/admin/horses/store', [
+                'csrf_token' => $form->formField('csrf_token') ?? '',
+                'name' => "Waise {$unique}", 'status' => 'active', 'sire_id' => (string)$elternId,
+            ]);
+            $this->assertSame('/admin/horses?error=parent_missing', $response->location());
+        }
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM horses WHERE name = " . $db->quote("Waise {$unique}"))->fetchColumn());
+
+        $db->prepare("INSERT INTO horses (name) VALUES (?)")->execute(["Bestand {$unique}"]);
+        $bestand = (int)$db->lastInsertId();
+        $response = $admin->post('/admin/horses/update', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'id' => (string)$bestand, 'name' => "Bestand {$unique}", 'status' => 'active', 'sire_id' => (string)$weg,
+        ]);
+        $this->assertSame('/admin/horses?error=parent_missing', $response->location());
+        $db->exec("DELETE FROM horses WHERE id = {$bestand}");
+    }
+
+    /**
      * Nebenbefund aus #296: Die Zuordnungszahl neben einem Kontakt zählte auch
      * gelöschte Pferde mit und war damit eine Obermenge dessen, was ein
      * Bearbeiter tatsächlich zu sehen bekommt.

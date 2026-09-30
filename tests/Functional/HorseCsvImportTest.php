@@ -171,6 +171,41 @@ class HorseCsvImportTest extends FunctionalTestCase {
         $this->assertNull($row['death_year']);
     }
 
+    /**
+     * Audit N48: Groß-/Kleinschreibungs-Dubletten - gegen den Bestand und
+     * innerhalb der Datei - fallen schon in der Vorprüfung auf. Der Commit
+     * derselben Datei importiert die gültigen Zeilen, statt am UNIQUE-Index
+     * den ganzen Import zurückzurollen.
+     */
+    public function testCaseVariantsOfAnUelnAreCaughtBeforeTheCommit(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $db = \App\Database::getInstance();
+        $bestand = 'DE 431XY' . strtoupper(substr($unique, -7));
+        $db->prepare("INSERT INTO horses (name, ueln) VALUES (?, ?)")->execute(["Bestand {$unique}", $bestand]);
+        $datei = 'AB' . strtoupper(substr($unique, -7));
+
+        $formPage = $admin->get('/admin/import/horses');
+        $preview = $admin->postFile(
+            '/admin/import/horses/preview',
+            ['csrf_token' => $formPage->formField('csrf_token') ?? ''],
+            'csv_file',
+            'import.csv',
+            "name;ueln\nKlein {$unique};" . strtolower($bestand) . "\nEins {$unique};{$datei}\nZwei {$unique};" . strtolower($datei) . "\n"
+        );
+        $this->assertSame(200, $preview->statusCode);
+        $this->assertStringContainsString('1 von 3 Zeilen', $this->stripHtml($preview->body));
+
+        $commit = $admin->post('/admin/import/horses/commit', ['csrf_token' => $preview->formField('csrf_token') ?? '']);
+        $this->assertSame(200, $commit->statusCode);
+        $this->assertStringContainsString('1 Pferd(e) erfolgreich importiert', $this->stripHtml($commit->body));
+        $stmt = $db->prepare("SELECT COUNT(*) FROM horses WHERE name = ?");
+        $stmt->execute(["Eins {$unique}"]);
+        $this->assertSame(1, (int)$stmt->fetchColumn());
+
+        $db->prepare("DELETE FROM horses WHERE name IN (?, ?)")->execute(["Bestand {$unique}", "Eins {$unique}"]);
+    }
+
     private function stripHtml(string $html): string {
         return trim(preg_replace('/\s+/', ' ', strip_tags($html)));
     }

@@ -95,8 +95,11 @@ final class HorseCsvImporter {
      * Maximale Feldlängen, identisch zu den jeweiligen Spalten in
      * database/schema.sql - eine zu lange Eingabe wird als Fehler markiert
      * statt beim tatsächlichen INSERT einen unklaren DB-Fehler zu erzeugen.
+     *
+     * Öffentlich (Audit N48): Auch das Pferdeformular prüft über
+     * ersteUeberlaenge() gegen diese eine Quelle der Spaltenbreiten.
      */
-    private const MAX_LENGTHS = [
+    public const MAX_LENGTHS = [
         'name' => 100,
         'ueln' => 50,
         'foreign_ueln' => 50,
@@ -191,7 +194,15 @@ final class HorseCsvImporter {
      */
     public static function validateRows(array $parsed, PDO $db): array {
         $columnMap = $parsed['columnMap'];
-        $existingUelns = array_flip(array_map('strval', $db->query("SELECT ueln FROM horses WHERE ueln IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN)));
+        // Bestandsabgleich collation-genau in SQL (Audit N48): Der
+        // UNIQUE-Index vergleicht mit der Spalten-Collation (utf8mb4_unicode_ci)
+        // - Groß-/Kleinschreibung, Akzente, ß/ss und PAD SPACE gelten dort als
+        // gleich. Der frühere PHP-Abgleich per isset() war byte-genau, eine
+        // Zeile 'de 431…' neben dem Bestand 'DE 431…' bestand die Prüfung und
+        // riss beim Commit den ganzen Import per Rollback mit. Eine
+        // vorbereitete Abfrage je Zeile genügt bei höchstens MAX_ROWS Zeilen
+        // und nutzt den Index.
+        $bestand = $db->prepare("SELECT 1 FROM horses WHERE ueln = ? LIMIT 1");
         $seenUelnsInFile = [];
 
         $results = [];
@@ -227,12 +238,7 @@ final class HorseCsvImporter {
             }
 
             foreach (self::MAX_LENGTHS as $field => $maxLength) {
-                // description ist eine TEXT-Spalte, deren Limit in BYTES gilt -
-                // dort zählt strlen() (Bytes), sonst Zeichenlänge wie bisher.
-                $length = $field === 'description'
-                    ? strlen((string)$data[$field])
-                    : self::strlen((string)$data[$field]);
-                if (!empty($data[$field]) && $length > $maxLength) {
+                if (self::istZuLang($field, $data[$field])) {
                     $errors[] = ucfirst(str_replace('_', ' ', $field)) . " ist zu lang (max. {$maxLength} Zeichen).";
                 }
             }
@@ -356,12 +362,16 @@ final class HorseCsvImporter {
             }
 
             if ($data['ueln'] !== null) {
-                if (isset($existingUelns[$data['ueln']])) {
+                $bestand->execute([$data['ueln']]);
+                $imBestand = $bestand->fetchColumn() !== false;
+                $bestand->closeCursor();
+                $schluessel = self::uelnKey($data['ueln']);
+                if ($imBestand) {
                     $errors[] = "UELN '{$data['ueln']}' ist bereits einem bestehenden Pferd zugeordnet.";
-                } elseif (isset($seenUelnsInFile[$data['ueln']])) {
-                    $errors[] = "UELN '{$data['ueln']}' kommt mehrfach in dieser Datei vor (Zeile {$seenUelnsInFile[$data['ueln']]}).";
+                } elseif (isset($seenUelnsInFile[$schluessel])) {
+                    $errors[] = "UELN '{$data['ueln']}' kommt mehrfach in dieser Datei vor (Zeile {$seenUelnsInFile[$schluessel]}).";
                 } else {
-                    $seenUelnsInFile[$data['ueln']] = $rowIndex + 2; // +2: 1-basiert + Kopfzeile
+                    $seenUelnsInFile[$schluessel] = $rowIndex + 2; // +2: 1-basiert + Kopfzeile
                 }
             }
 
@@ -421,6 +431,51 @@ final class HorseCsvImporter {
         }
 
         return $content;
+    }
+
+    /**
+     * Erster Feldname aus MAX_LENGTHS, dessen nicht leerer Wert in $werte zu
+     * lang ist, sonst null (Audit N48). Nicht übergebene Felder werden
+     * übersprungen. `description` zählt in Bytes (TEXT-Spalte), alle anderen
+     * Felder in Zeichen. Die Reihenfolge ist die der Konstante - der
+     * Rückgabewert ist also immer ein bekannter Schlüssel, nie ein
+     * Aufrufwert.
+     *
+     * @param array<string, mixed> $werte
+     */
+    public static function ersteUeberlaenge(array $werte): ?string {
+        foreach (self::MAX_LENGTHS as $feld => $max) {
+            if (array_key_exists($feld, $werte) && self::istZuLang($feld, $werte[$feld])) {
+                return $feld;
+            }
+        }
+        return null;
+    }
+
+    private static function istZuLang(string $feld, mixed $wert): bool {
+        if ($wert === null || !is_scalar($wert)) {
+            return false;
+        }
+        $wert = (string)$wert;
+        if ($wert === '') {
+            return false;
+        }
+        // description ist eine TEXT-Spalte, deren Limit in BYTES gilt - dort
+        // zählt strlen() (Bytes), sonst die Zeichenlänge.
+        $laenge = $feld === 'description' ? strlen($wert) : self::strlen($wert);
+        return $laenge > self::MAX_LENGTHS[$feld];
+    }
+
+    /**
+     * Schlüssel für den UELN-Abgleich INNERHALB der Datei: getrimmt und
+     * kleingeschrieben. Das bildet utf8mb4_unicode_ci nur näherungsweise ab
+     * (Akzent- und ß/ss-Varianten bleiben verschieden); solche Dubletten
+     * innerhalb derselben Datei fängt der 1062-Pfad beim Commit ab
+     * (ImportController::commit(), Rollback mit verständlicher Meldung).
+     */
+    private static function uelnKey(string $ueln): string {
+        $ueln = trim($ueln);
+        return function_exists('mb_strtolower') ? mb_strtolower($ueln) : strtolower($ueln);
     }
 
     /**

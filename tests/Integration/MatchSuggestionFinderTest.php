@@ -303,4 +303,27 @@ class MatchSuggestionFinderTest extends TestCase {
             $this->keyedByPlaceholder(array_merge($pageOne, $pageTwo))
         );
     }
+
+    /**
+     * Audit N47: Ein Vorschlag mit unmöglichem Alter bleibt sichtbar, trägt
+     * aber 'blockiert' - die View sperrt dann "Jetzt verknüpfen". Das Orakel
+     * oben nutzt dieselbe Bewertungsmethode und bleibt deckungsgleich.
+     */
+    public function testImpossibleAgeSuggestionIsMarkedAsBlocked(): void {
+        $kind = $this->insertHorse(['name' => 'Juno Kind', 'birth_year' => 2010, 'sire_name' => 'Juno']);
+        $jung = $this->insertHorse(['name' => 'Juno', 'sex' => 'stallion', 'birth_year' => 2012]);
+        $kind2 = $this->insertHorse(['name' => 'Kora Kind', 'birth_year' => 2010, 'sire_name' => 'Kora']);
+        $alt = $this->insertHorse(['name' => 'Kora', 'sex' => 'stallion', 'birth_year' => 2000]);
+
+        $vorschlaege = [];
+        foreach (MatchSuggestionFinder::findAll() as $eintrag) {
+            foreach ($eintrag['suggestions'] as $vorschlag) {
+                $vorschlaege[(int)$eintrag['child_id'] . '/' . (int)$vorschlag['horse']['id']] = $vorschlag;
+            }
+        }
+        $this->assertArrayHasKey("{$kind}/{$jung}", $vorschlaege, 'Der Vorschlag bleibt sichtbar');
+        $this->assertTrue($vorschlaege["{$kind}/{$jung}"]['blockiert'] ?? false);
+        $this->assertArrayHasKey("{$kind2}/{$alt}", $vorschlaege);
+        $this->assertArrayNotHasKey('blockiert', $vorschlaege["{$kind2}/{$alt}"]);
+    }
 }

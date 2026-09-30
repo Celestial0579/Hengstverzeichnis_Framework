@@ -31,6 +31,18 @@ bereit. **Für den produktiven Betrieb wird ein fester Versions-Tag empfohlen**
 ungefragt, samt der Schema-Migration, die dazugehört. `latest` folgt
 ausschliesslich der höchsten stabilen Version (`vX.Y.Z`) — eine Beta
 verschiebt es nicht, ein Patch-Release einer älteren Linie auch nicht.
+
+**Pflicht-Volumes**, auch in einer eigenen Compose-Datei (Vorlage:
+[`docker-compose.yml`](docker-compose.yml)): `uploads_data`
+(`/var/www/html/public/uploads`), `plugins_data` (`/var/www/html/plugins`)
+und `horses_data` (`/var/www/html/storage/horses`, die Pferdefotos). Das
+`VOLUME` für `storage/horses` im Image ist nur ein Rückfall: Ohne benanntes
+Volume entsteht ein anonymes, das jedes Neuerstellen des Containers
+(Watchtower, `docker compose down && up`) verwaist zurücklässt und das
+`docker volume prune` löscht. Fehlt `horses_data`, zeigt das Admin-Dashboard
+einen Hinweis samt Rettungsweg. Die Upload-Schutzregeln kommen im Image aus
+`docker/apache-uploads.conf`; `.htaccess`-Dateien im Volume `uploads_data`
+wertet das Image nicht aus.
 Klassisches Shared-Hosting ohne Docker nutzt stattdessen das bereinigte
 Source-Zip aus den [Releases](../../releases) (siehe
 [docs/releasing.md](docs/releasing.md) und Variante B unten).

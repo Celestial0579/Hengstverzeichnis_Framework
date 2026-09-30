@@ -3,6 +3,7 @@
 
 namespace Tests\Integration;
 
+use App\Helper\ContainerAblage;
 use App\Helper\HorseImagePath;
 use App\Service\SchemaMigrator;
 use PDO;
@@ -63,6 +64,7 @@ class GalerieUebernahmeTest extends TestCase {
     }
 
     protected function tearDown(): void {
+        ContainerAblage::overrideForTests(null, null);
         HorseImagePath::overrideForTests(null, null);
         HorseImagePath::overrideGalerieLegacyDirsForTests(null);
 
@@ -214,5 +216,84 @@ class GalerieUebernahmeTest extends TestCase {
         $schritte = $this->migriere();
 
         $this->assertStringNotContainsString('Galerie (#339)', implode(' | ', $schritte));
+    }
+
+    private const MOUNTINFO_WURZEL = "612 540 0:52 / / rw,relatime - overlay overlay rw\n";
+
+    private function marker(): ?string {
+        $stmt = self::$pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+        $stmt->execute(['migration_339_galerie_uebernahme']);
+        $wert = $stmt->fetchColumn();
+
+        return $wert === false ? null : (string)$wert;
+    }
+
+    /**
+     * Im Container ohne eigenes Volume auf storage/horses wartet die
+     * Übernahme aus public/uploads/plugin_galerie (Audit M31).
+     *
+     * Die Quelle liegt dort im Volume uploads_data; rename() fiele über die
+     * Dateisystemgrenze auf Kopieren und Löschen zurück, und die Bilder
+     * landeten im Container-Dateisystem. Ausgesetzt wird der ganze Schritt:
+     * Würde nur die Datei übersprungen, zählte die Zeile als "ohne Datei",
+     * der Marker stünde, und die Übernahme wäre endgültig verloren.
+     */
+    public function testGalerieUebernahmeWartetAufPersistentenSpeicher(): void {
+        $volumeQuelle = dirname($this->ziel) . '/public/uploads/plugin_galerie';
+        mkdir($volumeQuelle, 0755, true);
+        HorseImagePath::overrideGalerieLegacyDirsForTests([$this->quelle, $volumeQuelle]);
+        try {
+            $this->addonTabelle();
+            $pferd = $this->pferd('Im Volume');
+            file_put_contents($volumeQuelle . '/gal_volume.jpg', 'volumebild');
+            $this->addonMedium($pferd, 'image', 'gal_volume.jpg', null, 10);
+
+            ContainerAblage::overrideForTests(true, self::MOUNTINFO_WURZEL);
+            $schritte = $this->migriere();
+
+            $this->assertFileExists($volumeQuelle . '/gal_volume.jpg', 'Ohne Volume bleibt das Bild im Volume uploads_data');
+            $this->assertFileDoesNotExist($this->ziel . '/gal_volume.jpg');
+            $this->assertSame(0, (int)self::$pdo->query('SELECT COUNT(*) FROM horse_media')->fetchColumn(), 'Keine Medienzeile, solange die Datei nicht übernommen ist');
+            $this->assertNull($this->marker(), 'Kein Marker - die Übernahme muss nach dem Nachrüsten erneut laufen');
+            $this->assertStringContainsString('kein eigenes Volume', implode(' | ', $schritte));
+
+            // Mit benanntem Volume auf storage/horses wird übernommen.
+            ContainerAblage::overrideForTests(
+                true,
+                self::MOUNTINFO_WURZEL . '700 612 254:1 /var/lib/docker/volumes/hengst_horses_data/_data '
+                    . realpath($this->ziel) . " rw,relatime - ext4 /dev/vda1 rw\n"
+            );
+            $this->migriere();
+
+            $this->assertFileExists($this->ziel . '/gal_volume.jpg');
+            $this->assertFileDoesNotExist($volumeQuelle . '/gal_volume.jpg');
+            $this->assertSame(1, (int)self::$pdo->query("SELECT COUNT(*) FROM horse_media WHERE file_name = '/uploads/horses/gal_volume.jpg'")->fetchColumn());
+            $this->assertNotNull($this->marker());
+        } finally {
+            foreach (glob($volumeQuelle . '/*') ?: [] as $datei) {
+                @unlink($datei);
+            }
+            @rmdir($volumeQuelle);
+            @rmdir(dirname($volumeQuelle));
+            @rmdir(dirname($volumeQuelle, 2));
+        }
+    }
+
+    /**
+     * Die Ablage storage/plugin_galerie liegt im Container wie storage/horses
+     * im Container-Dateisystem - von dort zu verschieben verliert nichts, also
+     * wird auch ohne Volume übernommen.
+     */
+    public function testGalerieAusStorageWirdAuchOhneVolumeUebernommen(): void {
+        $this->addonTabelle();
+        $pferd = $this->pferd('Im Layer');
+        file_put_contents($this->quelle . '/gal_layer.jpg', 'layerbild');
+        $this->addonMedium($pferd, 'image', 'gal_layer.jpg', null, 10);
+
+        ContainerAblage::overrideForTests(true, self::MOUNTINFO_WURZEL);
+        $this->migriere();
+
+        $this->assertFileExists($this->ziel . '/gal_layer.jpg');
+        $this->assertNotNull($this->marker());
     }
 }

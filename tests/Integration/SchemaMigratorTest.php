@@ -514,4 +514,83 @@ class SchemaMigratorTest extends TestCase {
             }
         }
     }
+
+    /**
+     * Im Container ohne eigenes Volume auf storage/horses bleiben die Fotos
+     * im Volume uploads_data liegen (Audit M31).
+     *
+     * Ohne diese Sperre holte der Schritt sie ins Container-Dateisystem, und
+     * das nächste Neuerstellen (Watchtower) löschte sie. Geprüft werden alle
+     * drei Arten der Einbindung. Der Zielordner wird für die Volume-Fälle
+     * VORHER angelegt: Ohne ihn liefert realpath() false, und der Fall prüfte
+     * nur wieder KEIN_MOUNT.
+     */
+    #[Depends('testRunOnCurrentSchemaOnlyPersistsVersion')]
+    public function testHorsePhotosStayInTheVolumeWithoutPersistentStorage(): void {
+        $alt = sys_get_temp_dir() . '/' . uniqid('hengst_alt_');
+        $neu = sys_get_temp_dir() . '/' . uniqid('hengst_neu_');
+        mkdir($alt, 0777, true);
+        file_put_contents($alt . '/horse_1755000000_c0ffee00.jpg', 'VOLUMEFOTO');
+
+        $wurzel = "612 540 0:52 / / rw,relatime - overlay overlay rw\n";
+        $zeile = static fn(string $quelle, string $punkt): string
+            => "700 612 254:1 {$quelle} {$punkt} rw,relatime - ext4 /dev/vda1 rw\n";
+        $zuruecksetzen = static function (): void {
+            self::$pdo->exec("DELETE FROM `settings` WHERE `setting_key` = 'migration_366_pferdefotos_aus_dem_webroot'");
+            self::$pdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
+        };
+
+        \App\Helper\HorseImagePath::overrideForTests($neu, $alt);
+        try {
+            // 1. Container, storage/horses ohne jeden Mount.
+            \App\Helper\ContainerAblage::overrideForTests(true, $wurzel);
+            $zuruecksetzen();
+            $schritte = SchemaMigrator::run(self::$pdo);
+
+            $this->assertFileExists($alt . '/horse_1755000000_c0ffee00.jpg', 'Ohne Volume bleibt das Foto im Volume uploads_data');
+            $this->assertFileDoesNotExist($neu . '/horse_1755000000_c0ffee00.jpg');
+            $this->assertNull(self::einstellung('migration_366_pferdefotos_aus_dem_webroot'), 'Kein Marker - der Schritt muss nach dem Nachrüsten erneut laufen');
+            $this->assertStringContainsString('kein eigenes Volume', implode(' | ', $schritte));
+            $this->assertLessThan(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo), 'Offen: kein Versionsstempel (Audit N76)');
+
+            // 2. Nur das anonyme Volume aus dem VOLUME des Images.
+            mkdir($neu, 0777, true);
+            $real = (string)realpath($neu);
+            \App\Helper\ContainerAblage::overrideForTests(
+                true,
+                $wurzel . $zeile('/var/lib/docker/volumes/' . str_repeat('0123456789abcdef', 4) . '/_data', $real)
+            );
+            $zuruecksetzen();
+            SchemaMigrator::run(self::$pdo);
+
+            $this->assertFileExists($alt . '/horse_1755000000_c0ffee00.jpg', 'Ein anonymes Volume verwaist beim Neuerstellen - nicht dorthin verschieben');
+            $this->assertFileDoesNotExist($neu . '/horse_1755000000_c0ffee00.jpg');
+            $this->assertNull(self::einstellung('migration_366_pferdefotos_aus_dem_webroot'));
+
+            // 3. Benanntes Volume horses_data: jetzt wird verschoben.
+            \App\Helper\ContainerAblage::overrideForTests(
+                true,
+                $wurzel . $zeile('/var/lib/docker/volumes/hengst_horses_data/_data', $real)
+            );
+            $zuruecksetzen();
+            SchemaMigrator::run(self::$pdo);
+
+            $this->assertFileExists($neu . '/horse_1755000000_c0ffee00.jpg');
+            $this->assertSame('VOLUMEFOTO', file_get_contents($neu . '/horse_1755000000_c0ffee00.jpg'));
+            $this->assertFileDoesNotExist($alt . '/horse_1755000000_c0ffee00.jpg');
+            $this->assertNotNull(self::einstellung('migration_366_pferdefotos_aus_dem_webroot'));
+            $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo));
+        } finally {
+            \App\Helper\ContainerAblage::overrideForTests(null, null);
+            \App\Helper\HorseImagePath::overrideForTests(null, null);
+            foreach ([$alt, $neu] as $dir) {
+                foreach (glob($dir . '/{,.}*', GLOB_BRACE) ?: [] as $datei) {
+                    if (is_file($datei)) {
+                        @unlink($datei);
+                    }
+                }
+                @rmdir($dir);
+            }
+        }
+    }
 }

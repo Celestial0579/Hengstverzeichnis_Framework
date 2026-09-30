@@ -37,6 +37,10 @@ services:
       db:
         condition: service_healthy
     volumes:
+      # Branding-Dateien (Logo) und Altbestand aus der Zeit vor #366. Die
+      # .htaccess-Dateien in diesem Volume wertet das Image NICHT aus (Audit
+      # N41): Ein Volume behielte sie auf dem Stand des ersten Starts. Die
+      # Schutzregeln kommen aus docker/apache-uploads.conf im Image.
       - uploads_data:/var/www/html/public/uploads
       # Installierte Addons überleben den Image-Wechsel. Ohne dieses Volume
       # nimmt der dokumentierte Update-Weg (`docker compose pull && up -d`)
@@ -57,11 +61,25 @@ services:
       # stehen, die Dateien nicht. Bewusst nur storage/horses und nicht
       # storage/ als Ganzes - storage/logs gehoert ins Image.
       #
-      # BESTANDSINSTALLATIONEN: Nach dem Image-Wechsel einmal
-      # `docker compose up -d` mit DIESER Datei fahren, damit das Volume
-      # existiert, BEVOR die Migration die Fotos aus public/uploads/horses
-      # dorthin verschiebt.
+      # PFLICHT, auch in einer eigenen Compose-Datei (Audit M31). Das Image
+      # deklariert fuer storage/horses zwar ein VOLUME, aber nur als Rueckfall:
+      # Ohne diesen Eintrag entsteht ein ANONYMES Volume, und jedes Neuerstellen
+      # (Watchtower, `docker compose down && up`) haengt ein neues, leeres an.
+      # Das alte bleibt verwaist liegen, `docker volume prune` loescht es. Fehlt
+      # das benannte Volume, verschiebt die Migration die Altfotos aus
+      # public/uploads/horses nicht (sie bleiben im Volume uploads_data und
+      # werden von dort ausgeliefert), und das Admin-Dashboard zeigt einen
+      # Hinweis samt Rettungsweg. Erst mit dem Volume holt der naechste
+      # Migrationslauf die Verschiebung nach.
       - horses_data:/var/www/html/storage/horses
+      # var/ (Wartungs-Marker, Ablagen des Addons datenmigration) ist im Image
+      # fuer www-data beschreibbar, liegt aber bewusst in KEINEM Volume: Ein
+      # haengender Wartungs-Marker soll ein Neuerstellen nicht ueberleben.
+      # Sicherungs-Dumps der Datenmigration deshalb nach dem Import mit
+      #   docker compose cp app:/var/www/html/var/datenmigration ./
+      # herausholen. Wer sie dauerhaft im Container halten will, nimmt die
+      # folgende Zeile (und `datenmigration_data:` unten) herein:
+      # - datenmigration_data:/var/www/html/var/datenmigration
       # HINWEIS zu config/db_config.php: Diese Datei entsteht erst zur
       # Laufzeit und nimmt auf, was im Admin-Bereich unter Systemeinstellungen
       # gepflegt wird - TRUSTED_PROXIES, die Embed-Freigabe, Tracking- und
@@ -112,3 +130,4 @@ volumes:
   uploads_data:
   plugins_data:
   horses_data:
+  # datenmigration_data:

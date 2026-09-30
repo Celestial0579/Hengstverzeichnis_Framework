@@ -26,13 +26,33 @@
 > als `www-data`. Ein durch den Web-Prozess überschreibbarer Codebaum wäre ein
 > RCE-Verstärker, deshalb setzt das Image `UPDATE_IN_PLACE=0` und macht nur die
 > Datenverzeichnisse (`config/` per Sticky-Bit für `db_config.php`,
-> `public/uploads/`, `plugins/`, `storage/`) www-data-schreibbar. Der
+> `public/uploads/`, `plugins/`, `storage/`, `var/`) www-data-schreibbar. Der
 > Updates-Screen zeigt weiterhin an, ob ein neues Release vorliegt, bietet aber
 > keinen In-Place-Knopf. Aktualisiert wird über ein **neues Image**
 > (`docker compose pull && docker compose up -d`) - automatisierbar mit einem
 > Watchtower-Fork (`nickfedor/watchtower`, Image
 > `ghcr.io/nicholas-fedor/watchtower`), siehe den auskommentierten Dienst in
 > `docker-compose.yml`.
+>
+> **Volumes im Container (Audit M31, N38, N41):** Ein neues Image bringt nur
+> Code mit. Was überleben soll, gehört in ein **benanntes** Volume - Pflicht
+> sind `uploads_data` (`public/uploads`), `plugins_data` (`plugins/`) und
+> `horses_data` (`storage/horses`), auch in einer eigenen Compose-Datei. Das
+> Image deklariert `VOLUME /var/www/html/storage/horses` nur als Rückfall:
+> Ohne Compose-Eintrag entsteht ein anonymes Volume, jedes Neuerstellen
+> (Watchtower, `docker compose down && up`) hängt ein neues, leeres an, und
+> `docker volume prune` löscht das alte samt Fotos. Im Container
+> (`HV_CONTAINER=1`) verschiebt die Migration Altfotos aus
+> `public/uploads/horses` deshalb nur auf ein benanntes Volume oder einen
+> Bind-Mount; sonst bleiben sie liegen, und das Admin-Dashboard warnt. `var/`
+> (Wartungs-Marker, Ablagen des Addons `datenmigration`) ist beschreibbar,
+> liegt aber bewusst in keinem Volume: Ein hängender Wartungs-Marker
+> verschwindet mit dem Neuerstellen oder per
+> `docker compose exec app rm var/wartung.lock`, Sicherungs-Dumps der
+> Datenmigration holt `docker compose cp app:/var/www/html/var/datenmigration ./`
+> heraus. Die Schutzregeln für `public/uploads` stehen im Image in
+> `docker/apache-uploads.conf` (`AllowOverride None`); `.htaccess`-Dateien im
+> Volume `uploads_data` wirken dort nicht.
 >
 > **Update-Kanäle:** Standard ist „Stabil" (nur reguläre Releases). Per
 > Beta-Opt-in auf der Update-Seite (Setting `update_channel`) werden
@@ -149,7 +169,7 @@ wäre ab dem nächsten Commit falsch, und zwar unbemerkt.
      vergessen wird, fällt sonst niemandem auf.
    - Bereinigtes Source-Zip für klassisches Shared-Hosting (ausgeschlossen
      sind `tests/`, `.github/`, `.claude/`, `composer.json`/`composer.lock`,
-     `phpunit.xml` sowie die Docker-Dateien — die vollständige Liste steht
+     `phpunit.xml` sowie die Docker-Dateien samt `docker/` — die vollständige Liste steht
      im `git archive`-Aufruf in `release.yml`; `docs/` und `security/`
      bleiben bewusst enthalten) als
      Release-Asset.

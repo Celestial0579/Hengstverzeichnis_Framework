@@ -63,6 +63,30 @@ $tileStyle = 'display: flex; align-items: center; justify-content: center; gap: 
         </div>
     <?php endif; ?>
 
+    <?php // Pferdefotos ohne eigenes Volume im Container (Audit M31).
+          //
+          // Nur im offiziellen Image (HV_CONTAINER=1) und nur für
+          // Administratoren (AdminController::dashboard() liefert sonst null).
+          // Ohne horses_data verschiebt die Migration die Altfotos nicht, und
+          // neue Uploads überleben das nächste Neuerstellen nicht - der
+          // Betreiber muss es also erfahren, bevor Watchtower zuschlägt. ?>
+    <?php if (!empty($ablageWarnung)): ?>
+        <div class="card" style="background-color: var(--danger-soft-bg); color: var(--danger-fg);" data-hinweis="ablage-warnung">
+            <strong><?= htmlspecialchars($t('admin.dashboard.storage_warning_title')) ?></strong>
+            <?= htmlspecialchars($t($ablageWarnung === \App\Helper\ContainerAblage::ANONYMES_VOLUME
+                ? 'admin.dashboard.storage_warning_anonymous'
+                : 'admin.dashboard.storage_warning_no_mount')) ?>
+            <p style="margin: 0.5rem 0 0.3rem 0;"><?= htmlspecialchars($t('admin.dashboard.storage_warning_action')) ?></p>
+            <pre style="margin: 0; white-space: pre-wrap;"><code>docker compose cp app:/var/www/html/storage/horses ./horses-sicherung
+# docker-compose.yml, Dienst app, volumes:
+#   - horses_data:/var/www/html/storage/horses
+# und im obersten volumes: horses_data:
+docker compose up -d
+docker compose cp ./horses-sicherung/. app:/var/www/html/storage/horses/
+docker compose exec app chown -R www-data:www-data /var/www/html/storage/horses</code></pre>
+        </div>
+    <?php endif; ?>
+
     <?php // Fehlende Sprach-Addons (#344).
           //
           // AUF DEM DASHBOARD und nicht nur in den Systemeinstellungen: Wer

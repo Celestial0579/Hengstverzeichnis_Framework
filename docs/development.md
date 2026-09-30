@@ -61,6 +61,28 @@ ist. `public/uploads` liegt in einem eigenen Docker-Volume (`uploads_data`),
 die Pferdefotos seit #366 in `horses_data` (`storage/horses`),
 damit hochgeladene Pferdebilder Container-Neustarts überleben.
 
+Besonderheiten des Images (Audit M31, N38, N41):
+
+- `HV_CONTAINER=1` kennzeichnet den Container-Betrieb.
+  `App\Helper\ContainerAblage` prüft damit über `/proc/self/mountinfo`, ob
+  `storage/horses` in einem eigenen benannten Volume oder Bind-Mount liegt.
+  Nur dann verschieben die Migrationsschritte 366 und 339 Dateien aus
+  `public/uploads` dorthin; sonst warnt das Admin-Dashboard. Außerhalb des
+  Images (auch im lokalen `php -S`) ist die Prüfung aus.
+- `var/` ist für `www-data` beschreibbar (Wartungs-Marker, Ablagen des Addons
+  `datenmigration`), liegt aber in keinem Volume - der Inhalt ist nach einem
+  Neuerstellen weg.
+- Die Upload-Schutzregeln kommen aus `docker/apache-uploads.conf`
+  (`AllowOverride None` für `/uploads`, harte Sperre für `/uploads/horses`).
+  Wer `public/uploads/.htaccess` ändert, ändert die Conf mit;
+  `tests/Unit/Views/DockerImageTest.php` prüft die Endungsliste.
+- `.dockerignore` hält Laufzeitreste (`var/`, `storage/logs/`,
+  `storage/horses/`) aus lokal gebauten Images heraus.
+- Den Rauchtest für das gebaute Image führt `tests/docker/image-smoke.sh` aus
+  (CI-Job „Docker-Image“; lokal mit laufendem Docker aus dem
+  Repository-Wurzelverzeichnis, optional `IMAGE=<tag>` für ein vorhandenes
+  Image).
+
 ## Ohne Docker (lokaler PHP-Server)
 
 ```bash

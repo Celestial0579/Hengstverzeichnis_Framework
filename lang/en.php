@@ -284,6 +284,11 @@ return [
     'admin.dashboard.tile_backups' => 'Backups',
     'admin.dashboard.tile_digest' => 'Email Digest',
     'admin.dashboard.tile_updates' => 'Updates',
+    // Container without a dedicated volume for storage/horses (audit M31)
+    'admin.dashboard.storage_warning_title' => 'Horse photos without a dedicated volume:',
+    'admin.dashboard.storage_warning_no_mount' => 'storage/horses is not on a dedicated volume in this container. Newly uploaded photos end up in the container filesystem and are lost the next time the container is recreated (update, Watchtower). Photos from before v0.8.0 stay in public/uploads/horses and are served from there; the migration only moves them once the volume is mounted.',
+    'admin.dashboard.storage_warning_anonymous' => 'storage/horses is only on the anonymous volume the image creates as a fallback. Newly uploaded photos are stored there but become orphaned the next time the container is recreated (update, Watchtower): the new container gets an empty anonymous volume, and docker volume prune deletes the old one. Photos from before v0.8.0 stay in public/uploads/horses until then.',
+    'admin.dashboard.storage_warning_action' => 'Before the next update, back them up, add the named volume horses_data for /var/www/html/storage/horses to your compose file (see docker-compose.yml in the repository), restart and copy the backup back:',
 
     // Self-service registration (#83)
     'register.title' => 'Register',

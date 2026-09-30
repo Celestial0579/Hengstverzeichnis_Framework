@@ -3,6 +3,8 @@
 
 namespace Tests\Functional;
 
+use App\Helper\ContainerAblage;
+use App\Helper\HorseImagePath;
 use App\Security\Totp;
 use Tests\Support\AuxiliaryServer;
 use Tests\Support\HttpClient;
@@ -38,6 +40,9 @@ class UpdateInPlaceDisabledTest extends FunctionalTestCase {
             null,
             [
                 'UPDATE_IN_PLACE' => '0',
+                // Wie im Image (Audit M31): schaltet die Prüfung der
+                // Foto-Ablage ein, siehe App\Helper\ContainerAblage.
+                'HV_CONTAINER' => '1',
                 'APP_URL' => 'http://127.0.0.1:' . self::APP_PORT,
             ]
         );
@@ -155,5 +160,55 @@ class UpdateInPlaceDisabledTest extends FunctionalTestCase {
 
         $response = $admin->post('/admin/updates/run', []);
         $this->assertSame(403, $response->statusCode);
+    }
+
+    private const ABLAGE_HINWEIS = 'data-hinweis="ablage-warnung"';
+
+    /**
+     * Audit M31: Im Container ohne eigenes Volume auf storage/horses sieht der
+     * Admin einen Hinweis samt Rettungsweg.
+     *
+     * UMGEBUNGSFEST: Liegt storage/horses in der Testumgebung selbst in
+     * einem eigenen Mount (Devcontainer mit gebundenem Quellbaum), ist die
+     * Ablage dort tatsächlich dauerhaft, und der Hinweis fehlt zu Recht.
+     */
+    public function testDashboardWarntOhneFotoVolume(): void {
+        if (ContainerAblage::art(HorseImagePath::dir()) === ContainerAblage::EIGENER_MOUNT) {
+            $this->markTestSkipped('storage/horses liegt in dieser Testumgebung in einem eigenen Mount.');
+        }
+
+        $page = $this->containerAdmin()->get('/admin');
+
+        $this->assertSame(200, $page->statusCode);
+        $this->assertStringContainsString(self::ABLAGE_HINWEIS, $page->body);
+        $this->assertStringContainsString('horses_data:/var/www/html/storage/horses', $page->body);
+        $this->assertStringContainsString('docker compose cp app:/var/www/html/storage/horses', $page->body);
+    }
+
+    /** Ohne HV_CONTAINER (Shared Hosting, VPS) gibt es den Hinweis nie. */
+    public function testKeinAblageHinweisAusserhalbDesContainers(): void {
+        $page = $this->authenticatedClient()->get('/admin');
+
+        $this->assertSame(200, $page->statusCode);
+        $this->assertStringContainsString('Admin Dashboard', $page->body);
+        $this->assertStringNotContainsString(self::ABLAGE_HINWEIS, $page->body);
+    }
+
+    /** /admin erreicht jedes Konto - der Hinweis gehört nur vor Administratoren. */
+    public function testKeinAblageHinweisFuerNichtAdmins(): void {
+        $konto = $this->angemeldetOhneFaktor($this->authenticatedClient(), 'ablage');
+
+        $client = new HttpClient(self::$app->baseUrl());
+        $login = $client->post('/login', [
+            'csrf_token' => $client->get('/login')->formField('csrf_token') ?? '',
+            'kennung' => $konto['username'],
+            'password' => $konto['passwort'],
+        ]);
+        $this->assertSame(302, $login->statusCode, "Anmeldung an der Container-Instanz, Body: {$login->body}");
+
+        $page = $client->get('/admin');
+        $this->assertSame(200, $page->statusCode);
+        $this->assertStringContainsString('Admin Dashboard', $page->body, 'Der Nicht-Admin muss das Dashboard selbst sehen');
+        $this->assertStringNotContainsString(self::ABLAGE_HINWEIS, $page->body);
     }
 }

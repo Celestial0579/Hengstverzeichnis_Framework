@@ -25,7 +25,13 @@ class AdminController extends BaseController {
             'canViewHorses' => $this->hasPermission('horses', 'view'),
             // Eine Kachel statt der frueheren zwei (#336): Personen und
             // Deckstationen sind ein Bereich, also auch ein Recht.
-            'canViewContacts' => $this->hasPermission('contacts', 'view')
+            'canViewContacts' => $this->hasPermission('contacts', 'view'),
+            // Pferdefotos ohne eigenes Volume im Container (Audit M31). Die
+            // Route /admin erreicht jedes angemeldete Konto, der Hinweis
+            // (samt docker-Befehlen) gehört aber nur vor Administratoren.
+            'ablageWarnung' => $this->isAdmin()
+                ? \App\Helper\ContainerAblage::warnung(\App\Helper\HorseImagePath::dir())
+                : null,
         ]);
     }
 

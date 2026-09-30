@@ -57,11 +57,27 @@ class MediaController extends BaseController {
     ];
 
     /**
-     * Ein Jahr, wie schon die statische Auslieferung (public/.htaccess).
-     * Der Dateiname trägt einen Zufallsanteil und ändert sich bei jedem neuen
-     * Upload - eine lange Frist kann also keine veraltete Fassung festhalten.
+     * Ein Jahr - aber NUR für den Browser und NUR unter einer versionierten
+     * Adresse (`&v=`, siehe MediaUrl, Audit M14).
+     *
+     * Der frühere Kommentar hier behauptete, der Dateiname ändere sich bei
+     * jedem Upload, eine lange Frist könne also nichts Veraltetes festhalten.
+     * Die ADRESSE trug den Dateinamen aber gar nicht, nur die Pferde-ID: Nach
+     * einem Wechsel des Hauptbilds sah jeder Browser ein Jahr lang das alte
+     * Foto, und ein gemeinsamer Cache lieferte das Foto eines inzwischen
+     * depublizierten Pferds weiter an jeden aus. Jetzt wechselt die Adresse
+     * mit dem Foto.
      */
     private const CACHE_SECONDS = 31536000;
+
+    /**
+     * Frist für gemeinsame Zwischenspeicher (`s-maxage`) und für Adressen
+     * ohne passende Version. Auch unter einer versionierten Adresse kann
+     * sich die ANTWORT ändern, ohne dass sich die Adresse ändert - bei einer
+     * Depublikation. Ein Proxy fragt deshalb nach spätestens fünf Minuten
+     * wieder nach; PHP antwortet dann mit 404 oder 304.
+     */
+    private const GEMEINSAM_SECONDS = 300;
 
     public function horseImage(): void {
         $id = (int)($_GET['id'] ?? 0);
@@ -161,7 +177,11 @@ class MediaController extends BaseController {
 
         $path = $this->vielleichtVerkleinert($path, (string)$horse['image_url']);
 
-        $this->stream($path, !empty($horse['is_published']));
+        $this->stream(
+            $path,
+            !empty($horse['is_published']),
+            \App\Helper\MediaUrl::versionPasst((string)$horse['image_url'], $_GET['v'] ?? null)
+        );
     }
 
     /**
@@ -222,7 +242,11 @@ class MediaController extends BaseController {
 
         $path = $this->vielleichtVerkleinert($path, (string)$medium['file_name']);
 
-        $this->stream($path, !empty($medium['is_published']));
+        $this->stream(
+            $path,
+            !empty($medium['is_published']),
+            \App\Helper\MediaUrl::versionPasst((string)$medium['file_name'], $_GET['v'] ?? null)
+        );
     }
 
     /**
@@ -285,41 +309,15 @@ class MediaController extends BaseController {
      * CSV-Import oder eine Altdatenübernahme dort etwas anderes hineinschrieb.
      */
     private function resolveUploadPath(string $imageUrl): ?string {
-        $name = basename(parse_url($imageUrl, PHP_URL_PATH) ?? '');
-        if ($name === '' || $name === '.' || $name === '..') {
+        // Eine Stelle für beide Ablagen, die Endungs-Positivliste und die
+        // Symlink-Prüfung - dieselbe, die auch die Bestandsbereinigung
+        // (Audit M21) nutzt.
+        $pfad = \App\Helper\HorseImagePath::datei($imageUrl);
+        if ($pfad === null || !isset(self::TYPES[strtolower(pathinfo($pfad, PATHINFO_EXTENSION))])) {
             return null;
         }
 
-        $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
-        if (!isset(self::TYPES[$extension])) {
-            return null;
-        }
-
-        // Erst der Ablageort außerhalb des Webroots, dann der alte darin
-        // (#366). Der Rückfall ist für Instanzen, deren Verschiebung noch
-        // nicht gelaufen ist - er liefert dieselbe Datei, aber weiterhin durch
-        // diese geprüfte Route. Der statische Weg auf denselben Ordner ist
-        // zusätzlich per public/uploads/horses/.htaccess gesperrt.
-        foreach ([\App\Helper\HorseImagePath::dir(), \App\Helper\HorseImagePath::legacyDir()] as $candidate) {
-            $baseDir = realpath($candidate);
-            if ($baseDir === false) {
-                continue;
-            }
-
-            $full = realpath($baseDir . '/' . $name);
-            if ($full === false || !is_file($full)) {
-                continue;
-            }
-            // realpath löst Symlinks auf: Ein Link im Upload-Verzeichnis dürfte
-            // sonst auf jede Datei des Systems zeigen.
-            if (!str_starts_with($full, $baseDir . DIRECTORY_SEPARATOR)) {
-                continue;
-            }
-
-            return $full;
-        }
-
-        return null;
+        return $pfad;
     }
 
     /**
@@ -345,7 +343,7 @@ class MediaController extends BaseController {
         return strtolower($refererHost) === $ownHost;
     }
 
-    private function stream(string $path, bool $oeffentlich): void {
+    private function stream(string $path, bool $oeffentlich, bool $versioniert): void {
         $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         $size = filesize($path);
         $mtime = filemtime($path);
@@ -377,18 +375,44 @@ class MediaController extends BaseController {
         // Jahresfrist wäre wertlos. Das Problem dieses Befunds sind die
         // unveröffentlichten Fotos, und die verlassen den Server jetzt gar
         // nicht mehr zwischenspeicherbar.
-        header('Cache-Control: ' . ($oeffentlich
-            ? 'public, max-age=' . self::CACHE_SECONDS
-            : 'private, no-store'));
+        //
+        // Öffentlich (Audit M14): Ein Jahr nur für den Browser und nur unter
+        // der passenden Version; gemeinsame Caches höchstens fünf Minuten
+        // (s-maxage), weil eine Depublikation die Adresse nicht ändert.
+        // Adressen ohne oder mit falscher Version gelten überall fünf
+        // Minuten - eine falsche Version ist kein Fehler (alte Seite im
+        // Cache, API-Konsument), sie bekommt nur keine lange Frist.
+        // `immutable` bewusst nicht: Unter derselben Adresse kann sich der
+        // Inhalt ändern (Vorschau eingeschaltet, Bestandsbereinigung).
+        if (!$oeffentlich) {
+            $cacheControl = 'private, no-store';
+        } elseif ($versioniert) {
+            $cacheControl = 'public, max-age=' . self::CACHE_SECONDS . ', s-maxage=' . self::GEMEINSAM_SECONDS;
+        } else {
+            $cacheControl = 'public, max-age=' . self::GEMEINSAM_SECONDS;
+        }
+        header('Cache-Control: ' . $cacheControl);
         header('ETag: ' . $etag);
         header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
 
         // Bedingte Anfragen: Ohne sie holte der Browser das Bild bei jedem
         // Neuladen vollständig - die Auslieferung über PHP wäre dann tatsächlich
         // der Rückschritt, den das Issue befürchtet.
+        //
+        // Reihenfolge nach RFC 9110 §13.1.3/§13.2.2 (Audit N50): Schickt der
+        // Client ein If-None-Match, entscheidet AUSSCHLIESSLICH das ETag. Bis
+        // dahin genügte ein passendes If-Modified-Since auch bei abweichendem
+        // ETag - wechselte die Adresse auf eine ÄLTERE Datei (Hauptbild
+        // zurückgetauscht, Original statt Vorschau), bestätigte der Server
+        // dem Browser mit 304 das falsche Bild.
         $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
-        $ifModifiedSince = strtotime((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '')) ?: 0;
-        if ($ifNoneMatch === $etag || ($ifModifiedSince > 0 && $ifModifiedSince >= $mtime)) {
+        if ($ifNoneMatch !== '') {
+            $nichtGeaendert = self::etagPasst($ifNoneMatch, $etag);
+        } else {
+            $ifModifiedSince = strtotime((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '')) ?: 0;
+            $nichtGeaendert = $ifModifiedSince > 0 && $ifModifiedSince >= $mtime;
+        }
+        if ($nichtGeaendert) {
             http_response_code(304);
             exit;
         }
@@ -402,6 +426,27 @@ class MediaController extends BaseController {
         }
         readfile($path);
         exit;
+    }
+
+    /**
+     * Schwacher Vergleich nach RFC 9110 §13.1.2: `*` passt immer, sonst
+     * eine Liste, deren Einträge ohne `W/` verglichen werden (ein Proxy mit
+     * Kompression macht aus unserem starken ETag gern ein schwaches).
+     */
+    private static function etagPasst(string $ifNoneMatch, string $etag): bool {
+        if ($ifNoneMatch === '*') {
+            return true;
+        }
+        foreach (explode(',', $ifNoneMatch) as $eintrag) {
+            $eintrag = trim($eintrag);
+            if (str_starts_with($eintrag, 'W/')) {
+                $eintrag = substr($eintrag, 2);
+            }
+            if ($eintrag === $etag) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function sendStatus(int $code): void {

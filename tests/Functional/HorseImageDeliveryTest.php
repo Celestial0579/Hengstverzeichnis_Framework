@@ -481,6 +481,128 @@ class HorseImageDeliveryTest extends FunctionalTestCase {
         );
     }
 
+    // --- Versionierte Adressen (Audit M14) ---------------------------------
+
+    private function imageUrl(int $horseId): string {
+        $stmt = Database::getInstance()->prepare('SELECT image_url FROM horses WHERE id = ?');
+        $stmt->execute([$horseId]);
+        return (string)$stmt->fetchColumn();
+    }
+
+    /**
+     * Ein Jahr nur für den Browser und nur unter der passenden Version;
+     * gemeinsame Caches fünf Minuten, weil eine Depublikation die Adresse
+     * nicht ändert. Ohne oder mit falscher Version: überall fünf Minuten -
+     * und trotzdem 200, eine alte Adresse ist kein Fehler.
+     */
+    public function testNurDiePassendeVersionDarfEinJahrImBrowserBleiben(): void {
+        $id = $this->seedHorseWithPhoto(true);
+        $v = \App\Helper\MediaUrl::version($this->imageUrl($id));
+        $gast = $this->newClient();
+
+        $versioniert = $gast->get('/media/horse-image?id=' . $id . '&v=' . $v);
+        $this->assertSame(200, $versioniert->statusCode);
+        $this->assertSame('public, max-age=31536000, s-maxage=300', $versioniert->header('Cache-Control'));
+
+        $ohne = $gast->get('/media/horse-image?id=' . $id);
+        $this->assertSame(200, $ohne->statusCode);
+        $this->assertSame('public, max-age=300', $ohne->header('Cache-Control'));
+
+        $falsch = $gast->get('/media/horse-image?id=' . $id . '&v=000000000000');
+        $this->assertSame(200, $falsch->statusCode, 'Eine veraltete Version ist kein Fehler');
+        $this->assertSame('public, max-age=300', $falsch->header('Cache-Control'));
+
+        $feld = $gast->get('/media/horse-image?id=' . $id . '&v[]=' . $v);
+        $this->assertSame(200, $feld->statusCode);
+        $this->assertSame('public, max-age=300', $feld->header('Cache-Control'));
+
+        // Unveröffentlicht bleibt es bei no-store, auch mit passender Version.
+        $intern = $this->seedHorseWithPhoto(false);
+        $admin = $this->authenticatedClient()->get(
+            '/media/horse-image?id=' . $intern . '&v=' . \App\Helper\MediaUrl::version($this->imageUrl($intern))
+        );
+        $this->assertSame(200, $admin->statusCode);
+        $this->assertSame('private, no-store', $admin->header('Cache-Control'));
+    }
+
+    /** Dieselbe Regel für die weiteren Medien - die Version kommt aus file_name. */
+    public function testAuchWeitereMedienCachenNurVersioniertLange(): void {
+        $id = $this->seedHorseWithPhoto(true);
+        $wert = $this->imageUrl($id);
+        $db = Database::getInstance();
+        $db->prepare("INSERT INTO horse_media (horse_id, type, file_name, is_main) VALUES (?, 'image', ?, 1)")
+           ->execute([$id, $wert]);
+        $medium = (int)$db->lastInsertId();
+        $gast = $this->newClient();
+
+        $url = \App\Helper\MediaUrl::horseMediaImage($medium, null, $wert);
+        $this->assertSame('/media/horse-media?id=' . $medium . '&v=' . \App\Helper\MediaUrl::version($wert), $url);
+        $this->assertSame('public, max-age=31536000, s-maxage=300', $gast->get((string)$url)->header('Cache-Control'));
+        $this->assertSame('public, max-age=300', $gast->get('/media/horse-media?id=' . $medium)->header('Cache-Control'));
+        $this->assertSame('public, max-age=300', $gast->get('/media/horse-media?id=' . $medium . '&v=abc')->header('Cache-Control'));
+
+        $db->prepare('UPDATE horses SET is_published = 0 WHERE id = ?')->execute([$id]);
+        $this->assertSame('private, no-store', $this->authenticatedClient()->get((string)$url)->header('Cache-Control'));
+    }
+
+    // --- Bedingte Anfragen nach RFC 9110 (Audit N50) ----------------------
+
+    /**
+     * Die Adresse zeigt wieder auf eine ÄLTERE Datei (Hauptbild
+     * zurückgetauscht). Der Browser schickt ETag und Datum der neueren. Bis
+     * N50 genügte das Datum für ein 304 - der Browser behielt das falsche
+     * Bild. Mit If-None-Match entscheidet allein das ETag.
+     */
+    public function testAbweichendesEtagSchlaegtIfModifiedSince(): void {
+        $id = $this->seedHorseWithPhoto(true);
+        $dateiA = end($this->seededFiles);
+        touch($dateiA, time() - 7200);
+        $wertA = $this->imageUrl($id);
+
+        $b = $this->seedHorseWithPhoto(true);
+        $dateiB = end($this->seededFiles);
+        file_put_contents($dateiB, 'ZUSATZ-B', FILE_APPEND);
+        $wertB = $this->imageUrl($b);
+
+        $db = Database::getInstance();
+        $db->prepare('UPDATE horses SET image_url = ? WHERE id = ?')->execute([$wertB, $id]);
+        $gast = $this->newClient();
+        $ersteAntwort = $gast->get('/media/horse-image?id=' . $id);
+        $etagB = (string)$ersteAntwort->header('ETag');
+        $lmB = (string)$ersteAntwort->header('Last-Modified');
+        $this->assertStringEndsWith('ZUSATZ-B', $ersteAntwort->body);
+
+        $db->prepare('UPDATE horses SET image_url = ? WHERE id = ?')->execute([$wertA, $id]);
+        $antwort = $gast->get('/media/horse-image?id=' . $id, ['If-None-Match' => $etagB, 'If-Modified-Since' => $lmB]);
+
+        $this->assertSame(200, $antwort->statusCode, 'Das ETag passt nicht - das Datum darf das nicht überstimmen');
+        $this->assertSame((string)file_get_contents($dateiA), $antwort->body);
+    }
+
+    /** Listen, schwache ETags (etwa nach Proxy-Kompression) und `*`. */
+    public function testEtagListeUndSchwachesEtag(): void {
+        $id = $this->seedHorseWithPhoto(true);
+        $url = '/media/horse-image?id=' . $id;
+        $gast = $this->newClient();
+        $etag = (string)$gast->get($url)->header('ETag');
+        $this->assertNotSame('', $etag);
+
+        foreach (['"anderes", ' . $etag, 'W/' . $etag, '"x",W/' . $etag . ' ,"y"', '*'] as $kopf) {
+            $this->assertSame(304, $gast->get($url, ['If-None-Match' => $kopf])->statusCode, "If-None-Match: {$kopf}");
+        }
+        $this->assertSame(200, $gast->get($url, ['If-None-Match' => '"anderes", W/"noch-eins"'])->statusCode);
+    }
+
+    public function testIfModifiedSinceOhneIfNoneMatchBleibtWirksam(): void {
+        $id = $this->seedHorseWithPhoto(true);
+        $url = '/media/horse-image?id=' . $id;
+        $gast = $this->newClient();
+        $lm = (string)$gast->get($url)->header('Last-Modified');
+
+        $this->assertSame(304, $gast->get($url, ['If-Modified-Since' => $lm])->statusCode);
+        $this->assertSame(200, $gast->get($url, ['If-Modified-Since' => gmdate('D, d M Y H:i:s', time() - 86400 * 400) . ' GMT'])->statusCode);
+    }
+
     private function seedHorseWithPhoto(bool $published, bool $neuerOrt = false): int {
         $dir = $neuerOrt
             ? \App\Helper\HorseImagePath::dir()          // storage/horses (#366)

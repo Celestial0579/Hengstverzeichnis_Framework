@@ -160,10 +160,23 @@ class AdminController extends BaseController {
             return 'logo_upload';
         }
 
+        // Metadaten entfernen, BEVOR die Datei im Webroot liegt (Audit M21):
+        // Das Logo wird ohne jede Prüfung öffentlich ausgeliefert, samt GPS,
+        // Kamera und Aufnahmezeit, wenn es als Foto entstanden ist. Ein Aufbau,
+        // den der Parser nicht lesen kann, wird abgelehnt - das alte Logo
+        // bleibt.
+        $inhalt = @file_get_contents($file['tmp_name']);
+        $inhalt = $inhalt === false ? null : \App\Service\BildMetadaten::bereinigeBytes($inhalt);
+        if ($inhalt === null) {
+            @unlink($file['tmp_name']);
+            return 'logo_type';
+        }
+
         $filename = 'logo_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $allowedMimeTypes[$mime];
-        if (!@move_uploaded_file($file['tmp_name'], $uploadDir . $filename)) {
+        if (!\App\Helper\AtomicFile::write($uploadDir . $filename, $inhalt, 0644)) {
             return 'logo_upload';
         }
+        @unlink($file['tmp_name']);
 
         $newLogoUrl = '/uploads/branding/' . $filename;
         $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('site_logo', ?) ON DUPLICATE KEY UPDATE setting_value = ?");

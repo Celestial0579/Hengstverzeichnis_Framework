@@ -94,9 +94,21 @@ final class HorseMedia {
      * `horses.image_url`, damit das Hauptbild ohne Umrechnung uebernommen
      * werden kann.
      *
+     * Die EINZIGE Ablagestelle fuer Pferdefotos (auch das Foto beim Anlegen
+     * eines Pferds, HorseController). Metadaten (GPS, Kamera, Aufnahmezeit,
+     * XMP, Kommentare, angehaengte Bewegungsfotos) werden VOR der Ablage
+     * entfernt (Audit M21, BildMetadaten): Der Inhalt wird eingelesen,
+     * bereinigt und atomar an den endgueltigen Namen geschrieben. Eine
+     * Rohfassung liegt so zu keinem Zeitpunkt in storage/horses - auch nicht
+     * nach einem Prozessabbruch, und damit auch in keiner Sicherung
+     * (BackupService sichert das ganze Verzeichnis). Laesst sich der Aufbau
+     * nicht lesen, wird der Upload abgelehnt.
+     *
      * @param array<string, mixed>|null $file Eintrag aus $_FILES
+     * @param array<string, string>|null $erlaubt MIME-Typ => Endung; Vorgabe
+     *   ERLAUBTE_TYPEN
      */
-    public static function speichereUpload(?array $file): ?string {
+    public static function speichereUpload(?array $file, ?array $erlaubt = null): ?string {
         if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return null;
         }
@@ -106,20 +118,36 @@ final class HorseMedia {
 
         // Positivliste ueber den tatsaechlichen Inhalt, nicht ueber die
         // Endung im Namen - dieselbe Pruefung wie beim Kernfoto.
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file((string)$file['tmp_name']);
-        if (!isset(self::ERLAUBTE_TYPEN[$mime])) {
+        $erlaubt ??= self::ERLAUBTE_TYPEN;
+        $tmp = (string)($file['tmp_name'] ?? '');
+        if ($tmp === '' || !is_uploaded_file($tmp)) {
+            return null;
+        }
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file($tmp);
+        if (!is_string($mime) || !isset($erlaubt[$mime])) {
+            return null;
+        }
+
+        $inhalt = @file_get_contents($tmp);
+        if ($inhalt === false) {
+            return null;
+        }
+        $inhalt = BildMetadaten::bereinigeBytes($inhalt);
+        if ($inhalt === null) {
+            @unlink($tmp);
             return null;
         }
 
         $verzeichnis = HorseImagePath::dir() . '/';
-        if (!is_dir($verzeichnis) && !mkdir($verzeichnis, 0755, true) && !is_dir($verzeichnis)) {
+        if (!is_dir($verzeichnis) && !@mkdir($verzeichnis, 0755, true) && !is_dir($verzeichnis)) {
             return null;
         }
 
-        $name = 'horse_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . self::ERLAUBTE_TYPEN[$mime];
-        if (!move_uploaded_file((string)$file['tmp_name'], $verzeichnis . $name)) {
+        $name = 'horse_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $erlaubt[$mime];
+        if (!\App\Helper\AtomicFile::write($verzeichnis . $name, $inhalt, 0644)) {
             return null;
         }
+        @unlink($tmp);
 
         return '/uploads/horses/' . $name;
     }
@@ -355,6 +383,8 @@ final class HorseMedia {
             if (is_file($pfad)) {
                 @unlink($pfad);
             }
+            // Reste eines abgebrochenen atomaren Schreibens (Audit M21/N80).
+            \App\Helper\AtomicFile::resteEntfernen($pfad);
         }
 
         // Die abgeleiteten Vorschaubilder gehen mit (#397). Ohne diese Zeile

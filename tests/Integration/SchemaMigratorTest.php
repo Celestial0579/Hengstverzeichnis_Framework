@@ -593,4 +593,167 @@ class SchemaMigratorTest extends TestCase {
             }
         }
     }
+
+    /**
+     * Metadaten der Bestandsfotos (Audit M21, N81, SCHEMA_VERSION 29).
+     *
+     * Der Schritt schreibt Originale um, die es nur einmal gibt. Geprüft
+     * wird deshalb nicht nur, DASS bereinigt wird, sondern auch, was er in
+     * Ruhe lässt: eine unlesbare Datei bleibt bytegleich, eine fehlende wird
+     * übersprungen, ein zweiter Lauf tut nichts.
+     */
+    #[Depends('testRunOnCurrentSchemaOnlyPersistsVersion')]
+    public function testBestandsfotosVerlierenIhreMetadaten(): void {
+        [$dir, $alt, $protokoll] = $this->bildAblageAnlegen();
+        try {
+            // Hauptbild und Galeriebild teilen sich eine Datei (syncMainImage).
+            file_put_contents($dir . '/horse_1_geteilt.jpg', \Tests\Support\BildFixtures::jpeg(6));
+            file_put_contents($dir . '/horse_1_geteilt_thumb.jpg', 'ALTE-VORSCHAU');
+            // Im alten Ort im Webroot (#366-Rückfall), Groß-/Kleinschreibung zählt.
+            file_put_contents($alt . '/Horse_2_Alt.jpg', \Tests\Support\BildFixtures::jpeg(1));
+            // Unlesbar, aber gedreht: bleibt, seine Vorschau geht trotzdem.
+            $unlesbar = \Tests\Support\BildFixtures::unlesbaresJpeg();
+            file_put_contents($dir . '/horse_3_kaputt.jpg', $unlesbar);
+            file_put_contents($dir . '/horse_3_kaputt_card.jpg', 'GEDREHTE-VORSCHAU');
+
+            $h1 = $this->pferdMitBild('/uploads/horses/horse_1_geteilt.jpg');
+            $this->medium($h1, '/uploads/horses/horse_1_geteilt.jpg');
+            $this->pferdMitBild('/uploads/horses/Horse_2_Alt.jpg');
+            $this->pferdMitBild('/uploads/horses/horse_3_kaputt.jpg');
+            $this->pferdMitBild('/uploads/horses/horse_4_fehlt.jpg');
+            self::$pdo->exec("UPDATE horses SET deleted_at = NOW() WHERE image_url LIKE '%horse_3%'"); // Papierkorb zählt mit
+
+            $schritte = $this->bildSchrittLaufenLassen();
+
+            $this->assertContains('Bildmetadaten (Audit M21): 2 Foto(s) bereinigt, 1 nicht lesbar (unverändert, siehe Fehlerprotokoll)', $schritte);
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_1_geteilt.jpg'));
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($alt . '/Horse_2_Alt.jpg'));
+            $this->assertSame(6, \App\Service\BildMetadaten::orientierung((string)file_get_contents($dir . '/horse_1_geteilt.jpg')));
+            $this->assertFileDoesNotExist($dir . '/horse_1_geteilt_thumb.jpg', 'Vorschau des umgeschriebenen Fotos verworfen');
+            $this->assertSame($unlesbar, file_get_contents($dir . '/horse_3_kaputt.jpg'), 'Unlesbares bleibt bytegleich');
+            $this->assertFileDoesNotExist($dir . '/horse_3_kaputt_card.jpg', 'Gedrehte Vorschau geht auch bei unlesbarem Original');
+            $this->assertStringContainsString('horse_3_kaputt.jpg', (string)file_get_contents($protokoll), 'error_log nennt die Datei');
+            $this->assertNull(self::einstellung('bildmetadaten_cursor'), 'Cursor nach vollständigem Lauf gelöscht');
+            $this->assertNotNull(self::einstellung('migration_bildmetadaten_entfernen'));
+            $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo));
+
+            // Zweiter Lauf (Marker gelöscht, erzwungen): keine Wirkung.
+            $vorher = md5_file($dir . '/horse_1_geteilt.jpg');
+            $schritte = $this->bildSchrittLaufenLassen();
+            $this->assertContains('Bildmetadaten (Audit M21): 0 Foto(s) bereinigt, 1 nicht lesbar (unverändert, siehe Fehlerprotokoll)', $schritte);
+            $this->assertSame($vorher, md5_file($dir . '/horse_1_geteilt.jpg'));
+            $this->assertSame([], glob($dir . '/.*.tmp') ?: []);
+        } finally {
+            $this->bildAblageAufraeumen($dir, $alt, $protokoll);
+        }
+    }
+
+    /**
+     * Wiederaufnahme: Der Cursor steht auf dem ersten Wert, der Marker fehlt
+     * - bearbeitet werden nur die späteren. Und mit erschöpftem Zeitbudget
+     * meldet sich der Schritt offen (Audit N76), der Stand wird nicht
+     * gestempelt, der nächste Lauf setzt fort.
+     */
+    #[Depends('testBestandsfotosVerlierenIhreMetadaten')]
+    public function testBildschrittSetztHinterDemCursorFort(): void {
+        [$dir, $alt, $protokoll] = $this->bildAblageAnlegen();
+        try {
+            foreach (['a', 'b', 'c'] as $n) {
+                file_put_contents($dir . "/horse_9_{$n}.jpg", \Tests\Support\BildFixtures::jpeg(1));
+                $this->pferdMitBild("/uploads/horses/horse_9_{$n}.jpg");
+            }
+            $roh = (string)file_get_contents($dir . '/horse_9_a.jpg');
+
+            // 1. Wiederaufnahme ab gesetztem Cursor.
+            self::$pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('bildmetadaten_cursor', ?)")
+                ->execute(['/uploads/horses/horse_9_a.jpg']);
+            $schritte = $this->bildSchrittLaufenLassen();
+            $this->assertSame($roh, file_get_contents($dir . '/horse_9_a.jpg'), 'Vor dem Cursor: nicht angefasst');
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_b.jpg'));
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_c.jpg'));
+            $this->assertContains('Bildmetadaten (Audit M21): 2 Foto(s) bereinigt, 0 nicht lesbar (unverändert, siehe Fehlerprotokoll)', $schritte);
+
+            // 2. Zeitbudget 0: je Lauf genau eine Datei, dann offen.
+            foreach (['b', 'c'] as $n) {
+                file_put_contents($dir . "/horse_9_{$n}.jpg", \Tests\Support\BildFixtures::jpeg(1));
+            }
+            SchemaMigrator::setzeBildBudgetFuerTests(0.0);
+            $schritte = $this->bildSchrittLaufenLassen();
+            $this->assertNotEmpty(array_filter($schritte, static fn(string $z): bool => str_contains($z, 'bis zum Zeitlimit')));
+            $this->assertSame(SchemaMigrator::SCHEMA_VERSION - 1, SchemaMigrator::storedVersion(self::$pdo), 'Offen: kein Versionsstempel');
+            $this->assertNull(self::einstellung('migration_bildmetadaten_entfernen'));
+            $this->assertSame('/uploads/horses/horse_9_a.jpg', self::einstellung('bildmetadaten_cursor'));
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_a.jpg'));
+            $this->assertStringContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_b.jpg'));
+
+            // Der nächste (ungedrosselte) Lauf setzt hinter dem Cursor fort.
+            SchemaMigrator::setzeBildBudgetFuerTests(null);
+            SchemaMigrator::run(self::$pdo);
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_b.jpg'));
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_c.jpg'));
+            $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion(self::$pdo));
+            $this->assertNull(self::einstellung('bildmetadaten_cursor'));
+        } finally {
+            SchemaMigrator::setzeBildBudgetFuerTests(false);
+            $this->bildAblageAufraeumen($dir, $alt, $protokoll);
+        }
+    }
+
+    /** @return array{0:string,1:string,2:string} Ablage, Altablage, Fehlerprotokoll */
+    private function bildAblageAnlegen(): array {
+        $dir = sys_get_temp_dir() . '/' . uniqid('hengst_bm_neu_');
+        $alt = sys_get_temp_dir() . '/' . uniqid('hengst_bm_alt_');
+        mkdir($dir, 0777, true);
+        mkdir($alt, 0777, true);
+        \App\Helper\HorseImagePath::overrideForTests($dir, $alt);
+        self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        self::$pdo->exec('DELETE FROM horse_media');
+        self::$pdo->exec('DELETE FROM horses');
+        self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+        self::$pdo->exec("DELETE FROM settings WHERE setting_key = 'bildmetadaten_cursor'");
+
+        // error_log() in eine Datei statt auf stderr.
+        $protokoll = (string)tempnam(sys_get_temp_dir(), 'hv_bm_log_');
+        $this->altesProtokoll = (string)ini_get('error_log');
+        ini_set('error_log', $protokoll);
+
+        return [$dir, $alt, $protokoll];
+    }
+
+    private string $altesProtokoll = '';
+
+    private function bildAblageAufraeumen(string $dir, string $alt, string $protokoll): void {
+        ini_set('error_log', $this->altesProtokoll);
+        @unlink($protokoll);
+        \App\Helper\HorseImagePath::overrideForTests(null, null);
+        foreach ([$dir, $alt] as $d) {
+            foreach (glob($d . '/{,.}*', GLOB_BRACE) ?: [] as $datei) {
+                if (is_file($datei)) {
+                    @unlink($datei);
+                }
+            }
+            @rmdir($d);
+        }
+        self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        self::$pdo->exec('DELETE FROM horse_media');
+        self::$pdo->exec('DELETE FROM horses');
+        self::$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    private function pferdMitBild(string $wert): int {
+        self::$pdo->prepare('INSERT INTO horses (name, image_url) VALUES (?, ?)')->execute(['Bildpferd', $wert]);
+        return (int)self::$pdo->lastInsertId();
+    }
+
+    private function medium(int $horseId, string $wert): void {
+        self::$pdo->prepare("INSERT INTO horse_media (horse_id, type, file_name, is_main) VALUES (?, 'image', ?, 1)")
+            ->execute([$horseId, $wert]);
+    }
+
+    /** @return string[] */
+    private function bildSchrittLaufenLassen(): array {
+        self::$pdo->exec("DELETE FROM settings WHERE setting_key IN ('migration_bildmetadaten_entfernen', 'schema_migration_status')");
+        self::$pdo->exec("UPDATE settings SET setting_value = '" . (SchemaMigrator::SCHEMA_VERSION - 1) . "' WHERE setting_key = 'schema_version'");
+        return SchemaMigrator::run(self::$pdo);
+    }
 }

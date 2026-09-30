@@ -314,4 +314,47 @@ class HorseThumbnailTest extends FunctionalTestCase {
         );
         $this->assertStringContainsString("data-medium", $skript);
     }
+
+    /**
+     * Audit N81: Handy-Hochformate sind quer gespeichert, mit EXIF-Ausrichtung
+     * 6. GD ignoriert die, die Vorschau trägt kein EXIF - sie lag quer.
+     * Das Quellbild ist oben rot, unten blau; um 90° im Uhrzeigersinn
+     * gedreht steht Rot rechts.
+     */
+    public function testEinHochformatFotoMitOrientierungSechsErscheintAufrecht(): void {
+        $dir = \App\Helper\HorseImagePath::dir();
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $name = 'thumbhoch_' . uniqid() . '.jpg';
+        $pfad = $dir . '/' . $name;
+        file_put_contents($pfad, \Tests\Support\BildFixtures::gdJpeg(1800, 1200, 6));
+        $this->dateien[] = $pfad;
+
+        $db = Database::getInstance();
+        $db->prepare("INSERT INTO horses (name, sex, image_url, is_published, created_at) VALUES (?, 'stallion', ?, 1, NOW())")
+           ->execute(['Hochformat ' . uniqid(), '/uploads/horses/' . $name]);
+        $id = (int)$db->lastInsertId();
+        $this->pferde[] = $id;
+        $this->schalter(true);
+
+        $antwort = $this->newClient()->get('/media/horse-image?id=' . $id . '&groesse=thumb');
+        $this->assertSame(200, $antwort->statusCode);
+        $bild = imagecreatefromstring($antwort->body);
+        $this->assertNotFalse($bild, 'Die Vorschau ist ein Bild');
+        $breite = imagesx($bild);
+        $hoehe = imagesy($bild);
+        $this->assertLessThan($hoehe, $breite, "Hochformat erwartet, bekommen {$breite}x{$hoehe}");
+
+        $farbe = static function (int $x, int $y) use ($bild): array {
+            $c = imagecolorat($bild, $x, $y);
+            return [($c >> 16) & 0xFF, ($c >> 8) & 0xFF, $c & 0xFF];
+        };
+        [$r, , $b] = $farbe($breite - 5, (int)($hoehe / 2));
+        $this->assertGreaterThan(200, $r, 'Rechts muss Rot stehen (oben im Original)');
+        $this->assertLessThan(60, $b);
+        [$r, , $b] = $farbe(4, (int)($hoehe / 2));
+        $this->assertGreaterThan(200, $b, 'Links muss Blau stehen (unten im Original)');
+        $this->assertLessThan(60, $r);
+    }
 }

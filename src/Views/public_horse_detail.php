@@ -371,7 +371,7 @@ $galerie = array_values(array_filter(
                               // Ohne die Grossfassung zeigte die Lightbox seit den
                               // Vorschaubildern ein hochskaliertes Vorschaubild - der
                               // Schalter haette die Grossansicht mit verschlechtert. ?>
-                        <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id'], 'thumb') ?? '') ?>"
+                        <img src="<?= htmlspecialchars(App\Helper\MediaUrl::horseMediaImage((int)$medium['id'], 'thumb', (string)($medium['file_name'] ?? '')) ?? '') ?>"
                              data-medium="<?= (int)$medium['id'] ?>"
                              alt="<?= $bildunterschrift ?>" loading="lazy" decoding="async"
                              class="horse-gallery-image"

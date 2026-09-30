@@ -710,6 +710,69 @@ Die automatische Zuordnung von Anfragen zu Kontakten (Audit M12) folgt den
 Regeln der manuellen Suche: ab drei Zeichen (sonst über die E-Mail-Adresse),
 LIKE-Platzhalter wörtlich, höchstens 50 Treffer je Anfrage mit Hinweis.
 
+## Metadaten hochgeladener Fotos (`src/Service/BildMetadaten.php`)
+
+Handyfotos tragen im EXIF-Block die GPS-Position der Aufnahme, Zeitpunkt,
+Kameramodell und Seriennummer, oft zusätzlich als XMP. Ein Foto vom eigenen
+Hof verriet so die Hofadresse, auch wenn die Kontaktdaten des Besitzers gar
+nicht öffentlich sind (Audit M21). Seitdem gilt:
+
+- **Beim Upload** (Galerie, Foto im Anlegeformular, Verbandslogo) wird der
+  Inhalt eingelesen, bereinigt und erst dann atomar an seinen endgültigen
+  Platz geschrieben. Eine Rohfassung liegt zu keinem Zeitpunkt in
+  `storage/horses` oder `public/uploads/branding` und damit auch in keiner
+  Sicherung. Einen Aufbau, den der Parser nicht lesen kann, lehnt der Upload
+  ab (`media_invalid` bzw. `logo_type`, das alte Logo bleibt).
+- **Entfernt** werden EXIF, XMP (auch Extended XMP), IPTC/Photoshop,
+  Kommentare, eingebettete Vorschaubilder, MPF, JUMBF/C2PA sowie alles hinter
+  dem Dateiende (Bewegungsfotos, HDR-Gain-Maps, Herstellerdaten). Bei PNG
+  bleiben nur Farb-, Maß- und Animationschunks, bei WebP die Bild-, Alpha-,
+  Animations- und ICC-Chunks, bei GIF Bilddaten, Graphic Control, Plain Text
+  und die Animations-Anwendungsblöcke.
+- **Erhalten** bleiben das Farbprofil (ICC, Adobe-APP14) und die
+  Ausrichtung. Sie wird als minimaler EXIF-Eintrag mit genau einem Tag
+  (0x0112) neu geschrieben.
+- Der Parser ist ein reiner **Strukturparser** mit Positivliste. Er dekodiert
+  keine Pixel, braucht weder GD noch ext/exif und kopiert die Bilddaten
+  bytegleich. Vor jedem Schreiben müssen `getimagesizefromstring()` für
+  Original und Ergebnis dieselben Maße und denselben Typ melden.
+- **Bestand:** Das Update mit `SCHEMA_VERSION` 29 bereinigt einmalig alle
+  in `horses.image_url` und `horse_media.file_name` referenzierten Fotos
+  (auch im Papierkorb) und das Verbandslogo. Im Web läuft der Schritt
+  höchstens 20 Sekunden je Aufruf und setzt danach hinter dem Cursor
+  `bildmetadaten_cursor` fort; `php database/migrate.php` läuft ohne
+  Zeitgrenze. Nicht lesbare Dateien bleiben unverändert und stehen je Datei
+  im Fehlerprotokoll (`BildMetadaten: nicht lesbar …`).
+- **Was der Schutz nicht erreicht:** Sicherungen von vor dem Update, ein
+  manuell zurückgespieltes altes `uploads`-Archiv und Importe über das Addon
+  `datenmigration` bringen Rohdateien zurück. Danach entweder
+  `\App\Service\BildMetadaten::bestandBereinigen($pdo)` aufrufen oder den
+  Marker `migration_bildmetadaten_entfernen` in `settings` löschen und
+  `php database/migrate.php` ausführen (der Schritt ist idempotent).
+
+## Zwischenspeichern von Pferdefotos (`src/Controllers/MediaController.php`)
+
+Die Bildadressen aus `App\Helper\MediaUrl` tragen eine Version
+(`&v=<12 hex>`), einen Hash des gespeicherten Dateiwerts (Audit M14). Sie
+ändert sich mit dem Foto.
+
+- Veröffentlicht und passende Version:
+  `Cache-Control: public, max-age=31536000, s-maxage=300`. Ein Jahr gilt nur
+  für den Browser; gemeinsame Caches fragen nach spätestens fünf Minuten
+  nach, denn eine Depublikation ändert die Adresse nicht.
+- Veröffentlicht, ohne oder mit falscher Version: `public, max-age=300`.
+- Nicht veröffentlicht: `private, no-store` (#315).
+
+**Betrieb hinter Reverse-Proxy oder CDN:** Der Cache muss `s-maxage`
+beachten und den Query-String im Cache-Schlüssel führen. Eigene Regeln, die
+eine Edge-TTL erzwingen (etwa „Cache Everything“ mit fester TTL), heben den
+Schutz auf: Das Foto eines depublizierten Pferds bliebe dann so lange
+abrufbar, wie die Regel es festlegt.
+
+Bedingte Anfragen folgen RFC 9110 (Audit N50): Sendet der Client
+`If-None-Match`, entscheidet allein das ETag (schwacher Vergleich, Listen und
+`*`); `If-Modified-Since` gilt nur ohne `If-None-Match`.
+
 ## E-Mail-Versand (`src/Service/Mailer.php`)
 
 Eigener minimaler SMTP-Client (kein PHPMailer/Symfony-Mailer-Abhängigkeit).

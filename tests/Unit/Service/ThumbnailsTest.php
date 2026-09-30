@@ -36,10 +36,50 @@ class ThumbnailsTest extends TestCase {
         HorseImagePath::overrideForTests(null, null);
         Thumbnails::overrideVerfuegbarForTests(null);
 
-        foreach (glob($this->dir . '/*') ?: [] as $datei) {
-            @unlink($datei);
+        foreach (glob($this->dir . '/{,.}*', GLOB_BRACE) ?: [] as $datei) {
+            if (is_file($datei)) {
+                @unlink($datei);
+            }
         }
         @rmdir($this->dir);
+    }
+
+    /** @return string[] Temp-Reste des atomaren Schreibens */
+    private function tempReste(): array {
+        return glob($this->dir . '/.*.tmp') ?: [];
+    }
+
+    /**
+     * Ein Quellbild mit vier Farbquadranten und einem grünen Streifen am
+     * oberen Rand, gespeichert als JPEG mit EXIF-Ausrichtung $o.
+     */
+    private function ausgerichtetesBildAnlegen(string $name, int $o): string {
+        $bild = imagecreatetruecolor(1800, 1200);
+        $farben = [
+            [0, 0, 255, 0, 0], [900, 0, 0, 0, 255],          // oben: rot, blau
+            [0, 600, 255, 255, 0], [900, 600, 255, 0, 255],  // unten: gelb, magenta
+        ];
+        foreach ($farben as [$x, $y, $r, $g, $b]) {
+            imagefilledrectangle($bild, $x, $y, $x + 899, $y + 599, (int)imagecolorallocate($bild, $r, $g, $b));
+        }
+        imagefilledrectangle($bild, 0, 0, 1799, 59, (int)imagecolorallocate($bild, 0, 255, 0));
+        ob_start();
+        imagejpeg($bild, null, 92);
+        $jpeg = (string)ob_get_clean();
+        unset($bild);
+
+        $tiff = 'II' . pack('vV', 42, 8) . pack('v', 1) . pack('vvVvv', 0x0112, 3, 1, $o, 0) . pack('V', 0);
+        $app1 = "\xFF\xE1" . pack('n', 2 + 6 + strlen($tiff)) . "Exif\0\0" . $tiff;
+        $pfad = $this->dir . '/' . $name;
+        file_put_contents($pfad, "\xFF\xD8" . $app1 . substr($jpeg, 2));
+
+        return $pfad;
+    }
+
+    /** @return array{0:int,1:int,2:int} */
+    private static function farbe(\GdImage $bild, int $x, int $y): array {
+        $c = imagecolorat($bild, $x, $y);
+        return [($c >> 16) & 0xFF, ($c >> 8) & 0xFF, $c & 0xFF];
     }
 
     private function bildAnlegen(string $name, int $breite, int $hoehe): string {
@@ -188,13 +228,128 @@ class ThumbnailsTest extends TestCase {
                 Thumbnails::erzeugen($pfad, $groesse, '/uploads/horses/horse_8_op.jpg')
             );
         }
+        // Rest eines abgebrochenen atomaren Schreibens (Audit N80).
+        file_put_contents($this->dir . '/.horse_8_op_thumb.jpg.0123456789abcdef.tmp', 'halb');
 
         Thumbnails::entfernen('/uploads/horses/horse_8_op.jpg');
 
         foreach (array_keys(Thumbnails::GROESSEN) as $groesse) {
             $this->assertNull(Thumbnails::pfad('/uploads/horses/horse_8_op.jpg', $groesse));
+            $this->assertFileDoesNotExist($this->dir . '/horse_8_op_' . $groesse . '.jpg');
         }
+        $this->assertSame([], $this->tempReste(), 'Auch der Temp-Rest geht mit.');
         $this->assertFileExists($pfad, 'Das Original bleibt - geloescht wird es woanders.');
+    }
+
+    public function testDieVorschauEntstehtAtomarUndVollstaendig(): void {
+        $pfad = $this->bildAnlegen('horse_20_ab.jpg', 2000, 1500);
+
+        $ziel = Thumbnails::erzeugen($pfad, 'thumb', '/uploads/horses/horse_20_ab.jpg');
+
+        $this->assertNotNull($ziel);
+        $this->assertSame([], $this->tempReste());
+        $this->assertStringEndsWith("\xFF\xD9", (string)file_get_contents($ziel));
+        $this->assertTrue(Thumbnails::vollstaendig($ziel));
+        $this->assertSame(0644, fileperms($ziel) & 0777);
+    }
+
+    public function testEineAbgeschnitteneVorschauWirdErsetzt(): void {
+        /* Audit N80: Eine halbe Vorschau war jünger als das Original und
+           wurde deshalb nie neu erzeugt. */
+        $pfad = $this->bildAnlegen('horse_21_ab.jpg', 2000, 1500);
+        touch($pfad, time() - 3600);
+        $ziel = (string)Thumbnails::erzeugen($pfad, 'thumb', '/uploads/horses/horse_21_ab.jpg');
+        $voll = (string)file_get_contents($ziel);
+        file_put_contents($ziel, substr($voll, 0, (int)(strlen($voll) / 2)));
+        clearstatcache();
+
+        $this->assertFalse(Thumbnails::vollstaendig($ziel));
+        $this->assertNull(Thumbnails::pfad('/uploads/horses/horse_21_ab.jpg', 'thumb'), 'Eine halbe Datei gilt nicht als vorhanden.');
+
+        $neu = Thumbnails::erzeugen($pfad, 'thumb', '/uploads/horses/horse_21_ab.jpg');
+
+        $this->assertSame($ziel, $neu);
+        $this->assertTrue(Thumbnails::vollstaendig($ziel));
+        $this->assertNotNull(Thumbnails::pfad('/uploads/horses/horse_21_ab.jpg', 'thumb'));
+    }
+
+    public function testEineLeereVorschauGiltNichtAlsVorhanden(): void {
+        $pfad = $this->bildAnlegen('horse_22_ab.jpg', 2000, 1500);
+        touch($pfad, time() - 3600);
+        file_put_contents($this->dir . '/horse_22_ab_thumb.jpg', '');
+
+        $this->assertNull(Thumbnails::pfad('/uploads/horses/horse_22_ab.jpg', 'thumb'));
+        $ziel = Thumbnails::erzeugen($pfad, 'thumb', '/uploads/horses/horse_22_ab.jpg');
+        $this->assertNotNull($ziel);
+        $this->assertGreaterThan(0, filesize($ziel));
+    }
+
+    /**
+     * Wohin landet die Ecke oben links des gespeicherten Bilds in der
+     * Anzeige? Für jede Ausrichtung - und mit ihr die Maße.
+     *
+     * @return array<string, array{0:int,1:array{0:int,1:int},2:string,3:string}>
+     */
+    public static function ausrichtungen(): array {
+        // [Ausrichtung, [Breite, Höhe], Farbe oben links angezeigt, Farbe oben rechts angezeigt]
+        return [
+            '1 wie gespeichert' => [1, [320, 213], 'rot', 'blau'],
+            '2 gespiegelt' => [2, [320, 213], 'blau', 'rot'],
+            '3 180 Grad' => [3, [320, 213], 'magenta', 'gelb'],
+            '4 vertikal gespiegelt' => [4, [320, 213], 'gelb', 'magenta'],
+            '5 transponiert' => [5, [213, 320], 'rot', 'gelb'],
+            '6 90 Grad im Uhrzeigersinn' => [6, [213, 320], 'gelb', 'rot'],
+            '7 transversal' => [7, [213, 320], 'magenta', 'blau'],
+            '8 90 Grad gegen den Uhrzeigersinn' => [8, [213, 320], 'blau', 'magenta'],
+        ];
+    }
+
+    /**
+     * @param array{0:int,1:int} $masse
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('ausrichtungen')]
+    public function testDieVorschauBeruecksichtigtDieAusrichtung(int $o, array $masse, string $obenLinks, string $obenRechts): void {
+        $pfad = $this->ausgerichtetesBildAnlegen('horse_3' . $o . '_or.jpg', $o);
+
+        $ziel = Thumbnails::erzeugen($pfad, 'thumb', '/uploads/horses/horse_3' . $o . '_or.jpg');
+
+        $this->assertNotNull($ziel);
+        $bild = imagecreatefromjpeg($ziel);
+        $this->assertSame($masse, [imagesx($bild), imagesy($bild)]);
+        $this->assertSame(1, \App\Service\BildMetadaten::orientierung((string)file_get_contents($ziel)), 'Die Vorschau trägt kein EXIF mehr.');
+
+        $farben = ['rot' => [255, 0, 0], 'blau' => [0, 0, 255], 'gelb' => [255, 255, 0], 'magenta' => [255, 0, 255]];
+        $b = imagesx($bild);
+        $h = imagesy($bild);
+        // Etwas nach innen, weg vom grünen Streifen und von den Kanten.
+        $proben = [$obenLinks => [(int)($b * 0.3), (int)($h * 0.3)], $obenRechts => [(int)($b * 0.7), (int)($h * 0.3)]];
+        foreach ($proben as $name => [$x, $y]) {
+            [$r, $g, $bl] = self::farbe($bild, $x, $y);
+            $soll = $farben[$name];
+            $this->assertLessThan(60, abs($r - $soll[0]) + abs($g - $soll[1]) + abs($bl - $soll[2]),
+                "Ausrichtung {$o}: bei ({$x}, {$y}) sollte {$name} liegen, ist [{$r}, {$g}, {$bl}].");
+        }
+
+        // Der grüne Streifen (oben im gespeicherten Bild) zeigt die Richtung.
+        $streifen = match ($o) {
+            1, 2 => [(int)($b / 2), 2],
+            3, 4 => [(int)($b / 2), $h - 3],
+            5, 8 => [2, (int)($h / 2)],
+            default => [$b - 3, (int)($h / 2)],
+        };
+        [$r, $g, $bl] = self::farbe($bild, $streifen[0], $streifen[1]);
+        $this->assertGreaterThan(180, $g, "Ausrichtung {$o}: grüner Streifen erwartet bei ({$streifen[0]}, {$streifen[1]}).");
+        $this->assertLessThan(80, $r + $bl);
+    }
+
+    public function testOhneExifBleibtEsBeimQuerformat(): void {
+        $pfad = $this->bildAnlegen('horse_40_qf.jpg', 1800, 1200);
+
+        $ziel = Thumbnails::erzeugen($pfad, 'thumb', '/uploads/horses/horse_40_qf.jpg');
+
+        $this->assertNotNull($ziel);
+        [$b, $h] = getimagesize($ziel);
+        $this->assertSame([320, 213], [$b, $h]);
     }
 
     public function testOhneGdPassiertGarNichts(): void {

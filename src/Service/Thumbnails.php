@@ -3,6 +3,7 @@
 
 namespace App\Service;
 
+use App\Helper\AtomicFile;
 use App\Helper\HorseImagePath;
 
 /**
@@ -133,7 +134,11 @@ final class Thumbnails {
         return pathinfo($name, PATHINFO_FILENAME) . '_' . $groesse . '.jpg';
     }
 
-    /** Pfad einer VORHANDENEN verkleinerten Fassung, sonst null. */
+    /**
+     * Pfad einer VORHANDENEN und VOLLSTÄNDIGEN verkleinerten Fassung, sonst
+     * null. Eine abgeschnittene Altdatei (Audit N80) gilt als nicht
+     * vorhanden und wird beim nächsten Abruf neu erzeugt.
+     */
     public static function pfad(string $original, string $groesse): ?string {
         $name = self::dateiname($original, $groesse);
         if ($name === null) {
@@ -141,7 +146,33 @@ final class Thumbnails {
         }
 
         $voll = HorseImagePath::dir() . '/' . $name;
-        return is_file($voll) ? $voll : null;
+        return self::vollstaendig($voll) ? $voll : null;
+    }
+
+    /**
+     * Ist die Vorschau ein vollständiges JPEG - nicht leer, und die letzten
+     * zwei Bytes sind der Dateiende-Marker FFD9?
+     *
+     * Vorschaubilder schrieb imagejpeg() bis Audit N80 direkt an ihren
+     * Platz. Starb der Prozess mittendrin (Zeitlimit, volle Platte), blieb
+     * eine halbe Datei liegen, die jünger als das Original war und deshalb
+     * nie ersetzt wurde - ein halbes Bild, ein Jahr im Cache. Neue Vorschauen
+     * entstehen atomar (AtomicFile::ersetzen()); diese Prüfung fängt die
+     * Altlasten und dient dort als Prüfer vor dem rename().
+     */
+    public static function vollstaendig(string $pfad): bool {
+        clearstatcache(true, $pfad);
+        if (!is_file($pfad) || (int)@filesize($pfad) < 2) {
+            return false;
+        }
+        $fh = @fopen($pfad, 'rb');
+        if ($fh === false) {
+            return false;
+        }
+        $ende = @fseek($fh, -2, SEEK_END) === 0 ? @fread($fh, 2) : false;
+        @fclose($fh);
+
+        return $ende === "\xFF\xD9";
     }
 
     /**
@@ -168,8 +199,8 @@ final class Thumbnails {
         }
         $zielPfad = $verzeichnis . '/' . $ziel;
 
-        // Schon da und nicht älter als das Original.
-        if (is_file($zielPfad) && filemtime($zielPfad) >= (filemtime($originalPfad) ?: 0)) {
+        // Schon da, vollständig und nicht älter als das Original.
+        if (self::vollstaendig($zielPfad) && filemtime($zielPfad) >= (filemtime($originalPfad) ?: 0)) {
             return $zielPfad;
         }
 
@@ -195,6 +226,12 @@ final class Thumbnails {
             return null;
         }
 
+        // Die Ausrichtung (Audit N81) steht im EXIF des Originals. GD
+        // ignoriert sie, und die Vorschau ist ein JPEG OHNE EXIF - ein
+        // Hochformatfoto vom Handy lag deshalb quer, sobald die Vorschauen
+        // eingeschaltet waren. Gedreht wird erst das kleine Bild.
+        $orientierung = BildMetadaten::orientierung($rohdaten);
+
         $quelle = @imagecreatefromstring($rohdaten);
         unset($rohdaten);
         if ($quelle === false) {
@@ -213,6 +250,11 @@ final class Thumbnails {
             return null;
         }
 
+        $neu = self::ausrichten($neu, $orientierung);
+        if ($neu === null) {
+            return null;                       // lieber das Original, das der Browser dreht
+        }
+
         // Auf eine weisse Flaeche legen: PNG und WebP koennen Transparenz,
         // JPEG nicht - ohne diesen Schritt wuerden durchsichtige Stellen
         // schwarz.
@@ -225,16 +267,58 @@ final class Thumbnails {
             imagecopy($flach, $neu, 0, 0, 0, 0, imagesx($neu), imagesy($neu));
         }
 
-        $erfolg = @imagejpeg($flach !== false ? $flach : $neu, $zielPfad, 82);
-        unset($flach, $neu);
+        // Atomar (Audit N80): Temp-Datei im selben Verzeichnis, Prüfung auf
+        // ein vollständiges JPEG, dann rename(). Parallele Abrufe und ein
+        // Abbruch mitten im Schreiben sehen nie eine halbe Vorschau.
+        $bild = $flach !== false ? $flach : $neu;
+        $erfolg = AtomicFile::ersetzen(
+            $zielPfad,
+            static fn(string $tmp): bool => @imagejpeg($bild, $tmp, 82) === true,
+            [self::class, 'vollstaendig']
+        );
+        unset($flach, $neu, $bild);
 
-        if (empty($erfolg) || !is_file($zielPfad)) {
-            @unlink($zielPfad);
+        return $erfolg ? $zielPfad : null;
+    }
+
+    /**
+     * Dreht bzw. spiegelt nach der EXIF-Ausrichtung (1-8).
+     *
+     * GD dreht gegen den Uhrzeigersinn: 6 ("um 90° im Uhrzeigersinn
+     * anzeigen") ist imagerotate(270). 5 und 7 sind Transpose bzw.
+     * Transverse. imageflip() arbeitet in place, imagerotate() liefert ein
+     * neues Bild. null, wenn eine Funktion fehlt oder scheitert.
+     */
+    private static function ausrichten(\GdImage $bild, int $orientierung): ?\GdImage {
+        if ($orientierung === 1 || $orientierung < 1 || $orientierung > 8) {
+            return $bild;
+        }
+        if (!function_exists('imagerotate') || !function_exists('imageflip')) {
             return null;
         }
 
-        @chmod($zielPfad, 0644);
-        return $zielPfad;
+        [$winkel, $spiegel] = match ($orientierung) {
+            2 => [0, IMG_FLIP_HORIZONTAL],
+            3 => [180, null],
+            4 => [0, IMG_FLIP_VERTICAL],
+            5 => [90, IMG_FLIP_VERTICAL],
+            6 => [270, null],
+            7 => [270, IMG_FLIP_VERTICAL],
+            default => [90, null],   // 8
+        };
+
+        if ($winkel !== 0) {
+            $gedreht = @imagerotate($bild, $winkel, 0);
+            if ($gedreht === false) {
+                return null;
+            }
+            $bild = $gedreht;
+        }
+        if ($spiegel !== null && !@imageflip($bild, $spiegel)) {
+            return null;
+        }
+
+        return $bild;
     }
 
     /**
@@ -242,8 +326,9 @@ final class Thumbnails {
      *
      * Gehört zu jedem Löschen dazu: Sonst bliebe je gelöschtem Medium eine
      * Waise liegen, und die fiele erst auf, wenn jemand die Ablage zählt.
+     * $resteSuchen: auch liegengebliebene Temp-Dateien (Audit N80).
      */
-    public static function entfernen(string $original): void {
+    public static function entfernen(string $original, bool $resteSuchen = true): void {
         foreach (array_keys(self::GROESSEN) as $groesse) {
             $name = self::dateiname($original, $groesse);
             if ($name === null) {
@@ -253,6 +338,12 @@ final class Thumbnails {
                 $voll = $verzeichnis . '/' . $name;
                 if (is_file($voll)) {
                     @unlink($voll);
+                }
+                // Reste eines abgebrochenen atomaren Schreibens (Audit N80).
+                // Kostet einen Verzeichnisdurchlauf - der Bestandsschritt
+                // (BildMetadaten) verzichtet darauf, er ruft das je Foto.
+                if ($resteSuchen) {
+                    AtomicFile::resteEntfernen($voll);
                 }
             }
         }

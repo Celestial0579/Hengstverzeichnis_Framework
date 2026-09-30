@@ -20,7 +20,7 @@
         </div>
 
         <?php if ($totalCount > 0): ?>
-            <form action="/admin/trash/empty" method="POST" data-confirm="Möchten Sie alle berechtigten Elemente im Papierkorb leeren? Nachkommen gelöschter Pferde behalten Name und UELN als Freitext; die Verknüpfung entfällt." >
+            <form action="/admin/trash/empty" method="POST" data-confirm="Möchten Sie alle berechtigten Elemente im Papierkorb leeren? Nachkommen gelöschter Pferde behalten Name und UELN als Freitext; die Verknüpfung entfällt. Die Fotos der Pferde werden dabei mit entfernt." >
                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                 <button type="submit" class="btn" style="background-color: #c62a38;">
                     🧹 Papierkorb leeren <?= $isAdmin ? '(Alle)' : '(> 30 Tage)' ?>
@@ -118,7 +118,7 @@
                                             <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
                                         </form>
                                         <?php if ($isAdmin || $isOlder): ?>
-                                            <?php $bestaetigung = 'Möchten Sie dieses Pferd endgültig löschen?'
+                                            <?php $bestaetigung = 'Möchten Sie dieses Pferd endgültig löschen? Die Fotos des Pferds werden dabei mit entfernt.'
                                                 . ($nachkommen > 0 ? " {$nachkommen} Nachkommen behalten Name und UELN als Freitext; die Verknüpfung entfällt." : ''); ?>
                                             <form action="/admin/trash/permanent-delete" method="POST" data-confirm="<?= htmlspecialchars($bestaetigung) ?>" >
                                                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">

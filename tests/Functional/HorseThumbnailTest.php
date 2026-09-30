@@ -222,7 +222,7 @@ class HorseThumbnailTest extends FunctionalTestCase {
      *
      * Dieser Test geht ueber `HorseMedia::loeschen()` und nicht ueber
      * `Thumbnails::entfernen()` - genau das ist der Punkt. Die Gegenprobe
-     * zeigte: Nimmt man den Aufruf in `dateiEntfernen()` heraus, bleibt
+     * zeigte: Nimmt man den Aufruf in `dateiUndVorschauLoeschen()` heraus, bleibt
      * jeder Test gruen, weil sie alle die Funktion direkt pruefen. Ein
      * Unit-Test auf eine Aufraeumfunktion beweist nicht, dass sie jemals
      * gerufen wird - dieselbe Luecke wie bei #344.
@@ -246,17 +246,49 @@ class HorseThumbnailTest extends FunctionalTestCase {
         $this->assertNotNull($thumb, 'Vorbedingung: das Vorschaubild muss entstanden sein.');
         $this->assertFileExists($thumb);
 
-        // Das Hauptbild zeigt noch auf dieselbe Datei - dateiEntfernen() darf
-        // sie deshalb NICHT anfassen, die Vorschau aber schon nicht mehr
-        // brauchen. Also erst das Hauptbild loesen.
-        $db->prepare('UPDATE horses SET image_url = NULL WHERE id = ?')->execute([$id]);
-
+        // Es ist das Hauptbild: Seit Audit N68 zieht loeschen() image_url
+        // ZUERST nach und entfernt die Datei danach - kein Umweg ueber ein
+        // vorher geleertes image_url mehr.
         $this->assertTrue(\App\Service\HorseMedia::loeschen($medienId));
 
         $this->assertNull(
             \App\Service\Thumbnails::pfad($spaltenwert, 'thumb'),
             'Sonst bleibt je geloeschtem Medium eine Waise in der Ablage liegen.'
         );
+        $this->assertFileDoesNotExist(
+            \App\Helper\HorseImagePath::dir() . '/' . basename($spaltenwert),
+            'Das geloeschte Hauptbild darf nicht als Datei liegen bleiben (Audit N68).'
+        );
+    }
+
+    /**
+     * Endgueltig geloeschte Pferde nehmen Foto und Vorschaubilder mit
+     * (Audit N59) - ueber den echten Papierkorb-Weg.
+     */
+    public function testEndgueltigGeloeschtePferdeNehmenIhreVorschaubilderMit(): void {
+        $id = $this->pferdMitFoto();
+        $this->schalter(true);
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare('SELECT image_url FROM horses WHERE id = ?');
+        $stmt->execute([$id]);
+        $spaltenwert = (string)$stmt->fetchColumn();
+
+        $this->assertSame(200, $this->newClient()
+            ->get('/media/horse-image?id=' . $id . '&groesse=thumb')->statusCode);
+        $this->assertNotNull(Thumbnails::pfad($spaltenwert, 'thumb'), 'Vorbedingung: das Vorschaubild muss entstanden sein.');
+
+        $db->prepare('UPDATE horses SET deleted_at = NOW() WHERE id = ?')->execute([$id]);
+        $admin = $this->authenticatedClient();
+        $antwort = $admin->post('/admin/trash/permanent-delete', [
+            'csrf_token' => $this->csrfTokenFrom($admin, '/admin/trash'),
+            'type' => 'horse',
+            'id' => (string)$id,
+        ]);
+        $this->assertStringContainsString('success=purged', (string)$antwort->location(), "Body: {$antwort->body}");
+
+        $this->assertFileDoesNotExist(\App\Helper\HorseImagePath::dir() . '/' . basename($spaltenwert));
+        $this->assertNull(Thumbnails::pfad($spaltenwert, 'thumb'));
     }
 
     /**

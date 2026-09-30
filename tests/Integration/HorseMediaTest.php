@@ -4,6 +4,7 @@
 namespace Tests\Integration;
 
 use App\Database;
+use App\Helper\HorseImagePath;
 use App\Service\HorseMedia;
 use PDO;
 use PDOException;
@@ -22,6 +23,7 @@ class HorseMediaTest extends TestCase {
 
     private static PDO $db;
     private int $horseId;
+    private string $tmp;
 
     public static function setUpBeforeClass(): void {
         if (!defined('DB_HOST')) {
@@ -53,6 +55,63 @@ class HorseMediaTest extends TestCase {
         self::$db->exec('DELETE FROM horses');
         self::$db->exec("INSERT INTO horses (name, is_published) VALUES ('Testhengst', 1)");
         $this->horseId = (int)self::$db->lastInsertId();
+
+        // Seit Audit N68 loescht HorseMedia echte Dateien - nie in der
+        // echten Ablage.
+        $this->tmp = sys_get_temp_dir() . '/hv_horsemedia_' . bin2hex(random_bytes(5));
+        mkdir($this->tmp . '/horses', 0755, true);
+        mkdir($this->tmp . '/legacy', 0755, true);
+        HorseImagePath::overrideForTests($this->tmp . '/horses', $this->tmp . '/legacy');
+    }
+
+    protected function tearDown(): void {
+        HorseImagePath::overrideForTests(null, null);
+        foreach (['/horses', '/legacy', ''] as $unter) {
+            foreach (glob($this->tmp . $unter . '/{,.}*', GLOB_BRACE) ?: [] as $datei) {
+                if (is_file($datei)) {
+                    @unlink($datei);
+                }
+            }
+        }
+        @rmdir($this->tmp . '/horses');
+        @rmdir($this->tmp . '/legacy');
+        @rmdir($this->tmp);
+    }
+
+    /** Legt die Datei samt Vorschaubildern in der Temp-Ablage an. */
+    private function datei(string $name): void {
+        $dir = HorseImagePath::dir();
+        file_put_contents($dir . '/' . $name, 'bild');
+        $stamm = pathinfo($name, PATHINFO_FILENAME);
+        file_put_contents($dir . '/' . $stamm . '_thumb.jpg', 'vorschau');
+        file_put_contents($dir . '/' . $stamm . '_card.jpg', 'karte');
+    }
+
+    private function setzeBildUrl(?string $wert, ?int $horseId = null): void {
+        self::$db->prepare('UPDATE horses SET image_url = ? WHERE id = ?')->execute([$wert, $horseId ?? $this->horseId]);
+    }
+
+    private function mainIds(?int $horseId = null): array {
+        $stmt = self::$db->prepare('SELECT id FROM horse_media WHERE horse_id = ? AND is_main = 1 ORDER BY id');
+        $stmt->execute([$horseId ?? $this->horseId]);
+
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    private function zeile(string $datei, int $sort, int $isMain = 0, string $typ = 'image'): int {
+        $stmt = self::$db->prepare(
+            'INSERT INTO horse_media (horse_id, type, file_name, video_url, is_main, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->horseId,
+            $typ,
+            $typ === 'image' ? $datei : null,
+            $typ === 'video' ? $datei : null,
+            $isMain,
+            $sort,
+        ]);
+
+        return (int)self::$db->lastInsertId();
     }
 
     private function bild(string $name, ?int $sort = null): int {
@@ -136,9 +195,14 @@ class HorseMediaTest extends TestCase {
         $eins = $this->bild('eins.jpg', 10);
         $this->bild('zwei.jpg', 20);
 
+        $zwei = (int)self::$db->query("SELECT id FROM horse_media WHERE file_name = '/uploads/horses/zwei.jpg'")->fetchColumn();
+
         HorseMedia::loeschen($eins);
 
         $this->assertSame('/uploads/horses/zwei.jpg', $this->bildUrl());
+        // Audit N69: der Nachfolger ist auch GEKENNZEICHNET, und nur er.
+        $this->assertSame([$zwei], $this->mainIds());
+        $this->assertTrue(HorseMedia::hatHauptbild($this->horseId));
     }
 
     public function testOhneBilderWirdImageUrlGeleert(): void {
@@ -190,5 +254,198 @@ class HorseMediaTest extends TestCase {
         $namen = array_column(HorseMedia::forHorse($this->horseId), 'file_name');
 
         $this->assertSame(['/uploads/horses/frueh.jpg', '/uploads/horses/spaet.jpg'], $namen);
+    }
+
+    // --- Audit N69: die Invariante ------------------------------------------
+
+    public function testDerNaechsteUploadWirdNichtUngefragtHauptbild(): void {
+        $a = $this->bild('a.jpg', 10);
+        $this->bild('b.jpg', 20);
+        $this->bild('c.jpg', 30);
+        HorseMedia::loeschen($a);
+
+        $d = $this->bild('d.jpg', 40);
+
+        $this->assertSame('/uploads/horses/b.jpg', $this->bildUrl());
+        $this->assertNotContains($d, $this->mainIds());
+    }
+
+    public function testEinUploadMitKleinererSortierungVerdraengtDasAngezeigteBildNicht(): void {
+        // Altbestand ohne Kennzeichnung, das angezeigte Bild hat sort 20.
+        $b = $this->zeile('/uploads/horses/b.jpg', 20);
+        $this->setzeBildUrl('/uploads/horses/b.jpg');
+
+        $this->bild('d.jpg', 5);
+
+        $this->assertSame('/uploads/horses/b.jpg', $this->bildUrl());
+        $this->assertSame([$b], $this->mainIds());
+    }
+
+    public function testLoeschenEinesNebenbildsLaesstDasHauptbildStehen(): void {
+        $eins = $this->bild('eins.jpg', 10);
+        $zwei = $this->bild('zwei.jpg', 20);
+
+        HorseMedia::loeschen($zwei);
+
+        $this->assertSame('/uploads/horses/eins.jpg', $this->bildUrl());
+        $this->assertSame([$eins], $this->mainIds());
+    }
+
+    public function testAltbestandOhneKennzeichnungWirdBeimNaechstenUploadGeheilt(): void {
+        $b = $this->zeile('/uploads/horses/b.jpg', 10);
+        $this->zeile('/uploads/horses/c.jpg', 20);
+        $this->setzeBildUrl('/uploads/horses/b.jpg');
+
+        $this->bild('neu.jpg', 30);
+
+        $this->assertSame([$b], $this->mainIds());
+        $this->assertSame('/uploads/horses/b.jpg', $this->bildUrl());
+    }
+
+    public function testEsGibtNachDemAbgleichNurEinHauptbild(): void {
+        $a = $this->zeile('/uploads/horses/a.jpg', 10, 1);
+        $this->zeile('/uploads/horses/b.jpg', 20, 1);
+        $video = $this->zeile('https://vimeo.com/1', 30, 1, 'video');
+        $this->setzeBildUrl('/uploads/horses/a.jpg');
+
+        HorseMedia::syncMainImage($this->horseId);
+
+        $this->assertSame([$a], $this->mainIds());
+        $this->assertNotContains($video, $this->mainIds());
+        $this->assertSame('/uploads/horses/a.jpg', $this->bildUrl());
+    }
+
+    /** Wie HorseController::store(): image_url zuerst, dann die Zeile. */
+    public function testAnlegenUeberStoreMachtDasHochgeladeneBildZumHauptbild(): void {
+        $this->setzeBildUrl('/uploads/horses/x.jpg');
+
+        $x = $this->bild('x.jpg', 10);
+
+        $this->assertSame([$x], $this->mainIds());
+        $this->assertSame('/uploads/horses/x.jpg', $this->bildUrl());
+    }
+
+    // --- Audit M40: Katalogfoto ohne Medienzeile ----------------------------
+
+    public function testEinAltesHauptbildUeberlebtDasLoeschenEinesVideos(): void {
+        $this->setzeBildUrl('/uploads/horses/alt.jpg');
+        $video = HorseMedia::hinzufuegen($this->horseId, null, 'https://vimeo.com/12345', null);
+
+        HorseMedia::loeschen($video);
+
+        $this->assertSame('/uploads/horses/alt.jpg', $this->bildUrl());
+        $this->assertCount(1, $this->mainIds());
+    }
+
+    public function testEinNeuesBildVerdraengtDasAlteHauptbildNicht(): void {
+        $this->setzeBildUrl('/uploads/horses/alt.jpg');
+
+        $this->bild('neu.jpg');
+
+        $this->assertSame('/uploads/horses/alt.jpg', $this->bildUrl());
+        $this->assertSame(2, (int)self::$db->query('SELECT COUNT(*) FROM horse_media')->fetchColumn());
+    }
+
+    public function testBeimAnlegenEntstehtKeineDoppelteZeile(): void {
+        $this->setzeBildUrl('/uploads/horses/x.jpg');
+
+        $this->bild('x.jpg');
+
+        $this->assertSame(1, (int)self::$db->query('SELECT COUNT(*) FROM horse_media')->fetchColumn());
+    }
+
+    public function testAlsHauptbildNimmtDasAltfotoMit(): void {
+        $this->setzeBildUrl('/uploads/horses/alt.jpg');
+        $neu = $this->zeile('/uploads/horses/neu.jpg', 10);
+
+        $this->assertTrue(HorseMedia::setzeHauptbild($this->horseId, $neu));
+
+        $stmt = self::$db->prepare('SELECT is_main FROM horse_media WHERE horse_id = ? AND file_name = ?');
+        $stmt->execute([$this->horseId, '/uploads/horses/alt.jpg']);
+        $this->assertSame(0, (int)$stmt->fetchColumn(), 'Das Altfoto bleibt als Nebenbild erhalten.');
+        $this->assertSame([$neu], $this->mainIds());
+        $this->assertSame('/uploads/horses/neu.jpg', $this->bildUrl());
+    }
+
+    // --- Audit N68: Dateien beim Loeschen -----------------------------------
+
+    public function testDasGeloeschteHauptbildNimmtDateiUndVorschaubilderMit(): void {
+        $this->datei('eins.jpg');
+        $eins = $this->bild('eins.jpg');
+
+        HorseMedia::loeschen($eins);
+
+        $dir = HorseImagePath::dir();
+        $this->assertFileDoesNotExist($dir . '/eins.jpg');
+        $this->assertFileDoesNotExist($dir . '/eins_thumb.jpg');
+        $this->assertFileDoesNotExist($dir . '/eins_card.jpg');
+        $this->assertNull($this->bildUrl());
+    }
+
+    public function testNachDemLoeschenDesHauptbildsBleibtDieDateiDesNachfolgers(): void {
+        $this->datei('eins.jpg');
+        $this->datei('zwei.jpg');
+        $eins = $this->bild('eins.jpg', 10);
+        $this->bild('zwei.jpg', 20);
+
+        HorseMedia::loeschen($eins);
+
+        $this->assertFileDoesNotExist(HorseImagePath::dir() . '/eins.jpg');
+        $this->assertFileExists(HorseImagePath::dir() . '/zwei.jpg');
+        $this->assertFileExists(HorseImagePath::dir() . '/zwei_thumb.jpg');
+    }
+
+    public function testEineDateiDieEinAnderesPferdFuehrtBleibt(): void {
+        $this->datei('geteilt.jpg');
+        // Anderes Pferd im Papierkorb, abweichende Pfadschreibweise.
+        self::$db->exec("INSERT INTO horses (name, image_url, deleted_at) VALUES ('Im Papierkorb', 'uploads/horses/geteilt.jpg', NOW())");
+        $id = $this->bild('geteilt.jpg');
+
+        HorseMedia::loeschen($id);
+
+        $this->assertFileExists(HorseImagePath::dir() . '/geteilt.jpg');
+    }
+
+    // --- Audit N59: Dateien endgueltig geloeschter Pferde -------------------
+
+    public function testBilddateienVonPferdenSammeltMedienUndImageUrl(): void {
+        $this->bild('medium.jpg');
+        HorseMedia::hinzufuegen($this->horseId, null, 'https://vimeo.com/1', null);
+        self::$db->exec("INSERT INTO horses (name, image_url) VALUES ('Ohne Zeile', '/uploads/horses/nur_url.jpg')");
+        $ohneZeile = (int)self::$db->lastInsertId();
+
+        $werte = HorseMedia::bilddateienVonPferden([$this->horseId, $ohneZeile, 0, -3]);
+        sort($werte);
+
+        $this->assertSame(['/uploads/horses/medium.jpg', '/uploads/horses/nur_url.jpg'], $werte);
+        $this->assertSame([], HorseMedia::bilddateienVonPferden([]));
+    }
+
+    public function testVerwaisteDateienEntfernenLaesstReferenzierteStehen(): void {
+        foreach (['x.jpg', 'y.jpg', 'z.jpg'] as $name) {
+            $this->datei($name);
+        }
+        $this->zeile('/uploads/horses/x.jpg', 10);
+        self::$db->exec("INSERT INTO horses (name, image_url, deleted_at) VALUES ('Papierkorb', '/uploads/horses/y.jpg', NOW())");
+
+        $anzahl = HorseMedia::verwaisteDateienEntfernen([
+            '/uploads/horses/x.jpg', '/uploads/horses/y.jpg', '/uploads/horses/z.jpg',
+        ]);
+
+        $dir = HorseImagePath::dir();
+        $this->assertSame(1, $anzahl);
+        $this->assertFileExists($dir . '/x.jpg');
+        $this->assertFileExists($dir . '/y.jpg');
+        $this->assertFileDoesNotExist($dir . '/z.jpg');
+        $this->assertFileDoesNotExist($dir . '/z_thumb.jpg');
+        $this->assertFileDoesNotExist($dir . '/z_card.jpg');
+    }
+
+    public function testVerwaisteDateienEntfernenIgnoriertPfadausbrueche(): void {
+        // Eine Datei neben der Ablage, die ein '../'-Wert treffen wuerde.
+        file_put_contents($this->tmp . '/x.jpg', 'draussen');
+
+        $this->assertSame(0, HorseMedia::verwaisteDateienEntfernen(['../x', '.', '', '..', '/uploads/horses/..']));
+        $this->assertFileExists($this->tmp . '/x.jpg');
     }
 }

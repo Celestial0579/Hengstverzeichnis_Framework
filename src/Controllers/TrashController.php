@@ -357,9 +357,18 @@ class TrashController extends BaseController {
             // UELN als Freitext).
             $this->hooks()->doAction('horse.deleted', $id, $horse);
 
+            // Erst NACH dem Commit und nach horse.deleted (Audit N59, D15):
+            // Ein Plugin, das Fotos archivieren will, findet sie im Hook noch
+            // vor. Entfernt wird nur, was nach dem Löschen niemand mehr
+            // referenziert; verwaisteDateienEntfernen() wirft nie.
+            $fotos = \App\Service\HorseMedia::verwaisteDateienEntfernen($ergebnis['dateien']);
+
             $details = "Typ: {$type}, ID: {$id}";
             if ($ergebnis['nachkommen'] > 0) {
                 $details .= " – {$ergebnis['nachkommen']} Nachkommen: Abstammung als Freitext übernommen";
+            }
+            if ($fotos > 0) {
+                $details .= " – {$fotos} Bilddatei(en) entfernt";
             }
             \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", $details);
 
@@ -497,7 +506,8 @@ class TrashController extends BaseController {
      * Transaktion - Plugin-Handler (Audit-Log-INSERTs, eigene Queries) sollen
      * das Sperrfenster nicht verlängern und ein werfender Handler kein bereits
      * committetes Löschen "zurückrollen" können. horse.deleted feuert nur für
-     * tatsächlich gelöschte Pferde.
+     * tatsächlich gelöschte Pferde. Danach werden deren Bilddateien entfernt
+     * (Audit N59).
      *
      * @return array{geloescht: int[], nachkommen: int} siehe pferdeImPapierkorbLoeschen()
      */
@@ -523,6 +533,10 @@ class TrashController extends BaseController {
                 }
             }
 
+            // Bilddateien erst nach Commit und horse.deleted (Audit N59), je
+            // Charge - siehe permanentDelete().
+            \App\Service\HorseMedia::verwaisteDateienEntfernen($ergebnis['dateien']);
+
             $gesamt['geloescht'] = array_merge($gesamt['geloescht'], $ergebnis['geloescht']);
             $gesamt['nachkommen'] += $ergebnis['nachkommen'];
         }
@@ -547,16 +561,21 @@ class TrashController extends BaseController {
      * GENAU die Kennungen, deren Zeilen dieses Statement endgültig entfernt
      * hat; Kandidaten, die inzwischen wiederhergestellt wurden, fehlen darin.
      * `nachkommen` ist die Zahl der umgeschriebenen Nachkommen-Verweise.
+     * `dateien` sind die Bild-Spaltenwerte GENAU dieser Pferde, unter der
+     * Sperre vor dem DELETE eingesammelt - der FK-CASCADE nimmt die
+     * Medienzeilen mit. Der Aufrufer übergibt sie NACH horse.deleted an
+     * HorseMedia::verwaisteDateienEntfernen(), das nur Unreferenziertes
+     * entfernt (Audit N59).
      * Bei einer Ausnahme wird zurückgerollt und weitergeworfen - dann ist
-     * nichts gelöscht.
+     * nichts gelöscht, und es werden keine Dateien entfernt.
      *
      * @param int[] $ids Kandidaten
-     * @return array{geloescht: int[], nachkommen: int}
+     * @return array{geloescht: int[], nachkommen: int, dateien: string[]}
      */
     private function pferdeImPapierkorbLoeschen(\PDO $db, array $ids, ?int $mindestTage): array {
         $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
         if ($ids === []) {
-            return ['geloescht' => [], 'nachkommen' => 0];
+            return ['geloescht' => [], 'nachkommen' => 0, 'dateien' => []];
         }
 
         $frist = $mindestTage !== null
@@ -572,9 +591,10 @@ class TrashController extends BaseController {
 
             if ($wirklich === []) {
                 $db->commit();
-                return ['geloescht' => [], 'nachkommen' => 0];
+                return ['geloescht' => [], 'nachkommen' => 0, 'dateien' => []];
             }
 
+            $dateien = \App\Service\HorseMedia::bilddateienVonPferden($wirklich);
             $nachkommen = $this->abstammungAlsFreitextSichern($db, $wirklich);
 
             $platzhalter = implode(',', array_fill(0, count($wirklich), '?'));
@@ -588,7 +608,7 @@ class TrashController extends BaseController {
         }
 
         sort($wirklich);
-        return ['geloescht' => $wirklich, 'nachkommen' => $nachkommen];
+        return ['geloescht' => $wirklich, 'nachkommen' => $nachkommen, 'dateien' => $dateien];
     }
 
     /**

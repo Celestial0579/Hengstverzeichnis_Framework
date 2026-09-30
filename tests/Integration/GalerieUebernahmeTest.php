@@ -112,7 +112,7 @@ class GalerieUebernahmeTest extends TestCase {
 
     /** Zwingt die Migration, ihre Datenschritte erneut auszuführen. */
     private function migriere(): array {
-        self::$pdo->exec("DELETE FROM settings WHERE setting_key IN ('schema_version', 'migration_339_galerie_uebernahme')");
+        self::$pdo->exec("DELETE FROM settings WHERE setting_key IN ('schema_version', 'migration_339_galerie_uebernahme', 'migration_339b_hauptbild_backfill')");
 
         return SchemaMigrator::run(self::$pdo);
     }
@@ -295,5 +295,137 @@ class GalerieUebernahmeTest extends TestCase {
 
         $this->assertFileExists($this->ziel . '/gal_layer.jpg');
         $this->assertNotNull($this->marker());
+    }
+
+    // --- Hauptbild-Backfill 339b (Audit M40, N69) --------------------------
+
+    /** @return array<int, array<string, mixed>> */
+    private function medien(int $pferd): array {
+        $stmt = self::$pdo->prepare(
+            'SELECT id, type, file_name, is_main, sort_order FROM horse_media WHERE horse_id = ? ORDER BY id ASC'
+        );
+        $stmt->execute([$pferd]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function bildUrl(int $pferd): ?string {
+        $stmt = self::$pdo->prepare('SELECT image_url FROM horses WHERE id = ?');
+        $stmt->execute([$pferd]);
+        $wert = $stmt->fetchColumn();
+
+        return $wert === false || $wert === null ? null : (string)$wert;
+    }
+
+    private function medium(int $pferd, string $datei, int $sort, int $isMain = 0): int {
+        $stmt = self::$pdo->prepare(
+            "INSERT INTO horse_media (horse_id, type, file_name, is_main, sort_order) VALUES (?, 'image', ?, ?, ?)"
+        );
+        $stmt->execute([$pferd, $datei, $isMain, $sort]);
+
+        return (int)self::$pdo->lastInsertId();
+    }
+
+    /**
+     * Der Kern von M40: Ohne das Addon stieg 339 vor dem Backfill aus, das
+     * Katalogfoto aus v0.8 bekam nie eine Medienzeile. 339b holt sie nach.
+     */
+    public function testOhneDasAddonBekommtEinVorhandenesHauptbildSeineZeile(): void {
+        $pferd = $this->pferd('Altbestand', '/uploads/horses/alt.jpg');
+
+        $meldung = implode(' | ', $this->migriere());
+
+        $zeilen = $this->medien($pferd);
+        $this->assertCount(1, $zeilen);
+        $this->assertSame('image', $zeilen[0]['type']);
+        $this->assertSame('/uploads/horses/alt.jpg', $zeilen[0]['file_name']);
+        $this->assertSame(1, (int)$zeilen[0]['is_main']);
+        $this->assertSame(0, (int)$zeilen[0]['sort_order']);
+        $this->assertSame('/uploads/horses/alt.jpg', $this->bildUrl($pferd));
+        $this->assertStringContainsString('Hauptbild (#339)', $meldung);
+        $this->assertStringNotContainsString('Galerie (#339)', $meldung);
+    }
+
+    /**
+     * Auf den betroffenen Instanzen steht der 339-Marker laengst - der
+     * Nachholschritt muss trotzdem greifen.
+     */
+    public function testDerNachholschrittGreiftAuchWennMarker339SchonSteht(): void {
+        $pferd = $this->pferd('Schon migriert', '/uploads/horses/schon.jpg');
+        self::$pdo->exec("DELETE FROM settings WHERE setting_key = 'migration_339b_hauptbild_backfill'");
+        self::$pdo->exec(
+            "INSERT INTO settings (setting_key, setting_value) VALUES ('migration_339_galerie_uebernahme', '2025-01-01')
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+        );
+        self::$pdo->prepare(
+            "INSERT INTO settings (setting_key, setting_value) VALUES ('schema_version', ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
+        )->execute([(string)(SchemaMigrator::SCHEMA_VERSION - 1)]);
+
+        SchemaMigrator::run(self::$pdo);
+
+        $zeilen = $this->medien($pferd);
+        $this->assertCount(1, $zeilen);
+        $this->assertSame(1, (int)$zeilen[0]['is_main']);
+    }
+
+    /**
+     * Zweimal erzwungen, und auch ein abweichend geschriebener Altwert
+     * (ohne fuehrenden Schraegstrich) erzeugt keine zweite Zeile - verglichen
+     * wird ueber den Dateinamen.
+     */
+    public function testDerNachholschrittVerdoppeltNichts(): void {
+        $pferd = $this->pferd('Zweimal', '/uploads/horses/x.jpg');
+        $abweichend = $this->pferd('Abweichend', 'uploads/horses/y.jpg');
+        $this->medium($abweichend, '/uploads/horses/y.jpg', 10, 1);
+
+        $this->migriere();
+        $this->migriere();
+
+        $this->assertCount(1, $this->medien($pferd));
+        $this->assertCount(1, $this->medien($abweichend));
+    }
+
+    /** Nach dem Loeschen des Hauptbilds fehlte die Kennzeichnung (N69). */
+    public function testEinBildOhneKennzeichnungWirdHauptbild(): void {
+        $pferd = $this->pferd('Ohne Kennzeichnung', '/uploads/horses/b.jpg');
+        $b = $this->medium($pferd, '/uploads/horses/b.jpg', 10);
+        $c = $this->medium($pferd, '/uploads/horses/c.jpg', 20);
+
+        $this->migriere();
+
+        $main = array_column(array_filter($this->medien($pferd), static fn(array $z): bool => (int)$z['is_main'] === 1), 'id');
+        $this->assertSame([$b], array_map('intval', $main));
+        $this->assertNotContains($c, array_map('intval', $main));
+        $this->assertSame('/uploads/horses/b.jpg', $this->bildUrl($pferd));
+    }
+
+    /**
+     * Das angezeigte Bild gewinnt gegen ein spaeter hinzugekommenes Foto mit
+     * kleinerer Sortierung - sonst wechselte das Katalogbild durch das Update.
+     */
+    public function testDasAngezeigteBildGewinntGegenEineKleinereSortierung(): void {
+        $pferd = $this->pferd('Sortierung', '/uploads/horses/b.jpg');
+        $b = $this->medium($pferd, '/uploads/horses/b.jpg', 20);
+        $this->medium($pferd, '/uploads/horses/d.jpg', 5);
+
+        $this->migriere();
+
+        $main = array_column(array_filter($this->medien($pferd), static fn(array $z): bool => (int)$z['is_main'] === 1), 'id');
+        $this->assertSame([$b], array_map('intval', $main));
+        $this->assertSame('/uploads/horses/b.jpg', $this->bildUrl($pferd));
+    }
+
+    /** Nach 339 mit Addon ist fuer 339b im selben Lauf nichts mehr zu tun. */
+    public function testNach339MitAddonMeldet339bNichts(): void {
+        $this->addonTabelle();
+        $pferd = $this->pferd('Mit Addon', '/uploads/horses/haupt2.jpg');
+        file_put_contents($this->quelle . '/gal_vier.jpg', 'bilddaten');
+        $this->addonMedium($pferd, 'image', 'gal_vier.jpg', null, 10);
+
+        $meldung = implode(' | ', $this->migriere());
+
+        $this->assertStringContainsString('Galerie (#339)', $meldung);
+        $this->assertStringNotContainsString('Hauptbild (#339)', $meldung);
     }
 }

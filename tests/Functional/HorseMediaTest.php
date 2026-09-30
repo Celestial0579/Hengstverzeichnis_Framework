@@ -23,11 +23,11 @@ class HorseMediaTest extends FunctionalTestCase {
     protected function tearDown(): void {
         if ($this->aufraeumen !== []) {
             $db = Database::getInstance();
-            /* Erst die Dateien, dann die Zeilen: Der Weg über
-               /admin/horses/media/delete taugt hier nicht - HorseMedia::loeschen()
-               räumt die Datei ab, SOLANGE horses.image_url noch darauf zeigt, und
-               lässt sie dann liegen. Ohne das hier blieben je Lauf mehrere MB in
-               storage/horses zurück (der Grössen-Test lädt allein 10 MB hoch). */
+            /* Erst die Dateien, dann die Zeilen: Ein DELETE auf horses nimmt
+               per CASCADE nur die Medienzeilen mit, nicht die Dateien (das tut
+               erst der Papierkorb, Audit N59). Ohne das hier blieben je Lauf
+               mehrere MB in storage/horses zurück (der Grössen-Test lädt allein
+               10 MB hoch). */
             $dateien = $db->prepare(
                 'SELECT file_name FROM horse_media WHERE horse_id = ? AND file_name IS NOT NULL'
             );
@@ -533,6 +533,147 @@ class HorseMediaTest extends FunctionalTestCase {
         foreach ($seiten() as $wo => $html) {
             $this->assertMatchesRegularExpression($hauptbild($neu), $html, "{$wo}: neue Version fehlt");
             $this->assertDoesNotMatchRegularExpression($hauptbild($alt), $html, "{$wo}: alte Adresse steht noch da");
+        }
+    }
+
+    // --- Lebenszyklus des Hauptbilds (Audit M40, N68, N69) ------------------
+
+    private function spalte(int $pferd): ?string {
+        $stmt = Database::getInstance()->prepare('SELECT image_url FROM horses WHERE id = ?');
+        $stmt->execute([$pferd]);
+        $wert = $stmt->fetchColumn();
+
+        return $wert === false || $wert === null ? null : (string)$wert;
+    }
+
+    private function dateiVon(int $medium): string {
+        $stmt = Database::getInstance()->prepare('SELECT file_name FROM horse_media WHERE id = ?');
+        $stmt->execute([$medium]);
+
+        return \App\Helper\HorseImagePath::dir() . '/' . basename((string)$stmt->fetchColumn());
+    }
+
+    private function medienAktion(HttpClient $admin, string $aktion, int $pferd, int $medium): void {
+        $antwort = $admin->post('/admin/horses/media/' . $aktion, [
+            'csrf_token' => $this->csrfTokenFrom($admin, '/admin/horses/edit?id=' . $pferd),
+            'horse_id' => (string)$pferd,
+            'media_id' => (string)$medium,
+        ]);
+        $this->assertStringContainsString('media=media_', (string)$antwort->location(), "Body: {$antwort->body}");
+    }
+
+    /** Audit N68: Das gelöschte Hauptbild bleibt nicht als Datei liegen. */
+    public function testLoeschenDesHauptbildsEntferntDieDatei(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Dateiweg ' . uniqid());
+        $haupt = $this->bildHochladen($admin, $pferd);
+        $pfad = $this->dateiVon($haupt);
+        $this->assertFileExists($pfad);
+
+        $this->medienAktion($admin, 'delete', $pferd, $haupt);
+
+        $this->assertFileDoesNotExist($pfad);
+        $this->assertNull($this->spalte($pferd));
+    }
+
+    /**
+     * Audit N68, Geschwisterpfad: Das Pferdeformular schreibt image_url
+     * nicht mehr mit - sonst setzte ein veraltetes Formular die Spalte auf
+     * eine gerade gelöschte Datei zurück.
+     */
+    public function testSpeichernDesFormularsLaesstImageUrlUnberuehrt(): void {
+        $admin = $this->authenticatedClient();
+        $name = 'Formular ' . uniqid();
+        $pferd = $this->pferdAnlegen($admin, $name);
+        Database::getInstance()->prepare('UPDATE horses SET image_url = ? WHERE id = ?')
+            ->execute(['/uploads/horses/formular_y.jpg', $pferd]);
+        $formular = $admin->get('/admin/horses/edit?id=' . $pferd);
+
+        // Parallel ändert ein Medien-Request das Hauptbild.
+        Database::getInstance()->prepare('UPDATE horses SET image_url = ? WHERE id = ?')
+            ->execute(['/uploads/horses/formular_z.jpg', $pferd]);
+
+        $antwort = $admin->post('/admin/horses/update', [
+            'csrf_token' => $formular->formField('csrf_token') ?? '',
+            'id' => (string)$pferd,
+            'name' => $name,
+            'status' => 'active',
+            'is_published' => '1',
+        ]);
+        $this->assertSame('/admin/horses?success=updated', $antwort->location(), "Body: {$antwort->body}");
+
+        $this->assertSame('/uploads/horses/formular_z.jpg', $this->spalte($pferd));
+    }
+
+    /**
+     * Audit N69: Der Nachfolger wird gekennzeichnet, erscheint nicht doppelt
+     * auf der Detailseite, und der nächste Upload verdrängt ihn nicht.
+     */
+    public function testNachfolgerWirdHauptbildUndErscheintNichtDoppelt(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Nachfolger ' . uniqid());
+        $a = $this->bildHochladen($admin, $pferd);
+        $b = $this->bildHochladen($admin, $pferd);
+
+        $this->medienAktion($admin, 'delete', $pferd, $a);
+
+        $stmt = Database::getInstance()->prepare('SELECT is_main FROM horse_media WHERE id = ?');
+        $stmt->execute([$b]);
+        $this->assertSame(1, (int)$stmt->fetchColumn());
+
+        $seite = $admin->get('/admin/horses/edit?id=' . $pferd);
+        $this->assertStringContainsString('★ Hauptbild', $seite->body);
+        $this->assertDoesNotMatchRegularExpression(
+            '/name="media_id" value="' . $b . '"[^<]*>\s*<button[^>]*>Als Hauptbild/',
+            $seite->body,
+            'Für das Hauptbild gibt es kein "Als Hauptbild".'
+        );
+
+        $oeffentlich = $this->newClient()->get('/horse?id=' . $pferd);
+        $this->assertSame(200, $oeffentlich->statusCode);
+        $this->assertStringNotContainsString('/media/horse-media?id=' . $b, $oeffentlich->body);
+
+        $bUrl = $this->spalte($pferd);
+        $this->bildHochladen($admin, $pferd);
+        $this->assertSame($bUrl, $this->spalte($pferd), 'Der nächste Upload wird nicht ungefragt Hauptbild.');
+    }
+
+    /**
+     * Audit M40: Ein Katalogfoto aus v0.8 ohne Medienzeile überlebt
+     * "Video hinzufügen und löschen".
+     */
+    public function testAltbestandsfotoBleibtNachMedienaktionErhalten(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Altbestand ' . uniqid());
+        $dir = \App\Helper\HorseImagePath::dir();
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $name = 'altbestand_' . uniqid() . '.png';
+        file_put_contents($dir . '/' . $name, $this->pngBytes());
+        $wert = '/uploads/horses/' . $name;
+        Database::getInstance()->prepare('UPDATE horses SET image_url = ? WHERE id = ?')->execute([$wert, $pferd]);
+
+        try {
+            $antwort = $admin->post('/admin/horses/media/add', [
+                'csrf_token' => $this->csrfTokenFrom($admin, '/admin/horses/edit?id=' . $pferd),
+                'horse_id' => (string)$pferd,
+                'video_url' => 'https://vimeo.com/12345',
+            ]);
+            $this->assertStringContainsString('media=media_added', (string)$antwort->location(), "Body: {$antwort->body}");
+            $stmt = Database::getInstance()->prepare(
+                "SELECT id FROM horse_media WHERE horse_id = ? AND type = 'video'"
+            );
+            $stmt->execute([$pferd]);
+            $video = (int)$stmt->fetchColumn();
+
+            $this->medienAktion($admin, 'delete', $pferd, $video);
+
+            $this->assertSame($wert, $this->spalte($pferd));
+            $this->assertFileExists($dir . '/' . $name);
+            $this->assertStringContainsString('★ Hauptbild', $admin->get('/admin/horses/edit?id=' . $pferd)->body);
+        } finally {
+            @unlink($dir . '/' . $name);
         }
     }
 }

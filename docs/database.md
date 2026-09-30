@@ -240,13 +240,23 @@ Fotos und Video-Links je Pferd (#339) — seit v0.9 im Kern, vorher das Addon
 Wert wie `horses.image_url`, also `/uploads/horses/<datei>` — ein Speicherort,
 keine Adresse), ein Video eine http(s)-URL.
 
-`is_main` markiert das **Hauptbild**, höchstens eines je Pferd.
-`horses.image_url` bleibt sein Träger und wird daraus nachgeführt
-(`App\Service\HorseMedia::syncMainImage()`) — Katalogkarte, Admin-Liste,
+`is_main` markiert das **Hauptbild** — genau eines, sobald das Pferd Bilder
+hat; `App\Service\HorseMedia::syncMainImage()` stellt das nach jeder Änderung
+her (ohne Kennzeichnung gewinnt das Bild, dessen Dateiname `horses.image_url`
+entspricht, danach die Sortierung; Audit N69). `horses.image_url` bleibt sein
+Träger und wird daraus nachgeführt — Katalogkarte, Admin-Liste,
 Startseite, JSON-API und drei Addons lesen weiterhin die Spalte. Eine eigene
 Kennzeichnung statt `sort_order = 0`, weil Reihenfolge und Hauptbild
 verschiedene Fragen sind: Wer umsortiert, will nicht zwangsläufig das
 Hauptbild wechseln.
+
+Dateien: Das Löschen eines Bilds und das endgültige Löschen eines Pferds
+entfernen die Datei samt Vorschaubildern, sobald kein Medium und kein Pferd
+(auch keines im Papierkorb) sie mehr über den Dateinamen referenziert
+(`HorseMedia::verwaisteDateienEntfernen()`, Audit N59/N68). Ein
+`horses.image_url` ohne Medienzeile (Bestand aus v0.8 ohne Addon `galerie`)
+holt der Datenschritt `339b_hauptbild_backfill` nach, und HorseMedia übernimmt
+es vor jeder Medienaktion selbst (Audit M40).
 
 Ausgeliefert wird ausschliesslich über `/media/horse-media` mit denselben
 Sichtbarkeitsregeln wie das Hauptbild. Fremdschlüssel auf `horses` mit

@@ -602,6 +602,58 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Hauptfoto aus v0.8 ging ohne Galerie-Addon bei der nächsten
+  Medienaktion verloren** (#339, Audit M40). Die Übernahme der Galerie in den
+  Kern legte für ein vorhandenes Pferdefoto (`horses.image_url`) nur dann eine
+  Medienzeile an, wenn das Addon `galerie` installiert war. Ohne Addon kannte
+  die Medienliste das Foto nicht. Wer danach ein Video hinzufügte und wieder
+  löschte, leerte das Katalogbild; ein neu hochgeladenes oder als Hauptbild
+  gewähltes Foto ersetzte es ungefragt. Das Update holt die fehlenden Zeilen
+  einmalig nach (Datenschritt `339b_hauptbild_backfill`, `SCHEMA_VERSION` 32),
+  die Fotos stehen danach als „★ Hauptbild“ in der Medienliste. Zusätzlich
+  übernimmt der Kern ein solches Foto vor jeder Medienaktion selbst. Fotos,
+  die durch den Fehler bereits aus dem Katalog verschwunden sind, stellt das
+  Update nicht wieder her.
+
+- **Ein gelöschtes Hauptbild blieb als Datei liegen** (Audit N68). Beim
+  Löschen des Hauptbilds blieben Original und Vorschaubilder in
+  `storage/horses` und damit in jeder Sicherung, obwohl der Löschdialog das
+  Entfernen zusagt. Die Datei wird jetzt entfernt, nachdem das Katalogbild auf
+  das nächste Foto umgestellt ist. Das Speichern des Pferdeformulars schreibt
+  das Katalogbild nicht mehr mit und kann damit nicht mehr auf ein gerade
+  gelöschtes Foto zurückspringen.
+
+- **Nach dem Löschen des Hauptbilds fehlte die Kennzeichnung des
+  Nachfolgers** (Audit N69). Das nachgerückte Foto erschien auf der
+  Detailseite doppelt, die Medienliste zeigte kein „★ Hauptbild“, und das
+  nächste hochgeladene Foto wurde ungefragt zum Katalogbild.
+  `HorseMedia::syncMainImage()` kennzeichnet jetzt genau das angezeigte Foto
+  als Hauptbild, genau eines je Pferd. Bestände mit diesem Fehler korrigiert
+  das Update (Schritt 339b), ohne dass sich das angezeigte Bild ändert.
+
+- **Endgültig gelöschte Pferde hinterließen ihre Fotos** (Audit N59).
+  Endgültiges Löschen und Leeren des Papierkorbs entfernten nur die
+  Datenbankzeilen. Fotos und Vorschaubilder werden jetzt mit entfernt, soweit
+  kein anderes Pferd (auch keines im Papierkorb) und kein anderes Medium sie
+  noch nutzt; verglichen wird über den Dateinamen. Entfernt wird erst nach dem
+  Commit und nach dem Hook `horse.deleted` – Plugins finden die Dateien dort
+  noch vor (dokumentiert in `docs/plugin-development.md`). Die
+  Bestätigungsdialoge im Papierkorb sagen das jetzt.
+
+  **Für Betreiber:** Keine Konfigurationsänderung. Das Update führt einmalig
+  den Datenschritt 339b aus; das Protokoll meldet ihn mit „Hauptbild (#339)“,
+  sofern es etwas nachzutragen gab. Auf Instanzen, die aus v0.8 oder älter
+  ohne Galerie-Addon aktualisiert wurden, erscheint das bisherige Katalogfoto
+  danach in der Medienliste; die öffentliche Anzeige bleibt gleich. Das
+  Löschen eines Hauptbilds sowie endgültiges Löschen und Leeren im Papierkorb
+  entfernen Fotos jetzt unwiderruflich aus `storage/horses` und dem alten
+  `public/uploads/horses` – Wiederherstellen nur noch aus einer Sicherung.
+  Das Hauptbild ändert sich ausschließlich über den Medienbereich. Dateien,
+  die vor diesem Update verwaist sind (gelöschte Hauptbilder, endgültig
+  gelöschte Pferde, durch den M40-Fehler aus dem Katalog verschwundene Fotos,
+  Fotos nach einem Werksreset), bleiben liegen; ein Werkzeug zum Aufräumen
+  mit Trockenlauf folgt gesondert. Addons sind nicht betroffen.
+
 - **Bestätigung eines veralteten Bildes mit 304** (Audit N50). Bei einer
   bedingten Anfrage genügte ein passendes `If-Modified-Since`, auch wenn das
   mitgesendete ETag nicht passte. Zeigte die Adresse wieder auf eine ältere

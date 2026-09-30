@@ -8,7 +8,10 @@ use App\Security\Crypto;
 use App\Service\AddonUpdateService;
 use App\Service\Maintenance;
 use App\Service\Scheduler;
+use App\Service\UpdateJournal;
+use App\Service\UpdateLaeuftBereits;
 use App\Service\UpdateService;
+use App\Service\UpdateSperre;
 use PDO;
 use PDOException;
 use PHPUnit\Framework\TestCase;
@@ -108,7 +111,8 @@ class UpdateRunTest extends TestCase {
         // Ein hängen gebliebener Marker würde jeden folgenden Test (und eine
         // lokale Entwicklungsinstanz im selben Arbeitsverzeichnis) mit 503
         // lahmlegen - deshalb hier bedingungslos aufräumen.
-        Maintenance::disable();
+        Maintenance::resetForTests();
+        UpdateSperre::resetForTests();
         foreach ($this->tempDirs as $dir) {
             $this->removeTree($dir);
         }
@@ -560,6 +564,199 @@ class UpdateRunTest extends TestCase {
 
         $this->assertSame(1, $this->countAuditEntries('Automatisches Update fehlgeschlagen'));
         $this->assertFalse(Maintenance::isActive());
+    }
+
+    // ---- Sperre und Abbruch (Audit M44, M45) ---------------------------
+
+    /**
+     * Der minütliche Cron startete performUpdate() mehrfach, solange der
+     * erste Lauf noch mit Backup und Download beschäftigt war. Jetzt endet
+     * ein zweiter Lauf an der Sperre - VOR dem Pflicht-Backup: kein zweites
+     * Backup, das ältere verdrängen könnte.
+     */
+    public function testZweiterLaufBrichtAbWennDieSperreGehaltenWird(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+
+        $griff = $this->halteSperre($target);
+        try {
+            UpdateService::performUpdate();
+            $this->fail('Ein zweiter Lauf muss an der Sperre enden');
+        } catch (UpdateLaeuftBereits $e) {
+            $this->assertStringContainsString('läuft bereits', $e->getMessage());
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+        }
+
+        $this->assertSame([], glob(FakeS3Server::storageDir() . '/*') ?: [], 'Kein Backup');
+        $this->assertSame(0, $this->countAuditEntries('Update: Pflicht-Backup wird ausgeführt'));
+        $this->assertFileDoesNotExist($target . '/neue-datei.txt');
+        $this->assertFalse(Maintenance::isActive());
+    }
+
+    public function testAutoInstallUeberspringtStillWennEinUpdateLaeuft(): void {
+        $this->configureBackup();
+        $this->setSetting('update_notify', '1');
+        $this->setSetting('update_auto_install', '1');
+        $this->setSetting('update_auto_install_scope', 'any');
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+
+        $griff = $this->halteSperre($target);
+        try {
+            UpdateService::runAutoInstallIfEligible();
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+        }
+
+        $this->assertSame(1, $this->countAuditEntries('Automatisches Update übersprungen: läuft bereits'));
+        $this->assertSame(0, $this->countAuditEntries('Automatisches Update fehlgeschlagen'));
+        $this->assertFileDoesNotExist($target . '/neue-datei.txt');
+    }
+
+    /**
+     * Ein Lauf, der noch die alte Version geladen hat, während auf der
+     * Platte schon die neue liegt, spielt nichts erneut ein - auch nicht
+     * das Pflicht-Backup.
+     */
+    public function testVeralteteKernversionSpieltNichtErneutEin(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        mkdir($target . '/config');
+        file_put_contents($target . '/config/config.php', "<?php\ndefine('CORE_VERSION', '9.9.9');\n");
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+
+        try {
+            UpdateService::performUpdate();
+            $this->fail('Eine veraltete geladene Version darf nicht erneut einspielen');
+        } catch (UpdateLaeuftBereits $e) {
+            $this->assertStringContainsString('9.9.9', $e->getMessage());
+            $this->assertStringContainsString(UpdateService::currentVersion(), $e->getMessage());
+        }
+
+        $this->assertSame(0, $this->countAuditEntries('Update: Pflicht-Backup wird ausgeführt'));
+        $this->assertFileDoesNotExist($target . '/neue-datei.txt');
+    }
+
+    /** Das Präfix 'v' ist kein Versionsunterschied (normalizeVersion()). */
+    public function testGleicheVersionMitPraefixGiltNichtAlsVeraltet(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        mkdir($target . '/config');
+        file_put_contents(
+            $target . '/config/config.php',
+            "<?php\ndefine('CORE_VERSION', 'v" . UpdateService::normalizeVersion(UpdateService::currentVersion()) . "');\n"
+        );
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+
+        UpdateService::performUpdate();
+
+        $this->assertFileExists($target . '/neue-datei.txt');
+    }
+
+    public function testSperreIstNachErfolgUndFehlschlagWiederFrei(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+        UpdateService::performUpdate();
+        $this->assertTrue(UpdateSperre::istFrei($target), 'Nach Erfolg frei');
+
+        $this->publishBrokenRelease('9.9.9');
+        try {
+            UpdateService::performUpdate();
+            $this->fail('Ein kaputtes Archiv muss abbrechen');
+        } catch (\RuntimeException) {
+        }
+        $this->assertTrue(UpdateSperre::istFrei($target), 'Nach Fehlschlag frei');
+        $this->assertFalse(Maintenance::isActive());
+    }
+
+    /**
+     * Ist dieselbe Zielversion schon einmal mitten im Einspielen abgebrochen,
+     * versucht die Automatik sie nicht erneut - sie protokolliert den Abbruch
+     * (den der Rückweg selbst nicht ins Audit-Log schreiben kann) und setzt
+     * aus. Die Mail dazu prüft UpdateNotificationMailTest.
+     */
+    public function testAbbruchHinweisVerhindertAutomatischeWiederholung(): void {
+        $this->configureBackup();
+        $this->setSetting('update_notify', '1');
+        $this->setSetting('update_auto_install', '1');
+        $this->setSetting('update_auto_install_scope', 'any');
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+        $this->schreibeAbbruchHinweis($target, '9.9.9');
+
+        UpdateService::runAutoInstallIfEligible();
+        UpdateService::runAutoInstallIfEligible();
+
+        $this->assertFileDoesNotExist($target . '/neue-datei.txt');
+        $this->assertSame([], glob(FakeS3Server::storageDir() . '/*') ?: [], 'Kein Backup, kein Versuch');
+        $this->assertSame(1, $this->countAuditEntries('Abgebrochenes Update zurückgerollt'), 'Genau einmal protokolliert');
+        $this->assertSame(2, $this->countAuditEntries('Automatisches Update ausgesetzt: vorheriger Abbruch'));
+        $this->assertTrue(UpdateJournal::letzterAbbruch($target)['protokolliert']);
+    }
+
+    /** Ein Abbruch für eine ANDERE Zielversion hält die Automatik nicht auf. */
+    public function testAbbruchHinweisFuerAndereVersionHaeltNichtAuf(): void {
+        $this->configureBackup();
+        $this->setSetting('update_notify', '1');
+        $this->setSetting('update_auto_install', '1');
+        $this->setSetting('update_auto_install_scope', 'any');
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+        $this->schreibeAbbruchHinweis($target, '9.9.8');
+
+        UpdateService::runAutoInstallIfEligible();
+
+        $this->assertFileExists($target . '/neue-datei.txt');
+        $this->assertNull(UpdateJournal::letzterAbbruch($target), 'Ein erfolgreiches Update löscht den Hinweis');
+    }
+
+    public function testErfolgreichesManuellesUpdateLoeschtDenAbbruchHinweis(): void {
+        $this->configureBackup();
+        $target = $this->makeTempDir();
+        UpdateService::overrideBaseDirForTests($target);
+        $this->publishRelease('9.9.9', ['neue-datei.txt' => 'x']);
+        $this->schreibeAbbruchHinweis($target, '9.9.9');
+
+        UpdateService::performUpdate();
+
+        $this->assertFileExists($target . '/neue-datei.txt');
+        $this->assertNull(UpdateJournal::letzterAbbruch($target));
+    }
+
+    /** @return resource */
+    private function halteSperre(string $target) {
+        @mkdir($target . '/var');
+        $griff = fopen($target . '/var/update.lock', 'c+');
+        $this->assertTrue(flock($griff, LOCK_EX));
+        return $griff;
+    }
+
+    private function schreibeAbbruchHinweis(string $target, string $nach): void {
+        @mkdir($target . '/var');
+        file_put_contents(UpdateJournal::hinweisDatei($target), json_encode([
+            'zeit' => date('c'),
+            'zweck' => 'Kern-Update',
+            'von' => UpdateService::currentVersion(),
+            'nach' => $nach,
+            'ursache' => 'Maximum execution time of 30 seconds exceeded',
+            'bilanz' => [],
+            'vollstaendig' => true,
+            'protokolliert' => false,
+            'gemeldet' => false,
+        ]));
     }
 
     // ---- Helfer --------------------------------------------------------

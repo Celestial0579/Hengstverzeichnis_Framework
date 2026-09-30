@@ -18,6 +18,7 @@
  * @var string $autoInstallScope  'patch_only' oder 'any'
  * @var bool $mailDeliverable  Kann diese Installation Mail versenden (Mailer::isDeliverable())
  * @var bool $adminRecipientReachable  Gibt es ueberhaupt eine erreichbare Admin-Adresse
+ * @var array<string, mixed>|null $letzterAbbruch  Zurückgerollter Abbruch (Audit M45, var/update-abbruch.json)
  */
 $inPlaceEnabled = $inPlaceEnabled ?? true;
 $addonRows = $addonRows ?? [];
@@ -25,6 +26,7 @@ $addonCatalogAvailable = $addonCatalogAvailable ?? false;
 $notifyEnabled = $notifyEnabled ?? false;
 $mailDeliverable = $mailDeliverable ?? true;
 $adminRecipientReachable = $adminRecipientReachable ?? true;
+$letzterAbbruch = $letzterAbbruch ?? null;
 $autoInstallEnabled = $autoInstallEnabled ?? false;
 $autoInstallScope = $autoInstallScope ?? 'patch_only';
 // Ohne Backup bzw. ohne In-Place-Recht kann die Automatik nicht laufen -
@@ -237,6 +239,22 @@ $addonOhneErsatz = \App\Service\UpdateService::addonsBlockingAutoInstall($addonR
     <?php if (isset($_GET['error'])): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             <?= htmlspecialchars($_GET['error']) ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!empty($letzterAbbruch) && is_array($letzterAbbruch)): ?>
+        <div class="update-abbruch" style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <strong>Ein Update wurde abgebrochen und zurückgerollt.</strong>
+            <?= htmlspecialchars(trim((string)($letzterAbbruch['zweck'] ?? 'Update')
+                . (($letzterAbbruch['nach'] ?? '') !== '' ? ' auf ' . $letzterAbbruch['nach'] : ''))) ?>,
+            zurückgerollt am <?= htmlspecialchars((string)($letzterAbbruch['zeit'] ?? '?')) ?>.
+            Ursache: <?= htmlspecialchars((string)($letzterAbbruch['ursache'] ?? 'unbekannt')) ?>
+            <?php if (($letzterAbbruch['vollstaendig'] ?? true) !== true): ?>
+                <br><strong>Nicht alle Dateien ließen sich zurückholen</strong> - bitte das Fehlerprotokoll prüfen.
+            <?php endif; ?>
+            <br>Die Automatik spielt diese Version nicht erneut ein. Nach Behebung der Ursache
+            (etwa Zeit- oder Speicherlimit des Webservers) lässt sie sich hier von Hand einspielen;
+            ein erfolgreiches Update entfernt diesen Hinweis.
         </div>
     <?php endif; ?>
 

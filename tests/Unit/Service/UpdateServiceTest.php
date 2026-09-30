@@ -3,7 +3,12 @@
 
 namespace Tests\Unit\Service;
 
+use App\Service\Integritaet;
+use App\Service\Schutzdateien;
+use App\Service\UpdateJournal;
+use App\Service\UpdateLaeuftBereits;
 use App\Service\UpdateService;
+use App\Service\UpdateSperre;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -16,6 +21,8 @@ class UpdateServiceTest extends TestCase {
     private array $cleanupDirs = [];
 
     protected function tearDown(): void {
+        UpdateService::nachJederDateiFuerTests(null);
+        UpdateSperre::resetForTests();
         foreach ($this->cleanupDirs as $dir) {
             $this->removeTree($dir);
         }
@@ -345,6 +352,256 @@ class UpdateServiceTest extends TestCase {
         // halb Aktualisiertes, nichts Neues liegengeblieben.
         $this->assertSame('ALTE VERSION', file_get_contents($target . '/index.php'));
         $this->assertSame('ALTE DATEI', file_get_contents($target . '/src/Bestand.php'));
+
+        // Und kein Rest des Rückweg-Journals (Audit M45).
+        $this->assertDirectoryDoesNotExist($target . '/' . UpdateJournal::VERZEICHNIS);
+        $this->assertTrue(UpdateSperre::istFrei($target), 'Die Sperre ist nach dem Fehlschlag wieder frei');
+    }
+
+    /**
+     * Wie oben, aber der Abbruch kommt MITTEN im Kopieren (die Vorabprüfung
+     * sieht ihn nicht): Rückweg aus dem Journal, Sicherungen und Journal
+     * danach weg.
+     */
+    public function testAbbruchMittenImKopierenRolltAusDemJournalZurueck(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        file_put_contents($target . '/index.php', 'ALTE VERSION');
+        mkdir($target . '/src');
+        file_put_contents($target . '/src/Bestand.php', 'ALTE DATEI');
+
+        $zipPath = $this->makeZip([
+            'p/index.php' => 'NEUE VERSION',
+            'p/src/Bestand.php' => 'NEUE DATEI',
+            'p/src/neu/Neu.php' => 'NEU',
+        ]);
+        UpdateService::nachJederDateiFuerTests(static function (string $rel): void {
+            if ($rel === 'src/neu/Neu.php') {
+                throw new \RuntimeException('Platte voll (simuliert)');
+            }
+        });
+
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+            $this->fail('Der Abbruch muss durchschlagen');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('zurückgerollt', $e->getMessage());
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame('ALTE VERSION', file_get_contents($target . '/index.php'));
+        $this->assertSame('ALTE DATEI', file_get_contents($target . '/src/Bestand.php'));
+        $this->assertDirectoryDoesNotExist($target . '/src/neu');
+        $this->assertDirectoryDoesNotExist($target . '/' . UpdateJournal::VERZEICHNIS);
+    }
+
+    /**
+     * config/config.php trägt CORE_VERSION; lag sie früh, hielt sich ein
+     * halb kopierter Baum für aktuell (Audit M45). Sie und die Solliste
+     * kommen zuletzt - nach dem Abgleich.
+     */
+    public function testConfigPhpUndSollisteWerdenZuletztKopiert(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        $zipPath = $this->makeZip([
+            'p/' . Integritaet::MANIFEST => 'SOLL',
+            'p/config/config.php' => "<?php define('CORE_VERSION', '9.9.9');",
+            'p/config/andere.php' => 'X',
+            'p/index.php' => 'NEU',
+            'p/vendor/autoload.php' => 'NEU',
+        ]);
+        $reihenfolge = [];
+        UpdateService::nachJederDateiFuerTests(static function (string $rel) use (&$reihenfolge): void {
+            $reihenfolge[] = $rel;
+        });
+
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame(
+            ['config/andere.php', 'index.php', 'vendor/autoload.php', Integritaet::MANIFEST, 'config/config.php'],
+            $reihenfolge
+        );
+    }
+
+    /**
+     * Write-ahead (Audit M45): Wenn eine Datei kopiert ist, steht sie schon
+     * im persistenten Journal - und das Rückweg-Skript lag dort, bevor die
+     * erste Datei angefasst wurde, als Kopie aus dem noch konsistenten
+     * Altstand.
+     */
+    public function testJournalEintragStehtVorDerDateioperationUndRueckwegLiegtVorher(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        file_put_contents($target . '/alt.txt', 'ALT');
+        $zipPath = $this->makeZip([
+            'p/alt.txt' => 'NEU',
+            'p/b.txt' => 'B',
+            'p/c/d.txt' => 'D',
+        ]);
+        $beobachtet = [];
+        UpdateService::nachJederDateiFuerTests(function (string $rel) use ($target, &$beobachtet): void {
+            $verzeichnis = $target . '/' . UpdateJournal::VERZEICHNIS;
+            $this->assertFileEquals(UpdateJournal::rueckwegVorlage(), $verzeichnis . '/' . UpdateJournal::RUECKWEG);
+            $gelesen = UpdateJournal::lesen($target);
+            $letzter = end($gelesen['eintraege']);
+            $beobachtet[$rel] = [$letzter['art'], $letzter['original'] ?? $letzter['pfad']];
+        });
+
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame([
+            'alt.txt' => ['restore', 'alt.txt'],
+            'b.txt' => ['created', 'b.txt'],
+            'c/d.txt' => ['created', 'c/d.txt'],
+        ], $beobachtet);
+        $this->assertDirectoryDoesNotExist($target . '/' . UpdateJournal::VERZEICHNIS, 'Nach Erfolg ist das Journal weg');
+    }
+
+    /**
+     * Die Schutzdateien unter public/uploads sind KERN (Audit N19): Das
+     * Update liefert sie aus und legt public/uploads/horses an - alles
+     * andere unter public/uploads bleibt unberührt, auch eine
+     * untergeschobene PHP-Datei im Archiv.
+     */
+    public function testSchutzdateienUnterUploadsWerdenAusgeliefert(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        mkdir($target . '/public/uploads', 0755, true);
+        file_put_contents($target . '/public/uploads/.htaccess', 'ALTE FASSUNG');
+        file_put_contents($target . '/public/uploads/foto.jpg', 'FOTO');
+
+        $zipPath = $this->makeZip([
+            'p/public/index.php' => 'NEU',
+            'p/public/uploads/.htaccess' => Schutzdateien::UPLOADS,
+            'p/public/uploads/horses/.htaccess' => Schutzdateien::HORSES,
+            'p/public/uploads/boese.php' => 'ANGRIFF',
+            'p/public/uploads/branding/logo.png' => 'FREMD',
+        ]);
+
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame(Schutzdateien::UPLOADS, file_get_contents($target . '/public/uploads/.htaccess'));
+        $this->assertSame(Schutzdateien::HORSES, file_get_contents($target . '/public/uploads/horses/.htaccess'));
+        $this->assertFileDoesNotExist($target . '/public/uploads/boese.php');
+        $this->assertDirectoryDoesNotExist($target . '/public/uploads/branding');
+        $this->assertSame('FOTO', file_get_contents($target . '/public/uploads/foto.jpg'));
+    }
+
+    public function testSchutzdateienWerdenMitZurueckgerollt(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        mkdir($target . '/public/uploads', 0755, true);
+        file_put_contents($target . '/public/uploads/.htaccess', 'ALTE FASSUNG');
+
+        $zipPath = $this->makeZip([
+            'p/public/uploads/.htaccess' => Schutzdateien::UPLOADS,
+            'p/public/uploads/horses/.htaccess' => Schutzdateien::HORSES,
+            'p/zuletzt.txt' => 'X',
+        ]);
+        UpdateService::nachJederDateiFuerTests(static function (string $rel): void {
+            if ($rel === 'zuletzt.txt') {
+                throw new \RuntimeException('Abbruch nach den Schutzdateien');
+            }
+        });
+
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+            $this->fail('Der Abbruch muss durchschlagen');
+        } catch (\RuntimeException) {
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame('ALTE FASSUNG', file_get_contents($target . '/public/uploads/.htaccess'));
+        $this->assertDirectoryDoesNotExist($target . '/public/uploads/horses');
+    }
+
+    /**
+     * Unter public/uploads wird nie abgeglichen - auch nicht, wenn eine
+     * fremde Datei dort in der Beweisliste stünde.
+     */
+    public function testAbgleichLaesstUploadsUnberuehrt(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        mkdir($target . '/public/uploads', 0755, true);
+        file_put_contents($target . '/public/uploads/fremd.txt', 'BETREIBER');
+
+        $zipPath = $this->makeZip([
+            'p/public/index.php' => 'NEU',
+            'p/public/uploads/.htaccess' => Schutzdateien::UPLOADS,
+            'p/' . UpdateService::ABGELOESTE_LISTE => hash('sha256', 'BETREIBER') . "  public/uploads/fremd.txt\n",
+        ]);
+
+        try {
+            UpdateService::applyUpdateArchive($zipPath, $target);
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame('BETREIBER', file_get_contents($target . '/public/uploads/fremd.txt'));
+    }
+
+    /** Eine Reparatur neben einem laufenden Update (Audit M44) wird abgewiesen. */
+    public function testStelleDateienHerBeiGehaltenerSperreWirft(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        file_put_contents($target . '/index.php', 'ALT');
+        $zipPath = $this->makeZip(['p/index.php' => 'NEU']);
+
+        mkdir($target . '/var');
+        $griff = fopen($target . '/var/update.lock', 'c+');
+        flock($griff, LOCK_EX);
+        try {
+            UpdateService::stelleDateienHer($zipPath, $target, ['index.php'], ['index.php' => hash('sha256', 'NEU')]);
+            $this->fail('Die Reparatur darf nicht neben einem laufenden Update laufen');
+        } catch (UpdateLaeuftBereits $e) {
+            $this->assertStringContainsString('läuft bereits', $e->getMessage());
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+            @unlink($zipPath);
+        }
+
+        $this->assertSame('ALT', file_get_contents($target . '/index.php'));
+    }
+
+    /**
+     * Die Reparatur mit derselben Mechanik wie das Update: journalisiert,
+     * mit Rückweg, fehlende Elternordner angelegt.
+     */
+    public function testStelleDateienHerStelltHerUndRaeumtAuf(): void {
+        $target = $this->makeTempDir('hengst_target_');
+        mkdir($target . '/src');
+        file_put_contents($target . '/src/Kaputt.php', 'KAPUTT');
+        $zipPath = $this->makeZip([
+            'p/src/Kaputt.php' => 'HEIL',
+            'p/public/uploads/horses/.htaccess' => Schutzdateien::HORSES,
+        ]);
+
+        try {
+            $fertig = UpdateService::stelleDateienHer(
+                $zipPath,
+                $target,
+                ['src/Kaputt.php', 'public/uploads/horses/.htaccess', 'config/db_config.php'],
+                [
+                    'src/Kaputt.php' => hash('sha256', 'HEIL'),
+                    'public/uploads/horses/.htaccess' => hash('sha256', Schutzdateien::HORSES),
+                ]
+            );
+        } finally {
+            @unlink($zipPath);
+        }
+
+        $this->assertSame(['src/Kaputt.php', 'public/uploads/horses/.htaccess'], $fertig);
+        $this->assertSame('HEIL', file_get_contents($target . '/src/Kaputt.php'));
+        $this->assertSame(Schutzdateien::HORSES, file_get_contents($target . '/public/uploads/horses/.htaccess'));
+        $this->assertDirectoryDoesNotExist($target . '/' . UpdateJournal::VERZEICHNIS);
     }
 
     /**

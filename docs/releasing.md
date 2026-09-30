@@ -8,8 +8,33 @@
 > das unten beschriebene bereinigte Shared-Hosting-Zip; `config/db_config.php`,
 > `public/uploads/`, `storage/horses/`, `plugins/` und `.env` bleiben unangetastet, Migrationen
 > laufen wie gewohnt beim nächsten Request (`Database::ensureSchemaUpToDate()`).
+> Einzige Ausnahme unter `public/uploads/` sind die Schutzdateien
+> `public/uploads/.htaccess` und `public/uploads/horses/.htaccess` (Audit N19):
+> Sie gehören zum Kern, werden ausgeliefert und von der Integritätsprüfung
+> geprüft; Bestandsinstallationen bekommen sie einmalig über den
+> Migrationsschritt `kern_schutzdateien_uploads`. Wer eine davon ändert, zieht
+> `App\Service\Schutzdateien` mit (Sollinhalt als Konstante, bisherige
+> Fassung als Altfassung aufnehmen - `SchutzdateienTest` erzwingt das).
 > Während des Einspielens setzt der Update-Lauf den Wartungsmodus (#232), damit
 > parallele Besucher nicht auf einen halb ausgetauschten Codebaum treffen.
+>
+> **Ein Lauf zur Zeit, Rückweg nach Abbruch (Audit M44, M45):** Update,
+> Reparatur und manuelles Addon-Update nehmen die Sperre `var/update.lock`
+> (flock); ein zweiter Lauf endet mit „läuft bereits“, die Automatik
+> überspringt still. Jede Dateioperation steht vorher im Journal
+> `var/update-journal/` (Sicherungen inklusive), `config/config.php` und
+> `KERN-SHA256SUMS.txt` kommen zuletzt. Endet der Lauf mit einem Fatal Error,
+> rollt er im selben Prozess zurück; nach einem harten Abbruch (SIGKILL,
+> `request_terminate_timeout`) rollt der nächste Request zurück, noch vor
+> jedem Autoloader (erste Anweisung in `public/index.php`, über das beim
+> Öffnen des Journals abgelegte `var/update-journal/rueckweg.php`). Von Hand
+> bzw. unter CLI: `php var/update-journal/rueckweg.php [<wurzel>]` - Ausgabe
+> `zurueckgerollt`, `keins`, `belegt` (ein anderer Prozess hält die Sperre)
+> oder `unvollstaendig` (Journal bleibt liegen, Ursache im Fehlerprotokoll,
+> meist Dateirechte). Ein zurückgerollter Abbruch steht in
+> `var/update-abbruch.json` und auf `/admin/updates`; die Automatik spielt
+> dieselbe Version danach nicht erneut ein. Wirksam ab dem Update NACH der
+> Version, die das einführt - kopiert wird immer mit dem installierten Code.
 >
 > **Unbeaufsichtigt (#290):** Auf Wunsch prüft ein Cron-Lauf alle 3 Stunden auf
 > neue Kern- und Addon-Versionen und meldet jeden Fund einmalig per E-Mail an

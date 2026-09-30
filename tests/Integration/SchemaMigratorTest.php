@@ -383,6 +383,10 @@ class SchemaMigratorTest extends TestCase {
 
         // Die Installationsepoche (Audit M24) legt der Lauf still an.
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string)self::einstellung('install_epoch'));
+
+        // Die Schutzdateien (Audit N19) liegen im Arbeitsbaum aktuell vor -
+        // der Schritt ist still erledigt, sein Marker gesetzt.
+        $this->assertNotNull(self::einstellung('migration_kern_schutzdateien_uploads'));
     }
 
     /**
@@ -762,5 +766,42 @@ class SchemaMigratorTest extends TestCase {
         self::$pdo->exec("DELETE FROM settings WHERE setting_key IN ('migration_bildmetadaten_entfernen', 'schema_migration_status')");
         self::$pdo->exec("UPDATE settings SET setting_value = '" . (SchemaMigrator::SCHEMA_VERSION - 1) . "' WHERE setting_key = 'schema_version'");
         return SchemaMigrator::run(self::$pdo);
+    }
+
+    /**
+     * Audit N19: Auf einer Bestandsinstallation ohne horses/.htaccess legt
+     * der Schritt sie an - hier in einem über HorseImagePath umgebogenen
+     * Verzeichnis, damit der Test nicht in den Arbeitsbaum schreibt.
+     */
+    public function testSchutzdateiWirdImPferdefotoVerzeichnisAngelegt(): void {
+        $alt = sys_get_temp_dir() . '/' . uniqid('hengst_schutz_');
+        $neu = sys_get_temp_dir() . '/' . uniqid('hengst_schutz_neu_');
+        mkdir($alt, 0777, true);
+        $arbeitsbaum = dirname(__DIR__, 2) . '/public/uploads';
+        $vorher = [
+            hash_file('sha256', $arbeitsbaum . '/.htaccess'),
+            hash_file('sha256', $arbeitsbaum . '/horses/.htaccess'),
+        ];
+
+        \App\Helper\HorseImagePath::overrideForTests($neu, $alt);
+        try {
+            self::$pdo->exec("DELETE FROM `settings` WHERE `setting_key` = 'migration_kern_schutzdateien_uploads'");
+            self::$pdo->exec("UPDATE `settings` SET `setting_value` = '0' WHERE `setting_key` = 'schema_version'");
+
+            $schritte = SchemaMigrator::run(self::$pdo);
+
+            $this->assertSame(\App\Service\Schutzdateien::HORSES, file_get_contents($alt . '/.htaccess'));
+            $this->assertContains('Schutzdatei public/uploads/horses/.htaccess angelegt', $schritte);
+            $this->assertNotNull(self::einstellung('migration_kern_schutzdateien_uploads'));
+            $this->assertSame($vorher, [
+                hash_file('sha256', $arbeitsbaum . '/.htaccess'),
+                hash_file('sha256', $arbeitsbaum . '/horses/.htaccess'),
+            ], 'Der Arbeitsbaum bleibt unberührt');
+        } finally {
+            \App\Helper\HorseImagePath::overrideForTests(null, null);
+            @unlink($alt . '/.htaccess');
+            @rmdir($alt);
+            @rmdir($neu);
+        }
     }
 }

@@ -22,11 +22,11 @@ use PHPUnit\Framework\TestCase;
 class MaintenanceTest extends TestCase {
 
     protected function setUp(): void {
-        Maintenance::disable();
+        Maintenance::resetForTests();
     }
 
     protected function tearDown(): void {
-        Maintenance::disable();
+        Maintenance::resetForTests();
     }
 
     public function testInactiveWithoutMarkerFile(): void {
@@ -198,6 +198,117 @@ class MaintenanceTest extends TestCase {
 
         // Wären wir hier nicht angekommen, hätte guard() den Prozess beendet.
         $this->assertTrue(Maintenance::isActive());
+    }
+
+    // ---- Token, Verschachtelung, Inhaber-Sperre (Audit N72) -------------
+
+    public function testEnableLiefertTokenImMarker(): void {
+        $token = Maintenance::enable('Mit Token');
+
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $token);
+        $info = Maintenance::info();
+        $this->assertSame($token, $info['token']);
+        $this->assertSame('flock', $info['lebenszeichen']);
+        $this->assertFalse(Maintenance::isStale(), 'Der eigene Prozess hält die Inhaber-Sperre');
+    }
+
+    /** Ein anderer Prozess hat den Marker übernommen - er bleibt liegen. */
+    public function testDisableMitFremdemTokenLaesstMarkerLiegen(): void {
+        $tokenA = Maintenance::enable('Lauf A');
+        $daten = json_decode((string)file_get_contents(Maintenance::lockFile()), true);
+        $daten['token'] = str_repeat('b', 32);
+        $daten['grund'] = 'Lauf B';
+        file_put_contents(Maintenance::lockFile(), json_encode($daten));
+
+        Maintenance::disable($tokenA);
+
+        $this->assertTrue(Maintenance::isActive(), 'Der Marker von Lauf B bleibt');
+        $this->assertSame('Lauf B', Maintenance::info()['grund']);
+    }
+
+    public function testDisableOhneArgumentEntferntNurDenEigenen(): void {
+        Maintenance::enable('Eigener');
+        file_put_contents(Maintenance::lockFile(), json_encode(['grund' => 'fremd', 'seit' => date('c'), 'token' => str_repeat('c', 32)]));
+
+        Maintenance::disable();
+        $this->assertTrue(Maintenance::isActive(), 'Mit eigenem Token im Prozess: fremder Marker bleibt');
+
+        // Ohne eigenes Token (Betreiber, Werkzeug): bedingungslos wie bisher.
+        Maintenance::disable();
+        $this->assertFalse(Maintenance::isActive());
+    }
+
+    /**
+     * Ein inneres enable() (Reparatur im Update, Addon-Hook) darf das äußere
+     * Fenster nicht mit seinem disable() aufheben.
+     */
+    public function testVerschachteltesEnableTeiltTokenUndZaehlt(): void {
+        $aussen = Maintenance::enable('A');
+        $innen = Maintenance::enable('B');
+        $this->assertSame($aussen, $innen);
+        $this->assertSame('B', Maintenance::info()['grund']);
+
+        Maintenance::disable($innen);
+        $this->assertTrue(Maintenance::isActive(), 'Das innere disable() lässt das äußere Fenster stehen');
+        $this->assertSame('B', Maintenance::info()['grund']);
+
+        Maintenance::disable($aussen);
+        $this->assertFalse(Maintenance::isActive());
+    }
+
+    /**
+     * enableDauerhaft(): kein Token, keine Prozesskennung - wie ein
+     * Handmarker. Er verfällt nie und fällt nicht mit dem Prozess.
+     */
+    public function testEnableDauerhaftSchreibtHandmarker(): void {
+        Maintenance::enableDauerhaft('Umzug');
+
+        $info = Maintenance::info();
+        $this->assertNull($info['token']);
+        $this->assertNull($info['pid']);
+        $this->assertFalse(Maintenance::isStale());
+
+        $daten = json_decode((string)file_get_contents(Maintenance::lockFile()), true);
+        $daten['seit'] = date('c', strtotime('-3 days'));
+        file_put_contents(Maintenance::lockFile(), json_encode($daten));
+        $this->assertFalse(Maintenance::isStale());
+    }
+
+    /**
+     * Der FPM-Fall, um den es in N72 geht: Nach einem Fatal Error lebt der
+     * Worker mit derselben PID weiter. Marker im neuen Format, pid = eine
+     * lebende Kennung, frisch - aber niemand hält die Inhaber-Sperre: Er ist
+     * verwaist. Die PID-Regel hätte ihn nie freigegeben.
+     */
+    public function testNeuesFormatMitLebenderPidOhneSperreIstVerwaist(): void {
+        file_put_contents(Maintenance::lockFile(), json_encode([
+            'grund' => 'Fatal im FPM-Worker',
+            'seit' => date('c'),
+            'pid' => getmypid(),
+            'token' => str_repeat('d', 32),
+            'lebenszeichen' => 'flock',
+        ]));
+
+        $this->assertTrue(Maintenance::isStale());
+    }
+
+    public function testGehalteneInhaberSperreHaeltAuchAltenMarker(): void {
+        $griff = fopen(Maintenance::inhaberDatei(), 'c');
+        flock($griff, LOCK_SH);
+        try {
+            file_put_contents(Maintenance::lockFile(), json_encode([
+                'grund' => 'Langer Import',
+                'seit' => date('c', strtotime('-3 days')),
+                'pid' => $this->deadPid(),
+                'token' => str_repeat('e', 32),
+                'lebenszeichen' => 'flock',
+            ]));
+            $this->assertFalse(Maintenance::isStale(), 'Solange jemand die Inhaber-Sperre hält, ist nichts verwaist');
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+        }
+        $this->assertTrue(Maintenance::isStale());
     }
 
     // ---- Helfer --------------------------------------------------------

@@ -22,7 +22,11 @@ class MaintenanceModeTest extends FunctionalTestCase {
      * Functional-Tests (und eine lokale Entwicklungsinstanz) mit 503 lahmlegen.
      */
     protected function tearDown(): void {
-        Maintenance::disable();
+        Maintenance::resetForTests();
+        $wurzel = dirname(__DIR__, 2);
+        $this->entferne($wurzel . '/var/update-journal');
+        @unlink($wurzel . '/var/update-abbruch.json');
+        @unlink($wurzel . '/var/abbruch-probe.txt');
         parent::tearDown();
     }
 
@@ -147,6 +151,115 @@ class MaintenanceModeTest extends FunctionalTestCase {
         $response = $client->get('/');
         $this->assertSame(503, $response->statusCode);
         $this->assertStringContainsString('503 - Maintenance Mode', $response->body);
+    }
+
+    // ---- Inhaber-Sperre und früher Rückweg-Haken (Audit N72, M45) --------
+
+    /**
+     * Der FPM-Fall: Nach einem Fatal Error lebt der Worker mit derselben PID
+     * weiter. Ein Marker im neuen Format, dessen Inhaber-Sperre niemand mehr
+     * hält, ist verwaist - auch wenn die PID lebt (hier: der Testprozess)
+     * und der Marker frisch ist.
+     */
+    public function testVerwaisterMarkerEinesLebendenWorkersWirdFreigegeben(): void {
+        $this->schreibeMarkerNeuesFormat();
+
+        $this->assertNotSame(503, $this->newClient()->get('/')->statusCode);
+        $this->assertFalse(Maintenance::isActive(), 'Der Guard hat den verwaisten Marker entfernt');
+    }
+
+    public function testGehalteneInhaberSperreSperrtWeiter(): void {
+        $griff = fopen(Maintenance::inhaberDatei(), 'c');
+        flock($griff, LOCK_SH);
+        try {
+            $this->schreibeMarkerNeuesFormat();
+
+            $this->assertSame(503, $this->newClient()->get('/')->statusCode);
+            $this->assertTrue(Maintenance::isActive());
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+        }
+    }
+
+    /**
+     * Ein Update wurde beim Kopieren hart beendet: Journal, Sicherung und
+     * Rückweg-Skript liegen, der Marker ohne lebenden Inhaber auch. Der frühe
+     * Haken in public/index.php rollt zurück, bevor die Anwendung startet;
+     * danach räumt der Guard den Marker weg.
+     */
+    public function testFruehHakenRolltVerwaistesJournalZurueck(): void {
+        $wurzel = dirname(__DIR__, 2);
+        $this->legeJournalAn('NEU (halb eingespielt)', 'ALT (vor dem Update)');
+        $this->schreibeMarkerNeuesFormat();
+
+        $response = $this->newClient()->get('/');
+
+        $this->assertNotSame(503, $response->statusCode);
+        $this->assertSame('ALT (vor dem Update)', file_get_contents($wurzel . '/var/abbruch-probe.txt'));
+        $this->assertFileDoesNotExist($wurzel . '/var/update-journal/journal.jsonl');
+        $this->assertDirectoryDoesNotExist($wurzel . '/var/update-journal');
+        $this->assertFileExists($wurzel . '/var/update-abbruch.json');
+        $this->assertFalse(Maintenance::isActive());
+    }
+
+    /** Hält ein anderer Prozess die Update-Sperre, gibt es nur 503. */
+    public function testJournalBeiGehaltenerUpdateSperreLiefert503(): void {
+        $wurzel = dirname(__DIR__, 2);
+        $this->legeJournalAn('NEU (halb eingespielt)', 'ALT (vor dem Update)');
+        $vorher = file_get_contents($wurzel . '/var/update-journal/journal.jsonl');
+
+        $griff = fopen($wurzel . '/var/update.lock', 'c+');
+        flock($griff, LOCK_EX);
+        try {
+            $response = $this->newClient()->get('/');
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+        }
+
+        $this->assertSame(503, $response->statusCode);
+        $this->assertNotNull($response->header('Retry-After'));
+        $this->assertSame($vorher, file_get_contents($wurzel . '/var/update-journal/journal.jsonl'));
+        $this->assertSame('NEU (halb eingespielt)', file_get_contents($wurzel . '/var/abbruch-probe.txt'));
+    }
+
+    private function schreibeMarkerNeuesFormat(): void {
+        file_put_contents(Maintenance::lockFile(), json_encode([
+            'grund' => 'Functional-Test: Fatal im Worker',
+            'seit' => date('c'),
+            'pid' => getmypid(),
+            'token' => str_repeat('f', 32),
+            'lebenszeichen' => 'flock',
+        ]));
+    }
+
+    private function legeJournalAn(string $jetzt, string $gesichert): void {
+        $wurzel = dirname(__DIR__, 2);
+        $verzeichnis = $wurzel . '/var/update-journal';
+        mkdir($verzeichnis . '/sicherungen', 0700, true);
+        copy($wurzel . '/src/Service/update-rueckweg.php', $verzeichnis . '/rueckweg.php');
+        file_put_contents($verzeichnis . '/sicherungen/probe', $gesichert);
+        file_put_contents($wurzel . '/var/abbruch-probe.txt', $jetzt);
+        file_put_contents(
+            $verzeichnis . '/journal.jsonl',
+            json_encode(['art' => 'kopf', 'format' => 1, 'zweck' => 'Kern-Update', 'von' => '1.0.0', 'nach' => '9.9.9', 'pid' => 0, 'seit' => date('c')]) . "\n"
+            . json_encode(['art' => 'restore', 'sicherung' => 'probe', 'original' => 'var/abbruch-probe.txt']) . "\n"
+        );
+    }
+
+    private function entferne(string $pfad): void {
+        if (is_file($pfad) || is_link($pfad)) {
+            @unlink($pfad);
+            return;
+        }
+        if (!is_dir($pfad)) {
+            return;
+        }
+        foreach (array_diff(scandir($pfad) ?: [], ['.', '..']) as $eintrag) {
+            $this->entferne($pfad . '/' . $eintrag);
+        }
+        @rmdir($pfad);
     }
 
     /**

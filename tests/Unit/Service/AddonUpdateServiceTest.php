@@ -20,10 +20,36 @@ class AddonUpdateServiceTest extends TestCase {
     private array $cleanupDirs = [];
 
     protected function tearDown(): void {
+        \App\Service\UpdateService::overrideBaseDirForTests(null);
+        \App\Service\UpdateSperre::resetForTests();
         foreach ($this->cleanupDirs as $dir) {
             $this->removeTree($dir);
         }
         $this->cleanupDirs = [];
+    }
+
+    // ---- Update-Sperre (Audit M44) ---------------------------------------
+
+    /**
+     * Ein manuelles Addon-Update schreibt in plugins/ - neben einem
+     * laufenden Kern-Update (dessen Addon-Phase dasselbe tut) wird es
+     * abgewiesen, bevor irgendetwas geladen oder geschrieben wird.
+     */
+    public function testUpdateAddonBeiGehaltenerSperreWirft(): void {
+        $wurzel = rtrim(sys_get_temp_dir(), '/') . '/' . uniqid('hengst_addonsperre_');
+        mkdir($wurzel . '/var', 0755, true);
+        $this->cleanupDirs[] = $wurzel;
+        \App\Service\UpdateService::overrideBaseDirForTests($wurzel);
+
+        $griff = fopen($wurzel . '/var/update.lock', 'c+');
+        flock($griff, LOCK_EX);
+        try {
+            $this->expectException(\App\Service\UpdateLaeuftBereits::class);
+            AddonUpdateService::updateAddon('beispiel-addon');
+        } finally {
+            flock($griff, LOCK_UN);
+            fclose($griff);
+        }
     }
 
     // ---- coreLine ------------------------------------------------------

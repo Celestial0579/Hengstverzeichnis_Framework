@@ -121,6 +121,25 @@ Breaking Changes sind jederzeit möglich).
   entfällt die eigene Aufräumroutine (etwa zurückgesetzte Captcha-Auswahl,
   Zählerstände). Soll sie laufen, das Addon vor dem Deinstallieren
   aktivieren.
+- **Die Schutzdateien unter `public/uploads` kamen per Update nie an**
+  (Audit N19). Das In-Place-Update übersprang `public/uploads`
+  vollständig, auch `public/uploads/.htaccess` und
+  `public/uploads/horses/.htaccess`. Auf aktualisierten Installationen
+  fehlten deshalb die harte Sperre des statischen Wegs zu Pferdefotos (#366)
+  und die Korrektur der Referer-Regel (#367), die in der Altfassung falsch
+  herum wirkte.
+
+  Beide Dateien gehören jetzt zum Kern: Updates liefern sie aus, die
+  Integritätsprüfung prüft und repariert sie. Ein Migrationsschritt
+  (`SCHEMA_VERSION` 31) legt sie auf Bestandsinstallationen einmalig an bzw.
+  ersetzt bekannte Altfassungen – auch dann, wenn sie per FTP im ASCII-Modus
+  hochgeladen wurden und andere Zeilenenden haben. Eine vom Betreiber
+  geänderte Fassung bleibt stehen, wird gemeldet und erscheint in der
+  Integritätsprüfung als „geändert“. Lässt sich eine Datei nicht schreiben,
+  meldet sich der Schritt offen und wird wiederholt; bis dahin zeigt die
+  Integritätsprüfung sie als „fehlt“ und kann sie reparieren. Meldet die
+  Pferdefoto-Verschiebung (#366) liegengebliebene Fotos, sagt sie jetzt
+  ausdrücklich, wenn `public/uploads/horses/.htaccess` fehlt.
 
 - **Zusammenführen von Kontakten konnte private Kontaktdaten veröffentlichen**
   (Audit M9). War der behaltene Kontakt für die Veröffentlichung seiner
@@ -823,6 +842,55 @@ Breaking Changes sind jederzeit möglich).
   Datenmigration nach dem Import mit
   `docker compose cp app:/var/www/html/var/datenmigration ./` herausholen;
   `docker-compose.yml` enthält dafür auch eine auskommentierte Volume-Zeile.
+- **Zwei Update-Läufe gleichzeitig** (Audit M44). Der empfohlene minütliche
+  Cron konnte `performUpdate()` mehrfach parallel starten, solange der erste
+  Lauf noch mit Pflicht-Backup und Download beschäftigt war. Die Folgen:
+  doppelte Backups, die ältere, intakte Sicherungen verdrängten, ein erneut
+  eingespielter Kern, doppelte Mails und ein Wartungsmodus, den der zuerst
+  fertige Lauf dem anderen mitten im Kopieren entfernte.
+
+  Update, Reparatur aus der Integritätsprüfung und manuelles Addon-Update
+  laufen jetzt unter einer exklusiven Sperre (`var/update.lock`, flock).
+  Ein zweiter Lauf bricht sofort ab, noch vor dem Backup; das automatische
+  Update überspringt still und schreibt einen Audit-Eintrag („Automatisches
+  Update übersprungen: läuft bereits“). Ein Lauf, der noch die alte Version
+  geladen hat, während auf der Platte schon die neue liegt, spielt nichts
+  erneut ein. Jeder Lauf hebt nur seinen eigenen Wartungsmarker auf. Auf
+  Dateisystemen ohne flock läuft das Update wie bisher weiter, mit Warnung
+  im Audit-Log.
+
+- **Ein Abbruch mitten im Einspielen hinterließ einen Mischstand** (Audit
+  M45). Zeit- oder Speicherlimit, ein Kompilierfehler oder ein vom Webserver
+  beendeter Prozess übersprangen den Rückweg. Weil `config/config.php` früh
+  kopiert wurde, hielt sich die Installation danach für aktuell. Jetzt gilt:
+  - Während Update und Reparatur gibt es kein Zeitlimit, und ein
+    geschlossenes Browserfenster bricht sie nicht ab.
+  - Der Rückweg wird fortlaufend in `var/update-journal/` festgehalten,
+    jeweils bevor eine Datei angefasst wird. Die Sicherungskopien liegen
+    dort statt im System-Temp.
+  - Nach einem fatalen Fehler wird noch im selben Prozess zurückgerollt.
+  - Nach einem harten Abbruch rollt der nächste Aufruf zurück, noch bevor
+    die Anwendung startet (ganz oben in `public/index.php`). Das gelingt
+    auch, wenn `vendor/` nur halb kopiert war. Notfalls geht es von Hand:
+    `php var/update-journal/rueckweg.php`.
+  - `config/config.php` und die Solliste `KERN-SHA256SUMS.txt` werden
+    zuletzt kopiert.
+
+  `/admin/updates` zeigt einen abgebrochenen Lauf an. Das automatische
+  Update versucht dieselbe Version danach nicht mehr selbständig, sondern
+  benachrichtigt die Admins einmalig; von Hand lässt sie sich weiter
+  einspielen. Ein erfolgreiches Update entfernt den Hinweis.
+
+- **Der Wartungsmodus blieb nach einem fatalen Fehler dauerhaft stehen**
+  (Audit N72). Unter PHP-FPM, mod_php und LSAPI lebt der Worker nach einem
+  Fatal Error weiter. Die Prüfung über seine Prozesskennung hielt den Marker
+  deshalb für belegt, und jede Anfrage bekam 503. Der Marker wird jetzt beim
+  Prozessende aufgeräumt. Ob sein Inhaber noch lebt, entscheidet eine vom
+  Betriebssystem gehaltene Dateisperre (`var/wartung.inhaber`) statt der
+  PID. Von Hand gesetzte Marker (`touch var/wartung.lock`), die
+  Migrationssperre des Rückwegs #336 und Marker ohne Prozesskennung (etwa
+  vom Addon `datenmigration`) verfallen weiterhin nie.
+
 - **Sicherungen großer Bestände brachen nach 30 Sekunden ab** (Audit M37).
   Unter Apache ohne eigene php.ini (etwa im mitgelieferten Docker-Image)
   gilt ein Zeitlimit von 30 Sekunden Rechenzeit, und das Komprimieren eines
@@ -1303,6 +1371,37 @@ Breaking Changes sind jederzeit möglich).
     Schreibrechte auf `var/`, die Volume-Erkennung und die Upload-Sperren
     gegen ein Alt-Volume aus 0.7.x.
   - Das Verzeichnis `docker/` gehört nicht ins Shared-Hosting-Archiv.
+- **`public/uploads/.htaccess` und `public/uploads/horses/.htaccess` werden
+  bei Updates überschrieben** (Audit N19), wie `public/.htaccess`. Eigene
+  Regeln gehören nach `public/.htaccess` oder in die Serverkonfiguration.
+  Ist eine der Dateien nicht beschreibbar (etwa per FTP mit fremdem
+  Eigentümer hochgeladen), bricht ein Update jetzt vorab mit „Datei ist
+  nicht überschreibbar“ ab. Im Docker-Image wirken die Dateien nicht (dort
+  gilt die Apache-Konfiguration des Images); der Migrationsschritt legt sie
+  im Volume trotzdem an, damit die Integritätsprüfung stimmt.
+- **Neue Laufzeitdateien in `var/`** (Audit M44, M45, N72): `update.lock`,
+  `wartung.inhaber`, während eines Updates oder einer Reparatur
+  `update-journal/` mit Sicherungskopien (bis etwa 50 MB mit `vendor/`,
+  bisher im System-Temp) und `rueckweg.php`, nach einem Abbruch
+  `update-abbruch.json`. `var/` muss für den Webserver beschreibbar sein –
+  das war für den Wartungsmodus schon bisher nötig.
+- **Wartungsmodus aus Werkzeugen** (Audit N72): Ein mit
+  `Maintenance::enable()` gesetzter Marker fällt jetzt automatisch, wenn der
+  setzende Prozess endet – auch bei einem CLI-Einzeiler. Wer den
+  Wartungsmodus aus einem Skript heraus dauerhaft setzen will, nutzt
+  `Maintenance::enableDauerhaft()` oder `touch var/wartung.lock`.
+- **Für Addon-Entwickler** (Audit N72): `Maintenance::enable()` gibt ein
+  Token zurück und ist im selben Prozess verschachtelbar;
+  `Maintenance::disable(?string $token = null)` hebt nur den eigenen Marker
+  auf. Aufrufe ohne Rückgabewert und ohne Argument funktionieren
+  unverändert (das Addon `datenmigration` braucht keine Änderung). Neu sind
+  `Maintenance::enableDauerhaft()` und `Maintenance::info()['token']`.
+- **Sperre, Rückweg-Journal, Kopierreihenfolge und früher Rückweg-Haken
+  greifen erst beim Update NACH dieser Version** (Audit M44, M45): Ein
+  Update kopiert immer mit dem Code der gerade installierten Version. Das
+  Update auf diese Version selbst ist noch ungeschützt. Die Schutzdateien
+  kommen dagegen sofort über den Migrationsschritt.
+
 - **Aufbau des SQL-Dumps** (Audit N66). Der Dump enthält drei zusätzliche
   Anweisungen: im Kopf `SET @hv_dump_zeitzone = @@SESSION.time_zone;` und
   `SET time_zone = '+00:00';`, im Fuß `SET time_zone = @hv_dump_zeitzone;`

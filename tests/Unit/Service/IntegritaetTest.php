@@ -51,6 +51,30 @@ class IntegritaetTest extends TestCase {
         $this->assertSame([], $ergebnis['zusaetzlich']);
     }
 
+    /**
+     * Audit N19: Die Schutzdateien unter public/uploads sind KERN. Fehlt
+     * eine, meldet die Prüfung sie als "fehlt" (und die Reparatur darf sie
+     * herstellen) - Fotos daneben sind Betreiberdaten und erscheinen nicht
+     * als "zusätzlich".
+     */
+    public function testSchutzdateiUnterUploadsFehltUndFotosSindNichtZusaetzlich(): void {
+        $wurzel = $this->installation([
+            'src/App.php' => "<?php\n// A\n",
+            'public/uploads/.htaccess' => "Options -Indexes\n",
+            'public/uploads/horses/.htaccess' => "Require all denied\n",
+        ]);
+        unlink($wurzel . '/public/uploads/horses/.htaccess');
+        file_put_contents($wurzel . '/public/uploads/horses/foto.jpg', 'FOTO');
+        mkdir($wurzel . '/public/uploads/branding');
+        file_put_contents($wurzel . '/public/uploads/branding/logo.png', 'LOGO');
+
+        $ergebnis = Integritaet::pruefe();
+
+        $this->assertSame(['public/uploads/horses/.htaccess'], $ergebnis['fehlt']);
+        $this->assertSame([], $ergebnis['zusaetzlich']);
+        $this->assertSame([], $ergebnis['geaendert']);
+    }
+
     // ---- Die drei Arten von Abweichung -----------------------------------
 
     public function testGeaenderteDateiWirdGefunden(): void {

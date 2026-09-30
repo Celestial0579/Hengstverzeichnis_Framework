@@ -6,6 +6,7 @@ namespace Tests\Integration;
 use App\Database;
 use App\Security\Crypto;
 use App\Service\Scheduler;
+use App\Service\UpdateJournal;
 use App\Service\UpdateService;
 use PDO;
 use PDOException;
@@ -91,6 +92,7 @@ class UpdateNotificationMailTest extends TestCase {
     }
 
     protected function tearDown(): void {
+        UpdateService::overrideBaseDirForTests(null);
         putenv('UPDATE_RELEASES_URL');
         putenv('ADDON_RELEASES_URL');
     }
@@ -245,6 +247,44 @@ class UpdateNotificationMailTest extends TestCase {
         $this->assertStringStartsWith('Typ: update_verfuegbar, Empfänger: Benutzer #', (string)$details[0]);
         $this->assertStringNotContainsString('@', (string)$details[0], 'Keine Adresse im Protokoll.');
         $this->assertStringNotContainsString('Update verfügbar', (string)$details[0], 'Kein Betreff im Protokoll.');
+    }
+
+    /**
+     * Audit M45: Ist dieselbe Zielversion schon einmal mitten im Einspielen
+     * abgebrochen, spielt die Automatik sie nicht erneut ein und
+     * benachrichtigt die Admins GENAU EINMAL - der nächste Lauf schweigt.
+     */
+    public function testAbgebrochenesUpdateWirdGenauEinmalGemeldet(): void {
+        $this->configureSmtp();
+        $this->setSettings([
+            'update_auto_install' => '1',
+            'update_auto_install_scope' => 'any',
+        ]);
+        $ziel = sys_get_temp_dir() . '/' . uniqid('hengst_abbruchmail_');
+        mkdir($ziel . '/var', 0755, true);
+        UpdateService::overrideBaseDirForTests($ziel);
+        file_put_contents(UpdateJournal::hinweisDatei($ziel), json_encode([
+            'zeit' => date('c'), 'zweck' => 'Kern-Update', 'von' => UpdateService::currentVersion(),
+            'nach' => '9.9.9', 'ursache' => 'Maximum execution time of 30 seconds exceeded',
+            'bilanz' => [], 'vollstaendig' => true, 'protokolliert' => false, 'gemeldet' => false,
+        ]));
+        $this->publishRelease('9.9.9');
+
+        try {
+            UpdateService::runAutoInstallIfEligible();
+            $this->assertTrue(FakeSmtpServer::waitForMessages(1), 'Die Admins müssen vom Abbruch erfahren.');
+            UpdateService::runAutoInstallIfEligible();
+            usleep(300000);
+
+            $messages = FakeSmtpServer::messages();
+            $this->assertCount(1, $messages, 'Genau eine Mail, auch nach dem zweiten Lauf.');
+            $this->assertStringContainsString('Maximum execution time', $this->decodeBody($messages[0]));
+            $this->assertTrue(UpdateJournal::letzterAbbruch($ziel)['gemeldet']);
+        } finally {
+            @unlink(UpdateJournal::hinweisDatei($ziel));
+            @rmdir($ziel . '/var');
+            @rmdir($ziel);
+        }
     }
 
     // ---- Helfer --------------------------------------------------------

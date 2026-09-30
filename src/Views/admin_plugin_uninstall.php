@@ -9,7 +9,10 @@
  *
  * @var string $slug
  * @var array  $plugin    Eintrag aus PluginManager::getDiscoveredPlugins()
- * @var array  $vorschau  PluginManager::deinstallationsVorschau()
+ * @var array  $vorschau  PluginManager::deinstallationsVorschau() - mit
+ *      'deklariert' (hat das Addon ein owns-Register?) und 'unregistriert'
+ *      (Tabellen/Verzeichnisse mit seinem Namen ausserhalb des Registers,
+ *      Audit M30)
  * @var array{laeuft: bool, grund: string} $codePruefung
  *      PluginManager::uninstallHookPruefung() - läuft beim Löschen Code des
  *      Addons? (Audit N15)
@@ -20,6 +23,9 @@ $name = $plugin['manifest']['name'] ?? $slug;
 $zeilenGesamt = array_sum($vorschau['tables']);
 $dateienGesamt = array_sum($vorschau['directories']);
 $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vorschau['settings'] !== [];
+$deklariert = (bool)($vorschau['deklariert'] ?? false);
+$reste = $vorschau['unregistriert'] ?? ['tables' => [], 'directories' => []];
+$hatReste = ($reste['tables'] ?? []) !== [] || ($reste['directories'] ?? []) !== [];
 ?>
 <div class="card">
     <h2 style="margin-top: 0;">🗑️ Addon deinstallieren: <?= htmlspecialchars($name) ?></h2>
@@ -37,12 +43,21 @@ $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vo
         mit den Daten geschehen, die dieses Addon angelegt hat?
     </p>
 
-    <?php if (!$hatDaten): ?>
-        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin: 1rem 0;">
-            Dieses Addon hat kein Datenregister hinterlegt und offenbar keine eigenen
-            Tabellen, Verzeichnisse oder Einstellungen. Es lässt sich rückstandsfrei entfernen.
+    <?php if (!$hatDaten && !$hatReste): ?>
+        <?php /* Audit M30: keine absolute Zusage mehr. Der Kern kennt nur das
+                 Register und eine Namensprüfung - abweichend benannte Tabellen
+                 sieht er nicht. */ ?>
+        <div class="uninstall-ohne-daten" style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin: 1rem 0;">
+            <?php if ($deklariert): ?>
+                Das Addon erklärt in seinem Datenregister, keine eigenen Tabellen,
+                Verzeichnisse oder Einstellungen anzulegen.
+            <?php else: ?>
+                Das Addon hat kein Datenregister hinterlegt. Der Kern hat keine Tabellen
+                oder Verzeichnisse mit seinem Namen gefunden - was es unter anderem Namen
+                angelegt hat, kann er nicht erkennen.
+            <?php endif; ?>
         </div>
-    <?php else: ?>
+    <?php elseif ($hatDaten): ?>
         <h3>Was gelöscht würde</h3>
         <div class="tabelle-scroll">
             <table class="table" style="margin-bottom: 1rem;">
@@ -71,6 +86,26 @@ $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vo
                 <?php endforeach; ?>
                 </tbody>
             </table>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($hatReste): ?>
+        <div class="uninstall-unregistriert" style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <strong>Diese Tabellen/Verzeichnisse tragen den Namen des Addons, stehen aber nicht
+            in seinem Datenregister. Sie werden auch mit „Daten löschen“ NICHT entfernt.</strong>
+            <ul style="margin: 0.5rem 0 0 1.2rem;">
+                <?php foreach ($reste['tables'] ?? [] as $tabelle): ?>
+                    <li>Tabelle <code><?= htmlspecialchars((string)$tabelle) ?></code></li>
+                <?php endforeach; ?>
+                <?php foreach ($reste['directories'] ?? [] as $verzeichnis): ?>
+                    <li>Verzeichnis <code><?= htmlspecialchars(basename((string)$verzeichnis)) ?></code></li>
+                <?php endforeach; ?>
+            </ul>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                Gelöscht wird nur, was das Addon selbst als seins erklärt. Wer diese Daten
+                loswerden will, muss sie von Hand prüfen und entfernen - oder den Anbieter
+                des Addons bitten, sie im Datenregister nachzutragen.
+            </p>
         </div>
     <?php endif; ?>
 
@@ -110,7 +145,9 @@ $hatDaten = $vorschau['tables'] !== [] || $vorschau['directories'] !== [] || $vo
                 <strong>Daten löschen</strong> — <?= $zeilenGesamt > 0 || $dateienGesamt > 0
                     ? 'entfernt <strong>' . number_format($zeilenGesamt, 0, ',', '.') . '</strong> Datensätze und <strong>'
                       . number_format($dateienGesamt, 0, ',', '.') . '</strong> Dateien'
-                    : 'entfernt die oben aufgeführten Bestandteile' ?>.
+                    : ($hatDaten
+                        ? 'entfernt die oben aufgeführten Bestandteile'
+                        : 'Registrierte Bestandteile: keine') ?>.
                 Der Addon-Code (<code>plugins/<?= htmlspecialchars($slug) ?></code>) wird entfernt.
                 <span style="color: var(--danger-fg);">Das lässt sich nicht rückgängig machen.</span>
             </label>

@@ -42,7 +42,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             // 'partial' (Audit N65): Dump gesichert, Uploads-Archiv gescheitert.
             [$statusFarbe, $statusText] = match ($lastStatus) {
                 'ok' => ['#28a745', '✓ Erfolgreich'],
-                'partial' => ['var(--warning-fg)', '⚠ Nur Datenbank gesichert - Uploads-Archiv fehlgeschlagen'],
+                'partial' => ['var(--warning-fg)', '⚠ Nur Datenbank gesichert - Datei-Archiv (Uploads bzw. Addon-Daten) fehlgeschlagen'],
                 default => ['#dc3545', '✗ Fehlgeschlagen'],
             };
             ?>
@@ -80,7 +80,9 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             </label>
             <small style="color: var(--text-muted); display: block; margin-top: 0.2rem;">
                 Sichert zusätzlich zum SQL-Dump ein tar-Archiv des
-                Uploads-Verzeichnisses (Logos, Pferdebilder, Galerie-Dateien) ans
+                Uploads-Verzeichnisses (Logos, Pferdebilder, Galerie-Dateien)
+                sowie der Ablageverzeichnisse der Addons (laut Datenregister,
+                etwa <code>storage/plugin_gesundheitstests</code>) ans
                 selbe Ziel - mit derselben Aufbewahrungsrotation. Je nach
                 Bildbestand kann das Archiv deutlich größer sein als der
                 Datenbank-Dump.

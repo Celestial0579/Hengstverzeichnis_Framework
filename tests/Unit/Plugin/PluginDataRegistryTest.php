@@ -142,4 +142,93 @@ class PluginDataRegistryTest extends TestCase {
 
         $this->assertNotSame([], $register['abgelehnt'], 'Ein unbrauchbares "owns" darf nicht stillschweigend durchgehen');
     }
+
+    // ---- Deklariert vs. nicht deklariert (Audit M30) -------------------
+
+    /**
+     * Ein leeres Register ist eine Aussage ("ich lege nichts an"), ein
+     * fehlendes nicht. Die Rückfrage darf beides nicht gleich behandeln -
+     * vorher stand in beiden Fällen "rückstandsfrei".
+     */
+    public function testDeklariertUnterscheidetFehlendesVonLeeremRegister(): void {
+        $this->assertFalse(PluginDataRegistry::fuer([], $this->wurzel)['deklariert']);
+        $this->assertTrue(PluginDataRegistry::fuer(['owns' => []], $this->wurzel)['deklariert']);
+        $this->assertTrue(PluginDataRegistry::fuer(['owns' => ['tables' => ['plugin_demo_x']]], $this->wurzel)['deklariert']);
+        $this->assertFalse(PluginDataRegistry::fuer(['owns' => 'alles'], $this->wurzel)['deklariert']);
+
+        // vorschau() reicht den Schlüssel durch (ohne Datenbank: keine Zahlen).
+        $this->assertTrue(PluginDataRegistry::vorschau(PluginDataRegistry::fuer(['owns' => []], $this->wurzel))['deklariert']);
+        $this->assertFalse(PluginDataRegistry::vorschau(PluginDataRegistry::fuer([], $this->wurzel))['deklariert']);
+    }
+
+    // ---- Unregistrierte Reste (Audit M30) ------------------------------
+
+    /** Bindestriche im Slug werden zu Unterstrichen, wie in den Tabellennamen der Addons. */
+    public function testUnregistrierteResteFindetTabellenMitSlugPraefix(): void {
+        $reste = PluginDataRegistry::unregistrierteReste(
+            'verkaufs-boerse',
+            ['tables' => [], 'directories' => []],
+            ['plugin_verkaufs_boerse_listings', 'plugin_verkaufs_boerse', 'plugin_anderes', 'users', 'plugin_verkaufsboerse_x'],
+            [],
+            $this->wurzel
+        );
+
+        $this->assertSame(['plugin_verkaufs_boerse', 'plugin_verkaufs_boerse_listings'], $reste['tables']);
+        $this->assertSame([], $reste['directories']);
+    }
+
+    public function testUnregistrierteResteIgnoriertRegistrierteUndFremdRegistrierteTabellen(): void {
+        $reste = PluginDataRegistry::unregistrierteReste(
+            'demo',
+            ['tables' => ['plugin_demo_notizen'], 'directories' => []],
+            ['plugin_demo_notizen', 'plugin_demo_geteilt', 'plugin_demo_rest', 'plugin_demo_extra_daten'],
+            ['plugin_demo_geteilt'],
+            $this->wurzel,
+            // Ein anderes Addon "demo-extra": Seine Tabellen gehören eher ihm.
+            ['demo-extra']
+        );
+
+        $this->assertSame(['plugin_demo_rest'], $reste['tables']);
+    }
+
+    /** plugin_foo darf plugin_foobar nicht treffen - nur das Präfix selbst oder Präfix + "_". */
+    public function testPraefixOhneTrennerTrifftKeinAnderesAddon(): void {
+        $reste = PluginDataRegistry::unregistrierteReste(
+            'foo',
+            ['tables' => [], 'directories' => []],
+            ['plugin_foobar', 'plugin_foobar_x', 'plugin_foo', 'plugin_foo_x'],
+            [],
+            $this->wurzel
+        );
+
+        $this->assertSame(['plugin_foo', 'plugin_foo_x'], $reste['tables']);
+    }
+
+    public function testUnregistrierteResteFindetAblageverzeichnisAberKeineTabuOrte(): void {
+        mkdir($this->wurzel . '/storage/plugin_demo_archiv');
+        mkdir($this->wurzel . '/storage/plugin_demobar');
+        // Ein Symlink mit passendem Namen, der auf einen geschützten Ort zeigt:
+        // darf weder gemeldet noch (später) angefasst werden.
+        symlink($this->wurzel . '/storage/logs', $this->wurzel . '/storage/plugin_demo_logs');
+        $aussen = sys_get_temp_dir() . '/hv-register-aussen-' . bin2hex(random_bytes(4));
+        mkdir($aussen);
+        symlink($aussen, $this->wurzel . '/storage/plugin_demo_aussen');
+        try {
+            $register = PluginDataRegistry::fuer(['owns' => ['directories' => ['storage/plugin_demo']]], $this->wurzel);
+            $reste = PluginDataRegistry::unregistrierteReste('demo', $register, [], [], $this->wurzel);
+
+            $this->assertSame([realpath($this->wurzel . '/storage/plugin_demo_archiv')], $reste['directories']);
+
+            // Ohne Register ist auch storage/plugin_demo selbst ein Rest.
+            $ohne = PluginDataRegistry::unregistrierteReste('demo', ['tables' => [], 'directories' => []], [], [], $this->wurzel);
+            $this->assertSame([
+                realpath($this->wurzel . '/storage/plugin_demo'),
+                realpath($this->wurzel . '/storage/plugin_demo_archiv'),
+            ], $ohne['directories']);
+        } finally {
+            @unlink($this->wurzel . '/storage/plugin_demo_logs');
+            @unlink($this->wurzel . '/storage/plugin_demo_aussen');
+            @rmdir($aussen);
+        }
+    }
 }

@@ -35,6 +35,8 @@ class PluginUninstallTest extends FunctionalTestCase {
     private const PLUGIN_DEST = __DIR__ . '/../../plugins/' . self::SLUG;
     private const TABELLE = 'plugin_uninstall_fixture_daten';
     private const EINSTELLUNG = 'plugin_uninstall_fixture_option';
+    /** Trägt den Namen des Addons, steht aber nicht in seinem Register (Audit M30). */
+    private const UNREGISTRIERT = 'plugin_uninstall_fixture_x';
 
     private const MARKER_GELADEN = 'uninstall-fixture: Datei geladen';
     private const MARKER_UNINSTALL = 'uninstall-fixture: uninstall() lief';
@@ -58,6 +60,7 @@ class PluginUninstallTest extends FunctionalTestCase {
             $db = \App\Database::getInstance();
             $db->prepare('DELETE FROM plugins WHERE slug = ?')->execute([self::SLUG]);
             $db->exec("DELETE FROM audit_logs WHERE category = 'plugin-test'");
+            $db->exec('DROP TABLE IF EXISTS `' . self::UNREGISTRIERT . '`');
         } catch (\Throwable $e) {
             // Schema evtl. noch nicht angelegt (erster Test vor der Ersteinrichtung).
         }
@@ -348,7 +351,73 @@ class PluginUninstallTest extends FunctionalTestCase {
         $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
     }
 
+    // ---- Datenregister-Lücken (Audit M30) ------------------------------
+
+    /**
+     * Eine Tabelle mit dem Namen des Addons, die nicht im Register steht:
+     * Die Rückfrage warnt, statt "rückstandsfrei" zu versprechen, und nach
+     * "Daten löschen" bleibt sie stehen - mit Vermerk im Protokoll.
+     */
+    public function testUnregistrierteTabelleWirdGemeldetStattRueckstandsfrei(): void {
+        $admin = $this->adminMitFixtureDaten();
+        $this->db()->exec('CREATE TABLE IF NOT EXISTS `' . self::UNREGISTRIERT . '` (id INT PRIMARY KEY) ENGINE=InnoDB');
+
+        $formular = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG);
+        $this->assertSame(200, $formular->statusCode);
+        $this->assertStringContainsString(self::UNREGISTRIERT, $formular->body);
+        $this->assertStringContainsString('NICHT entfernt', $formular->body);
+        $this->assertStringNotContainsString('rückstandsfrei', $formular->body);
+
+        $this->loeschen($admin);
+
+        $stmt = $this->db()->query("SHOW TABLES LIKE '" . self::UNREGISTRIERT . "'");
+        $this->assertSame(1, $stmt->rowCount(), 'Ein Namensmuster ist keine Eigentumserklärung - die Tabelle bleibt');
+        $this->assertFalse($this->tabelleExistiert(), 'Die registrierte Tabelle geht trotzdem');
+        $log = (string)$this->db()->query(
+            "SELECT details FROM audit_logs WHERE action = 'Addon deinstalliert (Daten gelöscht)' ORDER BY id DESC LIMIT 1"
+        )->fetchColumn();
+        $this->assertStringContainsString('NICHT gelöscht (nicht im Datenregister des Addons): Tabelle ' . self::UNREGISTRIERT, $log);
+        $this->assertStringContainsString(
+            'NICHT gelöscht (nicht im Datenregister des Addons): Tabelle ' . self::UNREGISTRIERT,
+            $admin->get('/admin/plugins')->body
+        );
+    }
+
+    /**
+     * Ohne Register und ohne Treffer: keine absolute Zusage mehr, sondern
+     * die eingeschränkte Aussage - und der Radio-Text nennt keine Zahl.
+     */
+    public function testOhneRegisterKeineZusageRueckstandsfrei(): void {
+        self::installPluginFixture([], false);
+        $admin = $this->authenticatedClient();
+        $this->ohneFixtureTabellen();
+
+        $body = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG)->body;
+
+        $this->assertStringNotContainsString('rückstandsfrei', $body);
+        $this->assertStringContainsString('Das Addon hat kein Datenregister hinterlegt', $body);
+        $this->assertStringContainsString('Registrierte Bestandteile: keine', $body);
+    }
+
+    /** Ein leeres, aber vorhandenes Register ist eine Aussage des Addons. */
+    public function testLeeresRegisterIstEineErklaerung(): void {
+        self::installPluginFixture([], true, true);
+        $admin = $this->authenticatedClient();
+        $this->ohneFixtureTabellen();
+
+        $body = $admin->get('/admin/plugins/uninstall?slug=' . self::SLUG)->body;
+
+        $this->assertStringContainsString('Das Addon erklärt in seinem Datenregister, keine eigenen', $body);
+        $this->assertStringNotContainsString('rückstandsfrei', $body);
+    }
+
     // ---- Hilfsmittel ---------------------------------------------------
+
+    /** Frühere Tests (etwa "Daten behalten") lassen die Fixture-Tabelle stehen. */
+    private function ohneFixtureTabellen(): void {
+        $this->db()->exec('DROP TABLE IF EXISTS `' . self::TABELLE . '`');
+        $this->db()->exec('DROP TABLE IF EXISTS `' . self::UNREGISTRIERT . '`');
+    }
 
     private function loeschen(HttpClient $admin): void {
         $antwort = $admin->post('/admin/plugins/uninstall', [
@@ -419,12 +488,16 @@ class PluginUninstallTest extends FunctionalTestCase {
     }
 
 
-    /** @param string[] $zusatzTabellen weitere owns.tables-Einträge (etwa ungültige) */
-    private static function installPluginFixture(array $zusatzTabellen = []): void {
+    /**
+     * @param string[] $zusatzTabellen weitere owns.tables-Einträge (etwa ungültige)
+     * @param bool $mitRegister false = Manifest ganz ohne "owns"
+     * @param bool $leeresRegister true = "owns": {} (erklärt, nichts anzulegen)
+     */
+    private static function installPluginFixture(array $zusatzTabellen = [], bool $mitRegister = true, bool $leeresRegister = false): void {
         self::removePluginDir();
         mkdir(self::PLUGIN_DEST, 0777, true);
 
-        self::writeManifest('1.0.0', $zusatzTabellen);
+        self::writeManifest('1.0.0', $zusatzTabellen, $mitRegister, $leeresRegister);
 
         file_put_contents(self::PLUGIN_DEST . '/Plugin.php', <<<'PHP'
 <?php
@@ -449,8 +522,8 @@ PHP);
     }
 
     /** @param string[] $zusatzTabellen */
-    private static function writeManifest(string $version, array $zusatzTabellen = []): void {
-        file_put_contents(self::PLUGIN_DEST . '/plugin.json', json_encode([
+    private static function writeManifest(string $version, array $zusatzTabellen = [], bool $mitRegister = true, bool $leeresRegister = false): void {
+        $manifest = [
             'slug' => self::SLUG,
             'name' => 'Deinstallations-Fixture (Test)',
             'version' => $version,
@@ -463,7 +536,13 @@ PHP);
                 'tables' => array_merge([self::TABELLE], $zusatzTabellen),
                 'settings' => [self::EINSTELLUNG],
             ],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ];
+        if (!$mitRegister) {
+            unset($manifest['owns']);
+        } elseif ($leeresRegister) {
+            $manifest['owns'] = new \stdClass();
+        }
+        file_put_contents(self::PLUGIN_DEST . '/plugin.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     private static function removePluginDir(): void {

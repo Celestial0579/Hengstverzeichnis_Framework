@@ -63,6 +63,9 @@ class ExternalBackupTest extends TestCase {
 
     protected function setUp(): void {
         Scheduler::resetForTests();
+        // Echte storage/plugin_*-Ablagen des Arbeitsverzeichnisses sollen die
+        // Tests nicht beeinflussen (Audit N27).
+        BackupService::overrideAddonDirsForTests([]);
         self::$db->exec("DELETE FROM settings WHERE setting_key LIKE 'backup_%' OR setting_key LIKE 'cron_last_run__%'");
         foreach (glob(FakeS3Server::storageDir() . '/*') as $file) {
             unlink($file);
@@ -75,6 +78,7 @@ class ExternalBackupTest extends TestCase {
     protected function tearDown(): void {
         BackupService::overrideUploadsDirForTests(null);
         BackupService::overrideLockWaitForTests(null);
+        BackupService::overrideAddonDirsForTests(null);
         DbLock::simulateUnavailableForTests(false);
         foreach ($this->wegwerfVerzeichnisse as $dir) {
             exec('rm -rf ' . escapeshellarg($dir));
@@ -185,8 +189,10 @@ class ExternalBackupTest extends TestCase {
         $this->assertNotFalse($lastRunAt);
         $this->assertGreaterThan(0, (int)$lastRunAt);
 
-        // Ohne Opt-in (#233) wird KEIN Uploads-Archiv hochgeladen.
+        // Ohne Opt-in (#233) wird KEIN Uploads-Archiv hochgeladen - und ohne
+        // Pflichtverzeichnisse auch kein Addon-Daten-Archiv (Audit N27).
         $this->assertSame([], glob(FakeS3Server::storageDir() . '/test-bucket__backups~uploads-*'));
+        $this->assertSame([], glob(FakeS3Server::storageDir() . '/test-bucket__backups~addondaten-*'));
     }
 
     /**
@@ -546,5 +552,186 @@ class ExternalBackupTest extends TestCase {
         $this->assertFileDoesNotExist($ordner . '/backup-2020-01-01_000000.sql.gz');
         $this->assertCount(1, glob($ordner . '/backup-*'));
         $this->assertSame('ok', $this->setting('backup_last_status'));
+    }
+
+    // ---- Addon-Ablagen aus dem Datenregister (Audit N27) ---------------
+
+    /** Wegwerf-Ablage eines Addons mit einer Datei; liefert [Pfad, Inhalt]. */
+    private function addonAblage(string $name = 'plugin_testaddon'): array {
+        $dir = sys_get_temp_dir() . '/backup_addon_' . uniqid() . '/' . $name;
+        mkdir($dir . '/unter', 0777, true);
+        $this->wegwerfVerzeichnisse[] = dirname($dir);
+        $inhalt = random_bytes(700);
+        file_put_contents($dir . '/unter/gtest_1_abc.pdf', $inhalt);
+        return [$dir, $inhalt];
+    }
+
+    /**
+     * Liest ein tar(.gz) aus dem Fake-Speicher: Archivname => Inhalt. Eigener
+     * kleiner ustar-Leser, damit der Test nicht vom System-tar abhängt.
+     *
+     * @return array<string, string>
+     */
+    private static function tarLesen(string $datei): array {
+        $roh = (string)file_get_contents($datei);
+        if (str_ends_with($datei, '.gz')) {
+            $roh = (string)gzdecode($roh);
+        }
+        $eintraege = [];
+        $pos = 0;
+        while ($pos + 512 <= strlen($roh)) {
+            $kopf = substr($roh, $pos, 512);
+            if (trim($kopf, "\0") === '') {
+                break;
+            }
+            $name = rtrim(substr($kopf, 0, 100), "\0");
+            $praefix = rtrim(substr($kopf, 345, 155), "\0");
+            if ($praefix !== '') {
+                $name = $praefix . '/' . $name;
+            }
+            $groesse = octdec(trim(substr($kopf, 124, 12), "\0 "));
+            $typ = $kopf[156];
+            $pos += 512;
+            if ($typ === '0' || $typ === "\0") {
+                $eintraege[$name] = substr($roh, $pos, $groesse);
+            }
+            $pos += (int)(ceil($groesse / 512) * 512);
+        }
+        return $eintraege;
+    }
+
+    private function objekte(string $art): array {
+        return glob(FakeS3Server::storageDir() . '/test-bucket__backups~' . $art . '-*') ?: [];
+    }
+
+    /**
+     * Mit "Hochgeladene Dateien mitsichern" landen die Addon-Ablagen im
+     * Uploads-Archiv, unter ihrem Pfad relativ zur Installationswurzel.
+     */
+    public function testUploadsArchivEnthaeltAddonVerzeichnisseAusDemRegister(): void {
+        $this->prepareFakeUploadsDir();
+        [$dir, $inhalt] = $this->addonAblage();
+        BackupService::overrideAddonDirsForTests(['storage/plugin_testaddon' => $dir]);
+        $this->configureBackup(['backup_include_uploads' => '1']);
+
+        BackupService::run();
+
+        $archive = $this->objekte('uploads');
+        $this->assertCount(1, $archive);
+        $eintraege = self::tarLesen($archive[0]);
+        $this->assertArrayHasKey('storage/plugin_testaddon/unter/gtest_1_abc.pdf', $eintraege);
+        $this->assertSame($inhalt, $eintraege['storage/plugin_testaddon/unter/gtest_1_abc.pdf']);
+        $this->assertArrayHasKey('uploads/.htaccess', $eintraege, 'Der bisherige Inhalt bleibt');
+        $this->assertSame([], $this->objekte('addondaten'), 'Mit Vollarchiv kein Zusatzobjekt');
+        $this->assertSame('ok', $this->setting('backup_last_status'));
+    }
+
+    /**
+     * Ohne Upload-Option, aber mit Pflichtverzeichnissen (Deinstallation mit
+     * Datenlöschung): eigenes Objekt addondaten-… nur mit diesen
+     * Verzeichnissen, kein uploads-….
+     */
+    public function testPflichtVerzeichnisseWerdenAuchOhneUploadsOptionGesichert(): void {
+        [$dir, $inhalt] = $this->addonAblage('plugin_pflicht');
+        [$anderes] = $this->addonAblage('plugin_anderes');
+        BackupService::overrideAddonDirsForTests(['storage/plugin_anderes' => $anderes]);
+        $this->configureBackup();
+
+        BackupService::run([$dir]);
+
+        $this->assertSame([], $this->objekte('uploads'));
+        $archive = $this->objekte('addondaten');
+        $this->assertCount(1, $archive);
+        $this->assertStringEndsWith('.tar.gz', $archive[0]);
+        $eintraege = self::tarLesen($archive[0]);
+        $this->assertSame(['addondaten/plugin_pflicht/unter/gtest_1_abc.pdf'], array_keys($eintraege), 'Nur das übergebene Verzeichnis');
+        $this->assertSame($inhalt, $eintraege['addondaten/plugin_pflicht/unter/gtest_1_abc.pdf']);
+        $this->assertCount(1, $this->objekte('backup'), 'Der Dump wird wie immer gesichert');
+        $this->assertSame('ok', $this->setting('backup_last_status'));
+    }
+
+    /**
+     * Ein Verzeichnis innerhalb der Installation steht im Addon-Daten-Archiv
+     * unter demselben relativen Pfad wie im Uploads-Archiv.
+     */
+    public function testPflichtVerzeichnisInDerInstallationBehaeltRelativenPfad(): void {
+        $wurzel = dirname(__DIR__, 2);
+        $dir = $wurzel . '/storage/plugin_phpunit_backup_' . bin2hex(random_bytes(3));
+        mkdir($dir, 0777, true);
+        $this->wegwerfVerzeichnisse[] = $dir;
+        file_put_contents($dir . '/dok.pdf', 'inhalt');
+        $this->configureBackup(['backup_include_uploads' => '0']);
+
+        BackupService::run([$dir]);
+
+        $archive = $this->objekte('addondaten');
+        $this->assertCount(1, $archive);
+        $this->assertSame(['storage/' . basename($dir) . '/dok.pdf'], array_keys(self::tarLesen($archive[0])));
+    }
+
+    public function testAddondatenRotierenGetrennt(): void {
+        [$dir] = $this->addonAblage();
+        $this->configureBackup(['backup_retention_count' => '2']);
+        foreach ([
+            'backup-2020-01-01_000000.sql.gz',
+            'uploads-2020-01-01_000000.tar.gz',
+            'uploads-2021-01-01_000000.tar.gz',
+            'uploads-2022-01-01_000000.tar.gz',
+            'addondaten-2020-01-01_000000.tar.gz',
+            'addondaten-2021-01-01_000000.tar.gz',
+        ] as $existingKey) {
+            file_put_contents(FakeS3Server::storageDir() . '/test-bucket__backups~' . $existingKey, 'alt');
+        }
+
+        BackupService::run([$dir]);
+
+        $keys = array_map(fn($p) => substr(basename($p), strlen('test-bucket__backups~')), glob(FakeS3Server::storageDir() . '/test-bucket__backups~*'));
+        // addondaten: das älteste rotiert, das neuere und das frische bleiben.
+        $this->assertNotContains('addondaten-2020-01-01_000000.tar.gz', $keys);
+        $this->assertContains('addondaten-2021-01-01_000000.tar.gz', $keys);
+        $this->assertCount(2, $this->objekte('addondaten'));
+        // uploads rotiert für sich (3 -> 2) und wird vom Teilarchiv nicht verdrängt.
+        $this->assertNotContains('uploads-2020-01-01_000000.tar.gz', $keys);
+        $this->assertContains('uploads-2021-01-01_000000.tar.gz', $keys);
+        $this->assertContains('uploads-2022-01-01_000000.tar.gz', $keys);
+        $this->assertCount(2, $this->objekte('backup'));
+    }
+
+    /**
+     * Lässt sich nicht ermitteln, welche Ablagen die Addons haben, wird der
+     * Dump trotzdem gesichert und das Problem im Audit-Log vermerkt.
+     */
+    public function testFehlerBeimErmittelnDerAddonVerzeichnisseBrichtSicherungNichtAb(): void {
+        $this->prepareFakeUploadsDir();
+        BackupService::overrideAddonDirsForTests(function (): array {
+            throw new \RuntimeException('Register kaputt');
+        });
+        $this->configureBackup(['backup_include_uploads' => '1']);
+        self::$db->exec("DELETE FROM audit_logs WHERE action = 'Sicherung: Addon-Verzeichnisse nicht ermittelbar'");
+
+        BackupService::run();
+
+        $this->assertCount(1, $this->objekte('backup'));
+        $this->assertCount(1, $this->objekte('uploads'));
+        $this->assertSame('ok', $this->setting('backup_last_status'));
+        $stmt = self::$db->query("SELECT details FROM audit_logs WHERE action = 'Sicherung: Addon-Verzeichnisse nicht ermittelbar'");
+        $this->assertStringContainsString('Register kaputt', (string)$stmt->fetchColumn());
+    }
+
+    /** Ein gescheitertes Addon-Daten-Archiv ist ein Teilfehler wie beim Uploads-Archiv. */
+    public function testFehlerImAddondatenArchivIstTeilfehler(): void {
+        [$dir] = $this->addonAblage();
+        file_put_contents($dir . '/' . str_repeat('g', 120) . '.pdf', 'x');
+        $this->configureBackup();
+
+        try {
+            BackupService::run([$dir]);
+            $this->fail('Erwartete RuntimeException beim Addon-Daten-Archiv.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Addon-Daten-Archiv', $e->getMessage());
+        }
+        $this->assertCount(1, $this->objekte('backup'));
+        $this->assertSame([], $this->objekte('addondaten'));
+        $this->assertSame('partial', $this->setting('backup_last_status'));
     }
 }

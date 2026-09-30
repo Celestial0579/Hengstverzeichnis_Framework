@@ -1238,6 +1238,32 @@ Der Kern zählt daraus vor dem Löschen zusammen, was tatsächlich verschwände 
 `1.284 Datensätze, 512 Dateien`, nicht `3 Tabellen`. Erst danach kommt die
 Frage.
 
+**Jede Tabelle, die `install()` anlegt, und jede eigene Ablage gehören ins
+Register** (Audit M27, M30). Was fehlt, bleibt bei „Daten löschen“ stehen.
+Tabellen mit Fremdschlüssel stehen **vor** ihrer Elterntabelle: Der Kern
+löscht per `DROP TABLE` in der Reihenfolge des Registers, ohne
+`FOREIGN_KEY_CHECKS=0`. Ein Addon, das nichts anlegt, erklärt das mit einem
+leeren Register (`"owns": {}`) — sonst kann die Rückfrage nur sagen, dass es
+nichts erklärt hat.
+
+`owns.directories` wirkt an zwei Stellen (Audit N27):
+
+- **Sicherung.** „Hochgeladene Dateien mitsichern“ nimmt die Verzeichnisse
+  aller entdeckten Addons (auch deaktivierter) ins Uploads-Archiv auf, unter
+  ihrem Pfad relativ zur Installationswurzel (`storage/plugin_galerie/…`).
+- **Deinstallation mit „Daten löschen“.** Die Sicherung davor enthält die zu
+  löschenden Verzeichnisse immer — ist die Upload-Option aus, als eigenes
+  Objekt `addondaten-<Zeitstempel>` mit eigener Rotation. Danach werden sie
+  gelöscht.
+
+Was nicht im Register steht, aber den Namen des Addons trägt (Tabellen
+`plugin_<slug>` bzw. `plugin_<slug>_*`, Verzeichnisse `storage/plugin_<slug>*`,
+Bindestriche im Slug als `_`), zeigt die Rückfrage als Warnung, und das
+Protokoll vermerkt es als `NICHT gelöscht (nicht im Datenregister des
+Addons)`. Gelöscht wird es nicht: Ein Name ist keine Eigentumserklärung.
+Die Prüfung ist nur ein Hinweis — abweichend benannte Tabellen findet sie
+nicht.
+
 ### Warum deklarativ und nicht nur eine `uninstall()`-Methode
 
 Weil der Betreiber **vor** dem Löschen sehen soll, was verschwindet — und
@@ -1304,7 +1330,7 @@ gilt die API von `App\Plugin\PluginManager`:
 |---|---|
 | `uninstall(string $slug, bool $datenLoeschen): string[]` | Deinstallation wie oben, liefert das Protokoll. Den Request danach beenden — das Addon-Verzeichnis ist weg. |
 | `uninstallHookPruefung(string $slug): array{laeuft: bool, grund: string}` | Läuft beim Löschen `uninstall()`? Ohne Seiteneffekt, lädt keinen Addon-Code. `grund` ist unescaped. |
-| `deinstallationsVorschau(string $slug)` / `datenRegister(string $slug)` | Was „Daten löschen“ entfernen würde. |
+| `deinstallationsVorschau(string $slug)` / `datenRegister(string $slug)` | Was „Daten löschen“ entfernen würde. Beide liefern `deklariert` (hat das Addon ein `owns`-Objekt?); die Vorschau zusätzlich `unregistriert` (`tables`, `directories`: Reste mit dem Namen des Addons ausserhalb des Registers, werden nicht gelöscht). Verzeichnisse aus `datenRegister()` sind realpath-geprüft — die einzige Quelle für Addon-Ablagen, auch für Sicherung und Umzug. |
 
 ### Grenzen, die der Kern durchsetzt
 

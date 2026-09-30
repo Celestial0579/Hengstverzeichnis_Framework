@@ -3,7 +3,7 @@
 /**
  * @var array|null $preview Validierte Zeilen aus HorseCsvImporter::validateRows(), oder null
  * @var array|null $errors Fehlermeldungen auf Datei-Ebene (z. B. fehlende Pflichtspalte)
- * @var array|null $result ['imported' => int, 'skipped' => int] nach abgeschlossenem Import
+ * @var array|null $result ['imported' => int, 'skipped' => int, 'notPublished' => array<int, array{name: string, gruende: string[]}>] nach abgeschlossenem Import
  * @var int|null $validCount
  * @var bool|null $canPublish
  */
@@ -36,6 +36,16 @@ $canPublish = $canPublish ?? false;
                 <br><strong><?= (int)$result['skipped'] ?></strong> Zeile(n) wegen Fehlern übersprungen (siehe vorherige Vorschau).
             <?php endif; ?>
         </div>
+        <?php if (!empty($result['notPublished'])): // Audit N49: Addon-Veto je importiertem Pferd ?>
+            <div class="import-nicht-veroeffentlicht" style="background-color: #fff3cd; color: #856404; padding: 1.2rem; border-radius: 6px; margin-bottom: 1rem;">
+                <strong><?= count($result['notPublished']) ?></strong> Pferd(e) wurden importiert, aber wegen eines Addon-Einwands nicht veröffentlicht:
+                <ul style="margin: 0.5rem 0 0 1.2rem;">
+                    <?php foreach ($result['notPublished'] as $blockiertesPferd): ?>
+                        <li><strong><?= htmlspecialchars((string)$blockiertesPferd['name']) ?></strong>: <?= htmlspecialchars(implode(', ', $blockiertesPferd['gruende'])) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        <?php endif; ?>
         <p style="color: var(--text-muted); font-size: 0.9rem;">
             Importierte Pferde mit unaufgelöster Vater-/Mutter-Angabe (Spalten <code>sire_name</code>/<code>dam_name</code>)
             erscheinen ggf. als Vorschlag unter <a href="/admin/matches">🔗 Blutlinien Zusammenführen</a>, sobald ein

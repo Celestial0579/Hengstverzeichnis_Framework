@@ -10,6 +10,19 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Veröffentlichungs-Veto ließ sich durch einen abgebrochenen
+  Speichervorgang umgehen** (Audit N49). Beim Speichern eines Pferds wurde
+  `is_published = 1` festgeschrieben, bevor die Addons über
+  `horse.publish_blockers` Einwände erheben konnten. Brach das Speichern
+  dazwischen ab, etwa durch ein Jahr „70000“ in einer Zuordnungszeile, blieb
+  das Pferd ungeprüft öffentlich. Damit ließ sich auch die Freigabe-Grenze
+  eines Addons wie `plausibilitaetspruefung` umgehen. Das Häkchen wird jetzt
+  erst gesetzt, wenn kein Einwand vorliegt: beim Anlegen, beim Bearbeiten
+  und neu auch im CSV-Import. Jahresangaben in Zuordnungszeilen außerhalb
+  von 1600 bis zum Folgejahr werden wie beim Todesjahr verworfen. Ein
+  bereits veröffentlichtes Pferd bleibt beim Speichern vorläufig
+  veröffentlicht (unverändert); das Veto prüft es am Ende erneut.
+
 - **Docker: Die Schutzregeln für `public/uploads` kamen bei
   Bestandsinstallationen nie an** (Audit N41; #262, #366, #367).
   `public/uploads` ist das Volume `uploads_data`, und Docker füllt ein Volume
@@ -1177,6 +1190,17 @@ Breaking Changes sind jederzeit möglich).
   die im Mail-Protokoll nach Adressen suchen, müssen auf die Referenz
   umgestellt werden (betrifft `DeckanfragePluginTest` im Addons-Repo).
 
+- **Zeitpunkt der Veröffentlichung für Addons** (Audit N49): Während
+  `horse.after_save` und `horse.publish_blockers` steht `is_published` noch
+  auf dem bisherigen Wert (beim erstmaligen Veröffentlichen 0); gesetzt wird
+  es erst danach. Die Signaturen bleiben unverändert, siehe
+  `docs/plugin-development.md`. Nach unserer Prüfung liest kein Addon aus
+  dem Addons-Repository den Wert an diesen Stellen.
+- **CSV-Import mit „veröffentlichen“** (Audit N49): Jedes importierte Pferd
+  durchläuft das Addon-Veto (`horse.publish_blockers`). Pferde mit Einwand
+  werden importiert, bleiben aber unveröffentlicht und werden im Ergebnis
+  mit Begründung aufgeführt; das Audit-Log nennt ihre Kennungen. Ein Import
+  mit Häkchen dauert dadurch etwa so lange wie eine Massen-Veröffentlichung.
 - **Neue Hooks `contact.anonymized` und `contact.erased` für Addons**
   (Audit N45). `contact.anonymized(int $contactId, array $vorher)` feuert
   nach einer DSGVO-Anonymisierung – dabei greift **kein**

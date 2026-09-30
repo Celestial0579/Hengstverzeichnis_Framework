@@ -208,6 +208,130 @@ class FeatureVisibilityTest extends FunctionalTestCase {
         }
     }
 
+    /**
+     * Audit N74: Ein Funktionsschlüssel mit 45 Zeichen sprengte
+     * `settings.setting_key` (feature_visibility__ + 45 = 65 Zeichen) und
+     * `group_permissions.module` (feature_ + 45 = 53). Im Strict-Mode
+     * scheiterten das Speichern der Systemeinstellungen und der
+     * Gruppenrechte. Jetzt werden beide Schlüssel gehasht.
+     */
+    public function testLangerFunktionsschluesselLaesstSichSpeichern(): void {
+        $admin = $this->authenticatedClient();
+        $key = 'ein-sehr-langer-funktionsschluessel-aus-addon';
+        $this->assertSame(45, strlen($key));
+        self::installLongKeyPlugin($key);
+
+        $toggle = $admin->post('/admin/plugins/toggle', [
+            'csrf_token' => $this->currentCsrfToken($admin),
+            'slug' => self::LONG_SLUG,
+            'enable' => '1',
+        ]);
+        $this->assertSame('/admin/plugins?success=1', $toggle->location(), "Aktivieren fehlgeschlagen: {$toggle->body}");
+
+        $settingKey = \App\Permission\FeatureRegistry::settingKey($key);
+        $module = \App\Permission\FeatureRegistry::permissionModule($key);
+        $this->assertLessThanOrEqual(50, strlen($settingKey));
+        $this->assertLessThanOrEqual(50, strlen($module));
+        $unique = uniqid();
+        $groupId = null;
+
+        try {
+            $page = $admin->get('/admin/system-settings');
+            $response = $admin->post('/admin/system-settings', [
+                'csrf_token' => $page->formField('csrf_token') ?? '',
+                'base_url' => '',
+                'language' => 'de',
+                'feature_visibility' => [$key => 'public'],
+            ]);
+            $this->assertStringContainsString('/admin/system-settings?success=1', (string)$response->location(), $response->body);
+
+            // Die Auswahl wird wieder angezeigt.
+            $settingsPage = $admin->get('/admin/system-settings');
+            $this->assertMatchesRegularExpression(
+                '#name="feature_visibility\[' . preg_quote($key, '#') . '\]".*?<option value="public" selected#s',
+                $settingsPage->body
+            );
+            // ... und wirkt: anonyme Besucher sehen die Funktion.
+            $this->assertSame(200, $this->newClient()->get('/plugin/' . self::LONG_SLUG . '/seite')->statusCode);
+
+            // Gruppenrecht für das (gehashte) Modul speichern.
+            $groupId = $this->createCustomGroup($admin, "Langer-Schluessel {$unique}");
+            $this->setGroupPermissions($admin, $groupId, [$module => ['read']]);
+            $stmt = \App\Database::getInstance()->prepare("SELECT COUNT(*) FROM group_permissions WHERE group_id = ? AND module = ? AND action = 'read'");
+            $stmt->execute([$groupId, $module]);
+            $this->assertSame(1, (int)$stmt->fetchColumn());
+        } finally {
+            $admin->post('/admin/plugins/toggle', [
+                'csrf_token' => $this->currentCsrfToken($admin),
+                'slug' => self::LONG_SLUG,
+                'enable' => '0',
+            ]);
+            try {
+                $db = \App\Database::getInstance();
+                $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$settingKey]);
+                $db->prepare("DELETE FROM plugins WHERE slug = ?")->execute([self::LONG_SLUG]);
+                if ($groupId !== null) {
+                    $db->prepare("DELETE FROM group_permissions WHERE group_id = ?")->execute([$groupId]);
+                }
+            } catch (\Throwable $e) {
+                // DB weg = nichts zu bereinigen
+            }
+            foreach (glob(self::LONG_DEST . '/*') ?: [] as $file) {
+                @unlink($file);
+            }
+            @rmdir(self::LONG_DEST);
+        }
+    }
+
+    private const LONG_SLUG = 'langer-schluessel-test';
+    private const LONG_DEST = __DIR__ . '/../../plugins/langer-schluessel-test';
+
+    private static function installLongKeyPlugin(string $key): void {
+        @mkdir(self::LONG_DEST, 0755, true);
+        file_put_contents(self::LONG_DEST . '/plugin.json', json_encode([
+            'slug' => self::LONG_SLUG,
+            'name' => 'Langer-Schlüssel-Test',
+            'version' => '1.0.0',
+            'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '9.9',
+            'description' => 'Registriert eine Zusatzfunktion mit 45 Zeichen langem Schlüssel.',
+            'author' => 'Tests',
+            'hooks' => [],
+            'entry' => 'Plugin.php',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        $code = <<<'PHP'
+<?php
+namespace Plugin\LangerSchluesselTest;
+
+class Plugin {
+
+    private const KEY = '__KEY__';
+
+    public function register($hooks): void {
+    }
+
+    public function features(): array {
+        return [['key' => self::KEY, 'label' => 'Funktion mit langem Schlüssel', 'default_visibility' => 'members']];
+    }
+
+    public function routes(): array {
+        return [['method' => 'GET', 'path' => '/seite', 'callback' => [self::class, 'seite']]];
+    }
+
+    public static function seite(): void {
+        if (!\App\Permission\FeatureGate::isVisible(self::KEY)) {
+            http_response_code(403);
+            echo 'gesperrt';
+            return;
+        }
+        echo 'LANGER-SCHLUESSEL-OK';
+    }
+}
+PHP;
+        file_put_contents(self::LONG_DEST . '/Plugin.php', str_replace('__KEY__', $key, $code));
+    }
+
     private function saveVisibility(\Tests\Support\HttpClient $admin, string $visibility): void {
         $page = $admin->get('/admin/system-settings');
         $response = $admin->post('/admin/system-settings', [

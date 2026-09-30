@@ -841,11 +841,13 @@ Die Registrierung bewirkt zweierlei:
 
 - Die Funktion erscheint unter **Admin → Systemeinstellungen** mit dem
   Sichtbarkeits-Umschalter (gespeichert als Setting
-  `feature_visibility__<key>`). Solange der Admin nichts wählt, gilt
+  `FeatureRegistry::settingKey($key)`, bis 30 Zeichen Schlüssellänge
+  `feature_visibility__<key>`, darüber gehasht). Solange der Admin nichts wählt, gilt
   `default_visibility` — Standard ist `members` (fail-closed: neue
   Premium-Funktionen erscheinen nicht ungefragt öffentlich).
 - In der Berechtigungsmatrix unter **Admin → Gruppen** erscheint automatisch
-  das Modul `feature_<key>` mit der Aktion `read` („Sehen/Nutzen"), die pro
+  das Modul `FeatureRegistry::permissionModule($key)` (bis 42 Zeichen
+  `feature_<key>`, darüber gehasht) mit der Aktion `read` („Sehen/Nutzen"), die pro
   Gruppe zuweisbar ist. Hinweis: In der Matrix unter `/admin/groups`
   erscheinen für das Modul zusätzlich die Standard-Aktionen `view` und
   `publish`, die jedes Modul automatisch erhält — für die
@@ -1110,6 +1112,55 @@ Später eingefügte Felder verdrahtet `HvPferdesuche.verdrahten(element)`.
 Die Datei entprellt Tastendrucke, verwirft veraltete Antworten und leert die
 Liste bei einem Fehler — **sie lässt die alte Auswahl nicht stehen**, denn eine
 Liste, die zu einem früheren Suchbegriff gehört, sieht aus wie ein Ergebnis.
+
+## Zeitgesteuerte Aufgaben (Scheduler)
+
+Ein Addon meldet periodische Arbeit in seiner `register()`-Methode beim
+Scheduler des Kerns an. Ausgelöst wird sie über den Cron-Aufruf des
+Betreibers (`/cron/run`) oder manuell unter `/admin/cron`:
+
+```php
+use App\Service\Scheduler;
+
+public function register($hooks): void {
+    Scheduler::register('mein-addon.aufraeumen', 86400, [Aufraeumen::class, 'lauf']);
+}
+```
+
+Was der Kern dabei zusichert (Audit M38, M39):
+
+- **Nie parallel zu sich selbst.** Jede Aufgabe läuft unter einer
+  Datenbanksperre. Ruft der System-Cron minütlich auf und dauert der Lauf
+  länger, wird die Aufgabe übersprungen, statt ein zweites Mal zu starten.
+  Wo die Plattform keine Sperre erlaubt, schützt nur der vorgezogene
+  Zeitstempel.
+- **Der Zeitstempel wird vor dem Callback gesetzt.** Das Intervall zählt von
+  Start zu Start.
+- **Ohne PHP-Zeitlimit.** Lange Läufe brechen nicht nach
+  `max_execution_time` ab; SMTP- und HTTP-Aufrufe brauchen deshalb eigene
+  Timeouts.
+- **Fehler bleiben bei der Aufgabe.** Eine Ausnahme landet im Audit-Log und
+  unter `/admin/cron`, die übrigen Aufgaben laufen weiter. Ein Fatal Error
+  beendet zwar den Request, die Aufgabe ist dann aber als abgebrochen
+  vermerkt und steht beim nächsten Aufruf nicht wieder vorn.
+  `retryOnFailure: true` setzt nach einer Ausnahme den alten Zeitstempel
+  zurück, nach einem Fatal Error nicht.
+
+**Namen** dürfen beliebig lang sein. Ab 36 Zeichen (Zeitstempel) bzw.
+38 Zeichen (Status) wird der Einstellungsschlüssel intern gehasht – in der
+Datenbank ist er dann nicht mehr lesbar. Setzen Sie Schlüssel deshalb nie
+selbst zusammen:
+
+- **Deinstallation:** `Scheduler::forget('mein-addon.aufraeumen')` entfernt
+  Zeitstempel und Status. Für Addons, die auch ältere Kerne unterstützen:
+  `if (method_exists(Scheduler::class, 'forget')) { … } else { bisheriges DELETE }`.
+- **Zusatzfunktionen:** `FeatureRegistry::settingKey($key)` und
+  `FeatureRegistry::permissionModule($key)` statt `'feature_visibility__' . $key`.
+
+`Scheduler::runExclusive('mein-addon.aufraeumen', $fn)` führt Code unter der
+Sperre der Aufgabe aus, etwa einen „Jetzt ausführen“-Knopf im eigenen
+Admin-Bereich. Rückgabe `false` heißt: Die Aufgabe läuft gerade, `$fn` wurde
+nicht aufgerufen. Der Zeitstempel bleibt dabei unberührt.
 
 ## Deinstallation: das Datenregister `owns` (#338)
 

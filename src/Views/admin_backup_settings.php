@@ -2,7 +2,7 @@
 // src/Views/admin_backup_settings.php
 /**
  * @var array<string, string> $settings
- * @var array{name:string, intervalSeconds:int, lastRunAt:?int}|null $schedulerTask
+ * @var array{name:string, intervalSeconds:int, lastRunAt:?int, status:?string, statusAt:?int, error:?string, running:?bool, state:?string}|null $schedulerTask
  */
 $lastStatus = $settings['backup_last_status'] ?? null;
 $lastRunAt = isset($settings['backup_last_run_at']) ? (int)$settings['backup_last_run_at'] : null;
@@ -212,7 +212,7 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
                 <label for="backup_interval_hours">Intervall (Stunden)</label>
-                <input type="number" id="backup_interval_hours" name="backup_interval_hours" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['backup_interval_hours'] ?? '24')) ?>">
+                <input type="number" id="backup_interval_hours" name="backup_interval_hours" class="form-control" min="1" max="<?= App\Service\Scheduler::MAX_INTERVAL_HOURS ?>" value="<?= App\Service\Scheduler::clampIntervalHours($settings['backup_interval_hours'] ?? '24') ?>">
             </div>
             <div class="form-group" style="flex: 1;">
                 <label for="backup_retention_count">Aufbewahrung (Anzahl Backups)</label>

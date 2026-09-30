@@ -95,6 +95,11 @@ class Database {
             $charset = 'utf8mb4';
 
             $dsn = self::buildDsn((string)$host, (string)$port, (string)$db, $charset);
+            // Bewusst KEIN PDO::ATTR_PERSISTENT: App\Service\DbLock hängt
+            // seine GET_LOCK-Sperren an diese Verbindung und verlässt sich
+            // darauf, dass sie mit dem Request endet (auch nach Fatal oder
+            // Kill). Eine persistente Verbindung würde Sperren über das
+            // Request-Ende hinaus halten (Audit M38).
             $options = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // Löst Exceptions bei Fehlern aus
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,       // Standard-Fetch: Assoziatives Array

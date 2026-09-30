@@ -462,12 +462,47 @@ synchron innerhalb dieses einen Requests ausführt.
   `App\Plugin\HookManager` - Callbacks müssen sich bei jedem Bootstrap neu
   registrieren, es gibt keinen dauerhaften In-Memory-Zustand zwischen
   Requests). `runDue()` führt alle fälligen Aufgaben aus, mit derselben
-  try/catch-Isolation pro Aufgabe wie beim Hook-System (ein Fehler
+  try/catch-Isolation pro Aufgabe wie beim Hook-System (ein Throwable
   protokolliert im Audit-Log, blockiert aber nie die übrigen Aufgaben
   desselben Laufs).
-- Persistenz des Zuletzt-ausgeführt-Zeitstempels je Aufgabe über die
-  bestehende generische `settings`-Tabelle (Schlüssel
-  `cron_last_run__<name>`), keine eigene Tabelle nötig.
+- Ablauf je Aufgabe (Audit M38, M39): Vorprüfung „fällig?“, Sperre per
+  `GET_LOCK` (`App\Service\DbLock`, Name `cron:<name>`), erneute Prüfung
+  unter der Sperre, **Claim** (Zeitstempel VOR dem Callback), Callback, bei
+  `retryOnFailure` und Throwable Rücksetzen auf den alten Zeitstempel.
+  - Hält ein anderer Cron-Aufruf die Sperre, wird die Aufgabe übersprungen
+    (`status: skipped`, in `/cron/run` unter `skipped`). Ein Backup, das
+    länger als eine Minute läuft, startet so nicht parallel neu.
+  - Die Sperre hängt an der (bewusst nicht persistenten) PDO-Verbindung und
+    fällt beim Request-Ende von selbst, auch nach Fatal Error oder Kill.
+    Ist `GET_LOCK` auf der Plattform nicht nutzbar (`acquire()` liefert
+    `null`, etwa PXC mit `pxc_strict_mode=ENFORCING`), läuft die Aufgabe nur
+    mit dem Claim. In Galera wirkt die Sperre je Knoten.
+  - `lastRunAt` ist damit der **Startzeitpunkt**; Intervalle zählen von
+    Start zu Start.
+  - Ein Fatal Error beendet den ganzen Request. Die Aufgabe ist dann schon
+    als gestartet vermerkt, also beim nächsten Aufruf nicht fällig, und die
+    übrigen laufen. Ein Shutdown-Handler (mit 256 KB Speicherreserve)
+    schreibt den Status `aborted` und einen Audit-Eintrag „Cron-Aufgabe
+    abgebrochen: …“. Ein harter Abbruch zählt bewusst nicht als
+    `retryOnFailure`-Fehlschlag.
+  - `runDue()` hebt das PHP-Zeitlimit auf und ignoriert Verbindungsabbrüche
+    des Clients (`App\Helper\LongRunning::allow()`). `request_terminate_timeout`
+    von PHP-FPM und Proxy-Timeouts greifen weiter; solche Abbrüche erkennt
+    `/admin/cron` am Status `running` bei freier Sperre (nach 60 s Karenz:
+    „abgebrochen (ohne Rückmeldung beendet)“).
+- Persistenz je Aufgabe über die bestehende generische `settings`-Tabelle,
+  keine eigene Tabelle nötig: `cron_last_run__<name>` (Unix-Zeit des letzten
+  Starts) und `cron_status__<name>` (JSON: `status` running|ok|error|aborted,
+  `startedAt`, `finishedAt`, `error` gekürzt auf 500 Zeichen). Überlange
+  Namen werden im Schlüssel gehasht (`App\Helper\BoundedKey`, Audit N74).
+- Weitere API: `Scheduler::forget($name)` (Schlüssel entfernen, für
+  Addon-Deinstallation), `Scheduler::runExclusive($name, $fn)` (Code unter
+  der Sperre einer Aufgabe, z. B. für manuelle Testläufe; `false`, wenn sie
+  gerade belegt ist), `Scheduler::clampIntervalHours()` und
+  `MAX_INTERVAL_HOURS` (1–8760 h für Digest und Backup, Audit N67).
+- Die Kernaufgaben meldet `public/index.php` je Dienst in einem eigenen
+  try/catch an: Eine kaputte Einstellung darf nicht jeden Request scheitern
+  lassen (Fehler landen im PHP-Fehlerprotokoll).
 - Zwei Auslösewege, beide letztlich `Scheduler::runDue()`:
   - **Extern:** `App\Controllers\CronController::run()` unter `/cron/run` -
     öffentlich erreichbar, aber durch ein admin-generiertes Secret
@@ -477,9 +512,12 @@ synchron innerhalb dieses einen Requests ausführt.
     Bewusst ohne Admin-Login, da ein System-Cron keine Session mitbringen
     kann.
   - **Manuell:** `/admin/cron` (`AdminController::cronSettings()`/
-    `runCronNow()`) zeigt registrierte Aufgaben samt letztem Lauf und
-    erlaubt einen sofortigen manuellen Lauf - Alternative für Betreiber ohne
-    Zugriff auf einen System-Cron.
+    `runCronNow()`) zeigt registrierte Aufgaben samt letztem Start und
+    letztem Ergebnis und erlaubt einen sofortigen manuellen Lauf -
+    Alternative für Betreiber ohne Zugriff auf einen System-Cron.
+    `runCronNow()` gibt vor dem Lauf die Session frei
+    (`session_write_close()`), damit andere Tabs des Admins bedienbar
+    bleiben.
 - Verbraucher: `App\Service\BackupService` (#59, siehe unten),
   `App\Service\DigestService` (#52, siehe unten) und `App\Service\UpdateService`
   (#290: `update.check` alle 3 h meldet neu verfügbare Versionen per E-Mail,

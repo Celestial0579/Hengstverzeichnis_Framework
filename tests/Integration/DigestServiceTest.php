@@ -211,4 +211,20 @@ class DigestServiceTest extends TestCase {
         $this->assertSame('digest.admin_editor', $tasks[0]['name']);
         $this->assertSame(12 * 3600, $tasks[0]['intervalSeconds']);
     }
+
+    /**
+     * Audit N67: Ein gespeicherter Riesenwert ließ `$stunden * 3600`
+     * überlaufen, register() warf bei jedem Request. Jetzt wird beim Lesen
+     * auf ein Jahr geklemmt.
+     */
+    public function testHugeStoredIntervalIsClampedToOneYear(): void {
+        $stmt = self::$db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('digest_enabled', '1'), ('digest_interval_hours', '9999999999999999')");
+        $stmt->execute();
+
+        DigestService::registerScheduledTask();
+
+        $tasks = Scheduler::registeredTasks();
+        $this->assertCount(1, $tasks);
+        $this->assertSame(31536000, $tasks[0]['intervalSeconds']);
+    }
 }

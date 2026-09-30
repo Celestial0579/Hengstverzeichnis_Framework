@@ -60,8 +60,14 @@ class AuditLogger {
         try {
             $db = Database::getInstance();
 
-            // Fallback für Session-Start
-            if (session_status() === PHP_SESSION_NONE && !headers_sent()) {
+            // Fallback für Session-Start. Nicht, wenn der Request seine
+            // Session schon bewusst geschlossen hat (session_id() bleibt nach
+            // session_write_close() gesetzt): Ein langer Cron-Lauf unter
+            // /admin/cron/run-now gibt die Session-Sperre frei, damit die
+            // übrigen Tabs des Admins bedienbar bleiben (Audit M39) - ein
+            // erneutes session_start() hier würde sie wieder an sich ziehen.
+            // $_SESSION bleibt nach dem Schließen lesbar.
+            if (session_status() === PHP_SESSION_NONE && session_id() === '' && !headers_sent()) {
                 @session_start();
             }
 

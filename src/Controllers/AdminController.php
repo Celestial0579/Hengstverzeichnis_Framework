@@ -664,14 +664,35 @@ class AdminController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
-        $results = \App\Service\Scheduler::runDue();
-        \App\Service\AuditLogger::log(
-            "Cron-Aufgaben manuell ausgelöst",
-            "cron",
-            count($results) . " fällige Aufgabe(n) ausgeführt: " . implode(', ', array_column($results, 'name'))
-        );
+        // Der Lauf hat kein Zeitlimit mehr (Audit M39). Ohne diese Freigabe
+        // hielte er die Session-Datei gesperrt, und jeder andere Tab des
+        // Admins hinge bis zum Ende. Danach wird $_SESSION nur noch gelesen
+        // (AuditLogger); die Weiterleitung trägt alles im Query-String.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
 
-        header("Location: /admin/cron?success=run_now&ran=" . count($results));
+        $ran = [];
+        $skipped = [];
+        foreach (\App\Service\Scheduler::runDue() as $result) {
+            if ($result['status'] === 'skipped') {
+                $skipped[] = $result['name'];
+            } else {
+                $ran[] = $result['name'];
+            }
+        }
+
+        $detail = count($ran) . " fällige Aufgabe(n) ausgeführt: " . implode(', ', $ran);
+        if ($skipped !== []) {
+            $detail .= "; übersprungen (laufen bereits): " . implode(', ', $skipped);
+        }
+        \App\Service\AuditLogger::log("Cron-Aufgaben manuell ausgelöst", "cron", $detail);
+
+        $location = "/admin/cron?success=run_now&ran=" . count($ran);
+        if ($skipped !== []) {
+            $location .= "&skipped=" . count($skipped);
+        }
+        header("Location: " . $location);
         exit;
     }
 
@@ -736,7 +757,10 @@ class AdminController extends BaseController {
             'backup_ftps_path' => trim($_POST['backup_ftps_path'] ?? ''),
             'backup_webdav_url' => trim($_POST['backup_webdav_url'] ?? ''),
             'backup_webdav_user' => trim($_POST['backup_webdav_user'] ?? ''),
-            'backup_interval_hours' => (string)max(1, (int)($_POST['backup_interval_hours'] ?? 24)),
+            // 1 bis 8760 h (Audit N67): Ein riesiger Wert ließ das Produkt
+            // mit 3600 überlaufen, und jeder Request scheiterte beim
+            // Anmelden der Cron-Aufgabe.
+            'backup_interval_hours' => (string)\App\Service\Scheduler::clampIntervalHours($_POST['backup_interval_hours'] ?? 24),
             'backup_retention_count' => (string)max(1, (int)($_POST['backup_retention_count'] ?? 14)),
         ];
 
@@ -848,7 +872,7 @@ class AdminController extends BaseController {
 
         $settings = [
             'digest_enabled' => !empty($_POST['digest_enabled']) ? '1' : '0',
-            'digest_interval_hours' => (string)max(1, (int)($_POST['digest_interval_hours'] ?? 24)),
+            'digest_interval_hours' => (string)\App\Service\Scheduler::clampIntervalHours($_POST['digest_interval_hours'] ?? 24),
             'digest_recipient_groups' => implode(',', $recipientGroups),
         ];
 

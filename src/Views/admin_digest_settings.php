@@ -2,7 +2,7 @@
 // src/Views/admin_digest_settings.php
 /**
  * @var array<string, string> $settings
- * @var array{name:string, intervalSeconds:int, lastRunAt:?int}|null $schedulerTask
+ * @var array{name:string, intervalSeconds:int, lastRunAt:?int, status:?string, statusAt:?int, error:?string, running:?bool, state:?string}|null $schedulerTask
  */
 $lastStatus = $settings['digest_last_status'] ?? null;
 $lastRunAt = isset($settings['digest_last_run_at']) ? (int)$settings['digest_last_run_at'] : null;
@@ -83,7 +83,7 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
 
         <div class="form-group" style="max-width: 250px;">
             <label for="digest_interval_hours">Intervall (Stunden)</label>
-            <input type="number" id="digest_interval_hours" name="digest_interval_hours" class="form-control" min="1" value="<?= htmlspecialchars((string)($settings['digest_interval_hours'] ?? '24')) ?>">
+            <input type="number" id="digest_interval_hours" name="digest_interval_hours" class="form-control" min="1" max="<?= App\Service\Scheduler::MAX_INTERVAL_HOURS ?>" value="<?= App\Service\Scheduler::clampIntervalHours($settings['digest_interval_hours'] ?? '24') ?>">
         </div>
 
         <div class="form-group" style="margin-top: 1.5rem;">

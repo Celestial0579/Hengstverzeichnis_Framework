@@ -235,7 +235,7 @@
                     <a href="/admin/groups">Gruppen &amp; Berechtigungen</a>; Administratoren immer).
                 </small>
                 <?php foreach ($registeredFeatures as $featureKey => $featureDef): ?>
-                    <?php $currentVisibility = $settings['feature_visibility__' . $featureKey] ?? $featureDef['default']; ?>
+                    <?php $currentVisibility = $settings[\App\Permission\FeatureRegistry::settingKey($featureKey)] ?? $featureDef['default']; ?>
                     <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">
                         <span style="flex: 1;"><?= htmlspecialchars($featureDef['label']) ?> <code style="font-size: 0.8rem; color: var(--text-subtle);"><?= htmlspecialchars($featureKey) ?></code></span>
                         <select name="feature_visibility[<?= htmlspecialchars($featureKey) ?>]" class="form-control" style="max-width: 320px;">

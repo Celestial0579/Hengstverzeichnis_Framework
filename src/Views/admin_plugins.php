@@ -2,6 +2,8 @@
 // src/Views/admin_plugins.php
 /**
  * @var array $plugins Ergebnis von App\Plugin\PluginManager::getDiscoveredPlugins()
+ * @var array{slug:string, eintraege:string[]}|null $uninstallProtokoll
+ *      Einmaliges Protokoll der letzten Deinstallation (Audit N51), aus der Session.
  */
 
 $errorMessages = [
@@ -60,6 +62,54 @@ $manager = \App\Plugin\PluginManager::getInstance();
     <?php if (isset($_GET['success'])): ?>
         <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
             Aktion erfolgreich ausgeführt.
+        </div>
+    <?php endif; ?>
+
+    <?php
+    // Protokoll der Deinstallation (Audit N51). Es stand vorher nur im
+    // Audit-Log, und dort sucht nach einem Klick niemand - auch nicht nach
+    // "Sicherung fehlgeschlagen - trotzdem gelöscht". Einmalig angezeigt
+    // (PluginController::index() entfernt es aus der Session). Die Einstufung
+    // hängt an den Präfixen aus PluginManager::uninstall().
+    $uninstallProtokoll = $uninstallProtokoll ?? null;
+    if (is_array($uninstallProtokoll)):
+        $schwere = 0; // 0 = ok, 1 = Hinweis, 2 = Warnung
+        $eintragSchwere = static function (string $e): int {
+            if (str_starts_with($e, 'WARNUNG') || str_starts_with($e, 'NICHT gelöscht')) {
+                return 2;
+            }
+            return str_starts_with($e, 'HINWEIS') ? 1 : 0;
+        };
+        foreach ($uninstallProtokoll['eintraege'] as $e) {
+            $schwere = max($schwere, $eintragSchwere((string)$e));
+        }
+        $kasten = [
+            0 => 'background-color: var(--success-soft-bg); color: var(--success-fg);',
+            1 => 'background-color: var(--warning-soft-bg); color: var(--warning-fg);',
+            2 => 'background-color: var(--danger-soft-bg); color: var(--danger-fg);',
+        ][$schwere];
+    ?>
+        <div class="deinstallationsprotokoll" style="<?= $kasten ?> padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <strong>Addon „<?= htmlspecialchars($uninstallProtokoll['slug']) ?>“ deinstalliert – Protokoll</strong>
+            <?php if ($schwere === 2): ?>
+                <p style="margin: 0.5rem 0 0 0;">Bitte die markierten Einträge prüfen.</p>
+            <?php endif; ?>
+            <ul style="margin: 0.5rem 0 0 1.2rem;">
+                <?php foreach ($uninstallProtokoll['eintraege'] as $e): ?>
+                    <?php $stufe = $eintragSchwere((string)$e); ?>
+                    <?php if ($stufe === 2): ?>
+                        <li><strong style="color: var(--danger-fg);"><?= htmlspecialchars((string)$e) ?></strong></li>
+                    <?php elseif ($stufe === 1): ?>
+                        <li><strong><?= htmlspecialchars((string)$e) ?></strong></li>
+                    <?php else: ?>
+                        <li><?= htmlspecialchars((string)$e) ?></li>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+    <?php elseif (isset($_GET['uninstalled']) && is_string($_GET['uninstalled'])): ?>
+        <div style="background-color: var(--success-soft-bg); color: var(--success-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            Addon „<?= htmlspecialchars($_GET['uninstalled']) ?>“ wurde deinstalliert. Einzelheiten stehen im Audit-Log.
         </div>
     <?php endif; ?>
 

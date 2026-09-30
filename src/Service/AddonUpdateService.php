@@ -33,6 +33,13 @@ use App\Plugin\PluginManager;
  * neue Stand aus einem Release stammt, und akzeptiert den Versionswechsel
  * automatisch (sonst Wiederfreigabe-Pflicht).
  *
+ * install() des Addons ruft dieser Dienst NICHT auf (Audit M35): Im
+ * Update-Request ist noch die alte Plugin-Klasse geladen, require_once lädt
+ * die neue nicht nach - der Hook liefe mit dem alten Code. Stattdessen führt
+ * der PluginManager install() im ersten Request aus, der die neue Version
+ * lädt und übernimmt (vor register(), genau einmal). Deaktivierte Addons
+ * richten sich bei der nächsten Aktivierung ein.
+ *
  * Bewusst NICHT hier: Fremd-Repos (bleiben manuell über den Store -
  * automatisches Einspielen ungeprüften Fremdcodes wäre ein Rückschritt),
  * ein unbeaufsichtigter Scheduler-Lauf (zurückgestellt) und jede Änderung
@@ -177,7 +184,6 @@ final class AddonUpdateService {
 
         if ($result['ok']) {
             self::pinInstalledSource($slug, $official, (string)$ref);
-            self::runInstallHookIfAvailable($slug);
             AuditLogger::log(
                 'Addon aktualisiert',
                 'plugin',
@@ -251,7 +257,6 @@ final class AddonUpdateService {
                 $one = self::updateAddonFromTarball($slug, $tarPath, self::pluginsDir(), $newCoreVersion);
                 if ($one['ok']) {
                     self::pinInstalledSource($slug, $official, (string)$ref);
-                    self::runInstallHookIfAvailable($slug);
                 }
                 $results[] = ['slug' => $slug] + $one;
                 AuditLogger::log(
@@ -342,20 +347,6 @@ final class AddonUpdateService {
             $stmt->execute([$official['owner'] . '/' . $official['repo'] . '@' . $ref, $slug]);
         } catch (\Throwable $e) {
             // bewusst geschluckt, siehe PHPDoc
-        }
-    }
-
-    /**
-     * Ruft nach erfolgreichem Update den Install-Hook des Plugins auf
-     * (Migrationen u. Ä. laufen so direkt beim Update, nicht erst beim
-     * nächsten manuellen Aktivieren). Der method_exists-Guard überbrückt
-     * die Übergangszeit, in der PluginManager::runInstallHook() noch nicht
-     * gemergt ist - danach ist er wirkungslos und kann entfallen.
-     */
-    private static function runInstallHookIfAvailable(string $slug): void {
-        $manager = PluginManager::getInstance();
-        if (method_exists($manager, 'runInstallHook')) {
-            $manager->runInstallHook($slug);
         }
     }
 

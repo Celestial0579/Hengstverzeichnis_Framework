@@ -90,8 +90,14 @@ use PDO;
  *   und die plugins-Zeile (Audit N62), siehe uninstall().
  * - Nicht-destruktive Fail-Closed-Garantie: Wird ein Plugin als "muss erneut
  *   freigegeben werden" markiert (needsReapproval()), wird dafür NIE die
- *   `plugins`-Zeile verändert oder gelöscht - nur eine reine Laufzeit-Markierung
- *   "für diesen Request nicht laden" gesetzt. Selbst ein Bug in der
+ *   Freigabe-Baseline der `plugins`-Zeile (enabled, installed_version,
+ *   content_hash, dir_stamp, source) verändert oder die Zeile gelöscht - nur
+ *   die Laufzeit-Markierung "für diesen Request nicht laden" gesetzt und der
+ *   Wartevermerk `pending_reason`/`pending_marker` geschrieben (Audit N63).
+ *   Der Vermerk sorgt dafür, dass der Übergang in den Wartezustand genau
+ *   einmal je beobachtetem Stand protokolliert wird und der SHA-256 bei
+ *   unverändertem Verzeichnis-Stempel entfällt; er wird beim ersten
+ *   erfolgreichen Laden wieder gelöscht. Selbst ein Bug in der
  *   Fingerabdruck-/Versionsprüfung kann daher höchstens fälschlich diese
  *   Markierung auslösen, aber nie die bisherige Aktivierung, Konfiguration
  *   oder zugewiesene Berechtigungen (Tabelle `group_permissions`, unabhängig
@@ -125,6 +131,22 @@ final class PluginManager {
 
     /** @var array<string, bool> slug => true, wenn der aktuelle Code vom freigegebenen Fingerabdruck abweicht */
     private array $needsReapproval = [];
+
+    /** Wartegrund in plugins.pending_reason: gleiche Version, abweichender Code (Audit N63). */
+    private const WARTET_CODE = 'code_geaendert';
+
+    /** Wartegrund in plugins.pending_reason: Versionswechsel ohne Release-Herkunft (Audit N63). */
+    private const WARTET_VERSION = 'version_ohne_release';
+
+    /**
+     * slug => zuletzt vermerkte Wartemarke (plugins.pending_marker, Audit N63),
+     * null ohne Vermerk. Gleicht die aktuelle Marke der vermerkten, wurde
+     * dieser Stand schon protokolliert (und im Code-Zweig schon per SHA-256
+     * als abweichend erkannt).
+     *
+     * @var array<string, string|null>
+     */
+    private array $pendingMarkers = [];
 
     /**
      * slug => true, wenn das Addon in DIESEM Request die Ladeprüfung von
@@ -237,7 +259,10 @@ final class PluginManager {
             $this->discovered[$entry] = [
                 'slug' => $entry,
                 'dir' => $pluginDir,
-                'manifest' => is_array($manifest) ? $manifest : [],
+                // Validierung und Kompatibilität laufen oben auf dem ROHEN
+                // Manifest; gespeichert wird ein für die Anzeige normalisiertes
+                // (Audit N84) - alle Anzeigestellen lesen von hier.
+                'manifest' => is_array($manifest) ? self::anzeigeFelderNormalisieren($manifest) : [],
                 'error' => $error,
                 'compatible' => $error === null && $incompatibleReason === null,
                 // Warum das Plugin nicht zur laufenden Kern-Version passt (#197):
@@ -256,6 +281,43 @@ final class PluginManager {
         }
 
         ksort($this->discovered);
+    }
+
+    /** Manifestfelder, die als Text angezeigt werden (Audit N84). */
+    private const ANZEIGE_TEXTFELDER = ['name', 'description', 'author', 'version', 'core_compatibility', 'core_supported_max'];
+
+    /** Manifestfelder, die als Liste von Texten angezeigt werden (Audit N84). */
+    private const ANZEIGE_LISTENFELDER = ['hooks', 'permissions'];
+
+    /**
+     * Normalisiert die Anzeigefelder eines Manifests (Audit N84): Ein
+     * Textfeld, das gesetzt, aber kein String ist, wird entfernt; ein
+     * Listenfeld, das kein Array ist, ebenso, sonst bleiben nur seine
+     * String-Einträge. Semantische Felder (slug, entry, owns, routes …)
+     * bleiben unverändert. Ohne diese Normalisierung warf z. B. ein
+     * `"description": {"de": …}` in htmlspecialchars() einen TypeError und
+     * legte /admin/plugins mit HTTP 500 lahm.
+     *
+     * @param array<mixed> $manifest
+     * @return array<mixed>
+     */
+    private static function anzeigeFelderNormalisieren(array $manifest): array {
+        foreach (self::ANZEIGE_TEXTFELDER as $feld) {
+            if (array_key_exists($feld, $manifest) && $manifest[$feld] !== null && !is_string($manifest[$feld])) {
+                unset($manifest[$feld]);
+            }
+        }
+        foreach (self::ANZEIGE_LISTENFELDER as $feld) {
+            if (!array_key_exists($feld, $manifest) || $manifest[$feld] === null) {
+                continue;
+            }
+            if (!is_array($manifest[$feld])) {
+                unset($manifest[$feld]);
+                continue;
+            }
+            $manifest[$feld] = array_values(array_filter($manifest[$feld], 'is_string'));
+        }
+        return $manifest;
     }
 
     /**
@@ -518,6 +580,14 @@ final class PluginManager {
             return "Pflichtfeld 'core_supported_max' fehlt oder ist keine Major.Minor-Angabe wie \"0.4\" (höchste unterstützte Kern-Linie, siehe docs/plugin-development.md).";
         }
 
+        // Anzeigefelder müssen Text sein, wenn sie gesetzt sind (Audit N84,
+        // Entscheidung D31: ablehnen UND in discoverPlugins() normalisieren).
+        foreach (['description', 'author'] as $field) {
+            if (isset($manifest[$field]) && !is_string($manifest[$field])) {
+                return "Feld '{$field}' muss Text (String) sein (siehe docs/plugin-development.md, Manifest).";
+            }
+        }
+
         if (!preg_match('/^[a-z0-9][a-z0-9-]*$/', $dirSlug)) {
             return "Ungültiger Plugin-Verzeichnisname '{$dirSlug}' (erlaubt: Kleinbuchstaben, Ziffern, Bindestrich).";
         }
@@ -605,7 +675,16 @@ final class PluginManager {
             // muss, die Herkunft, ob ein Versionswechsel automatisch akzeptiert
             // werden darf. Beide Spalten legt die versionierte Migration an
             // (App\Service\SchemaMigrator), die vor jeder Query dieser Verbindung läuft.
-            $stmt = $db->query("SELECT slug, installed_version, content_hash, dir_stamp, source FROM plugins WHERE enabled = 1");
+            //
+            // pending_marker (Audit N63) ist dagegen nur eine Log-Bremse: Scheitert
+            // die Migration (Database::ensureSchemaUpToDate() schluckt den Fehler
+            // bewusst), fehlt die Spalte - dann ohne sie weiterlesen, statt alle
+            // Addons abzuschalten. Es wird dann eben wie früher je Request geloggt.
+            try {
+                $stmt = $db->query("SELECT slug, installed_version, content_hash, dir_stamp, source, pending_marker FROM plugins WHERE enabled = 1");
+            } catch (\PDOException $e) {
+                $stmt = $db->query("SELECT slug, installed_version, content_hash, dir_stamp, source FROM plugins WHERE enabled = 1");
+            }
             $rows = $stmt->fetchAll();
             $this->enabledSlugs = array_column($rows, 'slug');
             foreach ($rows as $row) {
@@ -613,6 +692,7 @@ final class PluginManager {
                 $this->approvedHashes[$row['slug']] = $row['content_hash'];
                 $this->approvedDirStamps[$row['slug']] = $row['dir_stamp'];
                 $this->sources[$row['slug']] = $row['source'];
+                $this->pendingMarkers[$row['slug']] = $row['pending_marker'] ?? null;
             }
         } catch (\Throwable $e) {
             // Fail-closed: Ohne DB-Zugriff bleiben alle Plugins deaktiviert (Ausfallsicherheit
@@ -622,6 +702,51 @@ final class PluginManager {
             $this->approvedHashes = [];
             $this->approvedDirStamps = [];
             $this->sources = [];
+            $this->pendingMarkers = [];
+        }
+    }
+
+    /**
+     * Wartemarke eines beobachteten Standes (Audit N63): Grund plus das, was
+     * beobachtet wurde (Verzeichnis-Stempel bzw. Version/Herkunft/Stempel).
+     */
+    private static function wartemarke(string $grund, string $beobachtet): string {
+        return hash('sha256', $grund . "\0" . $beobachtet);
+    }
+
+    /**
+     * Vermerkt, dass ein Addon auf erneute Freigabe wartet (Audit N63). Das
+     * bedingte UPDATE ist über die InnoDB-Zeilensperre atomar: Von mehreren
+     * gleichzeitigen Requests, die denselben neuen Stand sehen, bekommt genau
+     * einer true - nur er protokolliert. rowCount() ist korrekt, weil die
+     * WHERE-Bedingung einen unveränderten Marker ausschließt (unabhängig von
+     * MYSQL_ATTR_FOUND_ROWS). Die Freigabe-Baseline bleibt unangetastet.
+     *
+     * @return bool true, wenn dieser Request den Übergang geschrieben hat
+     *              (oder der Vermerk nicht geschrieben werden konnte - dann
+     *              bleibt es beim früheren Verhalten "protokollieren").
+     */
+    private function vermerkeWartend(string $slug, string $grund, string $marke): bool {
+        $this->pendingMarkers[$slug] = $marke;
+        try {
+            $db = Database::getInstance();
+            $stmt = $db->prepare("UPDATE plugins SET pending_reason = ?, pending_marker = ? WHERE slug = ? AND (pending_marker IS NULL OR pending_marker <> ?)");
+            $stmt->execute([$grund, $marke, $slug, $marke]);
+            return $stmt->rowCount() > 0;
+        } catch (\Throwable $e) {
+            return true;
+        }
+    }
+
+    /** Löscht den Wartevermerk nach dem ersten erfolgreichen Laden (Audit N63). */
+    private function loescheWartevermerk(string $slug): void {
+        $this->pendingMarkers[$slug] = null;
+        try {
+            $db = Database::getInstance();
+            $stmt = $db->prepare("UPDATE plugins SET pending_reason = NULL, pending_marker = NULL WHERE slug = ?");
+            $stmt->execute([$slug]);
+        } catch (\Throwable $e) {
+            // Unkritisch: Der nächste Request versucht es erneut.
         }
     }
 
@@ -676,14 +801,24 @@ final class PluginManager {
                     // Fail-closed: manuell kopierte oder aus einem Branch-Stand
                     // installierte Plugins brauchen für einen Versionswechsel die
                     // ausdrückliche Freigabe eines Admins (siehe setEnabled()).
+                    // Protokolliert wird nur der Übergang (Audit N63): Die Marke
+                    // enthält Version, Herkunft und Verzeichnis-Stempel, damit auch
+                    // ein weiterer Code-Austausch unter derselben, nicht
+                    // freigegebenen Version einen neuen Eintrag erzeugt.
                     $this->needsReapproval[$slug] = true;
-                    AuditLogger::log(
-                        "Plugin-Update ohne Release-Herkunft",
-                        "plugin",
-                        "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} - Herkunft '"
-                        . ($this->sources[$slug] ?? 'manuell/unbekannt')
-                        . "' ist kein Release-Tag (owner/repo@vX.Y.z). Wurde für diesen Request nicht geladen. Erneute Freigabe über /admin/plugins erforderlich."
+                    $marke = self::wartemarke(
+                        self::WARTET_VERSION,
+                        $currentVersion . "\0" . ($this->sources[$slug] ?? '') . "\0" . (string)$this->dirStampOf($slug)
                     );
+                    if ($this->vermerkeWartend($slug, self::WARTET_VERSION, $marke)) {
+                        AuditLogger::log(
+                            "Plugin-Update ohne Release-Herkunft",
+                            "plugin",
+                            "Slug: {$slug}, Version {$approvedVersion} -> {$currentVersion} - Herkunft '"
+                            . ($this->sources[$slug] ?? 'manuell/unbekannt')
+                            . "' ist kein Release-Tag (owner/repo@vX.Y.z). Wird nicht geladen, bis ein Admin es über /admin/plugins erneut freigibt. Einmalig protokolliert - ein weiterer Eintrag folgt erst bei einem anderen beobachteten Stand."
+                        );
+                    }
                     continue;
                 }
             } else {
@@ -697,6 +832,15 @@ final class PluginManager {
                 $stampMatches = $approvedHash !== null && $approvedStamp !== null && $approvedStamp === $currentStamp;
 
                 if (!$stampMatches) {
+                    // Audit N63: Wurde genau dieser Stand schon als abweichend
+                    // erkannt und vermerkt, entfallen SHA-256 und Log. Fail-closed -
+                    // das Überspringen führt nie zum Laden.
+                    $marke = self::wartemarke(self::WARTET_CODE, (string)$currentStamp);
+                    if (($this->pendingMarkers[$slug] ?? null) === $marke) {
+                        $this->needsReapproval[$slug] = true;
+                        continue;
+                    }
+
                     if ($approvedHash === null || $approvedHash !== $this->fingerprintOf($slug)) {
                         // Freigabe noch nie mit Fingerabdruck erfolgt oder der Code
                         // weicht ab - untypisch für ein reguläres Update, typisch für
@@ -704,11 +848,13 @@ final class PluginManager {
                         // Fail-closed: NICHT laden, bis ein Admin die aktuelle Version
                         // explizit erneut freigibt (siehe setEnabled()).
                         $this->needsReapproval[$slug] = true;
-                        AuditLogger::log(
-                            "Plugin-Code seit Aktivierung geändert",
-                            "plugin",
-                            "Slug: {$slug} - gleiche Version ({$currentVersion}), aber abweichender Code. Wurde für diesen Request nicht geladen. Erneute Freigabe über /admin/plugins erforderlich."
-                        );
+                        if ($this->vermerkeWartend($slug, self::WARTET_CODE, $marke)) {
+                            AuditLogger::log(
+                                "Plugin-Code seit Aktivierung geändert",
+                                "plugin",
+                                "Slug: {$slug} - gleiche Version ({$currentVersion}), aber abweichender Code. Wird nicht geladen, bis ein Admin es über /admin/plugins erneut freigibt. Einmalig protokolliert - ein weiterer Eintrag folgt erst bei einem anderen beobachteten Stand."
+                            );
+                        }
                         continue;
                     }
 
@@ -725,6 +871,12 @@ final class PluginManager {
             // mit dem er geladen wird, ist festgehalten (runInstallHook(), M35).
             $this->vertrauensgeprueft[$slug] = true;
             $this->geladeneStempel[$slug] = $this->dirStampOf($slug);
+
+            // Wartevermerk aufheben (Audit N63): nach erneuter Freigabe, nach
+            // Auto-Accept aus einem Release-Tag oder bei zurückgedrehtem Code.
+            if (($this->pendingMarkers[$slug] ?? null) !== null) {
+                $this->loescheWartevermerk($slug);
+            }
 
             try {
                 $this->loadPlugin($slug, $info);

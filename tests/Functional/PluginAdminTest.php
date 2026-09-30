@@ -57,4 +57,61 @@ class PluginAdminTest extends FunctionalTestCase {
         ]);
         $this->assertSame(403, $response->statusCode);
     }
+
+    // ---- Manifestfelder, die kein Text sind (Audit N84) ----------------
+
+    private const FIXTURE_OBJEKT = 'manifest-objekt-fixture';
+    private const FIXTURE_NAME = 'manifest-name-fixture';
+
+    protected function tearDown(): void {
+        foreach ([self::FIXTURE_OBJEKT, self::FIXTURE_NAME] as $slug) {
+            $dir = __DIR__ . '/../../plugins/' . $slug;
+            foreach (glob($dir . '/*') ?: [] as $datei) {
+                @unlink($datei);
+            }
+            @rmdir($dir);
+        }
+        parent::tearDown();
+    }
+
+    /** @param array<string, mixed> $manifest */
+    private function legeManifestAn(string $slug, array $manifest): void {
+        $dir = __DIR__ . '/../../plugins/' . $slug;
+        @mkdir($dir, 0777, true);
+        file_put_contents($dir . '/plugin.json', json_encode($manifest + [
+            'slug' => $slug,
+            'version' => '1.0.0',
+            'core_compatibility' => '>=0.0.1',
+            'core_supported_max' => '99.99',
+        ], JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Vorher warf htmlspecialchars() auf ein Array einen TypeError, und die
+     * ganze Plugin-Verwaltung lieferte HTTP 500. Jetzt erscheinen beide
+     * Addons als "Ungültiges Manifest", und die Seiten bleiben bedienbar.
+     */
+    public function testPluginsPageSurvivesNonStringManifestFields(): void {
+        $this->legeManifestAn(self::FIXTURE_OBJEKT, [
+            'name' => 'Objekt-Beschreibung',
+            'description' => ['de' => 'Hallo', 'en' => 'Hello'],
+            'hooks' => ['horse.saved', ['verschachtelt'], 3],
+        ]);
+        $this->legeManifestAn(self::FIXTURE_NAME, [
+            'name' => ['de' => 'Name als Objekt'],
+        ]);
+
+        $admin = $this->authenticatedClient();
+        $response = $admin->get('/admin/plugins');
+
+        $this->assertSame(200, $response->statusCode);
+        $this->assertStringContainsString(self::FIXTURE_OBJEKT, $response->body);
+        $this->assertStringContainsString(self::FIXTURE_NAME, $response->body);
+        $this->assertStringContainsString('Ungültiges Manifest', $response->body);
+
+        foreach ([self::FIXTURE_OBJEKT, self::FIXTURE_NAME] as $slug) {
+            $seite = $admin->get('/admin/plugins/uninstall?slug=' . $slug);
+            $this->assertSame(200, $seite->statusCode, "Deinstallationsseite für {$slug}");
+        }
+    }
 }

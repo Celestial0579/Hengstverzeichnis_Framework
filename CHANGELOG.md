@@ -84,6 +84,25 @@ Breaking Changes sind jederzeit möglich).
   die eine feste Edge-TTL erzwingen, heben den Schutz auf (siehe
   `docs/security.md`). Proxies fragen häufiger nach (304 über PHP), und alle
   Browser laden die Fotos nach dem Update einmal neu.
+- **Addon-Store: Schutz vor Archivbomben aus fremden Repositories** (Audit
+  N16). Bisher war nur die heruntergeladene, komprimierte Größe begrenzt
+  (20 MB). Ein Repository mit vielen Pfaden auf denselben Null-Blob konnte
+  deshalb schon beim bloßen Anzeigen des Katalogs Gigabytes nach `/tmp`
+  entpacken, denn PHP entpackt ein `.tar.gz` bereits beim Öffnen
+  vollständig. Jetzt wird das Archiv gestreamt und begrenzt entpackt.
+  Archive mit mehr als 100 MB entpackt oder mehr als 10.000 Einträgen lehnt
+  der Store mit Begründung ab; eine abgeschnittene Datei wird als beschädigt
+  erkannt. Temporäre Arbeitsverzeichnisse (`hengst_addon_*`) werden auch
+  dann entfernt, wenn eine Anfrage an `max_execution_time` scheitert.
+
+  **Für Betreiber:** Das offizielle Addons-Repository liegt weit unter den
+  Grenzen (rund 3 MB, 300 Einträge). Fremd-Repositories oberhalb der
+  Grenzen lassen sich nicht mehr durchsuchen oder installieren; die Meldung
+  im Store nennt den Grund. Im Spitzenwert braucht ein Store-Abruf bis zu
+  etwa 220 MB freien Platz in `sys_get_temp_dir()`. Reste früherer
+  Abbrüche (`/tmp/hengst_addon_*`) können einmalig von Hand gelöscht
+  werden.
+
 - **Deinstallieren mit Datenlöschung führte Code nie freigegebener oder
   veränderter Addons aus** (Audit N15). Die Aufräumroutine eines Addons
   (`uninstall()`) lief auch für Addons, die nie aktiviert wurden oder deren
@@ -580,6 +599,32 @@ Breaking Changes sind jederzeit möglich).
   Kameras lagen in Katalog, Detailseite, Verwaltungsliste und Galerie quer,
   sobald die Vorschaubilder eingeschaltet waren. Die Vorschau berücksichtigt
   jetzt die gespeicherte Ausrichtung des Fotos.
+- **Audit-Log-Flut, solange ein Addon auf erneute Freigabe wartete**
+  (Audit N63). Jede Seitenanfrage, auch von anonymen Besuchern und
+  Crawlern, schrieb einen Eintrag „Plugin-Code seit Aktivierung geändert“
+  bzw. „Plugin-Update ohne Release-Herkunft“. Bei geändertem Code wurde
+  außerdem jedes Mal der SHA-256 über alle Addon-Dateien neu berechnet.
+  Jetzt wird der beobachtete Stand in der Tabelle `plugins` vermerkt (neue
+  Spalten `pending_reason`, `pending_marker`; `SCHEMA_VERSION` 30).
+  Protokolliert wird nur noch der Übergang, ein weiterer Eintrag folgt erst
+  bei einem anderen Stand. Der Fingerabdruck wird erst bei einer weiteren
+  Änderung neu berechnet. Wie bisher wird ein solches Addon erst nach der
+  Freigabe geladen, und die Freigabe selbst bleibt unangetastet.
+
+  **Für Betreiber:** Die Migration läuft automatisch und legt zwei
+  nullable Spalten an; scheitert sie, laden Addons trotzdem (dann mit dem
+  alten Log-Verhalten). Direkt nach dem Update erscheint für jedes bereits
+  wartende Addon genau ein Eintrag. Der Details-Text der beiden Einträge
+  ist neu („Wird nicht geladen, bis ein Admin es über /admin/plugins erneut
+  freigibt. Einmalig protokolliert …“) - wer im Audit-Log auf den alten
+  Text „Wurde für diesen Request nicht geladen“ filtert, muss umstellen.
+
+- **/admin/plugins lieferte HTTP 500, wenn ein Manifest-Feld kein Text war**
+  (Audit N84), etwa `"description": {"de": …, "en": …}`. Dann ließ sich
+  kein Addon mehr über die Oberfläche verwalten. Jetzt werden
+  Anzeigefelder nur noch als Text ausgegeben. Das gilt auch für die
+  Deinstallationsseite, den Store und die Update-Übersicht.
+
 - **Nach einem Addon-Update lief die Einrichtung der alten Version** (Audit
   M35). Beim Update über `/admin/updates` und beim Mitziehen der Addons
   während eines Kern-Updates rief der Kern `install()` im selben Aufruf auf,
@@ -1159,6 +1204,18 @@ Breaking Changes sind jederzeit möglich).
   `App\Service\BildMetadaten::bestandBereinigen($pdo)`, und
   `App\Helper\AtomicFile` hat `ersetzen()` (Inhalt von einem Schreiber, mit
   optionalem Prüfer) und `resteEntfernen()` dazubekommen.
+- **`description` und `author` in `plugin.json` müssen Text sein** (Audit
+  N84). Ein anderer Typ macht das Manifest ungültig: Das Addon erscheint mit
+  Begründung als „Ungültiges Manifest“, wird nicht geladen und vom
+  Addon-Store nicht angeboten. Die offiziellen Addons sind nicht betroffen.
+
+  **Für Betreiber:** Ein bereits aktiviertes Drittanbieter-Addon mit einem
+  solchen Feld wird nach dem Update nicht mehr geladen; einen
+  Deaktivieren-Knopf gibt es dann nicht, die Deinstallation bleibt möglich.
+  Nach einer Korrektur des Manifests muss das Addon unter `/admin/plugins`
+  erneut freigegeben werden, weil sich sein Code seit der Freigabe
+  geändert hat.
+
 - **Deaktivieren eines Addons lässt seine letzte Freigabe stehen** (Audit
   N15). Version und Fingerabdruck bleiben in der Tabelle `plugins`; sie
   dienen bei einer späteren Deinstallation als Nachweis, dass der vorliegende

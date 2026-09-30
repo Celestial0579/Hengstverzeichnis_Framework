@@ -210,6 +210,13 @@ class SchemaMigratorTest extends TestCase {
         // DatabaseTest.php über den impliziten Weg beim Verbindungsaufbau).
         $this->assertSame(1, self::$pdo->query("SHOW TABLES LIKE 'api_keys'")->rowCount());
         $this->assertSame(1, self::$pdo->query("SHOW COLUMNS FROM `horses` LIKE 'is_deceased'")->rowCount());
+        // Wiederfreigabe-Vermerk (Audit N63) steht hinter source.
+        $this->assertSame(1, self::$pdo->query("SHOW COLUMNS FROM `plugins` LIKE 'pending_reason'")->rowCount());
+        $this->assertSame(1, self::$pdo->query("SHOW COLUMNS FROM `plugins` LIKE 'pending_marker'")->rowCount());
+        $this->assertSame(
+            ['slug', 'enabled', 'installed_version', 'content_hash', 'dir_stamp', 'source', 'pending_reason', 'pending_marker'],
+            array_slice(self::$pdo->query("SHOW COLUMNS FROM `plugins`")->fetchAll(PDO::FETCH_COLUMN), 0, 8)
+        );
         $this->assertSame(0, self::$pdo->query("SHOW COLUMNS FROM `users` LIKE 'role'")->rowCount());
 
         // Reihenfolge-Regression (#309), jetzt an ihrem neuen Ort geprüft.

@@ -267,6 +267,8 @@ class DatabaseTest extends TestCase {
         $this->assertIndexColumns($pdo, 'horse_persons', 'idx_horse_persons_contact',
             ['contact_id', 'horse_id']);
         $this->assertColumnExists($pdo, 'plugins', 'dir_stamp');
+        $this->assertColumnExists($pdo, 'plugins', 'pending_reason');
+        $this->assertColumnExists($pdo, 'plugins', 'pending_marker');
         $this->assertColumnExists($pdo, 'api_keys', 'issued_session_version');
 
         // Versionierter Migrationsstand (#213): Nach dem ersten getInstance()

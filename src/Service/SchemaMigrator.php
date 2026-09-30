@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 29; // 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 30; // 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -1355,6 +1355,16 @@ final class SchemaMigrator {
         // SHA-256-Fingerabdruck über alle Plugin-Dateien komplett; jede
         // Abweichung erzwingt weiterhin den vollen Hash-Vergleich (fail-closed).
         $addColumn('plugins', 'dir_stamp', "VARCHAR(64) NULL DEFAULT NULL AFTER `content_hash`");
+
+        // 41. Wiederfreigabe-Vermerk je Plugin (Audit N63, SCHEMA_VERSION 30).
+        // Wartet ein aktiviertes Addon auf erneute Freigabe, vermerkt
+        // PluginManager::loadEnabledPlugins() Grund und beobachteten Stand
+        // hier - protokolliert wird nur noch der Übergang statt bei jedem
+        // Request, und der SHA-256 entfällt, solange der Stand gleich bleibt.
+        // Die Freigabe-Baseline (installed_version, content_hash, dir_stamp,
+        // source) bleibt unberührt. Die Spalte source legt Schritt 14 an.
+        $addColumn('plugins', 'pending_reason', "VARCHAR(32) NULL DEFAULT NULL AFTER `source`");
+        $addColumn('plugins', 'pending_marker', "VARCHAR(64) NULL DEFAULT NULL AFTER `pending_reason`");
 
         // 25. API-Schlüssel an die session_version ihres Besitzers koppeln
         // (#217): Beim Anlegen wird der aktuelle Stand mitgeschrieben; die

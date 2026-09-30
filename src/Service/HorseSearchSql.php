@@ -299,7 +299,8 @@ final class HorseSearchSql {
 
             HorseSearchCondition::BirthYearFrom => "h.birth_year >= ?",
             HorseSearchCondition::BirthYearTo => "h.birth_year <= ?",
-            HorseSearchCondition::Color => "h.color LIKE ?",
+            // Exakt statt LIKE (Audit N70), siehe HorseSearchCriteria.
+            HorseSearchCondition::Color => "h.color = ?",
             HorseSearchCondition::Sex => "h.sex = ?",
             HorseSearchCondition::Breed => "h.breed LIKE ?",
             HorseSearchCondition::Deceased => "h.is_deceased = 1",

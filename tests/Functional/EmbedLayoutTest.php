@@ -35,6 +35,69 @@ class EmbedLayoutTest extends FunctionalTestCase {
         $this->assertStringContainsString("frame-ancestors 'self'", (string)$response->header('Content-Security-Policy'));
     }
 
+    /**
+     * Audit N88: Alle Seiten außer dem Katalog verbieten fremde Rahmen. Ein
+     * "Profil ansehen" im Rahmen endete deshalb auf einer fremden Domain in
+     * der Fehlerseite des Browsers. <base target="_top"> öffnet Links auf
+     * oberster Ebene; Formular, Zurücksetzen und Blättern bleiben per
+     * target="_self" im Rahmen und behalten embed=1.
+     *
+     * Mehr als 24 Pferde, sonst gibt es keine Blätter-Links. search=<Kennung>
+     * grenzt auf die hier gesäten Pferde ein.
+     */
+    public function testEmbedLinksVerlassenDenRahmenFormularBleibtDrin(): void {
+        $this->authenticatedClient(); // Ersteinrichtung, damit horses existiert
+        $db = \App\Database::getInstance();
+        $kennung = 'embedn88' . bin2hex(random_bytes(4));
+        $ids = [];
+        try {
+            $einfuegen = $db->prepare("INSERT INTO horses (name, status, is_published) VALUES (?, 'active', 1)");
+            for ($i = 1; $i <= 26; $i++) {
+                $einfuegen->execute([sprintf('Rahmenpferd %s %02d', $kennung, $i)]);
+                $ids[] = (int)$db->lastInsertId();
+            }
+
+            $antwort = $this->newClient()->get('/katalog?embed=1&search=' . $kennung);
+            $this->assertSame(200, $antwort->statusCode);
+            $body = $antwort->body;
+
+            $this->assertStringContainsString('<base target="_top">', $body, 'Links müssen den Rahmen verlassen.');
+            $this->assertMatchesRegularExpression('#<form id="catalog-filter-form"[^>]*target="_self"#', $body,
+                '<base target> gilt auch für Formulare - das Filterformular muss im Rahmen bleiben.');
+            $this->assertMatchesRegularExpression('#<input type="hidden" name="embed" value="1">#', $body,
+                'Ohne das versteckte Feld fiele die Einbettung nach dem ersten Filtern ohne JavaScript aus dem Minimal-Layout.');
+            $this->assertMatchesRegularExpression('#<a href="/katalog\?embed=1" target="_self" id="btn-reset-filters"#', $body,
+                'Zurücksetzen muss im Rahmen und in der Einbettungsansicht bleiben.');
+
+            $this->assertSame(1, preg_match_all('#<a href="(/katalog\?[^"]*page=2)" target="_self"#', $body, $blaettern),
+                'Der Blätter-Link muss im Rahmen bleiben.');
+            $link = html_entity_decode($blaettern[1][0], ENT_QUOTES, 'UTF-8');
+            $this->assertStringContainsString('embed=1', $link, 'Der Blätter-Link muss embed=1 weiterreichen.');
+            $this->assertStringContainsString('search=' . $kennung, $link);
+
+            // Profil-Links tragen kein eigenes target, sie folgen <base target="_top">.
+            $this->assertMatchesRegularExpression('#<a href="/horse\?id=\d+" class#', $body);
+
+            // Seite 2 im Rahmen: weiter Minimal-Layout und zurückblätterbar.
+            $seite2 = $this->newClient()->get($link);
+            $this->assertSame(200, $seite2->statusCode);
+            $this->assertStringNotContainsString('<header>', $seite2->body);
+            $this->assertMatchesRegularExpression('#<a href="/katalog\?[^"]*embed=1[^"]*page=1" target="_self"#', $seite2->body);
+
+            // Gegenprobe ohne embed: kein <base>, kein verstecktes Feld.
+            $normal = $this->newClient()->get('/katalog?search=' . $kennung);
+            $this->assertSame(200, $normal->statusCode);
+            $this->assertStringNotContainsString('<base target', $normal->body);
+            $this->assertStringNotContainsString('name="embed"', $normal->body);
+            $this->assertMatchesRegularExpression('#<a href="/katalog" target="_self" id="btn-reset-filters"#', $normal->body);
+        } finally {
+            $loeschen = $db->prepare('DELETE FROM horses WHERE id = ?');
+            foreach ($ids as $id) {
+                $loeschen->execute([$id]);
+            }
+        }
+    }
+
     public function testEmbedViewDropsHeaderAndFooterButKeepsTheming(): void {
         $response = $this->newClient()->get('/katalog?embed=1');
         $this->assertSame(200, $response->statusCode);

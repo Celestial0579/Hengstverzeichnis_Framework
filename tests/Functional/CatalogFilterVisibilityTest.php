@@ -212,6 +212,53 @@ class CatalogFilterVisibilityTest extends FunctionalTestCase {
     }
 
     /**
+     * Audit N87: Die View bekam $_GET ungefiltert. Array-Parameter, wie sie
+     * Scanner und Crawler schicken, endeten in einem TypeError in
+     * htmlspecialchars() (Status 500 plus Logeintrag). Seit dem Fix sieht die
+     * View nur $criteria->activeParams() - geprüfte, getrimmte Strings.
+     */
+    public function testArrayParameterFuehrenNichtZu500(): void {
+        $guest = $this->newClient();
+        $antwort = $guest->get('/katalog?search[]=a&q_name[]=b&q_color[]=c&birth_year_from[]=1&q_sex[]=x&q_breed[]=y');
+        $this->assertSame(200, $antwort->statusCode,
+            'Array-Parameter dürfen den Katalog nicht mit 500 abbrechen. Body: ' . substr($antwort->body, 0, 300));
+        $this->assertStringContainsString('id="catalog-filter-form"', $antwort->body);
+        $this->assertMatchesRegularExpression('#<input[^>]*name="search"[^>]*value=""#', $antwort->body,
+            'Das Suchfeld darf keinen Wert aus dem Array-Parameter zeigen');
+        $this->assertResetVerborgen($antwort->body, 'Array-Parameter sind kein aktiver Filter');
+        $this->assertDoesNotMatchRegularExpression('#<details\s+open#', $antwort->body,
+            'Ohne gültigen Filter bleiben die Detailfilter zu');
+
+        // Gegenprobe: Ein echter String-Filter zeigt den Reset-Knopf und öffnet
+        // die Detailfilter - sonst prüfte die Zusicherung oben nichts.
+        $mitFilter = $guest->get('/katalog?q_name=' . urlencode('KeinPferd' . uniqid()));
+        $this->assertSame(200, $mitFilter->statusCode);
+        $this->assertMatchesRegularExpression('#<a[^>]*id="btn-reset-filters"[^>]*style="(?![^"]*display: none)[^"]*"#', $mitFilter->body,
+            'Mit aktivem Filter muss der Reset-Knopf sichtbar sein');
+        $this->assertMatchesRegularExpression('#<details\s+open#', $mitFilter->body);
+    }
+
+    /**
+     * Audit N87/N88: embed=1 (und page) sind Darstellungs- bzw.
+     * Blätterparameter, keine Filter. Bisher zählten sie in $hasActiveFilters
+     * mit - jede Einbettung zeigte den Reset-Knopf und offene Detailfilter.
+     */
+    public function testEmbedOhneFilterZeigtKeinenResetKnopf(): void {
+        $guest = $this->newClient();
+        foreach (['/katalog?embed=1', '/katalog?embed=1&page=1'] as $pfad) {
+            $antwort = $guest->get($pfad);
+            $this->assertSame(200, $antwort->statusCode, "{$pfad}: Body " . substr($antwort->body, 0, 300));
+            $this->assertResetVerborgen($antwort->body, "{$pfad}: embed/page sind kein Filter");
+            $this->assertDoesNotMatchRegularExpression('#<details\s+open#', $antwort->body,
+                "{$pfad}: Die Detailfilter dürfen ohne Filter nicht geöffnet sein");
+        }
+    }
+
+    private function assertResetVerborgen(string $body, string $meldung): void {
+        $this->assertMatchesRegularExpression('#<a[^>]*id="btn-reset-filters"[^>]*style="[^"]*display: none;[^"]*"#', $body, $meldung);
+    }
+
+    /**
      * Ruft den AJAX-Katalog als Gast auf und liefert das dekodierte JSON
      * (count/cards_html, siehe PublicController::catalog(), AJAX-Zweig).
      *

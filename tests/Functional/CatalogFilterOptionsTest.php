@@ -308,4 +308,54 @@ class CatalogFilterOptionsTest extends FunctionalTestCase {
             $this->setGroupPermissions($admin, $gast, self::GUEST_DEFAULT_PERMISSIONS);
         }
     }
+
+    /**
+     * Audit N70: Die Farbe ist eine Auswahlliste aus exakten Werten, der
+     * Filter verglich aber per LIKE '%…%'. "Braun" lieferte so auch
+     * "Dunkelbraun" und "Braunschimmel", und % bzw. _ wirkten als Joker.
+     * search=<eindeutig> grenzt auf die hier gesäten Pferde ein.
+     */
+    public function testFarbfilterTrifftNurDieGewaehlteFarbe(): void {
+        $u = uniqid();
+        $db = Database::getInstance();
+        $setze = $db->prepare('UPDATE horses SET color = ? WHERE id = ?');
+        $pferde = [];
+        foreach (['Braun', 'Dunkelbraun', 'Braunschimmel'] as $farbe) {
+            $name = "Farbfilter {$farbe} {$u}";
+            $setze->execute([$farbe, $this->seedPferd($name, true)]);
+            $pferde[$farbe] = $name;
+        }
+
+        $gast = $this->newClient();
+        $treffer = function (string $farbe) use ($gast, $u): array {
+            $antwort = $gast->get('/katalog?ajax=1&search=' . urlencode($u) . '&q_color=' . urlencode($farbe));
+            $this->assertSame(200, $antwort->statusCode, 'Body: ' . substr($antwort->body, 0, 300));
+            $daten = json_decode($antwort->body, true);
+            $this->assertIsArray($daten);
+            return $daten;
+        };
+
+        // Vorbedingung: Ohne Farbfilter sind alle drei im Katalog.
+        $this->assertSame(3, $treffer('')['count']);
+
+        foreach (['Braun', 'braun', 'BRAUN'] as $wert) {
+            $daten = $treffer($wert);
+            $this->assertSame(1, $daten['count'], "q_color={$wert} darf nur das Pferd mit genau dieser Farbe liefern");
+            $this->assertStringContainsString(htmlspecialchars($pferde['Braun']), $daten['cards_html']);
+            $this->assertStringNotContainsString(htmlspecialchars($pferde['Dunkelbraun']), $daten['cards_html']);
+            $this->assertStringNotContainsString(htmlspecialchars($pferde['Braunschimmel']), $daten['cards_html']);
+        }
+
+        $this->assertSame(1, $treffer('Braunschimmel')['count'], 'Gegenprobe: die längere Farbe trifft sich selbst');
+        $this->assertSame(0, $treffer('%')['count'], '% darf kein Jokerzeichen sein');
+        $this->assertSame(0, $treffer('Brau_')['count'], '_ darf kein Jokerzeichen sein');
+        $this->assertSame(0, $treffer('brau')['count'], 'Teilwerte treffen nicht mehr');
+
+        // Voller Seiten-Render: dieselbe Grenze, und die Auswahl bleibt markiert.
+        $seite = $gast->get('/katalog?search=' . urlencode($u) . '&q_color=Braun');
+        $this->assertSame(200, $seite->statusCode);
+        $this->assertStringContainsString(htmlspecialchars($pferde['Braun']), $seite->body);
+        $this->assertStringNotContainsString(htmlspecialchars($pferde['Dunkelbraun']), $seite->body);
+        $this->assertStringNotContainsString(htmlspecialchars($pferde['Braunschimmel']), $seite->body);
+    }
 }

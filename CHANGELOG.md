@@ -768,6 +768,54 @@ Breaking Changes sind jederzeit möglich).
   `horse.deleted` feuert nur für tatsächlich gelöschte Pferde, deren
   Nachkommen dann bereits den Freitext tragen. Die Signaturen bleiben
   unverändert.
+- **Farbfilter lieferte zusätzliche Farben** (Audit N70). Die Auswahl
+  „Braun“ im Katalog und in der Admin-Pferdeliste zeigte auch alle Pferde mit
+  „Dunkelbraun“ oder „Braunschimmel“, weil der Filter nach Teiltexten suchte;
+  `%` und `_` wirkten dabei als Jokerzeichen. Er vergleicht jetzt exakt,
+  Groß- und Kleinschreibung spielen weiterhin keine Rolle. Der Parameter
+  `color` der API sucht bewusst unverändert nach Teiltexten.
+  **Betreiber:** Handgebaute Links und bereits verteilte Einbettungs-Schnipsel
+  (Addon embed-widget) mit Teilfarben wie `q_color=braun` treffen
+  „Dunkelbraun“ nicht mehr, Teilwerte wie `brau` treffen gar nichts. Solche
+  Schnipsel bitte auf den genauen Farbwert umstellen.
+- **Stammbaum zeigte einen falschen Vorfahren** (Audit N73). War ein
+  Elternteil nur per Name und UELN hinterlegt und das Pferd mit dieser UELN
+  unveröffentlicht, setzte die öffentliche Seite ein gleichnamiges, aber
+  anderes Pferd als Vorfahren ein, samt dessen Ahnen. Eine hinterlegte UELN
+  hat jetzt Vorrang, die Suche nach dem Namen ignoriert Pferde mit
+  abweichender UELN, und ein mehrdeutiger Name wird nicht mehr aufs
+  Geratewohl aufgelöst. Admin- und öffentlicher Baum bestimmen dasselbe
+  Pferd; bei mehreren Pferden mit derselben Nummer gilt das älteste
+  (kleinste ID). In den genannten Fällen erscheint der Platzhalter mit Name
+  und UELN, auch im Admin-Bereich und in den Berechnungen der Addons
+  (Inzuchtkoeffizient, Pedigree-Export, Genealogie-Vergleich,
+  Anpaarungs-Empfehlung).
+  **Betreiber:** Inzuchtkoeffizienten in Altbeständen mit unverknüpften,
+  gleichnamigen Vorfahren können sich ändern. Solche Vorfahren lassen sich
+  über die Verknüpfung im Pferdeformular (Vater/Mutter bzw.
+  Verknüpfungsvorschlag) eindeutig zuordnen. Bis das Addon
+  anpaarungs-empfehlung nachgezogen ist, können seine Werte in diesen
+  Randfällen von inzuchtkoeffizient abweichen.
+- **`/katalog` mit Array-Parametern endete mit Fehler 500** (Audit N87).
+  Adressen wie `/katalog?search[]=x`, wie sie Scanner und Crawler aufrufen,
+  lösten einen Fehler und einen Logeintrag aus. Die Katalogseite zeigt jetzt
+  nur noch geprüfte Filterwerte an; `embed`, `page` und fremde Parameter
+  gelten nicht mehr als aktiver Filter.
+- **Eingebetteter Katalog (`?embed=1`): Pferdeprofil ließ sich nicht
+  öffnen** (Audit N88). Ein Klick auf „Profil ansehen“ lud die Pferdeseite in
+  den Rahmen. Diese Seite darf aber nicht fremd eingebettet werden, der
+  Browser zeigte deshalb eine Fehlermeldung. Links aus der Einbettung öffnen
+  jetzt auf der obersten Ebene (`<base target="_top">`), auch solche, die
+  Addons über `catalog.card_sections` beisteuern. Filter, Blättern und
+  Zurücksetzen bleiben im Rahmen und behalten die Einbettungsansicht, auch
+  ohne JavaScript und nach dem Neuladen. Der Knopf „Filter zurücksetzen“
+  erscheint in der Einbettung nicht mehr ohne aktiven Filter.
+  **Betreiber:** Auf der einbettenden Seite verlässt der Besucher mit dem
+  Klick auf ein Profil diese Seite. Das gilt auch für die Admin-Vorschau des
+  Addons embed-widget. Pferdeseiten bleiben bewusst nicht einbettbar.
+- **Kontaktseite nannte eine zu hohe Pferdezahl** (Audit N89). Der Hinweis
+  „Es werden nur die ersten … Pferde angezeigt“ zeigte bei gekürzten Listen
+  das Neunfache der angezeigten Pferde (1800 statt 200).
 - **Eine DSGVO-Aktion auf einen nicht mehr vorhandenen Kontakt meldete
   Erfolg** und schloss die Anfrage ab (Audit M11). Jetzt erscheint eine
   Fehlermeldung, und die Anfrage bleibt offen. Scheitert eine DSGVO-Aktion,

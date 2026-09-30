@@ -150,7 +150,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 window.history.pushState({ path: newUrl }, '', newUrl);
 
                 if (resetBtn) {
-                    resetBtn.style.display = queryString ? 'inline-block' : 'none';
+                    // In der Einbettung trägt das Formular ein verstecktes
+                    // embed=1 (Audit N88). Es bleibt in der URL, damit ein
+                    // Neuladen im Rahmen funktioniert, ist aber kein Filter.
+                    const hatFilter = Array.from(params.keys()).some(function (k) { return k !== 'embed'; });
+                    resetBtn.style.display = hatFilter ? 'inline-block' : 'none';
                 }
             })
             .catch(function (err) { console.error('Async Filter Error:', err); })

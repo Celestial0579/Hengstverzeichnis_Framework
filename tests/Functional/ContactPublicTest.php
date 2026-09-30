@@ -234,4 +234,53 @@ class ContactPublicTest extends FunctionalTestCase {
         $this->assertSame(301, $alt->statusCode, 'Die alte Stationsadresse muss dauerhaft weiterleiten');
         $this->assertSame('/kontakt?id=' . $bestandId, $alt->location());
     }
+
+    /**
+     * Audit N89: Der Kürzungshinweis rechnete per COUNT_RECURSIVE und zählte
+     * die Spalten jeder Zeile mit - bei 200 angezeigten Pferden stand dort
+     * 1800. Die Zahl kommt jetzt aus dem Controller: angezeigte Zeilen, also
+     * der Deckel MAX_PFERDE_JE_KONTAKT.
+     */
+    public function testKuerzungshinweisNenntDieAngezeigtePferdezahl(): void {
+        $this->authenticatedClient(); // Ersteinrichtung
+        $db = Database::getInstance();
+        $erwartet = htmlspecialchars(\App\I18n\Translator::t('contact.horses_truncated', ['count' => 200]));
+        $falsch = htmlspecialchars(\App\I18n\Translator::t('contact.horses_truncated', ['count' => 1800]));
+
+        foreach ([['breeder' => 201], ['breeder' => 150, 'owner' => 60]] as $verteilung) {
+            $unique = uniqid();
+            $db->prepare('INSERT INTO contacts (name, is_published) VALUES (?, 1)')->execute(["Grosszucht {$unique}"]);
+            $kontaktId = (int)$db->lastInsertId();
+            $pferde = [];
+            try {
+                $db->beginTransaction();
+                $pferd = $db->prepare("INSERT INTO horses (name, status, is_published) VALUES (?, 'active', 1)");
+                $rolle = $db->prepare('INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, ?)');
+                foreach ($verteilung as $r => $anzahl) {
+                    for ($i = 1; $i <= $anzahl; $i++) {
+                        $pferd->execute([sprintf('Kuerzpferd %s %s %03d', $unique, $r, $i)]);
+                        $id = (int)$db->lastInsertId();
+                        $pferde[] = $id;
+                        $rolle->execute([$id, $kontaktId, $r]);
+                    }
+                }
+                $db->commit();
+
+                $seite = $this->newClient()->get('/kontakt?id=' . $kontaktId);
+                $this->assertSame(200, $seite->statusCode);
+                $this->assertStringContainsString($erwartet, $seite->body,
+                    'Der Hinweis muss die Zahl der angezeigten Pferde nennen (' . json_encode($verteilung) . ')');
+                $this->assertStringNotContainsString($falsch, $seite->body);
+            } finally {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                $loeschen = $db->prepare('DELETE FROM horses WHERE id = ?');
+                foreach ($pferde as $id) {
+                    $loeschen->execute([$id]);
+                }
+                $db->prepare('DELETE FROM contacts WHERE id = ?')->execute([$kontaktId]);
+            }
+        }
+    }
 }

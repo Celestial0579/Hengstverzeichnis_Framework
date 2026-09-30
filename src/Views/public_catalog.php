@@ -42,7 +42,19 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
     </div>
 
     <!-- Search & Filter Form (Asynchronous AJAX-Enabled) -->
-    <form id="catalog-filter-form" action="/katalog" method="GET" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+    <?php // target="_self" (Audit N88): layout_embed.php setzt <base target="_top">,
+          // und das gilt auch für Formulare ohne eigenes target. Filter und
+          // Zurücksetzen sollen in der Einbettung im Rahmen bleiben. Im
+          // Normal-Layout ist das Attribut wirkungslos. ?>
+    <form id="catalog-filter-form" action="/katalog" method="GET" target="_self" style="background: var(--surface-muted); padding: 1.2rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+
+        <?php if (!empty($embed)): ?>
+            <?php // Ohne JavaScript schickt das Formular nur seine Felder ab;
+                  // ohne dieses Feld fiele die Einbettung nach dem ersten
+                  // Filtern aus dem Minimal-Layout (Audit N88). catalog-filter.js
+                  // übernimmt es aus FormData in pushState/replaceState. ?>
+            <input type="hidden" name="embed" value="1">
+        <?php endif; ?>
 
         <!-- Main Quick Search Bar -->
         <div style="display: flex; gap: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap;">
@@ -51,7 +63,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
                 <input type="text" name="search" id="input-search" class="form-control" placeholder="🔍 <?= htmlspecialchars(App\I18n\Translator::t('catalog.search_placeholder')) ?>" value="<?= htmlspecialchars($filters['search'] ?? '') ?>" autocomplete="off">
             </div>
             <button type="submit" class="btn" style="padding: 0.75rem 1.5rem;"><?= htmlspecialchars(App\I18n\Translator::t('catalog.search_button')) ?></button>
-            <a href="/katalog" id="btn-reset-filters" class="btn btn-secondary" style="padding: 0.75rem 1.2rem; text-decoration: none; <?= $hasActiveFilters ? '' : 'display: none;' ?>"><?= htmlspecialchars(App\I18n\Translator::t('catalog.reset_filters')) ?></a>
+            <a href="/katalog<?= !empty($embed) ? '?embed=1' : '' ?>" target="_self" id="btn-reset-filters" class="btn btn-secondary" style="padding: 0.75rem 1.2rem; text-decoration: none; <?= $hasActiveFilters ? '' : 'display: none;' ?>"><?= htmlspecialchars(App\I18n\Translator::t('catalog.reset_filters')) ?></a>
         </div>
 
         <!-- Toggle for Advanced Attribute Filters -->
@@ -196,7 +208,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
               // Filterwert selbst wird hier bewusst nicht wiederholt. ?>
         <p id="catalog-contact-filter-note" role="status" style="margin: 0 0 1.5rem; padding: 0.8rem 1rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-muted);">
             <?= htmlspecialchars(App\I18n\Translator::t('catalog.contact_filter_unavailable')) ?>
-            <a href="/katalog<?= !empty($embed) ? '?embed=1' : '' ?>"><?= htmlspecialchars(App\I18n\Translator::t('catalog.reset_filters')) ?></a>
+            <a href="/katalog<?= !empty($embed) ? '?embed=1' : '' ?>" target="_self"><?= htmlspecialchars(App\I18n\Translator::t('catalog.reset_filters')) ?></a>
         </p>
     <?php endif; ?>
 

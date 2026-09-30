@@ -231,7 +231,14 @@ final class HorseSearchCriteria {
         }
 
         if ($qColor !== '') {
-            $this->activate(HorseSearchCondition::Color, '%' . $qColor . '%');
+            // Exakter Vergleich statt Teilstring (Audit N70): Katalog und
+            // Admin-Liste bieten die Farbe als Auswahlliste aus exakten
+            // DISTINCT-Werten an. Mit LIKE '%braun%' lieferte die Auswahl
+            // "Braun" auch "Dunkelbraun" und "Braunschimmel", und % bzw. _ im
+            // Wert wirkten als Jokerzeichen. Die Kollation utf8mb4_unicode_ci
+            // hält den Vergleich groß-/kleinschreibungsunabhängig. Der
+            // API-Parameter "color" (ApiController) bleibt bewusst Teilstring.
+            $this->activate(HorseSearchCondition::Color, $qColor);
         }
 
         if ($qSex !== '') {

@@ -20,12 +20,14 @@
  * @var array $contact
  * @var array<string, array<int, array<string, mixed>>> $horsesByRole
  * @var array<int, array<string, mixed>> $stationHorses
+ * @var int $horsesAngezeigt Zahl der angezeigten Zeilen in $horsesByRole (Audit N89)
  * @var array<int, string> $pluginDetailSections
  */
 $pluginDetailSections = $pluginDetailSections ?? [];
 $horsesByRole = $horsesByRole ?? [];
 $stationHorses = $stationHorses ?? [];
 $horsesGekuerzt = $horsesGekuerzt ?? false;
+$horsesAngezeigt = $horsesAngezeigt ?? 0;
 $stationHorsesGekuerzt = $stationHorsesGekuerzt ?? false;
 
 // Zuchtstatus seit dem Status-Split (#188) zweiwertig; der Lebensstatus
@@ -224,8 +226,10 @@ $hatAngaben = !empty($placeParts)
         <?php if (!empty($horsesGekuerzt)): ?>
             <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.8rem;">
                 <?php // Nie stillschweigend kürzen (#372): Eine Liste, die einen Teil
-                      // verschweigt, behauptet Vollständigkeit. ?>
-                <?= htmlspecialchars(App\I18n\Translator::t('contact.horses_truncated', ['count' => count($horsesByRole, COUNT_RECURSIVE) - count($horsesByRole)])) ?>
+                      // verschweigt, behauptet Vollständigkeit. Die Zahl
+                      // rechnet der Controller (Audit N89); COUNT_RECURSIVE
+                      // zählte hier die Spalten jeder Zeile mit. ?>
+                <?= htmlspecialchars(App\I18n\Translator::t('contact.horses_truncated', ['count' => (int)$horsesAngezeigt])) ?>
             </p>
         <?php endif; ?>
     <?php endif; ?>

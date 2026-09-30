@@ -47,6 +47,15 @@ $locale = \App\I18n\Translator::getLocale();
     <?php // Der Rahmeninhalt ist keine eigenstaendige Seite. Ohne noindex
           // konkurrierte er in Suchergebnissen mit der echten Katalogseite. ?>
     <meta name="robots" content="noindex, follow">
+    <?php // Links verlassen den Rahmen (Audit N88): Alle Seiten außer dem
+          // Katalog tragen X-Frame-Options SAMEORIGIN und frame-ancestors 'self'.
+          // Ein Link, der im Rahmen bliebe (etwa "Profil ansehen"), endete in
+          // einer fremden Domain auf der Fehlerseite des Browsers. Das gilt
+          // auch für per AJAX nachgeladene Karten und für Links, die Addons
+          // über catalog.card_sections beisteuern. Ohne href, damit die
+          // CSP-Regel base-uri 'self' nicht greift. Was im Rahmen bleiben soll
+          // (Filterformular, Zurücksetzen, Blättern), trägt target="_self". ?>
+    <base target="_top">
     <title><?= htmlspecialchars($title ?? $siteName) ?></title>
 
     <script>

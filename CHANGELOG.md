@@ -635,6 +635,29 @@ Breaking Changes sind jederzeit möglich).
   `Mailer::send()` lehnt einen leeren Empfänger mit dem Eintrag „E-Mail-
   Versand abgelehnt (kein Empfänger)“ ab.
 
+- **„Endgültig löschen“ traf auch bereits wiederhergestellte Datensätze**
+  (Audit N57). Aus einem veralteten Tab ließ sich ein inzwischen
+  wiederhergestelltes Pferd, ein aktiver Kontakt oder ein aktives
+  Benutzerkonto endgültig löschen, auch das eigene an der Selbstlöschsperre
+  vorbei. Gelöscht wird jetzt nur noch, was tatsächlich im Papierkorb liegt;
+  das wird in der Lösch-Transaktion unter Zeilensperre erneut geprüft, auch
+  beim Leeren des Papierkorbs. Sonst erscheint „Nicht gelöscht: Das Element
+  liegt nicht (mehr) im Papierkorb“. Nicht-Admins erhalten diese Meldung
+  auch für aktive Datensätze, statt des Hinweises auf die 30-Tage-Frist.
+- **Endgültiges Löschen eines Elterntiers löschte die Abstammungsangabe
+  aller Nachkommen** (Audit N58). Name und UELN werden jetzt als Freitext
+  in die Nachkommen übernommen (auch in Nachkommen im Papierkorb), sodass
+  sich die Verknüpfung über das Match-Werkzeug oder ein neu angelegtes
+  Pferd mit derselben UELN wiederherstellen lässt. Vorhandener Freitext
+  bleibt stehen; eine UELN über 15 Zeichen passt nicht in die
+  Freitext-Spalte und entfällt. Der Papierkorb nennt die Zahl der
+  Nachkommen vorher (Zeile und Bestätigungsdialog), das Audit-Log danach.
+
+  Hinweis für Addons: `horse.before_delete` mit `$permanent = true` kann
+  feuern, ohne dass gelöscht wird (inzwischen wiederhergestellt);
+  `horse.deleted` feuert nur für tatsächlich gelöschte Pferde, deren
+  Nachkommen dann bereits den Freitext tragen. Die Signaturen bleiben
+  unverändert.
 - **Eine DSGVO-Aktion auf einen nicht mehr vorhandenen Kontakt meldete
   Erfolg** und schloss die Anfrage ab (Audit M11). Jetzt erscheint eine
   Fehlermeldung, und die Anfrage bleibt offen. Scheitert eine DSGVO-Aktion,

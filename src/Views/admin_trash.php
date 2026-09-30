@@ -20,7 +20,7 @@
         </div>
 
         <?php if ($totalCount > 0): ?>
-            <form action="/admin/trash/empty" method="POST" data-confirm="Möchten Sie alle berechtigten Elemente im Papierkorb leeren?" >
+            <form action="/admin/trash/empty" method="POST" data-confirm="Möchten Sie alle berechtigten Elemente im Papierkorb leeren? Nachkommen gelöschter Pferde behalten Name und UELN als Freitext; die Verknüpfung entfällt." >
                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                 <button type="submit" class="btn" style="background-color: #c62a38;">
                     🧹 Papierkorb leeren <?= $isAdmin ? '(Alle)' : '(> 30 Tage)' ?>
@@ -92,7 +92,15 @@
                             <?php foreach ($deletedHorses as $h): ?>
                                 <?php $isOlder = (strtotime($h['deleted_at']) <= strtotime('-30 days')); ?>
                                 <tr style="border-bottom: 1px solid var(--border-color);">
-                                    <td style="padding: 0.6rem;"><strong><?= htmlspecialchars($h['name']) ?></strong></td>
+                                    <?php $nachkommen = (int)($h['nachkommen'] ?? 0); ?>
+                                    <td style="padding: 0.6rem;">
+                                        <strong><?= htmlspecialchars($h['name']) ?></strong>
+                                        <?php if ($nachkommen > 0): // Audit N58: Nebenwirkung vorher sichtbar ?>
+                                            <div class="trash-nachkommen" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                                <?= $nachkommen ?> <?= $nachkommen === 1 ? 'Nachkomme verweist' : 'Nachkommen verweisen' ?> auf dieses Pferd
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
                                     <td style="padding: 0.6rem;"><?= htmlspecialchars($h['ueln'] ?: '-') ?></td>
                                     <td style="padding: 0.6rem; font-size: 0.85rem; color: var(--text-muted);">
                                         <?= date('d.m.Y H:i', strtotime($h['deleted_at'])) ?> Uhr
@@ -110,7 +118,9 @@
                                             <button type="submit" class="btn" style="padding: 0.3rem 0.6rem; font-size: 0.85rem; background-color: #1e7d34;">♻️ Wiederherstellen</button>
                                         </form>
                                         <?php if ($isAdmin || $isOlder): ?>
-                                            <form action="/admin/trash/permanent-delete" method="POST" data-confirm="Möchten Sie dieses Pferd endgültig löschen?" >
+                                            <?php $bestaetigung = 'Möchten Sie dieses Pferd endgültig löschen?'
+                                                . ($nachkommen > 0 ? " {$nachkommen} Nachkommen behalten Name und UELN als Freitext; die Verknüpfung entfällt." : ''); ?>
+                                            <form action="/admin/trash/permanent-delete" method="POST" data-confirm="<?= htmlspecialchars($bestaetigung) ?>" >
                                                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                                 <input type="hidden" name="type" value="horse">
                                                 <input type="hidden" name="id" value="<?= $h['id'] ?>">

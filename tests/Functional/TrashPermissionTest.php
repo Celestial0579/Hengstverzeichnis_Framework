@@ -223,6 +223,80 @@ class TrashPermissionTest extends FunctionalTestCase {
         $db->exec("DELETE FROM contacts WHERE id = {$id}");
     }
 
+    /**
+     * Audit N57: "Endgültig löschen" traf auch Datensätze, die gar nicht (mehr)
+     * im Papierkorb lagen - ein veralteter Tab nach dem Wiederherstellen, oder
+     * ein gezielter POST auf ein aktives Pferd, einen aktiven Kontakt, ein
+     * aktives Konto (auch das eigene, an der Selbstlöschsperre vorbei).
+     */
+    public function testPermanentDeleteRefusesRecordsThatAreNotInTrash(): void {
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+        $db = $this->db();
+
+        $db->prepare("INSERT INTO horses (name) VALUES (?)")->execute(["Aktives Pferd {$unique}"]);
+        $pferd = (int)$db->lastInsertId();
+        $db->prepare("INSERT INTO contacts (name) VALUES (?)")->execute(["Aktiver Kontakt {$unique}"]);
+        $kontakt = (int)$db->lastInsertId();
+
+        $createForm = $admin->get('/admin/users/create');
+        $admin->post('/admin/users/store', [
+            'csrf_token' => $createForm->formField('csrf_token') ?? '',
+            'username' => "aktivkonto{$unique}",
+            'email' => "aktivkonto-{$unique}@example.com",
+            'password' => 'AktivKonto123!',
+        ]);
+        $fremd = self::kontoIdNachName("aktivkonto{$unique}");
+        $eigen = self::kontoIdNachName('e2eadmin');
+
+        $vorher = (int)$db->query('SELECT COALESCE(MAX(id), 0) FROM audit_logs')->fetchColumn();
+        foreach ([['horse', $pferd], ['contact', $kontakt], ['user', $fremd], ['user', $eigen]] as [$typ, $id]) {
+            $response = $admin->post('/admin/trash/permanent-delete', [
+                'csrf_token' => $this->csrfTokenFor($admin), 'type' => $typ, 'id' => (string)$id,
+            ]);
+            $this->assertSame('/admin/trash?error=not_in_trash', $response->location(), "{$typ} {$id}");
+        }
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM horses WHERE id = {$pferd}")->fetchColumn());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM contacts WHERE id = {$kontakt}")->fetchColumn());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM users WHERE id = {$fremd}")->fetchColumn());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM users WHERE id = {$eigen}")->fetchColumn());
+        $stmt = $db->prepare("SELECT COUNT(*) FROM audit_logs WHERE id > ? AND action = 'Element endgültig gelöscht'");
+        $stmt->execute([$vorher]);
+        $this->assertSame(0, (int)$stmt->fetchColumn(), 'Kein Audit-Eintrag für nicht Gelöschtes');
+
+        // Veralteter Tab: Pferd mit Fohlen und Zuordnung in den Papierkorb,
+        // wiederherstellen, dann der alte permanent-delete-POST.
+        $db->prepare("INSERT INTO horses (name, sire_id) VALUES (?, ?)")->execute(["Fohlen {$unique}", $pferd]);
+        $fohlen = (int)$db->lastInsertId();
+        $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'owner')")->execute([$pferd, $kontakt]);
+        $admin->post('/admin/horses/delete', ['csrf_token' => $this->currentCsrfToken($admin), 'id' => (string)$pferd]);
+        $admin->post('/admin/trash/restore', ['csrf_token' => $this->csrfTokenFor($admin), 'type' => 'horse', 'id' => (string)$pferd]);
+        $response = $admin->post('/admin/trash/permanent-delete', [
+            'csrf_token' => $this->csrfTokenFor($admin), 'type' => 'horse', 'id' => (string)$pferd,
+        ]);
+        $this->assertSame('/admin/trash?error=not_in_trash', $response->location());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM horses WHERE id = {$pferd} AND deleted_at IS NULL")->fetchColumn());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM horse_persons WHERE horse_id = {$pferd}")->fetchColumn());
+        $row = $db->query("SELECT sire_id, sire_name, sire_ueln FROM horses WHERE id = {$fohlen}")->fetch();
+        $this->assertSame($pferd, (int)$row['sire_id']);
+        $this->assertNull($row['sire_name'], 'Keine Freitext-Nebenwirkung');
+        $this->assertNull($row['sire_ueln']);
+
+        // Nicht-Admin mit horses.delete auf ein aktives Pferd: not_in_trash
+        // statt der Fristmeldung.
+        $groupId = $this->createCustomGroup($admin, "Trash-Aktiv {$unique}");
+        $this->setGroupPermissions($admin, $groupId, ['horses' => ['view', 'delete']]);
+        $editor = $this->createAndLoginEditor($admin, "trashaktiv{$unique}", "trashaktiv-{$unique}@example.com", [$groupId]);
+        $response = $editor->post('/admin/trash/permanent-delete', [
+            'csrf_token' => $this->csrfTokenFor($editor), 'type' => 'horse', 'id' => (string)$pferd,
+        ]);
+        $this->assertSame('/admin/trash?error=not_in_trash', $response->location());
+        $this->assertSame(1, (int)$db->query("SELECT COUNT(*) FROM horses WHERE id = {$pferd}")->fetchColumn());
+
+        $db->exec("DELETE FROM horses WHERE id IN ({$fohlen}, {$pferd})");
+        $db->exec("DELETE FROM contacts WHERE id = {$kontakt}");
+    }
+
     public function testWithoutDeletePermissionTrashActionsAreForbidden(): void {
         $admin = $this->authenticatedClient();
         $unique = uniqid();

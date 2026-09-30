@@ -107,8 +107,18 @@ class TrashController extends BaseController {
         // Ohne diese Prüfung könnte jeder eingeloggte Benutzer - unabhängig von
         // seinen Gruppenrechten - fremde Papierkorb-Inhalte einsehen und darüber
         // die Aktionen unten auslösen.
+        // `nachkommen` (Audit N58): Endgültiges Löschen schreibt Name und UELN
+        // als Freitext in die Nachkommen und löst die Verknüpfung - diese
+        // Nebenwirkung soll VOR dem Klick sichtbar sein. Die Unterabfragen
+        // nutzen die FK-Indizes auf sire_id/dam_id und laufen nur über den
+        // (kleinen) Papierkorb-Bestand.
         $deletedHorses = $this->hasPermission('horses', 'delete')
-            ? $db->query("SELECT * FROM horses WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC")->fetchAll() : [];
+            ? $db->query(
+                "SELECT h.*,"
+                . " (SELECT COUNT(*) FROM horses c WHERE c.sire_id = h.id)"
+                . " + (SELECT COUNT(*) FROM horses c WHERE c.dam_id = h.id) AS nachkommen"
+                . " FROM horses h WHERE h.deleted_at IS NOT NULL ORDER BY h.deleted_at DESC"
+            )->fetchAll() : [];
         // Kein `SELECT *`, obwohl der Papierkorb ein Admin-Pfad ist (#336): Die
         // Liste braucht fuenf Felder, und eine Positivliste kann nicht dadurch
         // undicht werden, dass jemand die View spaeter um eine Spalte
@@ -270,54 +280,90 @@ class TrashController extends BaseController {
             $selectStmt->execute([$id]);
             $deletedAt = $selectStmt->fetchColumn();
 
-            $isOlderThan30Days = $deletedAt && (strtotime($deletedAt) <= strtotime('-30 days'));
+            // Nur was im Papierkorb liegt, wird endgültig gelöscht (Audit N57) -
+            // für ALLE Benutzer, auch Admins. Der Fall ist ein veralteter Tab
+            // (vgl. #336): Das Element wurde inzwischen wiederhergestellt, der
+            // alte "Endgültig löschen"-Knopf traf dann den aktiven Datensatz.
+            // Ebenso ließ sich so ein aktives Konto - auch das eigene, an der
+            // Selbstlöschsperre des UserController vorbei - endgültig löschen.
+            if ($deletedAt === false || $deletedAt === null) {
+                header("Location: /admin/trash?error=not_in_trash");
+                exit;
+            }
 
-            // Rule: Permanent deletion allowed if user is Admin OR if item is older than 30 days
-            if (($isAdmin || $isOlderThan30Days) && $type === 'contact') {
+            $isOlderThan30Days = strtotime($deletedAt) <= strtotime('-30 days');
+
+            if (!$isAdmin && !$isOlderThan30Days) {
+                header("Location: /admin/trash?error=retention_period_30_days");
+                exit;
+            }
+
+            // Frist für Nicht-Admins, die unter Sperre erneut geprüft wird.
+            $mindestTage = $isAdmin ? null : 30;
+
+            if ($type === 'contact') {
                 // Kontakte über KontaktDsgvo (Audit M11, M23, N45): Namenskopien
                 // am Pferd, Dubletten-Entscheidungen und Altkopien (#336) fallen
                 // in derselben Transaktion mit. Der Papierkorb-Guard und - für
                 // Nicht-Admins - die Frist werden unter Sperre erneut geprüft.
-                $geloescht = $this->deleteContactsWithCleanup($db, [$id], $isAdmin ? null : 30);
+                $geloescht = $this->deleteContactsWithCleanup($db, [$id], $mindestTage);
                 if ($geloescht === 0) {
-                    // Inzwischen wiederhergestellt (oder nie im Papierkorb) bzw.
-                    // die Frist hat sich unter Sperre als nicht abgelaufen erwiesen.
-                    header("Location: /admin/trash?error=" . ($deletedAt ? 'retention_period_30_days' : 'not_in_trash'));
+                    // Inzwischen wiederhergestellt bzw. die Frist hat sich unter
+                    // Sperre als nicht abgelaufen erwiesen (erneut verschoben).
+                    header("Location: /admin/trash?error=not_in_trash");
                     exit;
                 }
                 \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", "Typ: {$type}, ID: {$id}");
                 header("Location: /admin/trash?success=purged");
                 exit;
             }
-            if ($isAdmin || $isOlderThan30Days) {
-                // Plugin-Hook (#164): VOR dem endgültigen Löschen - die letzte
-                // Gelegenheit für Plugins, den Datensatz noch zu lesen.
-                $horse = [];
-                if ($type === 'horse') {
-                    $rowStmt = $db->prepare("SELECT * FROM horses WHERE id = ?");
-                    $rowStmt->execute([$id]);
-                    $horse = $rowStmt->fetch() ?: [];
-                    $this->hooks()->doAction('horse.before_delete', $id, $horse, true);
-                }
 
-                $deleteStmt = match ($type) {
-                    'horse' => $db->prepare("DELETE FROM horses WHERE id = ?"),
-                    'user' => $db->prepare("DELETE FROM users WHERE id = ?"),
-                };
+            if ($type === 'user') {
+                // Ein einzelnes DELETE mit Guard ist atomar; rowCount 0 heißt,
+                // das Konto wurde zwischen Prüfung und Löschen wiederhergestellt.
+                $sql = "DELETE FROM users WHERE id = ? AND deleted_at IS NOT NULL";
+                if ($mindestTage !== null) {
+                    $sql .= " AND deleted_at <= DATE_SUB(NOW(), INTERVAL " . (int)$mindestTage . " DAY)";
+                }
+                $deleteStmt = $db->prepare($sql);
                 $deleteStmt->execute([$id]);
-
-                // Plugin-Hook (#164): NACH dem endgültigen Löschen (der FK-Cascade
-                // hat abhängige Zeilen bereits entfernt).
-                if ($type === 'horse') {
-                    $this->hooks()->doAction('horse.deleted', $id, $horse);
+                if ($deleteStmt->rowCount() === 0) {
+                    header("Location: /admin/trash?error=not_in_trash");
+                    exit;
                 }
-
                 \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", "Typ: {$type}, ID: {$id}");
-
                 header("Location: /admin/trash?success=purged");
-            } else {
-                header("Location: /admin/trash?error=retention_period_30_days");
+                exit;
             }
+
+            // type === 'horse'
+            // Plugin-Hook (#164): VOR dem endgültigen Löschen - die letzte
+            // Gelegenheit für Plugins, den Datensatz noch zu lesen. Er kann
+            // feuern, obwohl das Löschen danach unterbleibt (inzwischen
+            // wiederhergestellt, siehe docs/plugin-development.md).
+            $rowStmt = $db->prepare("SELECT * FROM horses WHERE id = ?");
+            $rowStmt->execute([$id]);
+            $horse = $rowStmt->fetch() ?: [];
+            $this->hooks()->doAction('horse.before_delete', $id, $horse, true);
+
+            $ergebnis = $this->pferdeImPapierkorbLoeschen($db, [$id], $mindestTage);
+            if ($ergebnis['geloescht'] === []) {
+                header("Location: /admin/trash?error=not_in_trash");
+                exit;
+            }
+
+            // Plugin-Hook (#164): NACH dem endgültigen Löschen (der FK-Cascade
+            // hat abhängige Zeilen bereits entfernt, Nachkommen tragen Name und
+            // UELN als Freitext).
+            $this->hooks()->doAction('horse.deleted', $id, $horse);
+
+            $details = "Typ: {$type}, ID: {$id}";
+            if ($ergebnis['nachkommen'] > 0) {
+                $details .= " – {$ergebnis['nachkommen']} Nachkommen: Abstammung als Freitext übernommen";
+            }
+            \App\Service\AuditLogger::log("Element endgültig gelöscht", "trash", $details);
+
+            header("Location: /admin/trash?success=purged");
             exit;
         }
 
@@ -335,23 +381,25 @@ class TrashController extends BaseController {
 
         if ($isAdmin) {
             // Admins can clear all trash immediately
-            $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL");
+            $pferde = $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL", null);
             $this->deleteContactsWithCleanup($db, $this->kontakteImPapierkorb($db, null), null);
             $db->exec("DELETE FROM users WHERE deleted_at IS NOT NULL");
 
-            \App\Service\AuditLogger::log("Papierkorb geleert (Admin)", "trash", "Alle gelöschten Elemente endgültig bereinigt");
+            \App\Service\AuditLogger::log("Papierkorb geleert (Admin)", "trash", "Alle gelöschten Elemente endgültig bereinigt" . self::nachkommenVermerk($pferde['nachkommen']));
         } else {
             // Nicht-Admins können pro Modul nur dann (und nur >30 Tage alte)
             // Elemente bereinigen, wenn sie die jeweilige Lösch-Berechtigung
             // besitzen - ein Benutzer ohne Rechte bereinigt so nichts.
+            $nachkommen = 0;
             if ($this->hasPermission('horses', 'delete')) {
-                $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)");
+                $pferde = $this->deleteHorsesWithHooks($db, "deleted_at IS NOT NULL AND deleted_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)", 30);
+                $nachkommen = $pferde['nachkommen'];
             }
             if ($this->hasPermission('contacts', 'delete')) {
                 $this->deleteContactsWithCleanup($db, $this->kontakteImPapierkorb($db, 30), 30);
             }
 
-            \App\Service\AuditLogger::log("Papierkorb bereinigt (>30 Tage)", "trash", "Ältere Elemente durch Editor bereinigt");
+            \App\Service\AuditLogger::log("Papierkorb bereinigt (>30 Tage)", "trash", "Ältere Elemente durch Editor bereinigt" . self::nachkommenVermerk($nachkommen));
         }
 
         header("Location: /admin/trash?success=emptied");
@@ -433,11 +481,13 @@ class TrashController extends BaseController {
      * tausend Queries in einem Request). $condition ist eine feste, hier im
      * Controller definierte Bedingung, kein Benutzereingang.
      *
-     * Gelöscht wird dabei exakt die selektierte ID-Menge - nicht erneut über
-     * die Bedingung. Das löst die Race-Condition zwischen SELECT und DELETE:
-     * Ein Pferd, das ZWISCHEN beiden frisch in den Papierkorb wandert, ist in
-     * der ID-Liste nicht enthalten und stirbt daher nicht ohne
-     * before_delete-Hook; es bleibt schlicht bis zum nächsten Leeren liegen.
+     * Gelöscht wird höchstens die selektierte ID-Menge - nicht erneut über
+     * die Bedingung. Das schützt vor Pferden, die ZWISCHEN Auswahl und DELETE
+     * frisch in den Papierkorb wandern (sie stürben sonst ohne
+     * before_delete-Hook). Vor dem umgekehrten Fall, einem zwischenzeitlich
+     * WIEDERHERGESTELLTEN Pferd, schützte die ID-Menge nicht (Audit N57):
+     * Das erledigt jetzt pferdeImPapierkorbLoeschen() mit einer Neuprüfung
+     * unter Zeilensperre.
      *
      * Jede Charge (max. DELETE_BATCH_SIZE IDs) läuft in einer eigenen
      * Transaktion: Das DELETE ist damit je Charge atomar (kein halb geleerter
@@ -446,12 +496,16 @@ class TrashController extends BaseController {
      * Riesen-Transaktion aufzuspannen. Die Hooks feuern bewusst AUSSERHALB der
      * Transaktion - Plugin-Handler (Audit-Log-INSERTs, eigene Queries) sollen
      * das Sperrfenster nicht verlängern und ein werfender Handler kein bereits
-     * committetes Löschen "zurückrollen" können.
+     * committetes Löschen "zurückrollen" können. horse.deleted feuert nur für
+     * tatsächlich gelöschte Pferde.
+     *
+     * @return array{geloescht: int[], nachkommen: int} siehe pferdeImPapierkorbLoeschen()
      */
-    private function deleteHorsesWithHooks(\PDO $db, string $condition): void {
+    private function deleteHorsesWithHooks(\PDO $db, string $condition, ?int $mindestTage): array {
+        $gesamt = ['geloescht' => [], 'nachkommen' => 0];
         $horses = $db->query("SELECT * FROM horses WHERE {$condition}")->fetchAll();
         if (!$horses) {
-            return;
+            return $gesamt;
         }
 
         foreach (array_chunk($horses, self::DELETE_BATCH_SIZE) as $batch) {
@@ -460,19 +514,141 @@ class TrashController extends BaseController {
             }
 
             $ids = array_map(static fn(array $horse): int => (int)$horse['id'], $batch);
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $db->beginTransaction();
-            try {
-                $db->prepare("DELETE FROM horses WHERE id IN ({$placeholders})")->execute($ids);
-                $db->commit();
-            } catch (\Throwable $e) {
-                $db->rollBack();
-                throw $e;
-            }
+            $ergebnis = $this->pferdeImPapierkorbLoeschen($db, $ids, $mindestTage);
+            $geloescht = array_flip($ergebnis['geloescht']);
 
             foreach ($batch as $horse) {
-                $this->hooks()->doAction('horse.deleted', (int)$horse['id'], $horse);
+                if (isset($geloescht[(int)$horse['id']])) {
+                    $this->hooks()->doAction('horse.deleted', (int)$horse['id'], $horse);
+                }
             }
+
+            $gesamt['geloescht'] = array_merge($gesamt['geloescht'], $ergebnis['geloescht']);
+            $gesamt['nachkommen'] += $ergebnis['nachkommen'];
         }
+        return $gesamt;
+    }
+
+    /**
+     * Die eine Lösch-Transaktion für Pferde aus dem Papierkorb (Audit N57,
+     * N58), gemeinsam für permanentDelete() und emptyTrash().
+     *
+     * 1. `SELECT … FOR UPDATE` prüft unter Zeilensperre erneut, welche der
+     *    Kandidaten noch im Papierkorb liegen (bei $mindestTage zusätzlich:
+     *    lange genug). Die Sperre lässt ein gleichzeitiges restore() bis zum
+     *    Commit warten; ein bereits committetes Wiederherstellen sieht der
+     *    sperrende Read. Ein veralteter Tab trifft so kein aktives Pferd mehr.
+     * 2. Erst dann schreibt abstammungAlsFreitextSichern() Name und UELN in
+     *    die Nachkommen - nie für Pferde, die stehen bleiben.
+     * 3. DELETE mit `AND deleted_at IS NOT NULL` als zweite Absicherung.
+     *
+     * Rückgabe - auch die Schnittstelle für Folgeschritte NACH dem Commit,
+     * etwa das Entfernen der Bilddateien (Audit N59): `geloescht` enthält
+     * GENAU die Kennungen, deren Zeilen dieses Statement endgültig entfernt
+     * hat; Kandidaten, die inzwischen wiederhergestellt wurden, fehlen darin.
+     * `nachkommen` ist die Zahl der umgeschriebenen Nachkommen-Verweise.
+     * Bei einer Ausnahme wird zurückgerollt und weitergeworfen - dann ist
+     * nichts gelöscht.
+     *
+     * @param int[] $ids Kandidaten
+     * @return array{geloescht: int[], nachkommen: int}
+     */
+    private function pferdeImPapierkorbLoeschen(\PDO $db, array $ids, ?int $mindestTage): array {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return ['geloescht' => [], 'nachkommen' => 0];
+        }
+
+        $frist = $mindestTage !== null
+            ? " AND deleted_at <= DATE_SUB(NOW(), INTERVAL " . (int)$mindestTage . " DAY)"
+            : '';
+
+        $db->beginTransaction();
+        try {
+            $platzhalter = implode(',', array_fill(0, count($ids), '?'));
+            $sperre = $db->prepare("SELECT id FROM horses WHERE id IN ({$platzhalter}) AND deleted_at IS NOT NULL{$frist} FOR UPDATE");
+            $sperre->execute($ids);
+            $wirklich = array_map('intval', $sperre->fetchAll(\PDO::FETCH_COLUMN));
+
+            if ($wirklich === []) {
+                $db->commit();
+                return ['geloescht' => [], 'nachkommen' => 0];
+            }
+
+            $nachkommen = $this->abstammungAlsFreitextSichern($db, $wirklich);
+
+            $platzhalter = implode(',', array_fill(0, count($wirklich), '?'));
+            $db->prepare("DELETE FROM horses WHERE id IN ({$platzhalter}) AND deleted_at IS NOT NULL")->execute($wirklich);
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+
+        sort($wirklich);
+        return ['geloescht' => $wirklich, 'nachkommen' => $nachkommen];
+    }
+
+    /**
+     * Übernimmt Name und UELN endgültig gelöschter Elterntiere als Freitext
+     * in deren Nachkommen (Audit N58).
+     *
+     * Beim Verknüpfen wird der Freitext (sire_name/sire_ueln bzw. dam_*)
+     * geleert. Das ON DELETE SET NULL des Fremdschlüssels hinterließe deshalb
+     * Nachkommen ganz ohne Abstammungsangabe. So bleibt der Platzhalter
+     * stehen, und das Match-Werkzeug bzw. ein neu angelegtes Pferd mit
+     * derselben UELN kann die Verknüpfung wiederherstellen.
+     *
+     * - Vorhandener Freitext bleibt erhalten (COALESCE/NULLIF).
+     * - Die UELN wird nur übernommen, wenn sie in VARCHAR(15) passt; sonst
+     *   bräche der Strict Mode das Löschen ab.
+     * - sire_id/dam_id = NULL explizit, auch für Altinstallationen ohne FK.
+     * - Nachkommen im Papierkorb werden mitversorgt - eine bewusste Ausnahme
+     *   vom Schreibschutz #322, damit sie nach dem Wiederherstellen ihre
+     *   Abstammung behalten.
+     *
+     * Multi-Table-UPDATE mit Self-Join: MariaDB/MySQL erlauben das (die
+     * Sperre ER_UPDATE_TABLE_USED gilt nur für Unterabfragen). Läuft in der
+     * Transaktion des Aufrufers.
+     *
+     * @param int[] $elternIds
+     * @return int Zahl der umgeschriebenen Nachkommen-Verweise
+     */
+    private function abstammungAlsFreitextSichern(\PDO $db, array $elternIds): int {
+        if ($elternIds === []) {
+            return 0;
+        }
+        $platzhalter = implode(',', array_fill(0, count($elternIds), '?'));
+
+        $vater = $db->prepare(
+            "UPDATE horses c JOIN horses p ON c.sire_id = p.id"
+            . " SET c.sire_name = COALESCE(NULLIF(c.sire_name, ''), p.name),"
+            . " c.sire_ueln = COALESCE(NULLIF(c.sire_ueln, ''), IF(CHAR_LENGTH(p.ueln) <= 15, p.ueln, NULL)),"
+            . " c.sire_id = NULL"
+            . " WHERE p.id IN ({$platzhalter})"
+        );
+        $vater->execute($elternIds);
+
+        $mutter = $db->prepare(
+            "UPDATE horses c JOIN horses p ON c.dam_id = p.id"
+            . " SET c.dam_name = COALESCE(NULLIF(c.dam_name, ''), p.name),"
+            . " c.dam_ueln = COALESCE(NULLIF(c.dam_ueln, ''), IF(CHAR_LENGTH(p.ueln) <= 15, p.ueln, NULL)),"
+            . " c.dam_id = NULL"
+            . " WHERE p.id IN ({$platzhalter})"
+        );
+        $mutter->execute($elternIds);
+
+        return $vater->rowCount() + $mutter->rowCount();
+    }
+
+    /**
+     * Audit-Zusatz für emptyTrash() (Audit N58).
+     */
+    private static function nachkommenVermerk(int $nachkommen): string {
+        return $nachkommen > 0
+            ? " – {$nachkommen} Nachkommen: Abstammung als Freitext übernommen"
+            : '';
     }
 }

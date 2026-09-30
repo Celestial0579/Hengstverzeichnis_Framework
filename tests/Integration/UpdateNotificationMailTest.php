@@ -126,6 +126,8 @@ class UpdateNotificationMailTest extends TestCase {
         // Und die andere Hälfte: Erst der geglückte Versand macht den Fund
         // zu einem gemeldeten.
         $this->assertSame('9.9.9', $this->getSetting('update_last_notified_version'));
+
+        $this->assertMailProtokollOhnePii('E-Mail versendet (SMTP)');
     }
 
     /**
@@ -227,6 +229,22 @@ class UpdateNotificationMailTest extends TestCase {
         $this->assertNotSame('', $raw, 'mail() hat nichts an sendmail übergeben.');
         $this->assertStringContainsString(self::RECIPIENT, $raw, 'Empfänger fehlt in der Nachricht.');
         $this->assertStringContainsString('9.9.9', $raw, 'Die neue Version gehört in die Mail.');
+
+        $this->assertMailProtokollOhnePii('E-Mail versendet (mail())');
+    }
+
+    /**
+     * Audit N17: Der Protokolleintrag nennt Typ und Konto, aber weder die
+     * Adresse noch den Betreff.
+     */
+    private function assertMailProtokollOhnePii(string $aktion): void {
+        $stmt = self::$db->prepare("SELECT details FROM audit_logs WHERE action = ? AND category = 'email'");
+        $stmt->execute([$aktion]);
+        $details = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertCount(1, $details, "Genau ein Eintrag '{$aktion}' erwartet.");
+        $this->assertStringStartsWith('Typ: update_verfuegbar, Empfänger: Benutzer #', (string)$details[0]);
+        $this->assertStringNotContainsString('@', (string)$details[0], 'Keine Adresse im Protokoll.');
+        $this->assertStringNotContainsString('Update verfügbar', (string)$details[0], 'Kein Betreff im Protokoll.');
     }
 
     // ---- Helfer --------------------------------------------------------

@@ -501,9 +501,9 @@ Breaking Changes sind jederzeit möglich).
     `mitgliedsstatus`, Audit N78).
   - Im Mail-Protokoll (Kategorie `email`) werden Anmeldecodes
     (`Anmeldecode ******`) und E-Mail-Adressen (`[Adresse]`) in allen
-    Einträgen maskiert. Neue Mail-Einträge schreiben Adresse und Betreff
-    weiterhin, bis der Mailer selbst umgestellt ist (Audit N17, eigenes
-    Paket).
+    Einträgen maskiert. Neue Mail-Einträge enthalten Adresse und Betreff
+    ohnehin nicht mehr (Audit N17, siehe „Keine Einmalcodes und
+    Empfängeradressen mehr im Audit-Log“).
   - Historische Protokolleinträge existierender, nicht DSGVO-bearbeiteter
     Kontakte bleiben unverändert.
   - **Bereits erstellte Sicherungen (lokal, S3, WebDAV, FTPS) und extern
@@ -513,6 +513,28 @@ Breaking Changes sind jederzeit möglich).
   Das Update läuft in einer Transaktion; auf großen `audit_logs`-Tabellen
   bedeutet die Maskierung einen Durchlauf über die Kategorie `email`. Das
   Migrationsprotokoll nennt die Zahlen.
+
+- **Keine Einmalcodes und Empfängeradressen mehr im Audit-Log** (Audit
+  N17). Der Mailversand protokolliert nur noch den Mail-Typ und eine
+  Empfängerreferenz: `Typ: anmeldecode, Empfänger: Benutzer #12` bzw. für
+  Adressen ohne Konto (Station, DSGVO-Antragsteller, Kontakt) eine
+  pseudonyme Kurzreferenz `extern:<12 Hexzeichen>` (HMAC über die Adresse,
+  Schlüssel aus `APP_KEY` abgeleitet). Betreff und Adresse fallen weg, und
+  Adressen in Serverantworten („550 5.1.1 <max@verein.de> …“) werden durch
+  „[Adresse]“ ersetzt. Bisher standen dort unter anderem die Anmeldecodes
+  des E-Mail-Faktors im Klartext, und E-Mail-Adressen überdauerten jede
+  DSGVO-Löschung. Auch der Eintrag „Kontohinweis nicht zugestellt“
+  (Kategorie `security`) nennt die alte Adresse nur noch als Referenz. Alte
+  Einträge maskiert der Datenschritt `dsgvo_nachfuehrung` (siehe oben);
+  eine eigene Schemaänderung gibt es nicht.
+
+- **Änderungen an den Mail-/SMTP-Einstellungen werden protokolliert**
+  (Audit N6). Das Audit-Log („Mail-Einstellungen aktualisiert“, Kategorie
+  `settings`) vermerkt die geänderten Werte als Alt → Neu (Treiber, Host,
+  Port, Verschlüsselung, Benutzer, Absender, Benachrichtigungsempfänger)
+  und ob das Passwort geändert wurde. Das Passwort selbst wird weder im
+  Klartext noch verschlüsselt protokolliert. Eine Umleitung über ein
+  fremdes Mail-Relay wird damit nachvollziehbar.
 
 ### Entfernt
 
@@ -585,6 +607,33 @@ Breaking Changes sind jederzeit möglich).
   gelöscht: …“ standen nur im Audit-Log. Nach der Deinstallation erscheint
   das Protokoll jetzt einmalig unter `/admin/plugins`, Warnungen sind
   hervorgehoben.
+- **Anmeldecode-Einträge im Audit-Log standen unter „SYSTEM“** (Audit N64).
+  Wird dem Audit-Log nur eine Benutzer-ID übergeben, lädt es den
+  Benutzernamen jetzt nach (aus der Sitzung, wenn sie diesem Benutzer
+  gehört, sonst aus der Datenbank; unbekannte ID: „Unbekannt“). Bisher
+  erschien der Versand eines Mailcodes als Aktion des Systems und fehlte
+  beim Filtern nach dem Benutzer. Ältere Einträge bleiben unverändert.
+
+- **DSGVO-Benachrichtigung ging bei leerem Empfängerfeld verloren** (Audit
+  N71). Ein geleertes Feld „Empfänger E-Mail für DSGVO-Benachrichtigungen“
+  fällt jetzt wie vorgesehen auf die Absenderadresse bzw. den SMTP-Benutzer
+  zurück (nur gültige Adressen). Fehlt eine gültige Adresse, steht
+  „DSGVO-Benachrichtigung nicht versendet“ im Audit-Log, statt die Mail
+  still an eine leere Adresse oder an `admin@example.com` zu schicken. Ein
+  fehlgeschlagener Versand wird als „DSGVO-Benachrichtigung fehlgeschlagen“
+  mit der Nummer der Anfrage protokolliert (ohne Name und Adresse). Der
+  Antragsteller sieht weiterhin die normale Bestätigung, denn die Anfrage
+  ist gespeichert. **Betreiber:** Nach dem Update im Audit-Log nach
+  „DSGVO-Benachrichtigung“ suchen und ggf. unter Admin > Mail-Einstellungen
+  einen Empfänger eintragen; offene Anfragen stehen unter `/admin/gdpr`.
+
+- **SMTP-Abbrüche wurden nicht protokolliert** (Audit N71). Bricht der
+  Versand vor der Übergabe der Nachricht ab (Verbindung, Begrüßung, EHLO,
+  STARTTLS, TLS-Handshake, Anmeldung, Absender, Empfänger, DATA), steht
+  jetzt „SMTP Fehler: Abbruch bei <Schritt>“ mit Host und Serverantwort im
+  Audit-Log, ohne Empfängeradresse und ohne die gesendeten Anmeldedaten.
+  `Mailer::send()` lehnt einen leeren Empfänger mit dem Eintrag „E-Mail-
+  Versand abgelehnt (kein Empfänger)“ ab.
 
 - **Eine DSGVO-Aktion auf einen nicht mehr vorhandenen Kontakt meldete
   Erfolg** und schloss die Anfrage ab (Audit M11). Jetzt erscheint eine
@@ -1052,6 +1101,25 @@ Breaking Changes sind jederzeit möglich).
   siehe `docs/plugin-development.md`, Abschnitt zu `install()`; neu dort ist
   auch der Abschnitt, wann `uninstall()` läuft, und die dokumentierte API
   `PluginManager::uninstallHookPruefung()`.
+- **Neues Format der Mail-Einträge im Audit-Log** (Audit N17). Einträge der
+  Kategorie `email` lauten jetzt `Typ: <typ>, Empfänger: <referenz>` mit
+  optionalen Zusätzen (`Host`, `Antwort`). Typen der Kern-Mails:
+  `willkommen`, `dsgvo_benachrichtigung`, `passwort_reset`,
+  `email_verifizierung`, `update_verfuegbar`, `auto_update`,
+  `auto_update_blockiert`, `adressaenderung_bestaetigung`,
+  `adressaenderung_hinweis`, `konto_hinweis`, `anmeldecode`,
+  `admin_digest`; direkte `Mailer::send()`-Aufrufe (Addons, Testmail)
+  erscheinen als `allgemein`. Suchen nach Empfängeradressen finden keine
+  neuen Einträge mehr. Wer eine Adresse und `APP_KEY` kennt, kann ihre
+  Referenz mit `Mailer::externeEmpfaengerReferenz()` gezielt nachrechnen;
+  **ändert sich `APP_KEY`, ändern sich auch die Referenzen.** Neu und rein
+  additiv sind die statischen Funktionen
+  `Mailer::externeEmpfaengerReferenz(string $email, ?string $appKey = null)`,
+  `Mailer::resolveAdminRecipient(array $config)` und
+  `AuditLogger::adressenMaskieren(string $text)`. Die Signaturen von
+  `Mailer::send()` und `AuditLogger::log()` bleiben gleich. Addon-Tests,
+  die im Mail-Protokoll nach Adressen suchen, müssen auf die Referenz
+  umgestellt werden (betrifft `DeckanfragePluginTest` im Addons-Repo).
 
 - **Neue Hooks `contact.anonymized` und `contact.erased` für Addons**
   (Audit N45). `contact.anonymized(int $contactId, array $vorher)` feuert

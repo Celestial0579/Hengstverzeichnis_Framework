@@ -135,9 +135,135 @@ class Mailer {
     }
 
     /**
+     * Empfänger der Admin-Benachrichtigung (DSGVO-Anfragen), oder null, wenn
+     * keine gültige Adresse konfiguriert ist (Audit N71). Reine Funktion wie
+     * isDeliverable().
+     *
+     * ?:-Kaskade statt ??, aus demselben Grund wie beim Absender (#132) und
+     * beim Verbandsnamen (#452): updateMailSettings() speichert ein geleertes
+     * Feld als Leerstring, der Schlüssel existiert also - mit ?? griff der
+     * Rückfall nie, und die Benachrichtigung ging an eine leere Adresse. Der
+     * frühere letzte Rückfall auf eine Beispieladresse entfällt: Eine Mail dorthin
+     * erreicht niemanden, sie sieht nur nach Versand aus.
+     *
+     * @param array<string, mixed> $config Settings-Array wie in $this->config
+     */
+    public static function resolveAdminRecipient(array $config): ?string {
+        foreach (['admin_notification_email', 'mail_from_email', 'smtp_user'] as $schluessel) {
+            $kandidat = trim((string)($config[$schluessel] ?? ''));
+            if ($kandidat !== '' && filter_var($kandidat, FILTER_VALIDATE_EMAIL) !== false) {
+                return $kandidat;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Pseudonyme Referenz auf eine Empfängeradresse, die zu keinem Konto
+     * gehört (Station, DSGVO-Antragsteller, Kontakt) - für das Mail-Protokoll
+     * (Audit N17, Entscheidung D32): 'extern:' plus die ersten 12 Hexzeichen
+     * eines HMAC-SHA256 über die normalisierte Adresse. Ohne APP_KEY ist sie
+     * nicht nachzurechnen; wer die Adresse UND den Schlüssel kennt, kann
+     * gezielt prüfen, ob an sie versendet wurde. Ändert sich APP_KEY, ändern
+     * sich auch die Referenzen.
+     *
+     * APP_KEY kommt aus der Konstante, ersatzweise aus der Umgebung: Ein
+     * PHPUnit-Prozess, der den Schlüssel nur per putenv kennt (Addons-Tests),
+     * rechnet so dieselbe Referenz wie der Server. Ohne Schlüssel: 'extern'.
+     * $appKey übersteuert beides - für Tests, deren Prozess einen anderen
+     * Schlüssel kennt als der Server, gegen den sie prüfen.
+     */
+    public static function externeEmpfaengerReferenz(string $email, ?string $appKey = null): string {
+        $appKey ??= defined('APP_KEY') && (string)APP_KEY !== '' ? (string)APP_KEY : (string)getenv('APP_KEY');
+        if ($appKey === '') {
+            return 'extern';
+        }
+        $schluessel = hash('sha256', 'mail-log|' . $appKey);
+        return 'extern:' . substr(hash_hmac('sha256', mb_strtolower(trim($email)), $schluessel), 0, 12);
+    }
+
+    /**
+     * Mail-Typ des laufenden Versands für das Protokoll - gesetzt von
+     * sendTyped(), sonst 'allgemein' (direkte send()-Aufrufe: Addons,
+     * Testmail).
+     */
+    private ?string $protokollTyp = null;
+
+    /**
+     * Versand mit festem Mail-Typ fürs Protokoll. Bewusst ÜBER send() und
+     * nicht daran vorbei: Test-Doubles und Unterklassen, die send()
+     * überschreiben, greifen so weiter.
+     */
+    private function sendTyped(string $typ, string $to, string $subject, string $html, string $text = ''): bool {
+        $vorher = $this->protokollTyp;
+        $this->protokollTyp = $typ;
+        try {
+            return $this->send($to, $subject, $html, $text);
+        } finally {
+            $this->protokollTyp = $vorher;
+        }
+    }
+
+    /**
+     * Empfänger fürs Protokoll: 'Benutzer #ID', wenn die Adresse zu einem
+     * Konto gehört, sonst die pseudonyme externe Referenz. Nie die Adresse
+     * selbst (Audit N17): Sie überdauerte im Protokoll jede DSGVO-Löschung.
+     */
+    private function empfaengerProtokoll(string $email): string {
+        $email = trim($email);
+        try {
+            $stmt = Database::getInstance()->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $stmt->execute([$email]);
+            $id = (int)$stmt->fetchColumn();
+            if ($id > 0) {
+                return 'Benutzer #' . $id;
+            }
+        } catch (\Throwable $e) {
+            // Ohne Datenbank bleibt die pseudonyme Referenz.
+        }
+        return self::externeEmpfaengerReferenz($email);
+    }
+
+    /** Details eines Mail-Protokolleintrags für den laufenden Versand. */
+    private function protokollDetails(string $email, array $extra = []): string {
+        return self::protokollZeile($this->protokollTyp ?? 'allgemein', $this->empfaengerProtokoll($email), $extra);
+    }
+
+    /**
+     * Baut die Details eines Mail-Protokolleintrags: 'Typ: …, Empfänger: …'
+     * und die Zusätze (Host, Antwort, …). Nie Adresse oder Betreff (Audit
+     * N17): Im Betreff stehen Einmalcodes (sendSecondFactorCode()) und bei
+     * Addons Namen und Pferde. Zusätze laufen durch die Adressmaskierung und
+     * werden gekürzt - Serverantworten zitieren die Empfängeradresse.
+     *
+     * @param array<int|string, string> $extra Schlüssel => Wert; ohne Schlüssel (int) nur der Wert
+     */
+    private static function protokollZeile(string $typ, string $empfaenger, array $extra = []): string {
+        $teile = ['Typ: ' . $typ, 'Empfänger: ' . $empfaenger];
+        foreach ($extra as $schluessel => $wert) {
+            $wert = trim((string)preg_replace('/\s+/', ' ', AuditLogger::adressenMaskieren((string)$wert)));
+            if (mb_strlen($wert) > 200) {
+                $wert = mb_substr($wert, 0, 200) . '…';
+            }
+            $teile[] = is_int($schluessel) ? $wert : $schluessel . ': ' . $wert;
+        }
+        return implode(', ', $teile);
+    }
+
+    /**
      * Send an email using SMTP (SSL/TLS enforced) or PHP mail()
      */
     public function send(string $toEmail, string $subject, string $htmlBody, string $textBody = ''): bool {
+        // Ohne Empfänger gibt es nichts zu versenden - früher lief das bis
+        // RCPT TO:<> durch und scheiterte ohne Protokoll (Audit N71). Schützt
+        // alle Aufrufer einschließlich der Addons. Eine volle Adressprüfung
+        // gehört zu den Aufrufern, die die Adresse kennen.
+        if (trim($toEmail) === '') {
+            error_log('E-Mail-Versand abgelehnt: kein Empfänger.');
+            AuditLogger::log('E-Mail-Versand abgelehnt (kein Empfänger)', 'email', 'Typ: ' . ($this->protokollTyp ?? 'allgemein'), null, 'SYSTEM');
+            return false;
+        }
+
         $driver = $this->config['mail_driver'] ?? 'smtp';
         // ?: statt ??, weil updateMailSettings() die Schlüssel auch mit Leerstring
         // schreibt - ein leeres "Absender E-Mail"-Feld muss trotzdem auf smtp_user
@@ -151,7 +277,9 @@ class Mailer {
         // geprüft, ein hier durchrutschendes CR/LF könnte aber zusätzliche
         // Befehle/Header einschleusen - daher zusätzlich hart ablehnen.
         if (preg_match('/[\r\n]/', $toEmail) || preg_match('/[\r\n]/', $fromEmail)) {
-            AuditLogger::log("E-Mail-Versand abgelehnt (ungültige Adresse)", "email", "CR/LF in Empfänger- oder Absenderadresse", null, "SYSTEM");
+            // Bewusst ohne die Adresse (Audit N17) - sie ist hier kaputt und
+            // womöglich präpariert.
+            AuditLogger::log("E-Mail-Versand abgelehnt (ungültige Adresse)", "email", 'Typ: ' . ($this->protokollTyp ?? 'allgemein') . ", CR/LF in Empfänger- oder Absenderadresse", null, "SYSTEM");
             return false;
         }
 
@@ -180,13 +308,13 @@ class Mailer {
         if (!in_array($encryption, ['ssl', 'tls'], true)) {
             $msg = "Unverschlüsselter SMTP-Versand verboten. Modus muss 'ssl' oder 'tls' sein.";
             error_log("Security Policy Violation: " . $msg);
-            AuditLogger::log("SMTP Fehler: Unverschlüsselt verboten", "email", "Empfänger: {$toEmail}, Betreff: {$subject}, Host: {$host}:{$port}", null, "SYSTEM");
+            AuditLogger::log("SMTP Fehler: Unverschlüsselt verboten", "email", $this->protokollDetails($toEmail, ['Host' => "{$host}:{$port}"]), null, "SYSTEM");
             return false;
         }
 
         if (empty($host) || empty($user)) {
             error_log("SMTP Configuration Incomplete: Missing host or user.");
-            AuditLogger::log("SMTP Fehler: Unvollständige Konfiguration", "email", "Empfänger: {$toEmail}, Host oder Benutzer fehlt", null, "SYSTEM");
+            AuditLogger::log("SMTP Fehler: Unvollständige Konfiguration", "email", $this->protokollDetails($toEmail, ['Host oder Benutzer fehlt']), null, "SYSTEM");
             return false;
         }
 
@@ -211,8 +339,7 @@ class Mailer {
         }
 
         if (!$socket) {
-            error_log("SMTP Connection Error ({$errno}): {$errstr}");
-            return false;
+            return $this->smtpAbbruch(null, 'Verbindung', "{$errno}: {$errstr}", $toEmail, $host, $port);
         }
 
         stream_set_timeout($socket, $timeout);
@@ -237,29 +364,26 @@ class Mailer {
 
         $greeting = $readResponse();
         if (substr($greeting, 0, 3) !== '220') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'Begrüßung', $greeting, $toEmail, $host, $port);
         }
 
         // EHLO
         $ehlo = $sendCommand("EHLO " . gethostname());
         if (substr($ehlo, 0, 3) !== '250') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'EHLO', $ehlo, $toEmail, $host, $port);
         }
 
         // Handle STARTTLS for TLS encryption
         if ($encryption === 'tls') {
             $startTls = $sendCommand("STARTTLS");
             if (substr($startTls, 0, 3) !== '220') {
-                fclose($socket);
-                return false;
+                return $this->smtpAbbruch($socket, 'STARTTLS', $startTls, $toEmail, $host, $port);
             }
 
-            $cryptoResult = stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT | STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT);
+            error_clear_last();
+            $cryptoResult = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT | STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT);
             if (!$cryptoResult) {
-                fclose($socket);
-                return false;
+                return $this->smtpAbbruch($socket, 'TLS-Handshake', (string)(error_get_last()['message'] ?? 'TLS-Aushandlung fehlgeschlagen'), $toEmail, $host, $port);
             }
 
             // Re-EHLO after TLS handshake
@@ -269,41 +393,35 @@ class Mailer {
         // AUTH LOGIN
         $authRes = $sendCommand("AUTH LOGIN");
         if (substr($authRes, 0, 3) !== '334') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'AUTH LOGIN', $authRes, $toEmail, $host, $port);
         }
 
         $userRes = $sendCommand(base64_encode($user));
         if (substr($userRes, 0, 3) !== '334') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'Benutzer', $userRes, $toEmail, $host, $port);
         }
 
         $passRes = $sendCommand(base64_encode($pass));
         if (substr($passRes, 0, 3) !== '235') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'Passwort', $passRes, $toEmail, $host, $port);
         }
 
         // MAIL FROM
         $mailFromRes = $sendCommand("MAIL FROM:<{$fromEmail}>");
         if (substr($mailFromRes, 0, 3) !== '250') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'MAIL FROM', $mailFromRes, $toEmail, $host, $port);
         }
 
         // RCPT TO
         $rcptToRes = $sendCommand("RCPT TO:<{$toEmail}>");
         if (substr($rcptToRes, 0, 3) !== '250') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'RCPT TO', $rcptToRes, $toEmail, $host, $port);
         }
 
         // DATA
         $dataRes = $sendCommand("DATA");
         if (substr($dataRes, 0, 3) !== '354') {
-            fclose($socket);
-            return false;
+            return $this->smtpAbbruch($socket, 'DATA', $dataRes, $toEmail, $host, $port);
         }
 
         // Construct MIME Message
@@ -337,12 +455,44 @@ class Mailer {
 
         $success = (substr($sendRes, 0, 3) === '250');
         if ($success) {
-            AuditLogger::log("E-Mail versendet (SMTP)", "email", "Empfänger: {$toEmail}, Betreff: {$subject}", null, "SYSTEM");
+            AuditLogger::log("E-Mail versendet (SMTP)", "email", $this->protokollDetails($toEmail), null, "SYSTEM");
         } else {
-            AuditLogger::log("SMTP Fehler: E-Mail abgelehnt", "email", "Empfänger: {$toEmail}, Antwort: " . trim($sendRes), null, "SYSTEM");
+            AuditLogger::log("SMTP Fehler: E-Mail abgelehnt", "email", $this->protokollDetails($toEmail, ['Antwort' => $sendRes]), null, "SYSTEM");
         }
 
         return $success;
+    }
+
+    /**
+     * Abbruch des SMTP-Dialogs vor der Übergabe der Nachricht (Audit N71):
+     * Socket schließen, Schritt und Serverantwort protokollieren. Früher
+     * endete jeder dieser Pfade still mit false - ein falsches Passwort oder
+     * ein abgelehnter Absender war im Protokoll nicht zu sehen.
+     *
+     * Protokolliert wird nur die Antwort des SERVERS, nie das gesendete
+     * Kommando (bei AUTH LOGIN wären das Benutzer und Passwort in Base64),
+     * und die Antwort ohne Adressen: Server zitieren bei RCPT-TO-Ablehnungen
+     * die Empfängeradresse. Auch das error_log bekommt keine Adresse.
+     *
+     * @param resource|null $socket
+     */
+    private function smtpAbbruch($socket, string $schritt, string $antwort, string $toEmail, string $host, int $port): bool {
+        if (is_resource($socket)) {
+            @fclose($socket);
+        }
+        $antwort = trim((string)preg_replace('/\s+/', ' ', AuditLogger::adressenMaskieren($antwort)));
+        if ($antwort === '') {
+            $antwort = '(keine Antwort)';
+        }
+        error_log("SMTP-Abbruch bei {$schritt} ({$host}:{$port}): " . mb_substr($antwort, 0, 200));
+        AuditLogger::log(
+            'SMTP Fehler: Abbruch bei ' . $schritt,
+            'email',
+            $this->protokollDetails($toEmail, ['Host' => "{$host}:{$port}", 'Antwort' => $antwort]),
+            null,
+            'SYSTEM'
+        );
+        return false;
     }
 
     private function sendViaPhpMail(string $toEmail, string $subject, string $htmlBody, string $fromEmail, string $fromName): bool {
@@ -356,9 +506,9 @@ class Mailer {
 
         $success = @mail($toEmail, "=?UTF-8?B?" . base64_encode($subject) . "?=", $htmlBody, implode("\r\n", $headers));
         if ($success) {
-            AuditLogger::log("E-Mail versendet (mail())", "email", "Empfänger: {$toEmail}, Betreff: {$subject}", null, "SYSTEM");
+            AuditLogger::log("E-Mail versendet (mail())", "email", $this->protokollDetails($toEmail), null, "SYSTEM");
         } else {
-            AuditLogger::log("E-Mail Fehler (mail() fehlgeschlagen)", "email", "Empfänger: {$toEmail}, Betreff: {$subject}", null, "SYSTEM");
+            AuditLogger::log("E-Mail Fehler (mail() fehlgeschlagen)", "email", $this->protokollDetails($toEmail), null, "SYSTEM");
         }
 
         return $success;
@@ -385,11 +535,22 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($userEmail, $subject, $html);
+        return $this->sendTyped('willkommen', $userEmail, $subject, $html);
     }
 
     public function sendDsgvoNotification(string $requesterEmail, string $requestType, string $messageDetails = '', ?string $requesterName = null): bool {
-        $adminEmail = $this->config['admin_notification_email'] ?? ($this->config['mail_from_email'] ?? 'admin@example.com');
+        $adminEmail = self::resolveAdminRecipient($this->config);
+        if ($adminEmail === null) {
+            error_log('DSGVO-Benachrichtigung nicht versendet: kein gültiger Empfänger konfiguriert.');
+            AuditLogger::log(
+                'DSGVO-Benachrichtigung nicht versendet',
+                'email',
+                'Kein gültiger Empfänger konfiguriert (admin_notification_email/mail_from_email/smtp_user)',
+                null,
+                'SYSTEM'
+            );
+            return false;
+        }
         $siteName = $this->siteName();
 
         $subject = "⚠️ Neue DSGVO-Anfrage ({$requestType}) - {$siteName}";
@@ -419,7 +580,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($adminEmail, $subject, $html);
+        return $this->sendTyped('dsgvo_benachrichtigung', $adminEmail, $subject, $html);
     }
 
     public function sendPasswordResetEmail(string $userEmail, string $resetToken): bool {
@@ -442,7 +603,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($userEmail, $subject, $html);
+        return $this->sendTyped('passwort_reset', $userEmail, $subject, $html);
     }
 
     /**
@@ -474,7 +635,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($userEmail, $subject, $html);
+        return $this->sendTyped('email_verifizierung', $userEmail, $subject, $html);
     }
 
     /**
@@ -558,7 +719,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($recipientEmail, $subject, $html);
+        return $this->sendTyped('update_verfuegbar', $recipientEmail, $subject, $html);
     }
 
     /**
@@ -616,7 +777,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($recipientEmail, $subject, $html);
+        return $this->sendTyped('auto_update', $recipientEmail, $subject, $html);
     }
 
     /**
@@ -714,7 +875,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($recipientEmail, $subject, $html);
+        return $this->sendTyped('auto_update_blockiert', $recipientEmail, $subject, $html);
     }
 
     /**
@@ -753,7 +914,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($newEmail, "E-Mail-Adresse bestätigen - {$siteName}", $html);
+        return $this->sendTyped('adressaenderung_bestaetigung', $newEmail, "E-Mail-Adresse bestätigen - {$siteName}", $html);
     }
 
     /**
@@ -780,7 +941,7 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($currentEmail, "Änderung Ihrer E-Mail-Adresse - {$siteName}", $html);
+        return $this->sendTyped('adressaenderung_hinweis', $currentEmail, "Änderung Ihrer E-Mail-Adresse - {$siteName}", $html);
     }
 
     /**
@@ -811,7 +972,7 @@ class Mailer {
                   . "Waren Sie das nicht? Dann hat jemand Zugriff auf Ihr Konto. "
                   . "Ändern Sie sofort Ihr Passwort und melden Sie sich beim Verwaltungsteam.";
 
-        return $this->send($email, "{$titel} - {$siteName}", $html, $klartext);
+        return $this->sendTyped('konto_hinweis', $email, "{$titel} - {$siteName}", $html, $klartext);
     }
 
     /**
@@ -843,7 +1004,7 @@ class Mailer {
               . "Gueltig {$gueltigMinuten} Minuten, einmalig verwendbar.\n"
               . "Haben Sie sich nicht angemeldet? Dann kennt jemand Ihr Passwort - bitte aendern Sie es.";
 
-        return $this->send($userEmail, "Anmeldecode {$code} - {$siteName}", $html, $text);
+        return $this->sendTyped('anmeldecode', $userEmail, "Anmeldecode {$code} - {$siteName}", $html, $text);
     }
 
     public function sendAdminDigest(
@@ -915,6 +1076,6 @@ class Mailer {
             </div>
         ";
 
-        return $this->send($recipientEmail, $subject, $html);
+        return $this->sendTyped('admin_digest', $recipientEmail, $subject, $html);
     }
 }

@@ -122,6 +122,13 @@ while (true) {
 
         if (str_starts_with($command, 'RCPT')) {
             if (preg_match('/<([^>]*)>/', $trimmed, $m) === 1) {
+                // Local-Part "abgelehnt": Ablehnung MIT zitierter Adresse, wie
+                // echte Server es tun - das Protokoll darf sie nicht
+                // übernehmen (Audit N17/N71, MailerSmtpAbbruchTest).
+                if (str_starts_with(strtolower($m[1]), 'abgelehnt@')) {
+                    fwrite($conn, "550 5.1.1 <{$m[1]}>: Empfaenger unbekannt\r\n");
+                    continue;
+                }
                 $rcpt[] = $m[1];
             }
             fwrite($conn, "250 OK\r\n");

@@ -80,6 +80,67 @@ class DsgvoPortalTest extends FunctionalTestCase {
     }
 
     /**
+     * Audit N71: Ohne gültigen Empfänger (alle drei Felder leer bzw. ohne
+     * Adresse) wird die Benachrichtigung protokolliert abgebrochen, statt
+     * still an eine leere Adresse zu gehen. Die Anfrage ist trotzdem
+     * gespeichert, und der Fehlschlag steht mit ihrer Nummer im Protokoll -
+     * ohne Name und Adresse des Antragstellers.
+     */
+    public function testOhneEmpfaengerWirdDerFehlschlagMitAnfragenummerProtokolliert(): void {
+        $db = \App\Database::getInstance();
+        $schluessel = ['admin_notification_email', 'mail_from_email', 'smtp_user'];
+        $vorher = [];
+        $lesen = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+        foreach ($schluessel as $k) {
+            $lesen->execute([$k]);
+            $vorher[$k] = $lesen->fetchColumn();
+        }
+        $schreiben = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+
+        try {
+            foreach ($schluessel as $k) {
+                $schreiben->execute([$k, $k === 'smtp_user' ? 'relayuser' : '']);
+            }
+            $start = (int)$db->query("SELECT COALESCE(MAX(id), 0) FROM audit_logs")->fetchColumn();
+
+            $client = $this->newClient();
+            $page = $client->get('/dsgvo');
+            $email = $this->uniqueEmail();
+            $answer = (string)$this->solveCaptcha($page);
+            sleep(Captcha::MIN_SOLVE_SECONDS + 1);
+
+            $response = $client->post('/dsgvo', $this->formData($page, $email, $answer));
+            $this->assertSame('/dsgvo?success=1', $response->location(), "Body: {$response->body}");
+
+            $stmt = $db->prepare("SELECT id FROM gdpr_requests WHERE email = ?");
+            $stmt->execute([$email]);
+            $anfrageId = (int)$stmt->fetchColumn();
+            $this->assertGreaterThan(0, $anfrageId, 'Die Anfrage muss gespeichert sein.');
+
+            $stmt = $db->prepare("SELECT action, category, details FROM audit_logs WHERE id > ? ORDER BY id");
+            $stmt->execute([$start]);
+            $eintraege = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $aktionen = array_column($eintraege, 'details', 'action');
+
+            $this->assertArrayHasKey('DSGVO-Benachrichtigung nicht versendet', $aktionen, json_encode($eintraege, JSON_UNESCAPED_UNICODE));
+            $this->assertArrayHasKey('DSGVO-Benachrichtigung fehlgeschlagen', $aktionen, json_encode($eintraege, JSON_UNESCAPED_UNICODE));
+            $this->assertStringContainsString("Anfrage #{$anfrageId}", $aktionen['DSGVO-Benachrichtigung fehlgeschlagen']);
+            foreach ($eintraege as $e) {
+                $this->assertStringNotContainsString($email, (string)$e['details']);
+                $this->assertStringNotContainsString('Mustermann', (string)$e['details']);
+            }
+        } finally {
+            foreach ($vorher as $k => $wert) {
+                if ($wert === false) {
+                    $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$k]);
+                } else {
+                    $schreiben->execute([$k, $wert]);
+                }
+            }
+        }
+    }
+
+    /**
      * Kernschutz gegen Massen-Submits: Eine gelöste Aufgabe ist nach der
      * ersten Prüfung verbraucht (Single-Use). Ein Bot kann also nicht einmal
      * lösen und die Antwort anschließend beliebig oft wiederverwenden.

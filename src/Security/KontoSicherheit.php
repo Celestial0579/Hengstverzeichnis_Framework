@@ -200,9 +200,12 @@ final class KontoSicherheit {
             }
 
             // Mit Empfänger: Geht der Hinweis an die ALTE Adresse (nach einem
-            // Wechsel), muss im Protokoll stehen, welche das war.
+            // Wechsel), muss im Protokoll stehen, welche das war - als
+            // pseudonyme Referenz, nicht im Klartext (Audit N17): Wer die
+            // Adresse kennt, kann sie mit Mailer::externeEmpfaengerReferenz()
+            // gegenprüfen, das Protokoll selbst sammelt keine Adressen.
             if (!(new Mailer())->sendKontoHinweis($adresse, $titel, $text)) {
-                AuditLogger::log('Kontohinweis nicht zugestellt', 'security', "Benutzer-ID {$userId} an {$adresse}: {$titel}");
+                AuditLogger::log('Kontohinweis nicht zugestellt', 'security', "Benutzer-ID {$userId} an " . Mailer::externeEmpfaengerReferenz($adresse) . ": {$titel}");
             }
         } catch (\Throwable $e) {
             try {

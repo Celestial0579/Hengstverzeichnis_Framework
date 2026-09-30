@@ -38,11 +38,19 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             noch nie
         <?php else: ?>
             <?= htmlspecialchars(date('d.m.Y H:i:s', $lastRunAt)) ?>
-            - <span style="color: <?= $lastStatus === 'ok' ? '#28a745' : '#dc3545' ?>; font-weight: bold;">
-                <?= $lastStatus === 'ok' ? '✓ Erfolgreich' : '✗ Fehlgeschlagen' ?>
+            <?php
+            // 'partial' (Audit N65): Dump gesichert, Uploads-Archiv gescheitert.
+            [$statusFarbe, $statusText] = match ($lastStatus) {
+                'ok' => ['#28a745', '✓ Erfolgreich'],
+                'partial' => ['var(--warning-fg)', '⚠ Nur Datenbank gesichert - Uploads-Archiv fehlgeschlagen'],
+                default => ['#dc3545', '✗ Fehlgeschlagen'],
+            };
+            ?>
+            - <span style="color: <?= $statusFarbe ?>; font-weight: bold;">
+                <?= $statusText ?>
             </span>
             <?php if ($lastStatus !== 'ok' && $lastError !== ''): ?>
-                <div style="color: var(--danger-fg); font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
+                <div style="color: <?= $lastStatus === 'partial' ? 'var(--warning-fg)' : 'var(--danger-fg)' ?>; font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
             <?php endif; ?>
         <?php endif; ?>
         <br>

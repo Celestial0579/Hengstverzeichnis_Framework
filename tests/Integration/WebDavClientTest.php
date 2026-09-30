@@ -105,4 +105,25 @@ class WebDavClientTest extends TestCase {
     public function testListObjectsOnNeverCreatedFolderReturnsEmptyArray(): void {
         $this->assertSame([], $this->client->listObjects('ordner-der-nie-existiert-hat'));
     }
+
+    /**
+     * Audit N82: Bei einer prozentkodierten Adresse (Nextcloud-Benutzer mit
+     * '@', Ordner mit Leerzeichen) lieferte listObjects() still [] - die
+     * Rotation löschte nie. Der Fake-Server nimmt REQUEST_URI undekodiert und
+     * liefert die hrefs undekodiert, wie viele echte Server.
+     */
+    public function testListObjectsUndDeleteMitProzentkodierterBasisUrl(): void {
+        $client = new WebDavClient(
+            FakeWebDavServer::baseUrl() . '/max%40verein.de/Meine%20Backups-' . uniqid(),
+            'testuser',
+            'testpass'
+        );
+        $client->putObject('backups/a.sql', 'a');
+        $client->putObject('backups/b.sql', 'b');
+
+        $this->assertSame(['backups/a.sql', 'backups/b.sql'], array_column($client->listObjects('backups'), 'key'));
+
+        $client->deleteObject('backups/a.sql');
+        $this->assertSame(['backups/b.sql'], array_column($client->listObjects('backups'), 'key'));
+    }
 }

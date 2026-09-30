@@ -72,8 +72,10 @@ RUN printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' \
 # Ein 4-MB-Bild verwarf PHP, bevor der Code es je sah: $_FILES kam leer an,
 # und der Benutzer las "keine Datei ausgewählt". Die Grenze der Anwendung ist
 # die verbindliche, PHP muss darüber liegen. memory_limit und
-# max_execution_time bleiben unangetastet - ein Zeitlimit von 60 Sekunden
-# hätte Sicherung, Import und Update abgeschnitten.
+# max_execution_time bleiben unangetastet. Ohne php.ini gilt unter Apache
+# damit PHPs eingebautes Zeitlimit von 30 Sekunden Rechenzeit; lange Läufe
+# (Sicherung, Cron, Update) heben es für ihren Request selbst auf
+# (App\Helper\LongRunning, Audit M37/M39).
 RUN { \
       echo 'upload_max_filesize=8M'; \
       echo 'post_max_size=12M'; \

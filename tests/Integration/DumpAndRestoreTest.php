@@ -210,4 +210,102 @@ class DumpAndRestoreTest extends TestCase {
             @unlink($dumpFile);
         }
     }
+
+    private function frischesZiel(): PDO {
+        self::$adminPdo->exec("DROP DATABASE IF EXISTS `" . self::zielDatenbank() . "`");
+        self::$adminPdo->exec("CREATE DATABASE `" . self::zielDatenbank() . "` CHARACTER SET utf8mb4");
+        return new PDO(
+            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . self::zielDatenbank() . ";charset=utf8mb4",
+            DB_USER,
+            DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+    }
+
+    /**
+     * Audit N66: Der Dump schrieb TIMESTAMP-Werte in der Sitzungszeitzone
+     * der App (im Sommer +02:00), ohne das zu vermerken. Eingespielt in
+     * einer anderen Zeitzone verschoben sich alle Zeitpunkte. Jetzt steht
+     * der Dump in UTC, setzt das beim Einspielen selbst und stellt die
+     * Zeitzone beider Sitzungen wieder her.
+     */
+    public function testZeitstempelBleibenBeimZurueckspielenInAndererZeitzoneGleich(): void {
+        $quellZeitzone = self::$source->query('SELECT @@SESSION.time_zone')->fetchColumn();
+        self::$source->exec("SET time_zone = '+02:00'");
+        try {
+            self::$source->exec("INSERT INTO contacts (name, created_at) VALUES ('TZ-Test', '2026-01-15 12:00:00')");
+            $erwartet = (int)self::$source->query("SELECT UNIX_TIMESTAMP(created_at) FROM contacts WHERE name = 'TZ-Test'")->fetchColumn();
+
+            $sql = DatabaseDumper::dump();
+
+            $this->assertStringContainsString(DatabaseDumper::ZEITZONE_MERKEN . "\n" . DatabaseDumper::ZEITZONE_UTC . "\n", $sql);
+            $this->assertStringContainsString("SET time_zone = '+00:00';", $sql);
+            $this->assertStringEndsWith("SET FOREIGN_KEY_CHECKS=1;\nSET time_zone = @hv_dump_zeitzone;", $sql);
+            $this->assertSame('+02:00', self::$source->query('SELECT @@SESSION.time_zone')->fetchColumn());
+
+            $target = $this->frischesZiel();
+            $target->exec("SET time_zone = '-05:00'");
+            $target->exec($sql);
+
+            $this->assertSame(
+                $erwartet,
+                (int)$target->query("SELECT UNIX_TIMESTAMP(created_at) FROM contacts WHERE name = 'TZ-Test'")->fetchColumn()
+            );
+            $this->assertSame('-05:00', $target->query('SELECT @@SESSION.time_zone')->fetchColumn());
+        } finally {
+            self::$source->exec("DELETE FROM contacts WHERE name = 'TZ-Test'");
+            self::$source->prepare('SET time_zone = ?')->execute([$quellZeitzone]);
+        }
+    }
+
+    /**
+     * Audit N66: Alle Tabellen aus einem gemeinsamen Stand. Eine Zeile, die
+     * eine andere Verbindung WÄHREND des Dumps anlegt, gehört nicht hinein.
+     */
+    public function testDumpLiestAlleTabellenAusEinemStand(): void {
+        $tabellen = self::$source->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+        $this->assertNotSame('settings', $tabellen[0], 'settings darf nicht die erste Tabelle sein');
+
+        $andere = new PDO(
+            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+            DB_USER,
+            DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        $marker = 'snapshot_marker_' . uniqid();
+        $eingefuegt = false;
+        $dump = '';
+        try {
+            DatabaseDumper::dumpTo(function (string $chunk) use (&$dump, &$eingefuegt, $andere, $marker): void {
+                if (!$eingefuegt && str_starts_with($chunk, '-- Tabelle:')) {
+                    $andere->prepare('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)')->execute([$marker, 'x']);
+                    $eingefuegt = true;
+                }
+                $dump .= $chunk;
+            });
+
+            $this->assertTrue($eingefuegt);
+            $this->assertStringNotContainsString($marker, $dump);
+            $stmt = self::$source->prepare('SELECT COUNT(*) FROM settings WHERE setting_key = ?');
+            $stmt->execute([$marker]);
+            $this->assertSame(1, (int)$stmt->fetchColumn());
+        } finally {
+            $andere->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([$marker]);
+        }
+    }
+
+    public function testDumpInnerhalbOffenerTransaktionBeendetDieseNicht(): void {
+        self::$source->beginTransaction();
+        try {
+            DatabaseDumper::dump();
+            $this->assertTrue(self::$source->inTransaction());
+        } finally {
+            self::$source->rollBack();
+        }
+    }
+
+    public function testDumpHinterlaesstKeineOffeneTransaktion(): void {
+        DatabaseDumper::dump();
+        $this->assertFalse(self::$source->inTransaction());
+    }
 }

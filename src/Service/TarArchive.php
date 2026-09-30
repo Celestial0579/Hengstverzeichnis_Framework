@@ -25,16 +25,14 @@ namespace App\Service;
  */
 final class TarArchive {
 
-    /** @var resource */
-    private $handle;
-    private bool $gzip;
-
     /**
-     * @param resource $handle
+     * Schreibweg mit Prüfung jedes Schreibvorgangs und des gzip-Abschlusses
+     * (Audit M43) - gzwrite() meldet einen vollen Datenträger sonst nicht.
      */
-    private function __construct($handle, bool $gzip) {
-        $this->handle = $handle;
-        $this->gzip = $gzip;
+    private CheckedFileWriter $out;
+
+    private function __construct(CheckedFileWriter $out) {
+        $this->out = $out;
     }
 
     /**
@@ -45,19 +43,15 @@ final class TarArchive {
      */
     public static function create(string $path, ?bool $gzip = null): self {
         $gzip ??= str_ends_with($path, '.gz');
-        $gzip = $gzip && function_exists('gzopen');
-        $handle = $gzip ? gzopen($path, 'wb6') : fopen($path, 'wb');
-        if ($handle === false) {
-            throw new \RuntimeException("Archiv nicht schreibbar: {$path}");
+        try {
+            return new self(CheckedFileWriter::open($path, $gzip, 6));
+        } catch (\RuntimeException $e) {
+            throw new \RuntimeException("Archiv nicht schreibbar: {$path}", 0, $e);
         }
-        return new self($handle, $gzip);
     }
 
     private function write(string $data): void {
-        $ok = $this->gzip ? gzwrite($this->handle, $data) : fwrite($this->handle, $data);
-        if ($ok === false) {
-            throw new \RuntimeException('Schreiben in das Archiv fehlgeschlagen.');
-        }
+        $this->out->write($data);
     }
 
     /**
@@ -130,12 +124,24 @@ final class TarArchive {
     }
 
     /**
-     * Schreibt die Archiv-Endmarke (zwei Null-Blöcke) und schließt die Datei.
+     * Schreibt die Archiv-Endmarke (zwei Null-Blöcke), schließt die Datei und
+     * prüft, ob sie vollständig auf dem Datenträger liegt (Audit M43).
      * Ohne close() ist das Archiv unvollständig.
+     *
+     * @throws \RuntimeException wenn ein Schreibvorgang oder der Abschluss
+     *                           scheiterte (etwa Datenträger voll)
      */
     public function close(): void {
         $this->write(str_repeat("\0", 1024)); // Zwei Null-Blöcke = Archivende
-        $this->gzip ? gzclose($this->handle) : fclose($this->handle);
+        $this->out->close();
+    }
+
+    /**
+     * Schließt die Datei ohne Endmarke und ohne Prüfung - für Fehlerpfade,
+     * nach denen das Archiv ohnehin verworfen wird. Idempotent.
+     */
+    public function abort(): void {
+        $this->out->abort();
     }
 
     private function pad(int $size): void {

@@ -97,28 +97,69 @@ final class WebDavClient implements BackupTarget {
             throw $e;
         }
 
-        $hrefs = self::parsePropfindHrefs($responseBody);
-        $basePath = parse_url($this->baseUrl, PHP_URL_PATH) ?? '';
+        return self::keysFromHrefs(self::parsePropfindHrefs($responseBody), $this->baseUrl, $path);
+    }
+
+    /**
+     * Macht aus den hrefs einer PROPFIND-Antwort (Depth: 1) die Schlüssel
+     * relativ zur Basis-URL. Reine Logik ohne Netzwerk, direkt testbar.
+     *
+     * Audit N82: Basis-URL und hrefs werden GLEICH dekodiert. Bisher wurde
+     * nur das href dekodiert - bei einer Adresse wie
+     * `…/files/max%40verein.de/backups` (Nextcloud) oder einem Ordner mit
+     * `%20` passte danach kein Eintrag mehr, die Liste war still leer, und
+     * die Aufbewahrungsrotation löschte nie etwas. Absolute hrefs
+     * (`https://host/pfad`, liefern manche Server) werden auf den Pfad
+     * gekürzt, und der Abgleich ist segmentgenau (`/backups` trifft nicht
+     * `/backups-alt/…`).
+     *
+     * @param array<int, string> $hrefs
+     * @return array<int, array{key: string}>
+     * @throws \RuntimeException wenn die Antwort hrefs enthält, aber keiner
+     *         zur Basis-URL passt - bei Depth: 1 ist der angefragte Ordner
+     *         selbst immer dabei, das ist also eine Fehlkonfiguration (etwa
+     *         ein Reverse-Proxy mit Pfadumschreibung) und kein leerer Ordner.
+     */
+    public static function keysFromHrefs(array $hrefs, string $baseUrl, string $requestedPath): array {
+        if ($hrefs === []) {
+            return [];
+        }
+        $basePath = rtrim(rawurldecode((string)(parse_url($baseUrl, PHP_URL_PATH) ?? '')), '/');
+        $requestedPath = trim($requestedPath, '/');
 
         $objects = [];
+        $treffer = 0;
         foreach ($hrefs as $href) {
-            $decoded = rawurldecode($href);
-            if (!str_starts_with($decoded, $basePath)) {
+            $pathOnly = (string)preg_replace('#^[a-z][a-z0-9+.\-]*://[^/]*#i', '', $href);
+            $decoded = rawurldecode($pathOnly);
+            if ($basePath !== '' && $decoded !== $basePath && !str_starts_with($decoded, $basePath . '/')) {
                 continue;
             }
+            if ($basePath === '' && !str_starts_with($decoded, '/')) {
+                continue;
+            }
+            $treffer++;
             $relative = trim(substr($decoded, strlen($basePath)), '/');
             // PROPFIND mit Depth:1 liefert den angefragten Ordner selbst mit
-            // - dessen Schlüssel-Rest entspricht genau dem angefragten $path.
+            // - dessen Schlüssel-Rest entspricht genau dem angefragten Pfad.
             // Ob der Server dafür einen abschließenden Schrägstrich mitsendet
             // ist serverabhängig (nicht alle WebDAV-Implementierungen tun das
             // konsequent für den "self"-Eintrag), daher zusätzlich über den
             // exakten Pfadvergleich statt nur über str_ends_with() geprüft.
             // Echte Unterordner (nur bei Depth:1 sichtbar, hier nicht
             // benötigt) werden weiterhin über den Schrägstrich erkannt.
-            if ($relative === '' || $relative === $path || str_ends_with($decoded, '/')) {
+            if ($relative === '' || $relative === $requestedPath || str_ends_with($decoded, '/')) {
                 continue;
             }
             $objects[] = ['key' => $relative];
+        }
+
+        if ($treffer === 0) {
+            throw new \RuntimeException(
+                'WebDAV-Antwort passt nicht zur eingetragenen Adresse (erwarteter Pfad '
+                . ($basePath === '' ? '/' : $basePath) . ', erhalten z. B. ' . $hrefs[0]
+                . ') - Aufbewahrungsrotation nicht möglich.'
+            );
         }
 
         sort($objects);

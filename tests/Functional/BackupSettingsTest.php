@@ -175,4 +175,47 @@ class BackupSettingsTest extends FunctionalTestCase {
             }
         }
     }
+
+    /**
+     * Audit N65: Status 'partial' (Dump gesichert, Uploads-Archiv
+     * gescheitert) erscheint als Warnung mit Grund - nicht als Erfolg und
+     * nicht als Totalausfall.
+     */
+    public function testTeilfehlerWirdAlsWarnungAngezeigt(): void {
+        $admin = $this->authenticatedClient();
+        $db = \App\Database::getInstance();
+        $keys = ['backup_last_status', 'backup_last_run_at', 'backup_last_error'];
+        $vorher = [];
+        foreach ($keys as $key) {
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $stmt->execute([$key]);
+            $vorher[$key] = $stmt->fetchColumn();
+        }
+        $werte = [
+            'backup_last_status' => 'partial',
+            'backup_last_run_at' => (string)time(),
+            'backup_last_error' => 'Uploads-Archiv nicht gesichert (Datenbank-Dump wurde gesichert): Pfad zu lang für ustar: uploads/x',
+        ];
+        $stmt = $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?");
+        foreach ($werte as $key => $value) {
+            $stmt->execute([$key, $value, $value]);
+        }
+
+        try {
+            $seite = $admin->get('/admin/backups');
+            $this->assertSame(200, $seite->statusCode);
+            $this->assertStringContainsString('Nur Datenbank gesichert', $seite->body);
+            $this->assertStringContainsString('Pfad zu lang für ustar', $seite->body);
+            $this->assertStringNotContainsString('✓ Erfolgreich', $seite->body);
+            $this->assertStringNotContainsString('✗ Fehlgeschlagen', $seite->body);
+        } finally {
+            foreach ($vorher as $key => $value) {
+                if ($value === false) {
+                    $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$key]);
+                } else {
+                    $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = ?")->execute([$value, $key]);
+                }
+            }
+        }
+    }
 }

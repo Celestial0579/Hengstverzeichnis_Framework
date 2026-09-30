@@ -96,4 +96,25 @@ class HorseCsvImporterTest extends TestCase {
 
         $this->assertNotNull($result['error']);
     }
+
+    /**
+     * Audit N48: EINE Quelle der Spaltenbreiten für Import und Formular.
+     */
+    public function testErsteUeberlaengeRespectsLimitsAndMultibyte(): void {
+        $this->assertNull(HorseCsvImporter::ersteUeberlaenge([]));
+        $this->assertNull(HorseCsvImporter::ersteUeberlaenge(['sire_ueln' => str_repeat('1', 15), 'name' => str_repeat('n', 100)]));
+        $this->assertSame('sire_ueln', HorseCsvImporter::ersteUeberlaenge(['sire_ueln' => str_repeat('1', 16)]));
+        $this->assertSame('name', HorseCsvImporter::ersteUeberlaenge(['name' => str_repeat('n', 101)]));
+        // Zeichen, nicht Bytes: 100 Umlaute sind 200 Bytes und trotzdem erlaubt.
+        $this->assertNull(HorseCsvImporter::ersteUeberlaenge(['name' => str_repeat('ä', 100)]));
+        $this->assertSame('name', HorseCsvImporter::ersteUeberlaenge(['name' => str_repeat('ä', 101)]));
+        // description zählt in Bytes (TEXT-Spalte).
+        $this->assertNull(HorseCsvImporter::ersteUeberlaenge(['description' => str_repeat('a', 65535)]));
+        $this->assertSame('description', HorseCsvImporter::ersteUeberlaenge(['description' => str_repeat('ä', 32768)]));
+        // Leere und nicht übermittelte Werte werden nicht geprüft.
+        $this->assertNull(HorseCsvImporter::ersteUeberlaenge(['name' => '', 'breeding_station' => null]));
+        // Reihenfolge der Konstante, unbekannte Schlüssel ignoriert.
+        $this->assertSame('name', HorseCsvImporter::ersteUeberlaenge(['breed' => str_repeat('b', 101), 'name' => str_repeat('n', 101), 'unbekannt' => str_repeat('x', 999)]));
+        $this->assertSame(15, HorseCsvImporter::MAX_LENGTHS['dam_ueln']);
+    }
 }

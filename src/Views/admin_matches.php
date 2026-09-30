@@ -33,10 +33,19 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
     <?php if (isset($_GET['error'])): ?>
         <div style="background-color: var(--danger-soft-bg); color: var(--danger-fg); padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
             <?php
-            // Fehlercodes aus HorseController::linkMatch() (#131/#167).
+            // Fehlercodes aus HorseController::linkMatch() (#131/#167, Audit N47).
             $errorMessages = [
                 'self_link' => 'Nicht verknüpft: Ein Pferd kann nicht sein eigener Elternteil sein.',
                 'sex_mismatch' => 'Nicht verknüpft: Das Geschlecht des gewählten Pferds passt nicht zur Eltern-Rolle (Stute als Vater bzw. Hengst/Wallach als Mutter).',
+                'same_sire_and_dam' => 'Nicht verknüpft: Dasselbe Pferd kann nicht Vater und Mutter sein.',
+                'sire_not_older' => 'Nicht verknüpft: Der Vater ist nicht älter als das Fohlen - bitte die Geburtsjahre prüfen.',
+                'dam_not_older' => 'Nicht verknüpft: Die Mutter ist nicht älter als das Fohlen - bitte die Geburtsjahre prüfen.',
+                'parent_in_trash' => 'Nicht verknüpft: Das gewählte Elterntier liegt im Papierkorb.',
+                'parent_missing' => 'Nicht verknüpft: Das gewählte Elterntier existiert nicht mehr.',
+                'pedigree_cycle' => 'Nicht verknüpft: Das gewählte Pferd ist bereits ein Nachkomme dieses Pferds - die Verknüpfung ergäbe einen Kreis im Stammbaum.',
+                'not_found' => 'Nicht verknüpft: Das Fohlen existiert nicht mehr.',
+                'child_in_trash' => 'Nicht verknüpft: Das Fohlen liegt im Papierkorb und kann dort nicht verändert werden.',
+                'invalid' => 'Nicht verknüpft: Die Anfrage war unvollständig.',
             ];
             echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
             ?>
@@ -141,9 +150,16 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
                                             <input type="hidden" name="child_id" value="<?= $match['child_id'] ?>">
                                             <input type="hidden" name="parent_type" value="<?= $match['parent_type'] ?>">
                                             <input type="hidden" name="parent_horse_id" value="<?= $sug['horse']['id'] ?>">
-                                            <button type="submit" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
-                                                ✓ Jetzt verknüpfen
-                                            </button>
+                                            <?php if (!empty($sug['blockiert'])): // Audit N47: unmögliches Alter ?>
+                                                <button type="submit" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;" disabled
+                                                        title="Elternteil nicht älter als das Fohlen – Geburtsjahre prüfen">
+                                                    ✓ Jetzt verknüpfen
+                                                </button>
+                                            <?php else: ?>
+                                                <button type="submit" class="btn" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">
+                                                    ✓ Jetzt verknüpfen
+                                                </button>
+                                            <?php endif; ?>
                                         </form>
                                         <?php // #355: das Gegenteil von "verknüpfen". Ohne diesen Knopf kam
                                               // dasselbe Paar bei jedem Aufruf wieder, und der Digest zählte

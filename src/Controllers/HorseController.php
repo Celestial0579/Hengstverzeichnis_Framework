@@ -358,12 +358,19 @@ class HorseController extends BaseController {
      * Pferd hinter der Obergrenze liegt - ein Datenverlust, den niemand
      * bemerkt, bis es zu spät ist.
      *
+     * Dasselbe gilt für gesetzte Eltern im Papierkorb (Audit M34): Sie stehen
+     * nicht in der gefilterten Grundliste, und ohne das Nachladen nullte jedes
+     * Speichern des Fohlens die Verknüpfung. Nachgeladen wird deshalb OHNE
+     * deleted_at-Filter; jede Zeile trägt `deleted_at`, damit die View
+     * Papierkorb-Einträge nur für den Steckplatz anbietet, in dem sie schon
+     * stehen, und sie als "(im Papierkorb)" kennzeichnet.
+     *
      * @param array<int, int|null> $mustInclude IDs, die enthalten sein müssen
      * @return array<int, array<string, mixed>>
      */
     private function parentOptions(\PDO $db, array $mustInclude = []): array {
         $stmt = $db->query(
-            "SELECT id, name, ueln, birth_year, sex FROM horses WHERE deleted_at IS NULL"
+            "SELECT id, name, ueln, birth_year, sex, NULL AS deleted_at FROM horses WHERE deleted_at IS NULL"
             . " ORDER BY name ASC LIMIT " . self::PARENT_OPTION_LIMIT
         );
         $horses = $stmt->fetchAll();
@@ -376,8 +383,8 @@ class HorseController extends BaseController {
 
         if ($fehlend !== []) {
             $nachladen = $db->prepare(
-                "SELECT id, name, ueln, birth_year, sex FROM horses"
-                . " WHERE deleted_at IS NULL AND id IN (" . implode(',', array_fill(0, count($fehlend), '?')) . ")"
+                "SELECT id, name, ueln, birth_year, sex, deleted_at FROM horses"
+                . " WHERE id IN (" . implode(',', array_fill(0, count($fehlend), '?')) . ")"
             );
             $nachladen->execute($fehlend);
             foreach ($nachladen->fetchAll() as $row) {
@@ -494,6 +501,17 @@ class HorseController extends BaseController {
         $dam_name = $dam_id ? null : (trim($_POST['dam_name'] ?? '') ?: null);
         $dam_ueln = $dam_id ? null : (trim($_POST['dam_ueln'] ?? '') ?: null);
 
+        // Eltern müssen existieren und dürfen nicht im Papierkorb liegen
+        // (Audit M34) - ersetzt zugleich den früheren 500er aus dem
+        // Fremdschlüssel bei einer unbekannten ID. Ein neues Pferd hat keine
+        // Nachkommen, eine Zyklusprüfung entfällt hier.
+        foreach ([$sire_id, $dam_id] as $elternId) {
+            if ($elternId !== null && ($error = $this->linkTargetError(null, $elternId))) {
+                header("Location: /admin/horses?error={$error}");
+                exit;
+            }
+        }
+
         // Abstammungs-Validierung (#166 Geschlecht, #298 Widersprüche) - vor
         // dem Bild-Upload, damit bei Ablehnung keine verwaiste Datei
         // zurückbleibt.
@@ -513,6 +531,17 @@ class HorseController extends BaseController {
             exit;
         }
 
+        // Feldlängen und UELN-Eindeutigkeit (Audit N48) - vor dem Upload.
+        // Bisher liefen beide erst beim INSERT in einen DB-Fehler (500), und
+        // das schon abgelegte Foto blieb verwaist liegen.
+        $this->pruefeFelder([
+            'name' => $name, 'ueln' => $ueln, 'foreign_ueln' => $foreign_ueln,
+            'sire_name' => $sire_name, 'sire_ueln' => $sire_ueln,
+            'dam_name' => $dam_name, 'dam_ueln' => $dam_ueln,
+            'color' => $color, 'breed' => $breed,
+            'breeding_station' => $breeding_station, 'description' => $description,
+        ], $ueln, 0);
+
         // Handle Photo Upload
         $imageUrl = $this->handleImageUpload($_FILES['horse_image'] ?? null);
 
@@ -524,7 +553,21 @@ class HorseController extends BaseController {
 
         $db = Database::getInstance();
         $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, birth_date, birth_date_precision, color, sex, castration_date, breed, height_cm, breeding_station_id, breeding_station, description, status, is_deceased, death_year, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
+        try {
+            $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
+        } catch (\PDOException $e) {
+            // Das Foto liegt schon in der Ablage, der Datensatz, der darauf
+            // verweisen sollte, nicht (Audit N48).
+            if ($imageUrl !== null) {
+                @unlink(\App\Helper\HorseImagePath::dir() . '/' . basename($imageUrl));
+            }
+            // 1062: Rennen zwischen uelnConflict() und dem INSERT.
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) {
+                header("Location: /admin/horses?error=ueln_taken");
+                exit;
+            }
+            throw $e;
+        }
         $newHorseId = (int)$db->lastInsertId();
 
         // Das beim Anlegen hochgeladene Foto ist ab #339 auch eine Zeile in
@@ -546,7 +589,7 @@ class HorseController extends BaseController {
         $registrationNumbers = $this->saveRegistrations($db, $newHorseId, $ueln);
 
         // Run auto-linking to automatically attach existing unlinked placeholders to this new horse
-        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year, $registrationNumbers);
+        $this->autoLinkMatches($newHorseId, $name, $ueln, $foreign_ueln, $birth_year, $registrationNumbers, $sex);
 
         // Plugin-Hook (#56): Erweiterungspunkt NACH dem Anlegen, z. B. für Folgeaktionen
         // in einem Plugin (Benachrichtigung, verknüpfte Zusatzdaten anlegen etc.).
@@ -601,10 +644,17 @@ class HorseController extends BaseController {
         // Beide Steckplätze holen ihren Namen jetzt aus derselben Tabelle
         // (#336), bleiben aber zwei getrennte JOINs: Eine Zeile kann eine
         // Person UND eine Deckstation nennen, und das sind verschiedene
-        // Kontakte. Beide JOINs filtern deleted_at - eine Tabelle, eine Regel:
-        // Ein Kontakt im Papierkorb steht auch nicht in $allContacts, sein Name
-        // soll im Formular also nirgends auftauchen.
-        $stmt = $db->prepare("SELECT hp.*, c.name, s.name AS station_name FROM horse_persons hp LEFT JOIN contacts c ON hp.contact_id = c.id AND c.deleted_at IS NULL LEFT JOIN contacts s ON hp.station_contact_id = s.id AND s.deleted_at IS NULL WHERE hp.horse_id = ? ORDER BY hp.id ASC");
+        // Kontakte.
+        //
+        // Neu WÄHLBAR sind nur aktive Kontakte ($allContacts, auch für neue
+        // Zeilen per JS). Eine BESTEHENDE Zuordnung auf einen Kontakt im
+        // Papierkorb bleibt dagegen sichtbar und erhalten (Audit M34): Früher
+        // filterten beide JOINs deleted_at, die Zeile bekam keine passende
+        // Option, schickte '' zurück - und jedes Speichern des Pferds löschte
+        // die Zuordnung. Die View zeigt sie als "(im Papierkorb)" nur in
+        // dieser einen Zeile; saveHorsePersons() nimmt sie nur an, wenn sie
+        // dort schon stand.
+        $stmt = $db->prepare("SELECT hp.*, c.name, s.name AS station_name, c.deleted_at AS contact_deleted_at, s.deleted_at AS station_deleted_at FROM horse_persons hp LEFT JOIN contacts c ON hp.contact_id = c.id LEFT JOIN contacts s ON hp.station_contact_id = s.id WHERE hp.horse_id = ? ORDER BY hp.id ASC");
         $stmt->execute([$id]);
         $horsePersons = $stmt->fetchAll();
 
@@ -761,8 +811,19 @@ class HorseController extends BaseController {
             exit;
         }
 
+        // Feldlängen und UELN-Eindeutigkeit (Audit N48), siehe store().
+        // foreign_ueln und breeding_station sind NULL, wenn nicht übermittelt,
+        // und werden dann nicht geprüft.
+        $this->pruefeFelder([
+            'name' => $name, 'ueln' => $ueln, 'foreign_ueln' => $foreign_ueln,
+            'sire_name' => $sire_name, 'sire_ueln' => $sire_ueln,
+            'dam_name' => $dam_name, 'dam_ueln' => $dam_ueln,
+            'color' => $color, 'breed' => $breed,
+            'breeding_station' => $breeding_station, 'description' => $description,
+        ], $ueln, (int)$id);
+
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT image_url, status, is_published, deleted_at FROM horses WHERE id = ?");
+        $stmt = $db->prepare("SELECT image_url, status, is_published, deleted_at, sire_id, dam_id FROM horses WHERE id = ?");
         $stmt->execute([$id]);
         $existing = $stmt->fetch();
 
@@ -791,6 +852,21 @@ class HorseController extends BaseController {
         if ($existing['deleted_at'] !== null) {
             header("Location: /admin/horses?error=deleted");
             exit;
+        }
+
+        // Neu gesetzte Eltern (Audit M34, N47): müssen existieren, dürfen
+        // nicht im Papierkorb liegen und keinen Stammbaum-Zyklus schließen -
+        // letzteres auch dann, wenn Geburtsjahre fehlen und
+        // pedigreeContradiction() deshalb nichts sieht. Geprüft wird nur, was
+        // sich gegenüber dem Bestand ÄNDERT: Eine bestehende Verknüpfung auf
+        // einen Elternteil im Papierkorb bleibt speicherbar.
+        foreach (['sire_id' => $sire_id, 'dam_id' => $dam_id] as $spalte => $elternId) {
+            $bisher = $existing[$spalte] !== null ? (int)$existing[$spalte] : null;
+            if ($elternId !== null && $elternId !== $bisher
+                && ($error = $this->linkTargetError((int)$id, $elternId))) {
+                header("Location: /admin/horses?error={$error}");
+                exit;
+            }
         }
 
         $currentImageUrl = $existing['image_url'] ?? null;
@@ -826,7 +902,17 @@ class HorseController extends BaseController {
         // übermittelter Leerstring soll NULL speichern (wie früher `?: null`),
         // nicht den Leerstring selbst.
         $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, birth_date_precision = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ? AND deleted_at IS NULL");
-        $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
+        try {
+            $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
+        } catch (\PDOException $e) {
+            // 1062 (Audit N48): Rennen zwischen uelnConflict() und dem UPDATE.
+            // Bis hierher wurde nichts geschrieben.
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) {
+                header("Location: /admin/horses?error=ueln_taken");
+                exit;
+            }
+            throw $e;
+        }
 
         \App\Service\AuditLogger::log("Pferd aktualisiert", "horses", "Pferd ID {$id}: {$name}" . ($ueln ? " (UELN: {$ueln})" : ""));
 
@@ -837,7 +923,7 @@ class HorseController extends BaseController {
         $registrationNumbers = $this->saveRegistrations($db, (int)$id, $ueln);
 
         // Run auto-linking for matches
-        $this->autoLinkMatches((int)$id, $name, $ueln, ($foreign_ueln !== null && $foreign_ueln !== '') ? $foreign_ueln : null, $birth_year, $registrationNumbers);
+        $this->autoLinkMatches((int)$id, $name, $ueln, ($foreign_ueln !== null && $foreign_ueln !== '') ? $foreign_ueln : null, $birth_year, $registrationNumbers, $sex);
 
         // Plugin-Hook (#56): siehe store() für die Begründung, hier für den Update-Pfad.
         $this->hooks()->doAction('horse.after_save', (int)$id, $_POST, false);
@@ -995,6 +1081,116 @@ class HorseController extends BaseController {
         return null;
     }
 
+    /**
+     * Darf $parentId als Elternteil (neu) gesetzt werden? (Audit M34, N47)
+     *
+     * - 'parent_missing': Die ID gibt es nicht (mehr), etwa hart gelöscht,
+     *   während das Formular offen war. Früher lief das in den
+     *   Fremdschlüssel (500).
+     * - 'parent_in_trash': Ein Pferd im Papierkorb ist nicht neu wählbar;
+     *   eine BESTEHENDE Verknüpfung bleibt erlaubt (der Aufrufer prüft nur
+     *   geänderte Rollen).
+     * - 'pedigree_cycle': $childId ist bereits Vorfahre von $parentId - die
+     *   Verknüpfung schlösse einen Kreis. Ein Vorfahre als Elternteil ist
+     *   dagegen kein Widerspruch (Inzucht) und bleibt erlaubt.
+     *
+     * $childId null heißt: neues Pferd, ohne Nachkommen, keine Zyklusprüfung.
+     */
+    private function linkTargetError(?int $childId, int $parentId): ?string {
+        $stmt = Database::getInstance()->prepare("SELECT deleted_at FROM horses WHERE id = ?");
+        $stmt->execute([$parentId]);
+        $zeile = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($zeile === false) {
+            return 'parent_missing';
+        }
+        if ($zeile['deleted_at'] !== null) {
+            return 'parent_in_trash';
+        }
+        if ($childId !== null && ($childId === $parentId || in_array($childId, $this->ancestorIds($parentId), true))) {
+            return 'pedigree_cycle';
+        }
+        return null;
+    }
+
+    /**
+     * Alle Vorfahren von $horseId (Audit N47), generationenweise über
+     * sire_id/dam_id mit gebundenen Platzhaltern. Datensätze im Papierkorb
+     * zählen mit - auch sie sind Teil des Stammbaums, und ein Wiederherstellen
+     * machte einen so entstandenen Zyklus sichtbar. Eine Besucht-Menge und
+     * die Tiefengrenze beenden die Suche auch bei einem Altbestand, der
+     * bereits einen Zyklus enthält (analog $visited in PedigreeBuilder).
+     *
+     * @return int[]
+     */
+    private function ancestorIds(int $horseId, int $maxGenerationen = 40): array {
+        $db = Database::getInstance();
+        $besucht = [];
+        $ebene = [$horseId];
+        for ($generation = 0; $generation < $maxGenerationen && $ebene !== []; $generation++) {
+            $platzhalter = implode(',', array_fill(0, count($ebene), '?'));
+            $stmt = $db->prepare("SELECT sire_id, dam_id FROM horses WHERE id IN ({$platzhalter})");
+            $stmt->execute($ebene);
+            $naechste = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $zeile) {
+                foreach ([$zeile['sire_id'], $zeile['dam_id']] as $elternId) {
+                    if ($elternId === null) {
+                        continue;
+                    }
+                    $elternId = (int)$elternId;
+                    if (!isset($besucht[$elternId])) {
+                        $besucht[$elternId] = true;
+                        $naechste[] = $elternId;
+                    }
+                }
+            }
+            $ebene = $naechste;
+        }
+        return array_keys($besucht);
+    }
+
+    /**
+     * Feldlängen und UELN-Eindeutigkeit vor dem Speichern (Audit N48); leitet
+     * bei einem Verstoß um und beendet den Request.
+     *
+     * Die Spaltenbreiten kommen aus HorseCsvImporter::MAX_LENGTHS - EINE
+     * Quelle für Formular und Import. Der Feldname im Redirect stammt aus
+     * der Konstante, nie aus der Eingabe.
+     *
+     * @param array<string, mixed> $werte
+     */
+    private function pruefeFelder(array $werte, ?string $ueln, int $eigeneId): void {
+        $feld = \App\Service\HorseCsvImporter::ersteUeberlaenge($werte);
+        if ($feld !== null) {
+            header("Location: /admin/horses?error=too_long&field=" . rawurlencode($feld));
+            exit;
+        }
+        if ($error = $this->uelnConflict($ueln, $eigeneId)) {
+            header("Location: /admin/horses?error={$error}");
+            exit;
+        }
+    }
+
+    /**
+     * Ist die UELN schon an ein anderes Pferd vergeben? (Audit N48)
+     *
+     * Vergleicht in SQL mit der Spalten-Collation - genau wie der
+     * UNIQUE-Index, also auch 'de 123' gegen 'DE 123' - und bewusst ohne
+     * deleted_at-Filter, weil der Index auch den Papierkorb umfasst.
+     * Liefert 'ueln_taken', 'ueln_taken_trash' oder null.
+     */
+    private function uelnConflict(?string $ueln, int $eigeneId): ?string {
+        if ($ueln === null || $ueln === '') {
+            return null;
+        }
+        $stmt = Database::getInstance()->prepare("SELECT deleted_at FROM horses WHERE ueln = ? AND id <> ? LIMIT 1");
+        $stmt->execute([$ueln, $eigeneId]);
+        $zeile = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($zeile === false) {
+            return null;
+        }
+        return $zeile['deleted_at'] === null ? 'ueln_taken' : 'ueln_taken_trash';
+    }
+
     private function pedigreeContradiction(?int $sireId, ?int $damId, ?int $birthYear): ?string {
         if ($sireId !== null && $damId !== null && $sireId === $damId) {
             return 'same_sire_and_dam';
@@ -1116,9 +1312,24 @@ class HorseController extends BaseController {
      * Auto-links unlinked placeholders matching $ueln, $foreignUeln, one of the
      * horse's registration numbers (#246) or $name to $horseId
      *
+     * Seit Audit N47 mit denselben Prüfungen wie das Formular, als
+     * SQL-Bedingungen an den UPDATEs (alle Werte gebunden, die Bausteine sind
+     * Literale):
+     * - Geschlecht (#166): Als Vater nur, wenn $sex nicht 'mare' ist (ein
+     *   Wallach bleibt erlaubt, #298); als Mutter nur, wenn $sex weder
+     *   'stallion' noch 'gelding' ist.
+     * - Alter (#298) auch im UELN-Zweig: Das Kind muss jünger sein. Die
+     *   3-30-Jahre-Heuristik bleibt dem Namenszweig vorbehalten.
+     * - Vater ≠ Mutter: Ist $horseId schon der andere Elternteil des Kindes,
+     *   wird nicht verknüpft.
+     * - Zyklus: Vorfahren von $horseId werden nie seine Kinder. Die Menge
+     *   bleibt während der UPDATEs gültig, weil nur Kinder-Zeiger auf
+     *   $horseId gesetzt werden.
+     * Was hier nicht verknüpft wird, bleibt als Platzhalter im Match-Werkzeug.
+     *
      * @param string[] $registrationNumbers
      */
-    private function autoLinkMatches(int $horseId, string $name, ?string $ueln, ?string $foreignUeln = null, ?int $birthYear = null, array $registrationNumbers = []): void {
+    private function autoLinkMatches(int $horseId, string $name, ?string $ueln, ?string $foreignUeln = null, ?int $birthYear = null, array $registrationNumbers = [], ?string $sex = null): void {
         $db = Database::getInstance();
 
         $uelnsToMatch = array_unique(array_filter(array_merge(
@@ -1126,25 +1337,45 @@ class HorseController extends BaseController {
             array_map('trim', $registrationNumbers)
         )));
 
+        $alsVater = $sex !== 'mare';
+        $alsMutter = !in_array($sex, ['stallion', 'gelding'], true);
+
+        // Zyklus-Ausschluss (N47): einmal je Aufruf.
+        $vorfahren = $this->ancestorIds($horseId);
+        $zyklusBedingung = $vorfahren !== []
+            ? ' AND id NOT IN (' . implode(',', array_fill(0, count($vorfahren), '?')) . ')'
+            : '';
+
         // Alle UPDATEs schließen die eben gespeicherte Zeile selbst aus (AND id != ?):
         // ohne diesen Guard kann sich ein Pferd selbst als Elternteil zugewiesen
         // bekommen (z. B. eigene UELN im Vater-UELN-Feld oder gleichlautender
         // Freitext-Vatername) - ein Stammbaum-Zyklus (#131).
+        $uelnAlter = '';
+        $uelnAlterParams = [];
+        if ($birthYear !== null) {
+            // Das Kind (Zeile) muss jünger sein als $horseId (N47).
+            $uelnAlter = ' AND (birth_year IS NULL OR birth_year > ?)';
+            $uelnAlterParams = [$birthYear];
+        }
         foreach ($uelnsToMatch as $u) {
             // Auto-link Sires matching UELN or Foreign UELN (UELN ist eindeutig, keine Mehrdeutigkeit möglich)
-            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ? AND id != ?");
-            $stmt->execute([$horseId, $u, $horseId]);
-            $countSires = $stmt->rowCount();
-            if ($countSires > 0) {
-                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countSires} Nachkommen automatisch mit Vater ID {$horseId} (UELN: {$u}) verknüpft");
+            if ($alsVater) {
+                $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND sire_ueln = ? AND id != ? AND (dam_id IS NULL OR dam_id <> ?){$uelnAlter}{$zyklusBedingung}");
+                $stmt->execute([$horseId, $u, $horseId, $horseId, ...$uelnAlterParams, ...$vorfahren]);
+                $countSires = $stmt->rowCount();
+                if ($countSires > 0) {
+                    \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countSires} Nachkommen automatisch mit Vater ID {$horseId} (UELN: {$u}) verknüpft");
+                }
             }
 
             // Auto-link Dams matching UELN or Foreign UELN
-            $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND dam_ueln = ? AND id != ?");
-            $stmt->execute([$horseId, $u, $horseId]);
-            $countDams = $stmt->rowCount();
-            if ($countDams > 0) {
-                \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countDams} Nachkommen automatisch mit Mutter ID {$horseId} (UELN: {$u}) verknüpft");
+            if ($alsMutter) {
+                $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND dam_ueln = ? AND id != ? AND (sire_id IS NULL OR sire_id <> ?){$uelnAlter}{$zyklusBedingung}");
+                $stmt->execute([$horseId, $u, $horseId, $horseId, ...$uelnAlterParams, ...$vorfahren]);
+                $countDams = $stmt->rowCount();
+                if ($countDams > 0) {
+                    \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countDams} Nachkommen automatisch mit Mutter ID {$horseId} (UELN: {$u}) verknüpft");
+                }
             }
         }
 
@@ -1170,19 +1401,23 @@ class HorseController extends BaseController {
                 }
 
                 // Auto-link Sires matching exact Name (where sire_ueln is empty)
-                $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?) AND id != ?{$ageCondition}");
-                $stmt->execute([$horseId, $name, $horseId, ...$ageParams]);
-                $countNameSires = $stmt->rowCount();
-                if ($countNameSires > 0) {
-                    \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameSires} Nachkommen anhand Name '{$name}' mit Vater ID {$horseId} verknüpft");
+                if ($alsVater) {
+                    $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE sire_id IS NULL AND (sire_ueln IS NULL OR sire_ueln = '') AND LOWER(sire_name) = LOWER(?) AND id != ? AND (dam_id IS NULL OR dam_id <> ?){$ageCondition}{$zyklusBedingung}");
+                    $stmt->execute([$horseId, $name, $horseId, $horseId, ...$ageParams, ...$vorfahren]);
+                    $countNameSires = $stmt->rowCount();
+                    if ($countNameSires > 0) {
+                        \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameSires} Nachkommen anhand Name '{$name}' mit Vater ID {$horseId} verknüpft");
+                    }
                 }
 
                 // Auto-link Dams matching exact Name (where dam_ueln is empty)
-                $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?) AND id != ?{$ageCondition}");
-                $stmt->execute([$horseId, $name, $horseId, ...$ageParams]);
-                $countNameDams = $stmt->rowCount();
-                if ($countNameDams > 0) {
-                    \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameDams} Nachkommen anhand Name '{$name}' mit Mutter ID {$horseId} verknüpft");
+                if ($alsMutter) {
+                    $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE dam_id IS NULL AND (dam_ueln IS NULL OR dam_ueln = '') AND LOWER(dam_name) = LOWER(?) AND id != ? AND (sire_id IS NULL OR sire_id <> ?){$ageCondition}{$zyklusBedingung}");
+                    $stmt->execute([$horseId, $name, $horseId, $horseId, ...$ageParams, ...$vorfahren]);
+                    $countNameDams = $stmt->rowCount();
+                    if ($countNameDams > 0) {
+                        \App\Service\AuditLogger::log("Automatische Zusammenführung", "horses", "{$countNameDams} Nachkommen anhand Name '{$name}' mit Mutter ID {$horseId} verknüpft");
+                    }
                 }
             }
         }
@@ -1314,53 +1549,97 @@ class HorseController extends BaseController {
         $parentType = $_POST['parent_type'] ?? ''; // 'sire' or 'dam'
         $parentHorseId = (int)($_POST['parent_horse_id'] ?? 0);
 
+        // Dieselben Prüfungen wie das Formular (#166, #298, Audit N47). Bis
+        // dahin kannte linkMatch nur Selbst-Link und Geschlecht: Ein
+        // Vorschlag mit unmöglichem Alter, Vater = Mutter oder ein
+        // Stammbaum-Zyklus ließen sich mit einem Klick übernehmen, und ein
+        // unvollständiger Request meldete still "verknüpft".
+        if (!in_array($parentType, ['sire', 'dam'], true) || $childId <= 0 || $parentHorseId <= 0) {
+            header("Location: /admin/matches?error=invalid");
+            exit;
+        }
+
         // Serverseitig ablehnen, dass ein Pferd sein eigener Elternteil wird -
         // die Absicherung existierte bisher nur clientseitig (#131).
-        if ($childId > 0 && $childId === $parentHorseId) {
+        if ($childId === $parentHorseId) {
             header("Location: /admin/matches?error=self_link");
+            exit;
+        }
+
+        $db = Database::getInstance();
+        $stmt = $db->prepare("SELECT id, name, birth_year, sire_id, dam_id, deleted_at FROM horses WHERE id = ?");
+        $stmt->execute([$childId]);
+        $kind = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($kind === false) {
+            header("Location: /admin/matches?error=not_found");
+            exit;
+        }
+        // Schreibschutz für den Papierkorb (#322): Ein veralteter Match-Tab
+        // könnte sonst einen Datensatz im Papierkorb verändern.
+        if ($kind['deleted_at'] !== null) {
+            header("Location: /admin/matches?error=child_in_trash");
+            exit;
+        }
+
+        $spalte = $parentType === 'sire' ? 'sire_id' : 'dam_id';
+        $andererElternteil = $parentType === 'sire' ? $kind['dam_id'] : $kind['sire_id'];
+        if ($kind[$spalte] !== null && (int)$kind[$spalte] === $parentHorseId) {
+            // Schon so verknüpft - nichts zu tun.
+            header("Location: /admin/matches?success=linked");
             exit;
         }
 
         // Geschlechts-Guard analog zur Selbst-Link-Sperre (#167): eine Stute kann
         // nicht als Vater, ein Hengst/Wallach nicht als Mutter verknüpft werden.
-        if ($parentHorseId > 0 && in_array($parentType, ['sire', 'dam'], true)) {
-            $mismatch = ($parentType === 'sire')
-                ? $this->parentSexMismatch($parentHorseId, null)
-                : $this->parentSexMismatch(null, $parentHorseId);
-            if ($mismatch) {
-                header("Location: /admin/matches?error=sex_mismatch");
-                exit;
-            }
+        $mismatch = ($parentType === 'sire')
+            ? $this->parentSexMismatch($parentHorseId, null)
+            : $this->parentSexMismatch(null, $parentHorseId);
+        if ($mismatch) {
+            header("Location: /admin/matches?error=sex_mismatch");
+            exit;
         }
 
-        if ($childId && $parentHorseId && in_array($parentType, ['sire', 'dam'])) {
-            $db = Database::getInstance();
-
-            // Fetch names for audit log
-            $stmt = $db->prepare("SELECT name FROM horses WHERE id = ?");
-            $stmt->execute([$childId]);
-            $childName = $stmt->fetchColumn() ?: "Pferd #{$childId}";
-
-            $stmt->execute([$parentHorseId]);
-            $parentName = $stmt->fetchColumn() ?: "Pferd #{$parentHorseId}";
-
-            // Rollen-Bezeichnung ohne Geschlechts-Behauptung (#167): das verknüpfte
-            // Tier kann auch ohne hinterlegtes Geschlecht (NULL) gespeichert sein.
-            $roleLabel = ($parentType === 'sire') ? 'Vater' : 'Mutter';
-
-            if ($parentType === 'sire') {
-                $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE id = ?");
-            } else {
-                $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE id = ?");
-            }
-            $stmt->execute([$parentHorseId, $childId]);
-
-            \App\Service\AuditLogger::log(
-                "Abstammung zusammengeführt",
-                "horses",
-                "Kind '{$childName}' (ID {$childId}) mit {$roleLabel} '{$parentName}' (ID {$parentHorseId}) verknüpft"
-            );
+        if ($andererElternteil !== null && (int)$andererElternteil === $parentHorseId) {
+            header("Location: /admin/matches?error=same_sire_and_dam");
+            exit;
         }
+
+        // Alter: nur der neue Elternteil gegen das Geburtsjahr des Kindes.
+        $kindJahr = $kind['birth_year'] !== null ? (int)$kind['birth_year'] : null;
+        $alter = $parentType === 'sire'
+            ? $this->pedigreeContradiction($parentHorseId, null, $kindJahr)
+            : $this->pedigreeContradiction(null, $parentHorseId, $kindJahr);
+        if ($alter) {
+            header("Location: /admin/matches?error={$alter}");
+            exit;
+        }
+
+        if ($error = $this->linkTargetError($childId, $parentHorseId)) {
+            header("Location: /admin/matches?error={$error}");
+            exit;
+        }
+
+        $childName = (string)$kind['name'];
+        $stmt = $db->prepare("SELECT name FROM horses WHERE id = ?");
+        $stmt->execute([$parentHorseId]);
+        $parentName = $stmt->fetchColumn() ?: "Pferd #{$parentHorseId}";
+
+        // Rollen-Bezeichnung ohne Geschlechts-Behauptung (#167): das verknüpfte
+        // Tier kann auch ohne hinterlegtes Geschlecht (NULL) gespeichert sein.
+        $roleLabel = ($parentType === 'sire') ? 'Vater' : 'Mutter';
+
+        if ($parentType === 'sire') {
+            $stmt = $db->prepare("UPDATE horses SET sire_id = ?, sire_name = NULL, sire_ueln = NULL WHERE id = ? AND deleted_at IS NULL");
+        } else {
+            $stmt = $db->prepare("UPDATE horses SET dam_id = ?, dam_name = NULL, dam_ueln = NULL WHERE id = ? AND deleted_at IS NULL");
+        }
+        $stmt->execute([$parentHorseId, $childId]);
+
+        \App\Service\AuditLogger::log(
+            "Abstammung zusammengeführt",
+            "horses",
+            "Kind '{$childName}' (ID {$childId}) mit {$roleLabel} '{$parentName}' (ID {$parentHorseId}) verknüpft"
+        );
 
         header("Location: /admin/matches?success=linked");
         exit;
@@ -1405,14 +1684,18 @@ class HorseController extends BaseController {
      * Save person roles & ownership history in horse_persons table
      */
     /**
-     * Gibt es die Zeile noch? (#317)
+     * Gibt es die Zeile noch, und liegt sie im Papierkorb? (#317, Audit M34)
+     *
+     * Liefert 'aktiv', 'papierkorb' oder null (unbekannt bzw. hart
+     * gelöscht). Früher nur "existiert"; ein Kontakt im Papierkorb galt
+     * damit als frei wählbar, obwohl ihn das Formular nicht anbietet.
      *
      * Die Tabelle kommt ueber eine Positivliste in die Abfrage und nie aus
      * einem Aufrufwert - ein Tabellenname laesst sich nicht als Parameter
      * binden, und ein durchgereichter String waere genau die Stelle, an der
      * das eines Tages jemand tut.
      */
-    private function rowExists(\PDO $db, string $table, int $id): bool {
+    private function zeilenZustand(\PDO $db, string $table, int $id): ?string {
         // Seit #336 kennt die Liste nur noch einen Namen - beide Steckplaetze
         // zeigen auf `contacts`. Die Positivliste bleibt trotzdem stehen: Sie
         // ist die Zusicherung, dass hier nie ein Aufrufwert in die Abfrage
@@ -1421,9 +1704,13 @@ class HorseController extends BaseController {
         $tabelle = match ($table) {
             'contacts' => 'contacts',
         };
-        $stmt = $db->prepare("SELECT 1 FROM `{$tabelle}` WHERE id = ?");
+        $stmt = $db->prepare("SELECT deleted_at FROM `{$tabelle}` WHERE id = ?");
         $stmt->execute([$id]);
-        return (bool)$stmt->fetchColumn();
+        $zeile = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($zeile === false) {
+            return null;
+        }
+        return $zeile['deleted_at'] === null ? 'aktiv' : 'papierkorb';
     }
 
     private function saveHorsePersons(\PDO $db, int $horseId, array $personsData): void {
@@ -1454,6 +1741,37 @@ class HorseController extends BaseController {
         $stmt->execute([$horseId]);
         $vorher = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         $existingTexts = array_column($vorher, 'breeding_station_text');
+
+        // Kontakte, die dieses Pferd schon VOR dem Speichern zugeordnet hatte
+        // (Audit M34). Nur sie dürfen im Papierkorb liegen und trotzdem
+        // übernommen werden: Die bestehende Zuordnung bleibt erhalten, neu
+        // setzen lässt sich ein Kontakt aus dem Papierkorb nicht. store() hat
+        // einen leeren Snapshot und nimmt solche Kontakte daher nie an.
+        $bisherigeKontakte = [];
+        foreach ($vorher as $zeile) {
+            foreach (['contact_id', 'station_contact_id'] as $spalte) {
+                if (!empty($zeile[$spalte])) {
+                    $bisherigeKontakte[(int)$zeile[$spalte]] = true;
+                }
+            }
+        }
+        $kontaktZustaende = [];
+        $kontaktZustand = function (int $kontaktId) use ($db, &$kontaktZustaende): ?string {
+            if (!array_key_exists($kontaktId, $kontaktZustaende)) {
+                $kontaktZustaende[$kontaktId] = $this->zeilenZustand($db, 'contacts', $kontaktId);
+            }
+            return $kontaktZustaende[$kontaktId];
+        };
+        $zulaessigerKontakt = function (?int $kontaktId) use ($kontaktZustand, $bisherigeKontakte): ?int {
+            if ($kontaktId === null) {
+                return null;
+            }
+            return match ($kontaktZustand($kontaktId)) {
+                'aktiv' => $kontaktId,
+                'papierkorb' => isset($bisherigeKontakte[$kontaktId]) ? $kontaktId : null,
+                default => null,
+            };
+        };
 
         // DELETE und INSERTs gehoeren zusammen (#317).
         //
@@ -1489,6 +1807,7 @@ class HorseController extends BaseController {
 
             $currentStationId = null;
             $currentStationText = null;
+            $currentStationImPapierkorb = false;
             $highestScore = -1;
 
             foreach ($personsData as $index => $item) {
@@ -1518,13 +1837,10 @@ class HorseController extends BaseController {
                 // der verwaisten ID nichts mehr in ihr steht.
                 //
                 // Beide Steckplaetze pruefen jetzt gegen dieselbe Tabelle
-                // (#336), bleiben aber getrennte Werte.
-                if ($contactId !== null && !$this->rowExists($db, 'contacts', $contactId)) {
-                    $contactId = null;
-                }
-                if ($stationId !== null && !$this->rowExists($db, 'contacts', $stationId)) {
-                    $stationId = null;
-                }
+                // (#336), bleiben aber getrennte Werte. Kontakte im
+                // Papierkorb nur, wenn sie schon zugeordnet waren (Audit M34).
+                $contactId = $zulaessigerKontakt($contactId);
+                $stationId = $zulaessigerKontakt($stationId);
                 // Fehlender Schluessel erhaelt den Bestand, uebermittelter
                 // Leerstring loescht - dieselbe Unterscheidung wie beim COALESCE
                 // fuer horses.breeding_station in update() (#214).
@@ -1562,6 +1878,12 @@ class HorseController extends BaseController {
                     if ($score >= $highestScore) {
                         $highestScore = $score;
                         if ($stationId) {
+                            // Eine erhaltene Station im Papierkorb gewinnt die
+                            // Wahl, wird aber nicht gespiegelt: Ihr Name soll
+                            // nicht neu nach horses.breeding_station
+                            // denormalisiert werden (Audit M34, abgestimmt mit
+                            // M11). Der Bestandswert des Pferds bleibt stehen.
+                            $currentStationImPapierkorb = $kontaktZustand($stationId) === 'papierkorb';
                             $currentStationId = $stationId;
                             // Nur die Zieltabelle heisst jetzt anders (#336) -
                             // gespiegelt wird unveraendert Name und ID der
@@ -1570,6 +1892,7 @@ class HorseController extends BaseController {
                             $stStmt->execute([$stationId]);
                             $currentStationText = $stStmt->fetchColumn() ?: null;
                         } else {
+                            $currentStationImPapierkorb = false;
                             $currentStationId = null;
                             $currentStationText = $stationText;
                         }
@@ -1626,7 +1949,7 @@ class HorseController extends BaseController {
         // (oder einen Request mit explizit leerem breeding_station-Feld, siehe
         // COALESCE in update()) tun - ein gelöschter Personen-Block lässt den
         // Bestandswert stehen.
-        if ($currentStationId !== null || ($currentStationText ?? '') !== '') {
+        if (!$currentStationImPapierkorb && ($currentStationId !== null || ($currentStationText ?? '') !== '')) {
             $syncStmt = $db->prepare("UPDATE horses SET breeding_station_id = ?, breeding_station = ? WHERE id = ?");
             $syncStmt->execute([$currentStationId, $currentStationText, $horseId]);
         }

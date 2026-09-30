@@ -316,6 +316,11 @@ final class MatchSuggestionFinder {
             // 3. Birth Year Plausibility (Max 12 Points or Penalty)
             $childYear = (int)($childHorse['birth_year'] ?? 0);
             $candYear = (int)($candidate['birth_year'] ?? 0);
+            // Unmögliches Alter (Audit N47): Der Vorschlag bleibt sichtbar
+            // (die Geburtsjahre können falsch sein), aber "Jetzt verknüpfen"
+            // wird gesperrt. Die eigentliche Sperre ist der Server-Guard in
+            // HorseController::linkMatch().
+            $blockiert = false;
 
             if ($childYear > 0 && $candYear > 0) {
                 $ageDiff = $childYear - $candYear;
@@ -328,6 +333,7 @@ final class MatchSuggestionFinder {
                 } else if ($ageDiff <= 0) {
                     $points -= 35; // Severe penalty: parent born after or same year as child
                     $reasons[] = "⚠️ Unmögliches Alter (Kandidat jünger/gleich alt)";
+                    $blockiert = true;
                 } else if ($ageDiff > 35) {
                     $points -= 15;
                     $reasons[] = "⚠️ Unwahrscheinlicher Altersabstand (" . $ageDiff . " Jahre)";
@@ -353,11 +359,15 @@ final class MatchSuggestionFinder {
             $score = min(100, max(0, $points));
 
             if ($score >= 45 || $hasUelnMatch || $hasStrongNameMatch) {
-                $suggestions[] = [
+                $vorschlag = [
                     'horse' => $candidate,
                     'score' => $score,
                     'reasons' => $reasons
                 ];
+                if ($blockiert) {
+                    $vorschlag['blockiert'] = true;
+                }
+                $suggestions[] = $vorschlag;
             }
         }
 

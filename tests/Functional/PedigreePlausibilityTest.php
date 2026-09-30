@@ -112,6 +112,31 @@ class PedigreePlausibilityTest extends FunctionalTestCase {
         $this->assertSame($wallachId, (int)$stmt->fetchColumn());
     }
 
+    /**
+     * Audit N47: Ohne Geburtsjahre sieht die Altersprüfung nichts - ein
+     * Zyklus (A ist Vater von B, B soll Vater von A werden) ging bisher durch.
+     */
+    public function testCycleIsRefusedEvenWithoutBirthYears(): void {
+        $db = Database::getInstance();
+        $admin = $this->authenticatedClient();
+        $unique = uniqid();
+
+        $a = $this->anlegen($admin, "Zyklus A {$unique}", null, 'stallion');
+        $b = $this->anlegen($admin, "Zyklus B {$unique}", null, 'stallion', ['sire_id' => (string)$a]);
+
+        $form = $admin->get("/admin/horses/edit?id={$a}");
+        $response = $admin->post('/admin/horses/update', [
+            'csrf_token' => $form->formField('csrf_token') ?? '',
+            'id' => (string)$a,
+            'name' => "Zyklus A {$unique}",
+            'sex' => 'stallion',
+            'status' => 'active',
+            'sire_id' => (string)$b,
+        ]);
+        $this->assertSame('/admin/horses?error=pedigree_cycle', $response->location());
+        $this->assertNull($db->query("SELECT sire_id FROM horses WHERE id = {$a}")->fetchColumn());
+    }
+
     /** @param array<string, string> $extra */
     private function anlegen(\Tests\Support\HttpClient $admin, string $name, ?int $jahr, string $sex, array $extra = []): int {
         $form = $admin->get('/admin/horses/create');

@@ -106,7 +106,29 @@ $resetHref = '/admin/horses' . ($publishedFilter !== null ? '?published=' . (int
                 'period_after_death' => 'Nicht gespeichert: Ein Zeitraum bei Züchter, Besitzer oder Halter liegt nach dem Todesjahr des Pferdes.',
                 // #296/#322: Schreibschutz fuer den Papierkorb.
                 'deleted' => 'Nicht gespeichert: Der Datensatz liegt im Papierkorb. Zum Bearbeiten zuerst unter Papierkorb wiederherstellen.',
+                // Audit M34/N47: Eltern im Papierkorb sind nicht neu wählbar.
+                'parent_in_trash' => 'Nicht gespeichert: Das gewählte Elterntier liegt im Papierkorb.',
+                'parent_missing' => 'Nicht gespeichert: Das gewählte Elterntier existiert nicht mehr.',
+                'pedigree_cycle' => 'Nicht gespeichert: Das gewählte Elterntier ist bereits ein Nachkomme dieses Pferds - das ergäbe einen Kreis im Stammbaum.',
+                // Audit N48: vorher eine Fehlerseite.
+                'ueln_taken' => 'Nicht gespeichert: Diese UELN ist bereits einem anderen Pferd zugeordnet (Groß-/Kleinschreibung zählt dabei nicht).',
+                'ueln_taken_trash' => 'Nicht gespeichert: Diese UELN gehört einem Pferd im Papierkorb. Stellen Sie es dort zuerst wieder her oder löschen Sie es endgültig.',
             ];
+            // Zu lange Eingabe (Audit N48): Feldnamen nur aus einer Weißliste,
+            // die Grenze aus derselben Quelle wie beim Speichern.
+            $feldLabels = [
+                'name' => 'Name', 'ueln' => 'UELN', 'foreign_ueln' => 'Ausländische UELN',
+                'sire_name' => 'Name des Vaters', 'sire_ueln' => 'UELN des Vaters',
+                'dam_name' => 'Name der Mutter', 'dam_ueln' => 'UELN der Mutter',
+                'color' => 'Farbe', 'breed' => 'Rasse', 'breeding_station' => 'Deckstation',
+                'description' => 'Beschreibung',
+            ];
+            if ($_GET['error'] === 'too_long') {
+                $feld = (string)($_GET['field'] ?? '');
+                $errorMessages['too_long'] = isset($feldLabels[$feld], App\Service\HorseCsvImporter::MAX_LENGTHS[$feld])
+                    ? "Nicht gespeichert: Das Feld „{$feldLabels[$feld]}“ ist zu lang (max. " . App\Service\HorseCsvImporter::MAX_LENGTHS[$feld] . ($feld === 'description' ? ' Bytes' : ' Zeichen') . ').'
+                    : 'Nicht gespeichert: Eine Eingabe ist zu lang.';
+            }
             echo htmlspecialchars($errorMessages[$_GET['error']] ?? 'Aktion fehlgeschlagen.');
             ?>
         </div>

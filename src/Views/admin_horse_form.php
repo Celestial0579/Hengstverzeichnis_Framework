@@ -67,13 +67,13 @@ foreach (($allContacts ?? []) as $c) {
 
         <div class="form-group">
             <label for="name">Name des Pferdes *</label>
-            <input type="text" id="name" name="name" class="form-control" value="<?= htmlspecialchars($horse['name'] ?? '') ?>" required>
+            <input type="text" id="name" name="name" class="form-control" maxlength="100" value="<?= htmlspecialchars($horse['name'] ?? '') ?>" required>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
             <div class="form-group" style="margin-bottom: 0;">
                 <label for="ueln">UELN (Haupt-Lebensnummer / Deutschland)</label>
-                <input type="text" id="ueln" name="ueln" class="form-control" value="<?= htmlspecialchars($horse['ueln'] ?? '') ?>" placeholder="z. B. DE 434340123418">
+                <input type="text" id="ueln" name="ueln" class="form-control" maxlength="50" value="<?= htmlspecialchars($horse['ueln'] ?? '') ?>" placeholder="z. B. DE 434340123418">
             </div>
 
             <?php // Weitere Lebensnummern (#246): beliebig viele Registriernummern
@@ -143,9 +143,12 @@ foreach (($allContacts ?? []) as $c) {
                         // eine bereits gespeicherte (Alt-)Verknüpfung bleibt wählbar,
                         // damit das Formular sie nicht beim Speichern still verwirft.
                         if (in_array($h['sex'] ?? null, ['mare', 'gelding'], true) && ($horse['sire_id'] ?? '') != $h['id']) continue;
+                        // Pferde im Papierkorb nur als bereits gesetzter Vater
+                        // (Audit M34): erhalten, aber nicht neu wählbar.
+                        if (!empty($h['deleted_at']) && ($horse['sire_id'] ?? '') != $h['id']) continue;
                         ?>
                         <option value="<?= $h['id'] ?>" <?= ($horse['sire_id'] ?? '') == $h['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?>
+                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?><?= !empty($h['deleted_at']) ? ' (im Papierkorb)' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -156,11 +159,11 @@ foreach (($allContacts ?? []) as $c) {
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 2;">
                     <label for="sire_name">Name des Vaters (Freitext)</label>
-                    <input type="text" id="sire_name" name="sire_name" class="form-control" value="<?= htmlspecialchars($horse['sire_name'] ?? '') ?>" placeholder="Name des Vaters">
+                    <input type="text" id="sire_name" name="sire_name" class="form-control" maxlength="100" value="<?= htmlspecialchars($horse['sire_name'] ?? '') ?>" placeholder="Name des Vaters">
                 </div>
                 <div class="form-group" style="flex: 1;">
-                    <label for="sire_ueln">UELN des Vaters</label>
-                    <input type="text" id="sire_ueln" name="sire_ueln" class="form-control" value="<?= htmlspecialchars($horse['sire_ueln'] ?? '') ?>" placeholder="UELN">
+                    <label for="sire_ueln">UELN des Vaters <small style="color: var(--text-subtle); font-weight: normal;">(max. 15 Zeichen)</small></label>
+                    <input type="text" id="sire_ueln" name="sire_ueln" class="form-control" maxlength="15" value="<?= htmlspecialchars($horse['sire_ueln'] ?? '') ?>" placeholder="UELN">
                 </div>
             </div>
         </fieldset>
@@ -179,9 +182,11 @@ foreach (($allContacts ?? []) as $c) {
                         // Als Mutter nur Stuten und Pferde ohne Geschlechtsangabe (#166);
                         // Alt-Verknüpfung bleibt wählbar (siehe Vater-Auswahl).
                         if (in_array($h['sex'] ?? null, ['stallion', 'gelding'], true) && ($horse['dam_id'] ?? '') != $h['id']) continue;
+                        // Papierkorb nur als bereits gesetzte Mutter (Audit M34).
+                        if (!empty($h['deleted_at']) && ($horse['dam_id'] ?? '') != $h['id']) continue;
                         ?>
                         <option value="<?= $h['id'] ?>" <?= ($horse['dam_id'] ?? '') == $h['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?>
+                            <?= htmlspecialchars($h['name']) ?> <?= $h['birth_year'] ? '(' . $h['birth_year'] . ')' : '' ?> <?= $h['ueln'] ? '[' . htmlspecialchars($h['ueln']) . ']' : '' ?><?= !empty($h['deleted_at']) ? ' (im Papierkorb)' : '' ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -192,11 +197,11 @@ foreach (($allContacts ?? []) as $c) {
             <div style="display: flex; gap: 1rem;">
                 <div class="form-group" style="flex: 2;">
                     <label for="dam_name">Name der Mutter (Freitext)</label>
-                    <input type="text" id="dam_name" name="dam_name" class="form-control" value="<?= htmlspecialchars($horse['dam_name'] ?? '') ?>" placeholder="Name der Mutter">
+                    <input type="text" id="dam_name" name="dam_name" class="form-control" maxlength="100" value="<?= htmlspecialchars($horse['dam_name'] ?? '') ?>" placeholder="Name der Mutter">
                 </div>
                 <div class="form-group" style="flex: 1;">
-                    <label for="dam_ueln">UELN der Mutter</label>
-                    <input type="text" id="dam_ueln" name="dam_ueln" class="form-control" value="<?= htmlspecialchars($horse['dam_ueln'] ?? '') ?>" placeholder="UELN">
+                    <label for="dam_ueln">UELN der Mutter <small style="color: var(--text-subtle); font-weight: normal;">(max. 15 Zeichen)</small></label>
+                    <input type="text" id="dam_ueln" name="dam_ueln" class="form-control" maxlength="15" value="<?= htmlspecialchars($horse['dam_ueln'] ?? '') ?>" placeholder="UELN">
                 </div>
             </div>
         </fieldset>
@@ -240,7 +245,7 @@ foreach (($allContacts ?? []) as $c) {
         <div style="display: flex; gap: 1rem;">
             <div class="form-group" style="flex: 1;">
                 <label for="color">Farbe</label>
-                <input type="text" id="color" name="color" class="form-control" value="<?= htmlspecialchars($horse['color'] ?? '') ?>">
+                <input type="text" id="color" name="color" class="form-control" maxlength="50" value="<?= htmlspecialchars($horse['color'] ?? '') ?>">
             </div>
 
             <div class="form-group" style="flex: 1;">
@@ -262,7 +267,7 @@ foreach (($allContacts ?? []) as $c) {
 
             <div class="form-group" style="flex: 1;">
                 <label for="breed">Rasse</label>
-                <input type="text" id="breed" name="breed" class="form-control" value="<?= htmlspecialchars($horse['breed'] ?? '') ?>" placeholder="z. B. Fjordpferd">
+                <input type="text" id="breed" name="breed" class="form-control" maxlength="100" value="<?= htmlspecialchars($horse['breed'] ?? '') ?>" placeholder="z. B. Fjordpferd">
             </div>
         </div>
 
@@ -357,6 +362,10 @@ foreach (($allContacts ?? []) as $c) {
                             <div style="flex: 2; min-width: 180px;">
                                 <select name="persons[<?= $idx ?>][contact_id]" class="form-control">
                                     <option value="">-- Person (Züchter/Besitzer) --</option>
+                                    <?php // Bestehende Zuordnung auf einen Kontakt im Papierkorb: nur in DIESER Zeile, erhalten statt still gelöscht (Audit M34). ?>
+                                    <?php if (!empty($hp['contact_id']) && !empty($hp['contact_deleted_at'])): ?>
+                                        <option value="<?= (int)$hp['contact_id'] ?>" selected><?= htmlspecialchars((string)$hp['name']) ?> (im Papierkorb)</option>
+                                    <?php endif; ?>
                                     <?php foreach ($allContacts as $c): ?>
                                         <option value="<?= $c['id'] ?>" <?= ($hp['contact_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
                                     <?php endforeach; ?>
@@ -374,6 +383,9 @@ foreach (($allContacts ?? []) as $c) {
                             <div style="flex: 2; min-width: 180px;">
                                 <select name="persons[<?= $idx ?>][station_contact_id]" class="form-control">
                                     <option value="">-- Deckstation / Gestüt (Optional) --</option>
+                                    <?php if (!empty($hp['station_contact_id']) && !empty($hp['station_deleted_at'])): ?>
+                                        <option value="<?= (int)$hp['station_contact_id'] ?>" selected><?= htmlspecialchars((string)$hp['station_name']) ?> (im Papierkorb)</option>
+                                    <?php endif; ?>
                                     <?php foreach ($allContacts as $c): ?>
                                         <option value="<?= $c['id'] ?>" <?= ($hp['station_contact_id'] ?? '') == $c['id'] ? 'selected' : '' ?>><?= htmlspecialchars($c['name']) ?></option>
                                     <?php endforeach; ?>

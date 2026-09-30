@@ -181,10 +181,20 @@ class ImportController extends BaseController {
                 "Import abgebrochen und zurückgerollt: " . $e->getMessage()
             );
 
+            // Doppelte UELN (Audit N48): Die Vorprüfung vergleicht innerhalb
+            // der Datei nur näherungsweise (Akzent- bzw. ß/ss-Varianten, siehe
+            // HorseCsvImporter::uelnKey()), und zwischen Vorschau und Commit
+            // kann ein Pferd angelegt worden sein. Dann greift der
+            // UNIQUE-Index - verständlich melden statt der rohen Ursache.
+            $doppelt = $e instanceof \PDOException && (int)($e->errorInfo[1] ?? 0) === 1062;
+            $ursache = $doppelt
+                ? 'Doppelte UELN - eine UELN aus der Datei ist bereits vergeben oder kommt in abweichender Schreibweise mehrfach vor (Groß-/Kleinschreibung, Akzente, ß/ss gelten als gleich).'
+                : 'Technische Ursache: ' . $e->getMessage();
+
             $this->render('admin_import_horses', [
                 'title' => 'Pferde-Bulk-Import (CSV)',
                 'preview' => null,
-                'errors' => ['Der Import ist fehlgeschlagen und wurde vollständig zurückgerollt - es wurden keine Pferde angelegt. Technische Ursache: ' . $e->getMessage()],
+                'errors' => ['Der Import ist fehlgeschlagen und wurde vollständig zurückgerollt - es wurden keine Pferde angelegt. ' . $ursache],
             ]);
             return;
         }

@@ -806,7 +806,7 @@ class HorseController extends BaseController {
         ], $ueln, (int)$id);
 
         $db = Database::getInstance();
-        $stmt = $db->prepare("SELECT image_url, status, is_published, deleted_at, sire_id, dam_id FROM horses WHERE id = ?");
+        $stmt = $db->prepare("SELECT status, is_published, deleted_at, sire_id, dam_id FROM horses WHERE id = ?");
         $stmt->execute([$id]);
         $existing = $stmt->fetch();
 
@@ -852,8 +852,6 @@ class HorseController extends BaseController {
             }
         }
 
-        $currentImageUrl = $existing['image_url'] ?? null;
-
         // Veröffentlichung (öffentliche Sichtbarkeit) ist unabhängig vom Status und
         // darf nur mit 'horses.publish' geändert werden. Ohne diese Berechtigung
         // bleibt der bisherige Veröffentlichungszustand unverändert erhalten (ein
@@ -867,8 +865,14 @@ class HorseController extends BaseController {
         // KEIN Foto-Upload und kein "Foto entfernen" mehr in diesem Formular
         // (#339). Beides laeuft ueber den Medien-Abschnitt und
         // HorseMediaController; `image_url` traegt weiterhin das Hauptbild und
-        // wird von HorseMedia::syncMainImage() nachgefuehrt. Hier wird der
-        // Bestandswert unveraendert mitgeschrieben.
+        // wird von HorseMedia::syncMainImage() nachgefuehrt. Dieses UPDATE
+        // fasst die Spalte deshalb GAR NICHT an (Audit N68). Frueher schrieb
+        // es den eingangs gelesenen Bestandswert zurueck - ein Lost Update,
+        // das seit dem echten Entfernen geloeschter Hauptbilder schadet:
+        // Liest das Formular image_url = A, loescht parallel ein
+        // Medien-Request A samt Datei, und schreibt das Formular danach A
+        // zurueck, zeigt das Katalogbild auf eine Datei, die es nicht mehr
+        // gibt.
         //
         // Die beiden bisherigen Zweige sind damit nicht nur ueberfluessig,
         // sondern waren seit #366 auch falsch: Sie loeschten die Datei unter
@@ -884,7 +888,7 @@ class HorseController extends BaseController {
         // foreign_ueln analog (#246), aber per CASE statt COALESCE: ein
         // übermittelter Leerstring soll NULL speichern (wie früher `?: null`),
         // nicht den Leerstring selbst.
-        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, birth_date_precision = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ? AND deleted_at IS NULL");
+        $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, birth_date_precision = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ? WHERE id = ? AND deleted_at IS NULL");
         // Das Häkchen steht NICHT im Haupt-UPDATE (Audit N49): Bisher wurde
         // is_published = 1 hier festgeschrieben und erst am Ende bei einem
         // Addon-Einwand zurückgenommen. Brach ein Zwischenschritt ab
@@ -900,7 +904,7 @@ class HorseController extends BaseController {
         // nicht in einer offenen Transaktion laufen.
         $vorlaeufig = ($isPublished === 1 && (int)$existing['is_published'] === 1) ? 1 : 0;
         try {
-            $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $vorlaeufig, $currentImageUrl, $id]);
+            $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $vorlaeufig, $id]);
         } catch (\PDOException $e) {
             // 1062 (Audit N48): Rennen zwischen uelnConflict() und dem UPDATE.
             // Bis hierher wurde nichts geschrieben.

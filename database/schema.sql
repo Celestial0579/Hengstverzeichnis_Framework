@@ -449,7 +449,9 @@ CREATE TABLE IF NOT EXISTS `horse_registrations` (
 -- WARUM `is_main` UND NICHT `sort_order = 0`. Die Reihenfolge ist eine
 -- Anzeigereihenfolge; wer sie umsortiert, will nicht zwangslaeufig das
 -- Hauptbild wechseln. Zwei Bedeutungen in einer Spalte sind genau die Art
--- Kopplung, die spaeter niemand mehr aufloest.
+-- Kopplung, die spaeter niemand mehr aufloest. Sobald ein Pferd Bilder hat,
+-- traegt GENAU eines is_main = 1, und `horses.image_url` zeigt darauf -
+-- HorseMedia::syncMainImage() stellt das nach jeder Aenderung her (Audit N69).
 --
 -- `file_name` traegt denselben Wert wie `horses.image_url`
 -- (`/uploads/horses/<datei>`) - ein Speicherort, keine Adresse. Ausgeliefert

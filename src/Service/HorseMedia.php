@@ -155,10 +155,17 @@ final class HorseMedia {
     /**
      * Legt ein Medium an.
      *
-     * Bild ODER Video - bei beidem gewinnt das Bild. Das erste Bild eines
-     * Pferds ohne Hauptbild wird automatisch zum Hauptbild: Ein Bestand mit
-     * Fotos, aber ohne ausgezeichnetes Hauptbild, zeigte sonst in Katalog und
-     * Liste nichts, obwohl Bilder da sind.
+     * Bild ODER Video - bei beidem gewinnt das Bild. Nach einem Bild stellt
+     * syncMainImage() die Invariante her (genau ein Hauptbild, und zwar das
+     * in `horses.image_url`): Das erste Bild eines Pferds wird Hauptbild,
+     * ein weiteres verdraengt das angezeigte nicht - auch dann nicht, wenn
+     * es eine kleinere Sortierung hat (Audit N69). Beim Anlegen ueber
+     * HorseController::store() zeigt image_url schon auf das neue Bild, das
+     * damit Hauptbild wird.
+     *
+     * Ein Katalogfoto ohne Medienzeile (v0.8-Bestand ohne Addon `galerie`,
+     * Audit M40) wird vorher als Zeile uebernommen - sonst verdraengte das
+     * neue Bild es ungefragt, und das Foto waere aus der Pflege verschwunden.
      *
      * @return int Neue ID, 0 bei Ablehnung
      */
@@ -181,6 +188,10 @@ final class HorseMedia {
         $db = Database::getInstance();
         $typ = $fileName !== null ? self::TYP_BILD : self::TYP_VIDEO;
 
+        // $ausser: Beim Anlegen schreibt store() image_url zuerst - dieselbe
+        // Datei darf hier keine zweite Zeile bekommen.
+        self::bestandsHauptbildUebernehmen($horseId, $fileName);
+
         if ($sortOrder === null) {
             $stmt = $db->prepare('SELECT COALESCE(MAX(sort_order), 0) + 10 FROM horse_media WHERE horse_id = ?');
             $stmt->execute([$horseId]);
@@ -201,8 +212,8 @@ final class HorseMedia {
         ]);
         $id = (int)$db->lastInsertId();
 
-        if ($typ === self::TYP_BILD && !self::hatHauptbild($horseId)) {
-            self::setzeHauptbild($horseId, $id);
+        if ($typ === self::TYP_BILD) {
+            self::syncMainImage($horseId);
         }
 
         return $id;
@@ -211,25 +222,37 @@ final class HorseMedia {
     /**
      * Loescht ein Medium samt Datei.
      *
-     * War es das Hauptbild, rueckt das naechste Bild nach - sonst stuende das
-     * Pferd in Katalog und Liste ploetzlich ohne Foto da, obwohl noch welche
-     * vorhanden sind.
+     * War es das Hauptbild, rueckt das naechste Bild nach und wird als
+     * Hauptbild GEKENNZEICHNET (Audit N69) - sonst stuende das Pferd in
+     * Katalog und Liste ohne Foto da, obwohl noch welche vorhanden sind.
+     *
+     * DIE REIHENFOLGE IST DER KERN (Audit N68): erst die Zeile weg, dann
+     * syncMainImage(), und ERST DANACH die Datei. Vorher zeigt image_url
+     * noch auf genau diese Datei, und die Referenzpruefung liesse sie
+     * stehen - beim Hauptbild also immer. Die Reihenfolge ist zugleich
+     * fehlersicher: Wirft ein frueherer Schritt, bleibt die Datei liegen,
+     * statt dass eine Zeile auf eine geloeschte Datei zeigt.
      */
     public static function loeschen(int $mediaId): bool {
         $medium = self::byId($mediaId);
         if ($medium === null) {
             return false;
         }
+        $horseId = (int)$medium['horse_id'];
+
+        // Ein Katalogfoto ohne Medienzeile (Audit M40) vorher uebernehmen -
+        // sonst leerte das Loeschen etwa eines Videos das Katalogbild.
+        self::bestandsHauptbildUebernehmen($horseId);
 
         $db = Database::getInstance();
         $stmt = $db->prepare('DELETE FROM horse_media WHERE id = ?');
         $stmt->execute([$mediaId]);
 
-        if (($medium['type'] ?? '') === self::TYP_BILD && !empty($medium['file_name'])) {
-            self::dateiEntfernen((string)$medium['file_name']);
-        }
+        self::syncMainImage($horseId);
 
-        self::syncMainImage((int)$medium['horse_id']);
+        if (($medium['type'] ?? '') === self::TYP_BILD && !empty($medium['file_name'])) {
+            self::verwaisteDateienEntfernen([(string)$medium['file_name']]);
+        }
 
         return true;
     }
@@ -246,6 +269,11 @@ final class HorseMedia {
             return false;
         }
 
+        // Das bisherige Katalogfoto bleibt als Nebenbild erhalten, auch wenn
+        // es noch keine Medienzeile hat (Audit M40) - sonst waere es nach dem
+        // Umschalten unerreichbar.
+        self::bestandsHauptbildUebernehmen($horseId);
+
         $db->prepare('UPDATE horse_media SET is_main = 0 WHERE horse_id = ?')->execute([$horseId]);
         $db->prepare('UPDATE horse_media SET is_main = 1 WHERE id = ?')->execute([$mediaId]);
 
@@ -255,26 +283,46 @@ final class HorseMedia {
     }
 
     /**
-     * Traegt das Hauptbild nach `horses.image_url` nach.
+     * Stellt die Invariante her: Hat das Pferd Bilder, traegt GENAU eines
+     * is_main, und `horses.image_url` zeigt darauf. Ohne Bild wird die
+     * Spalte geleert.
      *
-     * Die EINE Stelle, an der die Spalte aus den Medien gefuellt wird. Ohne
-     * ausgezeichnetes Hauptbild gilt das erste Bild in Anzeigereihenfolge -
-     * ein Bestand, der nie ein Hauptbild gewaehlt hat, zeigt so trotzdem
-     * etwas. Gibt es gar kein Bild, wird die Spalte geleert.
+     * Die EINE Stelle, an der Kennzeichnung und Spalte gemeinsam gesetzt
+     * werden (neben dem Anlegen in HorseController::store()). Frueher
+     * schrieb sie nur die Spalte - nach dem Loeschen des Hauptbilds zeigte
+     * der Katalog den Nachfolger, die Kennzeichnung fehlte aber: Der
+     * Nachfolger erschien auf der Detailseite doppelt, und das naechste
+     * Bild wurde ungefragt Hauptbild (Audit N69).
+     *
+     * Auswahl: zuerst ein gekennzeichnetes Bild; ohne Kennzeichnung das
+     * Bild, dessen Dateiname dem aktuellen image_url entspricht (Altbestand:
+     * das angezeigte Bild bleibt, auch wenn ein Foto mit kleinerer
+     * Sortierung dazukommt); erst dann die Anzeigereihenfolge. Doppelte
+     * Kennzeichnungen und is_main auf Videozeilen werden dabei bereinigt.
      */
     public static function syncMainImage(int $horseId): void {
         $db = Database::getInstance();
 
         $stmt = $db->prepare(
-            "SELECT file_name FROM horse_media
-             WHERE horse_id = ? AND type = 'image' AND file_name IS NOT NULL
-             ORDER BY is_main DESC, sort_order ASC, id ASC LIMIT 1"
+            "SELECT m.id, m.file_name FROM horse_media m
+             JOIN horses h ON h.id = m.horse_id
+             WHERE m.horse_id = ? AND m.type = 'image' AND m.file_name IS NOT NULL
+             ORDER BY m.is_main DESC,
+                      (" . self::sqlDateiname('m.file_name') . " = " . self::sqlDateiname("COALESCE(h.image_url, '')") . ") DESC,
+                      m.sort_order ASC, m.id ASC
+             LIMIT 1"
         );
         $stmt->execute([$horseId]);
-        $datei = $stmt->fetchColumn();
+        $zeile = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        $stmt = $db->prepare('UPDATE horses SET image_url = ? WHERE id = ?');
-        $stmt->execute([$datei === false || $datei === null ? null : (string)$datei, $horseId]);
+        $hauptId = is_array($zeile) ? (int)$zeile['id'] : 0;
+        $datei = is_array($zeile) ? (string)$zeile['file_name'] : null;
+
+        $db->prepare('UPDATE horse_media SET is_main = (id = ?) WHERE horse_id = ? AND is_main <> (id = ?)')
+            ->execute([$hauptId, $horseId, $hauptId]);
+
+        $stmt = $db->prepare('UPDATE horses SET image_url = ? WHERE id = ? AND NOT (image_url <=> ?)');
+        $stmt->execute([$datei, $horseId, $datei]);
     }
 
     public static function hatHauptbild(int $horseId): bool {
@@ -352,44 +400,200 @@ final class HorseMedia {
     }
 
     /**
-     * Entfernt die Datei zu einem Spaltenwert - aber nur, wenn kein anderes
-     * Medium und kein Pferd sie noch benutzt.
-     *
-     * Der Fall ist nicht theoretisch: Die Uebernahme aus dem Addon (#339)
-     * kann dasselbe Bild als Galeriebild UND als Hauptbild fuehren.
+     * SQL-Ausdruck: der Dateiname eines Spaltenwerts - ohne Query, Fragment
+     * und Pfad. Dasselbe, was basename(parse_url(...)) in PHP liefert, und
+     * das, was MediaController und Thumbnails tatsaechlich aufloesen. Wer
+     * Referenzen ueber den exakten Spaltenwert zaehlt, uebersieht
+     * `uploads/horses/x.jpg` neben `/uploads/horses/x.jpg` - und loescht
+     * dann eine Datei, die noch gebraucht wird.
      */
-    private static function dateiEntfernen(string $spaltenwert): void {
+    private static function sqlDateiname(string $ausdruck): string {
+        return "SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX({$ausdruck}, '#', 1), '?', 1), '/', -1)";
+    }
+
+    /** Der Dateiname eines Spaltenwerts in PHP, oder null bei '', '.', '..'. */
+    private static function dateiname(string $spaltenwert): ?string {
+        $name = basename(parse_url($spaltenwert, PHP_URL_PATH) ?? '');
+
+        return ($name === '' || $name === '.' || $name === '..') ? null : $name;
+    }
+
+    /**
+     * Uebernimmt ein Katalogfoto ohne Medienzeile in die Medien (Audit M40).
+     *
+     * Bis v0.8 gab es nur `horses.image_url`. Die Uebernahme (#339) legte
+     * die Zeile dafuer nur mit Addon `galerie` an; ohne Addon kannte die
+     * Medienliste das Foto nicht, und die naechste Medienaktion ersetzte
+     * oder leerte das Katalogbild. Der Datenschritt 339b holt das einmalig
+     * nach - diese Abwehr faengt zusaetzlich Werte ab, die spaeter ohne
+     * Zeile entstehen (Direktimporte, Restore-Mischstaende).
+     *
+     * Hauptbild wird die neue Zeile nur, wenn noch keines gekennzeichnet
+     * ist. $ausser: Dateiname, fuer den gerade selbst eine Zeile entsteht.
+     */
+    private static function bestandsHauptbildUebernehmen(int $horseId, ?string $ausser = null): void {
         $db = Database::getInstance();
 
-        $stmt = $db->prepare('SELECT COUNT(*) FROM horse_media WHERE file_name = ?');
-        $stmt->execute([$spaltenwert]);
+        $stmt = $db->prepare('SELECT image_url FROM horses WHERE id = ?');
+        $stmt->execute([$horseId]);
+        $bild = $stmt->fetchColumn();
+        if (!is_string($bild) || trim($bild) === '') {
+            return;
+        }
+        $name = self::dateiname($bild);
+        if ($name === null || ($ausser !== null && self::dateiname($ausser) === $name)) {
+            return;
+        }
+
+        $stmt = $db->prepare(
+            'SELECT COUNT(*) FROM horse_media WHERE horse_id = ? AND file_name IS NOT NULL AND '
+            . self::sqlDateiname('file_name') . ' = ?'
+        );
+        $stmt->execute([$horseId, $name]);
         if ((int)$stmt->fetchColumn() > 0) {
             return;
         }
 
-        $stmt = $db->prepare('SELECT COUNT(*) FROM horses WHERE image_url = ?');
-        $stmt->execute([$spaltenwert]);
-        if ((int)$stmt->fetchColumn() > 0) {
-            return;
+        $db->prepare(
+            "INSERT INTO horse_media (horse_id, type, file_name, is_main, sort_order) VALUES (?, 'image', ?, ?, 0)"
+        )->execute([$horseId, $bild, self::hatHauptbild($horseId) ? 0 : 1]);
+    }
+
+    /**
+     * Die Bilddateien (Spaltenwerte) der genannten Pferde: Medienzeilen und
+     * `horses.image_url`, auch ohne Zeile.
+     *
+     * Muss VOR dem endgueltigen Loeschen laufen - der FK-CASCADE nimmt die
+     * Medienzeilen mit dem DELETE mit (Audit N59). Bei einem Fehler: [] und
+     * ein Protokolleintrag. Das heisst sicher: Es wird nichts geloescht.
+     *
+     * @param array<int, int|string> $horseIds
+     * @return array<int, string>
+     */
+    public static function bilddateienVonPferden(array $horseIds): array {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $horseIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return [];
         }
 
-        $name = basename(parse_url($spaltenwert, PHP_URL_PATH) ?? '');
-        if ($name === '' || $name === '.' || $name === '..') {
-            return;
+        $werte = [];
+        try {
+            $db = Database::getInstance();
+            foreach (array_chunk($ids, 500) as $teil) {
+                $p = implode(',', array_fill(0, count($teil), '?'));
+                $stmt = $db->prepare(
+                    "SELECT file_name FROM horse_media
+                     WHERE horse_id IN ({$p}) AND type = 'image' AND file_name IS NOT NULL AND file_name <> ''
+                     UNION
+                     SELECT image_url FROM horses
+                     WHERE id IN ({$p}) AND image_url IS NOT NULL AND image_url <> ''"
+                );
+                $stmt->execute([...$teil, ...$teil]);
+                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $wert) {
+                    $werte[(string)$wert] = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('HorseMedia::bilddateienVonPferden: ' . $e->getMessage());
+            return [];
         }
 
+        return array_keys($werte);
+    }
+
+    /**
+     * Entfernt die Dateien zu den Spaltenwerten - aber nur die, die kein
+     * Medium und kein Pferd (auch keines im Papierkorb) mehr ueber den
+     * Dateinamen referenziert. Mit den Vorschaubildern (#397) und den Resten
+     * abgebrochener atomarer Schreibvorgaenge (Audit M21/N80).
+     *
+     * Der gemeinsame Loeschweg fuer ein geloeschtes Medium (loeschen(),
+     * Audit N68) und fuer endgueltig geloeschte Pferde (TrashController,
+     * Audit N59). Die Referenzpruefung ist nicht theoretisch: Die
+     * Uebernahme aus dem Addon (#339) kann dasselbe Bild als Galeriebild
+     * UND als Hauptbild fuehren, und ein Pferd, das beim endgueltigen
+     * Loeschen stehen blieb (Audit N57), verweist weiter auf seine Dateien.
+     *
+     * Wirft nie: Aufgerufen wird nach einem committeten DELETE, und dann
+     * darf nichts mehr ein HTTP 500 ausloesen. Im Zweifel bleibt eine Datei
+     * liegen - das ist die sichere Richtung.
+     *
+     * @param array<int, string> $spaltenwerte
+     * @return int Zahl der entfernten Originale
+     */
+    public static function verwaisteDateienEntfernen(array $spaltenwerte): int {
+        $namen = [];
+        foreach ($spaltenwerte as $wert) {
+            $name = self::dateiname((string)$wert);
+            if ($name !== null) {
+                $namen[$name] ??= (string)$wert;
+            }
+        }
+        if ($namen === []) {
+            return 0;
+        }
+
+        $entfernt = 0;
+        try {
+            $db = Database::getInstance();
+            $benutzt = [];
+            foreach (array_chunk(array_keys($namen), 500) as $teil) {
+                $p = implode(',', array_fill(0, count($teil), '?'));
+                $stmt = $db->prepare(
+                    'SELECT ' . self::sqlDateiname('file_name') . ' FROM horse_media
+                     WHERE file_name IS NOT NULL AND ' . self::sqlDateiname('file_name') . " IN ({$p})
+                     UNION
+                     SELECT " . self::sqlDateiname('image_url') . ' FROM horses
+                     WHERE image_url IS NOT NULL AND ' . self::sqlDateiname('image_url') . " IN ({$p})"
+                );
+                $stmt->execute([...$teil, ...$teil]);
+                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $name) {
+                    $benutzt[(string)$name] = true;
+                }
+            }
+
+            // Die Suche nach Resten abgebrochener Schreibvorgaenge kostet je
+            // Datei einen Verzeichnisdurchlauf. Beim Leeren eines grossen
+            // Papierkorbs waeren das tausende - dort entfaellt sie (wie im
+            // Bestandsschritt BildMetadaten); Reste sind ohnehin selten.
+            $resteSuchen = count($namen) <= 20;
+            foreach ($namen as $name => $wert) {
+                if (isset($benutzt[(string)$name])) {
+                    continue;
+                }
+                if (self::dateiUndVorschauLoeschen((string)$name, $wert, $resteSuchen)) {
+                    $entfernt++;
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log('HorseMedia::verwaisteDateienEntfernen: ' . $e->getMessage());
+        }
+
+        return $entfernt;
+    }
+
+    /** @return bool ob ein Original entfernt wurde */
+    private static function dateiUndVorschauLoeschen(string $name, string $spaltenwert, bool $resteSuchen): bool {
+        $entfernt = false;
         foreach ([HorseImagePath::dir(), HorseImagePath::legacyDir()] as $verzeichnis) {
             $pfad = $verzeichnis . '/' . $name;
-            if (is_file($pfad)) {
-                @unlink($pfad);
+            if (is_file($pfad) && @unlink($pfad)) {
+                $entfernt = true;
             }
             // Reste eines abgebrochenen atomaren Schreibens (Audit M21/N80).
-            \App\Helper\AtomicFile::resteEntfernen($pfad);
+            if ($resteSuchen) {
+                \App\Helper\AtomicFile::resteEntfernen($pfad);
+            }
         }
 
         // Die abgeleiteten Vorschaubilder gehen mit (#397). Ohne diese Zeile
         // bliebe je geloeschtem Medium eine Waise in der Ablage liegen - und
         // die faellt erst auf, wenn jemand die Dateien zaehlt.
-        Thumbnails::entfernen($spaltenwert);
+        Thumbnails::entfernen($spaltenwert, $resteSuchen);
+
+        return $entfernt;
     }
 }

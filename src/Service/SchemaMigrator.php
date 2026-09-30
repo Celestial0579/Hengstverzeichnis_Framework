@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 31; // 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 32; // 32: Hauptbild-Backfill 339b (Audit M40/N69); 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -2640,6 +2640,91 @@ final class SchemaMigrator {
             )];
         });
 
+        // Hauptbild-Backfill (#339, Audit M40/N69) - gemeinsam fuer 339 und
+        // 339b. Stellt fuer den Bestand die Invariante her, die
+        // HorseMedia::syncMainImage() zur Laufzeit haelt: Hat ein Pferd
+        // Bilder, traegt genau eines is_main, und image_url zeigt darauf.
+        //
+        // Verglichen wird ueber den DATEINAMEN, nicht ueber den exakten
+        // Spaltenwert - MediaController und Thumbnails loesen ohnehin nur
+        // basename() auf, und ein abweichend geschriebener Altwert
+        // (`uploads/horses/x.jpg` neben `/uploads/horses/x.jpg`) erzeugte
+        // sonst eine zweite Zeile fuer dieselbe Datei.
+        //
+        // Jedes Statement ist fuer sich idempotent: Ein Abbruch nach dem
+        // INSERT hinterlaesst einen Zustand, den ein erneuter Lauf zu Ende
+        // bringt. Soft-geloeschte Pferde werden bewusst mit erfasst - sie
+        // koennen wiederhergestellt werden.
+        //
+        // @return array{angelegt: int, ausgezeichnet: int}
+        $hauptbildBackfill = function () use ($pdo): array {
+            // (a) image_url ohne Medienzeile: Zeile anlegen, vorne in der
+            //     Reihenfolge; Hauptbild nur, wenn noch keines gekennzeichnet ist.
+            $angelegt = (int)$pdo->exec(
+                "INSERT INTO `horse_media` (horse_id, type, file_name, is_main, sort_order)
+                 SELECT h.id, 'image', h.image_url,
+                        NOT EXISTS (SELECT 1 FROM `horse_media` x WHERE x.horse_id = h.id AND x.is_main = 1),
+                        0
+                 FROM `horses` h
+                 WHERE h.image_url IS NOT NULL AND h.image_url <> ''
+                   AND NOT EXISTS (
+                       SELECT 1 FROM `horse_media` m
+                       WHERE m.horse_id = h.id AND m.file_name IS NOT NULL
+                         AND SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(m.file_name, '#', 1), '?', 1), '/', -1) = SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(h.image_url, '#', 1), '?', 1), '/', -1)
+                   )"
+            );
+
+            // (b) Pferde ohne Kennzeichnung: zuerst das Bild, das image_url
+            //     bereits zeigt (bei mehreren die kleinste id). So bleibt das
+            //     angezeigte Bild Hauptbild, auch wenn im Altbestand (N69)
+            //     spaeter ein Foto mit kleinerer Sortierung dazukam.
+            $ausgezeichnet = (int)$pdo->exec(
+                "UPDATE `horse_media` m
+                 JOIN (
+                     SELECT b.horse_id, MIN(b.id) AS id
+                     FROM `horse_media` b
+                     JOIN `horses` h ON h.id = b.horse_id
+                     WHERE b.type = 'image' AND b.file_name IS NOT NULL
+                       AND h.image_url IS NOT NULL AND h.image_url <> ''
+                       AND SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(b.file_name, '#', 1), '?', 1), '/', -1) = SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(h.image_url, '#', 1), '?', 1), '/', -1)
+                       AND NOT EXISTS (SELECT 1 FROM `horse_media` x WHERE x.horse_id = b.horse_id AND x.is_main = 1)
+                     GROUP BY b.horse_id
+                 ) passend ON passend.id = m.id
+                 SET m.is_main = 1"
+            );
+
+            // (c) Rueckfall: das erste Bild nach Sortierung.
+            $ausgezeichnet += (int)$pdo->exec(
+                "UPDATE `horse_media` m
+                 JOIN (
+                     SELECT horse_id, MIN(sort_order * 1000000 + id) AS ordnung
+                     FROM `horse_media`
+                     WHERE type = 'image' AND file_name IS NOT NULL
+                     GROUP BY horse_id
+                 ) erste ON erste.horse_id = m.horse_id
+                     AND (m.sort_order * 1000000 + m.id) = erste.ordnung
+                 SET m.is_main = 1
+                 WHERE m.type = 'image' AND m.file_name IS NOT NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM (SELECT * FROM `horse_media`) x
+                     WHERE x.horse_id = m.horse_id AND x.is_main = 1
+                 )"
+            );
+
+            // (d) image_url dem Hauptbild nachziehen - nur, wenn der
+            //     Dateiname abweicht (eine abweichende Schreibweise derselben
+            //     Datei bleibt stehen).
+            $pdo->exec(
+                "UPDATE `horses` h
+                 JOIN `horse_media` m ON m.horse_id = h.id AND m.is_main = 1
+                     AND m.type = 'image' AND m.file_name IS NOT NULL
+                 SET h.image_url = m.file_name
+                 WHERE h.image_url IS NULL OR SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(h.image_url, '#', 1), '?', 1), '/', -1) <> SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(m.file_name, '#', 1), '?', 1), '/', -1)"
+            );
+
+            return ['angelegt' => $angelegt, 'ausgezeichnet' => $ausgezeichnet];
+        };
+
         // 37b. Galerie in den Kern uebernehmen (#339).
         //
         // WAS UEBERNOMMEN WIRD: die Zeilen aus `plugin_galerie_media` und die
@@ -2658,7 +2743,7 @@ final class SchemaMigrator {
         // Hauptbild und bekommt eine eigene Medienzeile - sonst kennte die
         // Medienliste ausgerechnet das wichtigste Bild nicht. Hat ein Pferd
         // kein Hauptbild, aber Galeriebilder, wird das erste dazu.
-        $dataStep('339_galerie_uebernahme', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
+        $dataStep('339_galerie_uebernahme', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert, $hauptbildBackfill): ?array {
             if (!$tabelleExistiert('horse_media') || !$tabelleExistiert('horses')) {
                 return null;
             }
@@ -2782,40 +2867,10 @@ final class SchemaMigrator {
                 $uebernommen++;
             }
 
-            // Bestehende Hauptbilder bekommen ihre Medienzeile - vorne in der
-            // Reihenfolge, damit sie beim Anzeigen zuerst kommen.
-            $hauptbilder = (int)$pdo->exec(
-                "INSERT INTO `horse_media` (horse_id, type, file_name, is_main, sort_order)
-                 SELECT h.id, 'image', h.image_url, 1, 0
-                 FROM `horses` h
-                 WHERE h.image_url IS NOT NULL AND h.image_url <> ''
-                   AND NOT EXISTS (SELECT 1 FROM `horse_media` m WHERE m.horse_id = h.id AND m.file_name = h.image_url)"
-            );
-
-            // Pferde ohne Hauptbild, aber mit Bildern: das erste wird es.
-            $pdo->exec(
-                "UPDATE `horse_media` m
-                 JOIN (
-                     SELECT horse_id, MIN(sort_order * 1000000 + id) AS ordnung
-                     FROM `horse_media`
-                     WHERE type = 'image' AND file_name IS NOT NULL
-                     GROUP BY horse_id
-                 ) erste ON erste.horse_id = m.horse_id
-                     AND (m.sort_order * 1000000 + m.id) = erste.ordnung
-                 SET m.is_main = 1
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM (SELECT * FROM `horse_media`) x
-                     WHERE x.horse_id = m.horse_id AND x.is_main = 1
-                 )"
-            );
-
-            // Und `horses.image_url` dem Hauptbild nachziehen.
-            $pdo->exec(
-                "UPDATE `horses` h
-                 JOIN `horse_media` m ON m.horse_id = h.id AND m.is_main = 1 AND m.file_name IS NOT NULL
-                 SET h.image_url = m.file_name
-                 WHERE h.image_url IS NULL OR h.image_url <> m.file_name"
-            );
+            // Bestehende Hauptbilder bekommen ihre Medienzeile, Pferde ohne
+            // Hauptbild eine Kennzeichnung, und image_url wird nachgezogen -
+            // gemeinsam mit 339b, siehe $hauptbildBackfill.
+            $hauptbilder = $hauptbildBackfill()['angelegt'];
 
             if ($uebernommen === 0 && $hauptbilder === 0 && $ohneDatei === 0) {
                 return [];
@@ -2835,6 +2890,43 @@ final class SchemaMigrator {
             }
 
             return [$meldung];
+        });
+
+        // 37c. Hauptbild-Backfill nachholen (#339, Audit M40/N69,
+        // SCHEMA_VERSION 32).
+        //
+        // WARUM EIN EIGENER SCHRITT. 339 steigt ohne das Addon `galerie`
+        // mit [] aus, BEVOR es die Hauptbilder einreiht - und [] setzt den
+        // Marker. Auf jeder Instanz, die aus v0.8 ohne Addon kam, bekam das
+        // vorhandene Katalogfoto (`horses.image_url`) deshalb nie eine
+        // Medienzeile: Die Medienliste kannte es nicht, und die naechste
+        // Medienaktion (Video hinzufuegen und loeschen, neues Foto, "Als
+        // Hauptbild") ersetzte oder leerte es. Der 339-Marker steht dort
+        // laengst, also holt ein eigener Schritt das nach.
+        //
+        // Zugleich heilt er Pferde, deren Hauptbild vor dem Update geloescht
+        // wurde (Audit N69): Das nachgerueckte, angezeigte Bild bekam keine
+        // Kennzeichnung. Nach 339 im selben Lauf ist nichts zu tun, und auf
+        // einer frischen Installation auch nicht - dann [].
+        $dataStep('339b_hauptbild_backfill', function (callable $vermerke, callable $offen) use ($tabelleExistiert, $hauptbildBackfill): ?array {
+            if (!$tabelleExistiert('horse_media') || !$tabelleExistiert('horses')) {
+                return null;
+            }
+            try {
+                $r = $hauptbildBackfill();
+            } catch (\Throwable $e) {
+                return $offen('Hauptbild (#339): Nachtrag fehlgeschlagen (' . $e->getMessage() . ') - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php');
+            }
+            if ($r['angelegt'] === 0 && $r['ausgezeichnet'] === 0) {
+                return [];
+            }
+
+            return [sprintf(
+                'Hauptbild (#339): %d Hauptbild(er) ohne Medienzeile nachgetragen, %d Pferd(e) ohne '
+                . 'gekennzeichnetes Hauptbild korrigiert',
+                $r['angelegt'],
+                $r['ausgezeichnet']
+            )];
         });
 
         // 35b. Mehrdeutige Anmeldekennungen melden (#348).

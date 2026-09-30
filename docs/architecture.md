@@ -606,7 +606,20 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   weiterhin unter `uploads/horses`)
   (`backups/uploads-<Zeitstempel>.tar.gz` neben
   `backups/backup-<Zeitstempel>.sql.gz`); die Rotation läuft getrennt je
-  Backup-Art mit derselben Aufbewahrungsanzahl. Status des letzten Laufs
+  Backup-Art mit derselben Aufbewahrungsanzahl. Das Uploads-Archiv enthält
+  außerdem die Ablageverzeichnisse der Addons laut Datenregister
+  (`owns.directories` aller entdeckten, auch deaktivierten Addons, einzige
+  Quelle `PluginManager::datenRegister()`, Audit N27) - im Archiv unter ihrem
+  Pfad **relativ zur Installationswurzel**, etwa
+  `storage/plugin_gesundheitstests/…`. Wer von Hand zurückspielt, entpackt
+  diese Einträge deshalb im Installationsverzeichnis, `uploads/…` wie
+  bisher nach `public/`. Vor einer Deinstallation mit „Daten löschen“
+  übergibt `PluginManager::uninstall()` die zu löschenden Verzeichnisse an
+  `run($pflichtVerzeichnisse)`: Mit Uploads-Option stecken sie im
+  Uploads-Archiv, ohne entsteht ein eigenes Objekt
+  `backups/addondaten-<Zeitstempel>.tar.gz` nur mit diesen Verzeichnissen,
+  das getrennt rotiert (ein Teilarchiv unter `uploads-` verdrängte sonst
+  echte Vollarchive). Status des letzten Laufs
   (`backup_last_status`/`backup_last_run_at`/`backup_last_error`) wird in
   der `settings`-Tabelle für die Admin-Anzeige unter `/admin/backups`
   persistiert.
@@ -615,7 +628,8 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   1. Zeitlimit aufheben und Verbindungsabbruch ignorieren
      (`App\Helper\LongRunning`) - in `run()` selbst, damit Cron, „Jetzt
      sichern“, Pflicht-Backup vor Update und Addon-Deinstallation es alle
-     bekommen. Verwaiste `hv-backup-sql-*`/`hv-backup-uploads-*`-Dateien im
+     bekommen. Verwaiste `hv-backup-sql-*`/`hv-backup-uploads-*`/
+     `hv-backup-addondaten-*`-Dateien im
      System-Temp-Verzeichnis, älter als 24 h, löschen.
   2. Sperre `backup:run` über `App\Service\DbLock` (bis 30 s warten): Es
      läuft höchstens eine Sicherung zur Zeit, denn zwei Läufe in derselben
@@ -623,8 +637,10 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
      verfügbar (`null`): weiter ohne Sperre, aber ohne Aufräumen am Ziel.
   3. Datenbank zuerst: Dump geprüft in eine Temp-Datei, hochladen, Temp-Datei
      sofort löschen. Jeder Fehler hier ergibt Status `error`.
-  4. Danach, falls aktiviert, das Uploads-Archiv genauso. Scheitert nur
-     dieser Teil, lautet der Status `partial` - der Dump liegt am Ziel.
+  4. Danach, falls aktiviert, das Uploads-Archiv genauso (sonst, falls
+     Pflichtverzeichnisse übergeben wurden, das Objekt `addondaten-…`).
+     Scheitert nur dieser Teil, lautet der Status `partial` - der Dump liegt
+     am Ziel.
   5. Rotation (auch nach `partial`), danach wirft `run()` bei `partial`
      trotzdem: Aufrufer verlassen sich auf „wirft bei jedem Fehler“.
 

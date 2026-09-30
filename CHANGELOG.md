@@ -938,6 +938,47 @@ Breaking Changes sind jederzeit möglich).
   PID. Von Hand gesetzte Marker (`touch var/wartung.lock`), die
   Migrationssperre des Rückwegs #336 und Marker ohne Prozesskennung (etwa
   vom Addon `datenmigration`) verfallen weiterhin nie.
+- **Sicherung erfasst jetzt die Ablagen der Addons** (Audit N27). „Hochgeladene
+  Dateien mitsichern“ sicherte nur `public/uploads` und die Pferdefotos. Was
+  Addons unter `storage/` ablegen, etwa die Gesundheitsdokumente von
+  gesundheitstests unter `storage/plugin_gesundheitstests`, fehlte. Der Dump
+  enthielt die Einträge, die Dateien fehlten, und das fiel erst beim
+  Zurückspielen auf. Das Uploads-Archiv nimmt jetzt die Verzeichnisse auf,
+  die Addons in ihrem Datenregister (`owns.directories`) deklarieren, auch
+  bei deaktivierten Addons. Die Sicherung vor einer Deinstallation mit
+  „Daten löschen“ enthält die zu löschenden Verzeichnisse immer: bei
+  ausgeschalteter Upload-Option als eigenes Objekt
+  `backups/addondaten-<Zeitstempel>.tar.gz`, das getrennt von Dumps und
+  Uploads-Archiven rotiert. Das Protokoll der Deinstallation nennt die Zahl
+  („inkl. 1 Addon-Verzeichnis“).
+
+  **Für Betreiber:** Mit aktiver Upload-Option wird das Uploads-Archiv um die
+  Addon-Ablagen größer. Die neuen Einträge stehen im Archiv unter `storage/…`,
+  **relativ zur Installationswurzel**; wer von Hand zurückspielt, entpackt
+  sie dort (die Einträge `uploads/…` wie bisher nach `public/`). Ältere
+  Archive enthalten keine `storage/`-Einträge. Deinstallationen mit
+  Datenlöschung laden auch bei ausgeschalteter Upload-Option ein kleines
+  Zusatzobjekt `addondaten-…` hoch; die Aufbewahrungsanzahl gilt dafür
+  getrennt. Wer Addon-Ablagen bisher separat gesichert hat (Hinweis im
+  README von gesundheitstests), kann das mit dieser Version einstellen.
+
+- **Die Deinstallations-Rückfrage behauptete pauschal „rückstandsfrei“**
+  (Audit M30). Hatte ein Addon kein Datenregister, versprach die Seite ein
+  rückstandsfreies Entfernen, und das Protokoll meldete „Daten gelöscht“ -
+  die Tabellen blieben trotzdem stehen. Jetzt sagt die Seite nur, was der
+  Kern weiß: dass das Addon erklärt, nichts anzulegen, oder dass es kein
+  Register hat und der Kern nichts mit seinem Namen gefunden hat. Tabellen
+  `plugin_<slug>*` und Verzeichnisse `storage/plugin_<slug>*`, die nicht im
+  Register stehen, erscheinen als Warnung und im Protokoll als „NICHT
+  gelöscht (nicht im Datenregister des Addons)“. Gelöscht wird weiterhin nur,
+  was das Addon selbst deklariert.
+
+  **Für Betreiber:** Erscheint die Warnung, bleiben die genannten Tabellen
+  oder Verzeichnisse auch mit „Daten löschen“ stehen und müssen bei Bedarf
+  von Hand entfernt werden. Abweichend benannte Tabellen erkennt die Prüfung
+  nicht; maßgeblich bleibt das Register des Addons (für gesundheitstests,
+  verkaufsboerse, zuchtschau-ergebnisse, titel-praemierungen und
+  statistik-dashboard mit den aktuellen Addon-Versionen nachgetragen).
 
 - **Sicherungen großer Bestände brachen nach 30 Sekunden ab** (Audit M37).
   Unter Apache ohne eigene php.ini (etwa im mitgelieferten Docker-Image)
@@ -1449,6 +1490,14 @@ Breaking Changes sind jederzeit möglich).
   Update kopiert immer mit dem Code der gerade installierten Version. Das
   Update auf diese Version selbst ist noch ungeschützt. Die Schutzdateien
   kommen dagegen sofort über den Migrationsschritt.
+- **Datenregister-API, additiv** (Audit M30, N27):
+  `PluginManager::datenRegister()` und `deinstallationsVorschau()` liefern
+  zusätzlich `deklariert`, die Vorschau außerdem `unregistriert`; neu ist
+  `PluginDataRegistry::unregistrierteReste()`. `BackupService::run()` nimmt
+  optional `$pflichtVerzeichnisse` an; Aufrufe ohne Argument verhalten sich
+  wie bisher. Hilfetext der Sicherungseinstellungen und
+  `docs/plugin-development.md` ergänzt: `owns.directories` wird gesichert
+  und beim Deinstallieren gelöscht.
 
 - **Aufbau des SQL-Dumps** (Audit N66). Der Dump enthält drei zusätzliche
   Anweisungen: im Kopf `SET @hv_dump_zeitzone = @@SESSION.time_zone;` und

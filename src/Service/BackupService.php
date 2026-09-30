@@ -33,6 +33,16 @@ use App\Security\Crypto;
  * "aus": Die Zucht-/Blutliniendaten in der Datenbank sind der eigentlich
  * unwiederbringliche Teil, das Uploads-Archiv kann je nach Bildbestand groß
  * werden.
+ *
+ * Addon-Ablagen (Audit N27): Das Uploads-Archiv enthält zusätzlich die
+ * Verzeichnisse, die Addons in ihrem Datenregister (`owns.directories`, #338)
+ * deklarieren - etwa `storage/plugin_gesundheitstests` - unter ihrem Pfad
+ * relativ zur Installationswurzel. Einzige Quelle ist
+ * PluginManager::datenRegister() aller entdeckten Addons (auch deaktivierter:
+ * ihre Tabellen stehen ohnehin im Dump). Vor einer Deinstallation mit
+ * Datenlöschung übergibt der PluginManager die zu löschenden Verzeichnisse
+ * an run(); ist die Uploads-Option aus, landen sie in einem eigenen Objekt
+ * `addondaten-…` mit eigener Rotation.
  */
 final class BackupService {
 
@@ -116,7 +126,11 @@ final class BackupService {
      * 1. Datenbank-Dump streamend (#231) in eine Temp-Datei, geprüft
      *    (CheckedFileWriter, Audit M43), hochladen, Temp-Datei sofort löschen.
      * 2. Nur bei aktivierter Option (#233): Uploads-Archiv genauso.
-     * 3. Status: 'ok', oder 'partial', wenn nur das Uploads-Archiv scheiterte
+     *    Es enthält auch die Addon-Ablagen aus den Datenregistern (Audit N27).
+     * 2a. Ist die Option aus und wurden $pflichtVerzeichnisse übergeben (vor
+     *    einer Deinstallation mit Datenlöschung): ein eigenes Objekt
+     *    'addondaten-…' nur mit diesen Verzeichnissen.
+     * 3. Status: 'ok', oder 'partial', wenn nur ein Datei-Archiv scheiterte
      *    (der Dump liegt dann am Ziel). Jeder andere Fehler: 'error'.
      * 4. Aufbewahrungsrotation - nur nach verifiziertem Upload; ihr Fehler
      *    landet im Audit-Log und macht den Lauf nicht zum Fehlschlag.
@@ -126,8 +140,15 @@ final class BackupService {
      *         noch, Dump/Archiv/Upload gescheitert. Die Aufrufer verlassen
      *         sich darauf - das Pflicht-Backup vor einem Update bricht ab,
      *         der Scheduler protokolliert den Fehler.
+     *
+     * @param string[] $pflichtVerzeichnisse Absolute Verzeichnisse, die in
+     *        DIESEM Lauf unabhängig von der Uploads-Option gesichert werden
+     *        müssen (Audit N27: die Ablage eines Addons vor dem Löschen).
+     *        Optional, damit Scheduler (Aufruf ohne Argumente), "Jetzt
+     *        sichern" und das Pflicht-Backup vor einem Update unverändert
+     *        bleiben.
      */
-    public static function run(): void {
+    public static function run(array $pflichtVerzeichnisse = []): void {
         $settings = self::loadSettings();
         if (!self::isConfigured($settings)) {
             throw new \RuntimeException('Backup ist nicht (vollständig) konfiguriert.');
@@ -155,7 +176,7 @@ final class BackupService {
         // ein paralleler Lauf dann nicht ausschließen lässt, räumt sie ein
         // halb hochgeladenes Objekt am Ziel aber nicht selbst weg.
         try {
-            self::lauf($settings, $sperre === true);
+            self::lauf($settings, $sperre === true, $pflichtVerzeichnisse);
         } finally {
             if ($sperre === true) {
                 DbLock::release(self::RUN_LOCK);
@@ -165,8 +186,9 @@ final class BackupService {
 
     /**
      * @param array<string, string> $settings
+     * @param string[] $pflichtVerzeichnisse siehe run()
      */
-    private static function lauf(array $settings, bool $exklusiv): void {
+    private static function lauf(array $settings, bool $exklusiv, array $pflichtVerzeichnisse = []): void {
         $useGzip = function_exists('gzopen');
         $stamp = gmdate('Y-m-d_His');
 
@@ -202,11 +224,16 @@ final class BackupService {
         // bereits gesicherten Dump nichts - er wird gemerkt, nicht sofort
         // geworfen.
         $uploadsFehler = null;
+        $archivArt = 'Uploads-Archiv';
+        $pflicht = self::archivNamen($pflichtVerzeichnisse);
         if (self::includeUploads($settings)) {
             $uploadsFile = null;
             try {
                 $uploadsFile = self::tempFile('hv-backup-uploads-');
-                self::writeUploadsArchive($uploadsFile, $useGzip);
+                // Das Vollarchiv enthält die Pflichtverzeichnisse ohnehin -
+                // sie werden trotzdem ausdrücklich übergeben, falls das
+                // Register eines Addons zwischenzeitlich nicht lesbar war.
+                self::writeUploadsArchive($uploadsFile, $useGzip, $pflicht);
                 self::hochladen(
                     $client,
                     self::OBJECT_PREFIX . 'uploads-' . $stamp . ($useGzip ? '.tar.gz' : '.tar'),
@@ -221,6 +248,29 @@ final class BackupService {
                     self::tempDateiEntfernen($uploadsFile);
                 }
             }
+        } elseif ($pflicht !== []) {
+            // 2a. Addon-Daten vor dem Löschen (Audit N27). Eigenes Präfix
+            // statt 'uploads-': In der Rotation zählte ein Teilarchiv sonst
+            // als Uploads-Sicherung und verdrängte ein echtes Vollarchiv.
+            $addonFile = null;
+            try {
+                $addonFile = self::tempFile('hv-backup-addondaten-');
+                self::writeAddonArchive($addonFile, $useGzip, $pflicht);
+                self::hochladen(
+                    $client,
+                    self::OBJECT_PREFIX . 'addondaten-' . $stamp . ($useGzip ? '.tar.gz' : '.tar'),
+                    $addonFile,
+                    $useGzip ? 'application/gzip' : 'application/x-tar',
+                    $exklusiv
+                );
+            } catch (\Throwable $e) {
+                $uploadsFehler = $e;
+                $archivArt = 'Addon-Daten-Archiv';
+            } finally {
+                if ($addonFile !== null) {
+                    self::tempDateiEntfernen($addonFile);
+                }
+            }
         }
 
         // 3. Status.
@@ -229,7 +279,7 @@ final class BackupService {
         } else {
             self::recordStatusSicher(
                 'partial',
-                'Uploads-Archiv nicht gesichert (Datenbank-Dump wurde gesichert): ' . $uploadsFehler->getMessage()
+                $archivArt . ' nicht gesichert (Datenbank-Dump wurde gesichert): ' . $uploadsFehler->getMessage()
             );
         }
 
@@ -248,7 +298,7 @@ final class BackupService {
 
         if ($uploadsFehler !== null) {
             throw new \RuntimeException(
-                'Datenbank gesichert, Uploads-Archiv fehlgeschlagen: ' . $uploadsFehler->getMessage(),
+                'Datenbank gesichert, ' . $archivArt . ' fehlgeschlagen: ' . $uploadsFehler->getMessage(),
                 0,
                 $uploadsFehler
             );
@@ -280,7 +330,8 @@ final class BackupService {
 
     /**
      * Aufbewahrungsrotation, getrennt je Backup-Art (#233): SQL-Dumps
-     * (`backup-…`) und Uploads-Archive (`uploads-…`) werden unabhängig
+     * (`backup-…`), Uploads-Archive (`uploads-…`) und die Addon-Daten vor
+     * einer Deinstallation (`addondaten-…`, Audit N27) werden unabhängig
      * voneinander auf die konfigurierte Anzahl gehalten - sonst würde ein
      * Lauf mit beiden Objekten die effektive Dump-Aufbewahrung halbieren.
      * Uploads-Archive rotieren auch dann weiter, wenn die Option inzwischen
@@ -292,7 +343,7 @@ final class BackupService {
         $keepCount = max(1, (int)($settings['backup_retention_count'] ?? self::DEFAULT_RETENTION_COUNT));
         $objects = $client->listObjects(self::OBJECT_PREFIX);
 
-        foreach (['backup-', 'uploads-'] as $kindPrefix) {
+        foreach (['backup-', 'uploads-', 'addondaten-'] as $kindPrefix) {
             // listObjects() liefert aufsteigend nach Schlüssel sortiert - durch
             // das "<Art>-<ISO-Zeitstempel>"-Namensschema entspricht das je Art
             // der chronologischen Reihenfolge, älteste zuerst.
@@ -340,10 +391,13 @@ final class BackupService {
      * ein gültiges leeres Archiv - der Lauf bleibt damit deterministisch,
      * statt je nach Instanzzustand Objekte auszulassen.
      */
-    private static function writeUploadsArchive(string $path, bool $gzip): void {
+    /**
+     * @param array<string, string> $pflicht Archivname => absoluter Pfad (siehe archivNamen())
+     */
+    private static function writeUploadsArchive(string $path, bool $gzip, array $pflicht = []): void {
         $archive = TarArchive::create($path, $gzip);
         try {
-            self::archivFuellen($archive);
+            self::archivFuellen($archive, $pflicht);
             // close() prüft den Abschluss der Datei (Audit M43).
             $archive->close();
         } catch (\Throwable $e) {
@@ -352,7 +406,10 @@ final class BackupService {
         }
     }
 
-    private static function archivFuellen(TarArchive $archive): void {
+    /**
+     * @param array<string, string> $pflicht Archivname => absoluter Pfad
+     */
+    private static function archivFuellen(TarArchive $archive, array $pflicht = []): void {
         $dir = self::uploadsDir();
         if (is_dir($dir)) {
             $archive->addDirectoryTree($dir, 'uploads');
@@ -367,6 +424,170 @@ final class BackupService {
         if (is_dir($horses)) {
             $archive->addDirectoryTree($horses, 'uploads/horses');
         }
+        // Addon-Ablagen aus den Datenregistern (Audit N27). Dasselbe Muster
+        // wie oben bei #366: Liegen Dateien außerhalb von public/uploads,
+        // fehlen sie sonst in "Hochgeladene Dateien mitsichern" - und die
+        // Tabellenzeilen im Dump zeigen nach dem Zurückspielen ins Leere.
+        foreach (self::verzeichnisseZusammenfuehren(self::addonVerzeichnisse(), $pflicht) as $name => $abs) {
+            if (is_dir($abs)) {
+                $archive->addDirectoryTree($abs, $name);
+            }
+        }
+    }
+
+    /**
+     * Das Archiv `addondaten-…` (Audit N27): nur die übergebenen
+     * Verzeichnisse, unter denselben Namen wie im Uploads-Archiv.
+     *
+     * @param array<string, string> $verzeichnisse Archivname => absoluter Pfad
+     */
+    private static function writeAddonArchive(string $path, bool $gzip, array $verzeichnisse): void {
+        $archive = TarArchive::create($path, $gzip);
+        try {
+            foreach (self::verzeichnisseZusammenfuehren([], $verzeichnisse) as $name => $abs) {
+                if (is_dir($abs)) {
+                    $archive->addDirectoryTree($abs, $name);
+                }
+            }
+            $archive->close();
+        } catch (\Throwable $e) {
+            $archive->abort();
+            throw $e;
+        }
+    }
+
+    /**
+     * Die Ablageverzeichnisse aller entdeckten Addons laut Datenregister
+     * (Audit N27), als Archivname => absoluter Pfad.
+     *
+     * - Einzige Quelle ist PluginManager::datenRegister(): Die Pfade dort
+     *   sind per realpath geprüft, liegen in der Installation und sind keine
+     *   geschützten Orte (#338).
+     * - Alle entdeckten Addons zählen, auch deaktivierte: Deaktivieren lässt
+     *   die Daten stehen, und ihre Tabellen sind ohnehin im Dump.
+     * - Ein Fehler hier darf die Sicherung nicht abbrechen - er landet im
+     *   Audit-Log, die Liste bleibt leer.
+     *
+     * @return array<string, string>
+     */
+    private static function addonVerzeichnisse(): array {
+        try {
+            if (self::$addonDirsOverride !== null) {
+                $liste = self::$addonDirsOverride instanceof \Closure
+                    ? (self::$addonDirsOverride)()
+                    : self::$addonDirsOverride;
+                return is_array($liste) ? $liste : [];
+            }
+
+            $manager = \App\Plugin\PluginManager::getInstance();
+            $entdeckt = $manager->getDiscoveredPlugins();
+            if ($entdeckt === []) {
+                // Vor PluginManager::boot() ist die Liste leer. Im Web- und
+                // Cron-Pfad ist boot() gelaufen (public/index.php); liegt
+                // trotzdem ein Addon da, soll das auffallen statt still
+                // nichts zu sichern.
+                if ((glob(self::wurzel() . '/plugins/*/plugin.json') ?: []) !== []) {
+                    AuditLogger::log(
+                        'Sicherung: Addon-Verzeichnisse nicht ermittelbar',
+                        'settings',
+                        'Die Addons waren in diesem Aufruf nicht geladen - Addon-Ablagen (owns.directories) fehlen in diesem Archiv.'
+                    );
+                }
+                return [];
+            }
+
+            $pfade = [];
+            foreach (array_keys($entdeckt) as $slug) {
+                foreach ($manager->datenRegister((string)$slug)['directories'] as $abs) {
+                    $pfade[] = $abs;
+                }
+            }
+            return self::archivNamen($pfade);
+        } catch (\Throwable $e) {
+            try {
+                AuditLogger::log('Sicherung: Addon-Verzeichnisse nicht ermittelbar', 'settings', $e->getMessage());
+            } catch (\Throwable $ignoriert) {
+                // Protokoll nicht schreibbar - die Sicherung geht vor.
+            }
+            return [];
+        }
+    }
+
+    /**
+     * Archivnamen für absolute Verzeichnisse: der Pfad relativ zur
+     * Installationswurzel (`storage/plugin_gesundheitstests`), damit sich das
+     * Archiv dort wieder entpacken lässt. Was außerhalb liegt (nur in Tests
+     * denkbar - das Register lässt es nicht zu), landet unter
+     * `addondaten/<Name>`.
+     *
+     * @param string[] $pfade
+     * @return array<string, string> Archivname => absoluter Pfad
+     */
+    private static function archivNamen(array $pfade): array {
+        $wurzel = realpath(self::wurzel());
+        $namen = [];
+        foreach ($pfade as $abs) {
+            if (!is_string($abs) || $abs === '') {
+                continue;
+            }
+            $echt = realpath($abs);
+            if ($echt === false) {
+                continue;
+            }
+            $name = ($wurzel !== false && str_starts_with($echt, $wurzel . '/'))
+                ? substr($echt, strlen($wurzel) + 1)
+                : 'addondaten/' . basename($echt);
+            $namen[$name] = $echt;
+        }
+        return $namen;
+    }
+
+    /**
+     * Führt Verzeichnislisten zusammen: doppelte Namen einmal, und ein
+     * Verzeichnis INNERHALB eines bereits aufgenommenen entfällt - sonst
+     * stünden seine Dateien zweimal im Archiv.
+     *
+     * @param array<string, string> ...$listen Archivname => absoluter Pfad
+     * @return array<string, string>
+     */
+    private static function verzeichnisseZusammenfuehren(array ...$listen): array {
+        $alle = [];
+        foreach ($listen as $liste) {
+            foreach ($liste as $name => $abs) {
+                $alle[(string)$name] = (string)$abs;
+            }
+        }
+        ksort($alle, SORT_STRING);
+        $ergebnis = [];
+        foreach ($alle as $name => $abs) {
+            foreach ($ergebnis as $schonName => $schonAbs) {
+                if (str_starts_with($name . '/', $schonName . '/') || str_starts_with($abs . '/', $schonAbs . '/')) {
+                    continue 2;
+                }
+            }
+            $ergebnis[$name] = $abs;
+        }
+        return $ergebnis;
+    }
+
+    private static function wurzel(): string {
+        return dirname(__DIR__, 2);
+    }
+
+    /** @var array<string, string>|\Closure|null */
+    private static array|\Closure|null $addonDirsOverride = null;
+
+    /**
+     * Nur für Tests: die Addon-Ablagen festlegen (Archivname => absoluter
+     * Pfad), statt sie aus den Datenregistern zu lesen - analog
+     * overrideUploadsDirForTests(). Eine Closure wird bei jedem Lauf
+     * aufgerufen (etwa um einen Fehler zu simulieren). `null` stellt den
+     * Normalzustand wieder her.
+     *
+     * @param array<string, string>|\Closure|null $dirs
+     */
+    public static function overrideAddonDirsForTests(array|\Closure|null $dirs): void {
+        self::$addonDirsOverride = $dirs;
     }
 
     private static ?string $uploadsDirOverride = null;
@@ -439,7 +660,9 @@ final class BackupService {
         $grenze = time() - self::VERWAISTE_TEMP_DATEIEN_NACH_SEKUNDEN;
         foreach (glob(sys_get_temp_dir() . '/hv-backup-*') ?: [] as $path) {
             $name = basename($path);
-            if (!str_starts_with($name, 'hv-backup-sql-') && !str_starts_with($name, 'hv-backup-uploads-')) {
+            if (!str_starts_with($name, 'hv-backup-sql-')
+                && !str_starts_with($name, 'hv-backup-uploads-')
+                && !str_starts_with($name, 'hv-backup-addondaten-')) {
                 continue;
             }
             $mtime = @filemtime($path);

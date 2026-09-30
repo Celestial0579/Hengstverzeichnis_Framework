@@ -6,6 +6,7 @@ namespace Tests\Integration;
 use App\Database;
 use App\Security\Crypto;
 use App\Service\AddonUpdateService;
+use App\Service\BackupService;
 use App\Service\Maintenance;
 use App\Service\Scheduler;
 use App\Service\UpdateJournal;
@@ -86,6 +87,9 @@ class UpdateRunTest extends TestCase {
 
     protected function setUp(): void {
         Scheduler::resetForTests();
+        // Das Pflicht-Backup soll nicht von echten storage/plugin_*-Ablagen
+        // des Arbeitsverzeichnisses abhängen (Audit N27).
+        BackupService::overrideAddonDirsForTests([]);
         self::$db->exec("DELETE FROM settings WHERE setting_key LIKE 'backup_%' OR setting_key LIKE 'update_%' OR setting_key LIKE 'cron_last_run__%'");
         self::$db->exec("DELETE FROM plugins");
         self::$db->exec("DELETE FROM audit_logs");
@@ -106,6 +110,7 @@ class UpdateRunTest extends TestCase {
 
     protected function tearDown(): void {
         UpdateService::overrideBaseDirForTests(null);
+        BackupService::overrideAddonDirsForTests(null);
         putenv('UPDATE_RELEASES_URL');
         putenv('ADDON_RELEASES_URL');
         // Ein hängen gebliebener Marker würde jeden folgenden Test (und eine

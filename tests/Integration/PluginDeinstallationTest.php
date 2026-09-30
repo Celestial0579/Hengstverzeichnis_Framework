@@ -7,6 +7,7 @@ use App\Database;
 use App\Plugin\PluginManager;
 use PDO;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\FakeS3Server;
 
 /**
  * Deinstallation eines Addons gegen eine echte Test-Datenbank und echte
@@ -35,6 +36,9 @@ class PluginDeinstallationTest extends TestCase {
     /** @var string[] angelegte Slugs */
     private array $slugs = [];
 
+    /** @var string[] angelegte Tabellen */
+    private array $zusatzTabellen = [];
+
     public static function setUpBeforeClass(): void {
         if (!defined('DB_HOST')) {
             self::markTestSkipped('Keine Test-Datenbank konfiguriert (DB_HOST fehlt) - siehe tests/bootstrap.php.');
@@ -48,6 +52,11 @@ class PluginDeinstallationTest extends TestCase {
     }
 
     protected function tearDown(): void {
+        \App\Service\BackupService::overrideAddonDirsForTests(null);
+        self::$db->exec("DELETE FROM settings WHERE setting_key LIKE 'backup\\_%'");
+        foreach ($this->zusatzTabellen as $tabelle) {
+            self::$db->exec('DROP TABLE IF EXISTS `' . $tabelle . '`');
+        }
         foreach ($this->slugs as $slug) {
             self::$db->prepare('DELETE FROM plugins WHERE slug = ?')->execute([$slug]);
         }
@@ -255,7 +264,135 @@ class PluginDeinstallationTest extends TestCase {
         $this->assertFileExists($ziel . '/datei.txt');
     }
 
+    // ---- Datenregister: Sicherung und unregistrierte Reste (Audit N27, M30)
+
+    /**
+     * Deinstallation mit Datenlöschung: Die Ablage aus owns.directories
+     * steckt vorher in einem eigenen Objekt addondaten-… (Upload-Option aus),
+     * das Protokoll nennt die Zahl, danach ist die Ablage weg. Eine Tabelle
+     * mit dem Namen des Addons, die nicht im Register steht, bleibt stehen
+     * und wird als "NICHT gelöscht" gemeldet.
+     */
+    public function testDatenLoeschenSichertAblageVorherUndMeldetUnregistrierteTabelle(): void {
+        $slug = $this->addon('m');
+        $praefix = 'plugin_phpunit_deinst_m';
+        $ablage = dirname(__DIR__, 2) . '/storage/' . $praefix;
+        self::weg($ablage);
+        mkdir($ablage, 0777, true);
+        $this->aufraeumen[] = $ablage;
+        file_put_contents($ablage . '/dokument.pdf', 'gesundheitsdaten');
+        $this->manifestIn($this->dir($slug), $slug, '1.0.0', '>=0.0.1', [
+            'tables' => [$praefix . '_daten'],
+            'directories' => ['storage/' . $praefix],
+        ]);
+        foreach ([$praefix . '_daten', $praefix . '_vergessen'] as $tabelle) {
+            $this->zusatzTabellen[] = $tabelle;
+            self::$db->exec('CREATE TABLE IF NOT EXISTS `' . $tabelle . '` (id INT PRIMARY KEY) ENGINE=InnoDB');
+        }
+        $this->sicherungEinrichten();
+
+        $manager = $this->frisch();
+        $vorschau = $manager->deinstallationsVorschau($slug);
+        $this->assertTrue($vorschau['deklariert']);
+        $this->assertSame([$praefix . '_vergessen'], $vorschau['unregistriert']['tables']);
+        $this->assertSame([], $vorschau['unregistriert']['directories'], 'Die registrierte Ablage ist kein Rest');
+
+        $protokoll = $manager->uninstall($slug, true);
+
+        $this->assertContains('Sicherung vor dem Löschen ausgeführt (inkl. 1 Addon-Verzeichnis).', $protokoll);
+        $archive = glob(FakeS3Server::storageDir() . '/test-bucket__backups~addondaten-*') ?: [];
+        $this->assertCount(1, $archive, 'Vor dem Löschen muss die Ablage gesichert sein');
+        $this->assertStringContainsString('gesundheitsdaten', (string)gzdecode((string)file_get_contents($archive[0])));
+        $this->assertStringContainsString('storage/' . $praefix . '/dokument.pdf', (string)gzdecode((string)file_get_contents($archive[0])));
+
+        $this->assertDirectoryDoesNotExist($ablage);
+        $this->assertFalse($this->tabelleDa($praefix . '_daten'));
+        $this->assertTrue($this->tabelleDa($praefix . '_vergessen'), 'Ein Namensmuster ist keine Eigentumserklärung - nicht löschen');
+        $this->assertContains("NICHT gelöscht (nicht im Datenregister des Addons): Tabelle {$praefix}_vergessen", $protokoll);
+    }
+
+    /**
+     * Die Vorschau ohne owns: nicht deklariert, und die Tabelle mit dem
+     * Namen des Addons erscheint als Rest. Tabellen, die ein ANDERES Addon
+     * registriert, gehören nicht dazu.
+     */
+    public function testVorschauOhneRegisterMeldetResteAberKeineFremdRegistrierten(): void {
+        $slug = $this->addon('n');
+        $anderer = $this->addon('n-extra');
+        $this->manifestIn($this->dir($anderer), $anderer, '1.0.0', '>=0.0.1', ['tables' => ['plugin_phpunit_deinst_n_geteilt']]);
+        foreach (['plugin_phpunit_deinst_n', 'plugin_phpunit_deinst_n_geteilt'] as $tabelle) {
+            $this->zusatzTabellen[] = $tabelle;
+            self::$db->exec('CREATE TABLE IF NOT EXISTS `' . $tabelle . '` (id INT PRIMARY KEY) ENGINE=InnoDB');
+        }
+
+        $vorschau = $this->frisch()->deinstallationsVorschau($slug);
+
+        $this->assertFalse($vorschau['deklariert']);
+        $this->assertSame(['plugin_phpunit_deinst_n'], $vorschau['unregistriert']['tables']);
+    }
+
+    /**
+     * Ohne übergebene Verzeichnisse und mit Upload-Option liest die
+     * Sicherung die Ablagen selbst aus den Registern der entdeckten Addons -
+     * auch eines deaktivierten.
+     */
+    public function testSicherungNimmtAblagenAllerEntdecktenAddonsAuf(): void {
+        $slug = $this->addon('o');
+        $ablage = dirname(__DIR__, 2) . '/storage/plugin_phpunit_deinst_o';
+        self::weg($ablage);
+        mkdir($ablage, 0777, true);
+        $this->aufraeumen[] = $ablage;
+        file_put_contents($ablage . '/ablage.txt', 'bleibt gesichert');
+        $this->manifestIn($this->dir($slug), $slug, '1.0.0', '>=0.0.1', ['directories' => ['storage/plugin_phpunit_deinst_o']]);
+        $leer = sys_get_temp_dir() . '/hv-deinst-uploads-' . bin2hex(random_bytes(4));
+        mkdir($leer);
+        $this->aufraeumen[] = $leer;
+        \App\Service\BackupService::overrideUploadsDirForTests($leer);
+        $this->sicherungEinrichten(['backup_include_uploads' => '1']);
+
+        $manager = $this->frisch();
+        $this->assertFalse($manager->isEnabled($slug));
+        try {
+            \App\Service\BackupService::run();
+        } finally {
+            \App\Service\BackupService::overrideUploadsDirForTests(null);
+        }
+
+        $archive = glob(FakeS3Server::storageDir() . '/test-bucket__backups~uploads-*') ?: [];
+        $this->assertCount(1, $archive);
+        $inhalt = (string)gzdecode((string)file_get_contents($archive[0]));
+        $this->assertStringContainsString('storage/plugin_phpunit_deinst_o/ablage.txt', $inhalt);
+        $this->assertStringContainsString('bleibt gesichert', $inhalt);
+    }
+
     // ---- Hilfsmittel ---------------------------------------------------
+
+    /** @param array<string, string> $zusatz */
+    private function sicherungEinrichten(array $zusatz = []): void {
+        FakeS3Server::ensureStarted();
+        foreach (glob(FakeS3Server::storageDir() . '/*') ?: [] as $datei) {
+            @unlink($datei);
+        }
+        $stmt = self::$db->prepare('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)');
+        foreach (array_merge([
+            'backup_enabled' => '1',
+            'backup_s3_endpoint' => FakeS3Server::endpoint(),
+            'backup_s3_region' => 'us-east-1',
+            'backup_s3_bucket' => 'test-bucket',
+            'backup_s3_access_key' => 'AKIDEXAMPLE',
+            'backup_s3_secret_key' => \App\Security\Crypto::encrypt('test-secret'),
+            'backup_s3_path_style' => '1',
+            'backup_s3_use_https' => '0',
+            'backup_include_uploads' => '0',
+        ], $zusatz) as $schluessel => $wert) {
+            $stmt->execute([$schluessel, $wert]);
+        }
+    }
+
+    private function tabelleDa(string $tabelle): bool {
+        $stmt = self::$db->query('SHOW TABLES LIKE ' . self::$db->quote($tabelle));
+        return $stmt !== false && $stmt->rowCount() > 0;
+    }
 
     private static function pluginsDir(): string {
         return __DIR__ . '/../../plugins';
@@ -288,14 +425,19 @@ class PluginDeinstallationTest extends TestCase {
         $this->manifestIn($this->dir($slug), $slug, $version, $kern);
     }
 
-    private function manifestIn(string $dir, string $slug, string $version, string $kern): void {
-        file_put_contents($dir . '/plugin.json', json_encode([
+    /** @param array<string, mixed>|null $owns */
+    private function manifestIn(string $dir, string $slug, string $version, string $kern, ?array $owns = null): void {
+        $manifest = [
             'slug' => $slug,
             'name' => 'PHPUnit Deinstallations-Fixture',
             'version' => $version,
             'core_compatibility' => $kern,
             'core_supported_max' => '99.99',
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ];
+        if ($owns !== null) {
+            $manifest['owns'] = $owns;
+        }
+        file_put_contents($dir . '/plugin.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     /** Neuer Request: Singleton verwerfen und frisch booten. */

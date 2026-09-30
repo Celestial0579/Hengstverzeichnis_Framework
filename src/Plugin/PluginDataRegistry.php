@@ -78,13 +78,22 @@ final class PluginDataRegistry {
      * @param array  $manifest Der Inhalt der plugin.json
      * @param string $wurzel   Installationswurzel (Basis für die Pfadprüfung)
      *
-     * @return array{tables:string[], directories:string[], settings:string[], abgelehnt:string[]}
+     * @return array{tables:string[], directories:string[], settings:string[], abgelehnt:string[], deklariert:bool}
      *         `abgelehnt` enthält die Einträge, die eine Prüfung nicht bestanden
-     *         haben, samt Grund - sie gehören in die Anzeige.
+     *         haben, samt Grund - sie gehören in die Anzeige. `deklariert`
+     *         unterscheidet "das Addon erklärt, nichts anzulegen" (leeres
+     *         `owns`) von "das Addon sagt gar nichts" (kein `owns`, Audit M30):
+     *         Nur im ersten Fall ist ein leeres Register eine Aussage.
      */
     public static function fuer(array $manifest, string $wurzel): array {
         $owns = $manifest['owns'] ?? [];
-        $ergebnis = ['tables' => [], 'directories' => [], 'settings' => [], 'abgelehnt' => []];
+        $ergebnis = [
+            'tables' => [],
+            'directories' => [],
+            'settings' => [],
+            'abgelehnt' => [],
+            'deklariert' => is_array($manifest['owns'] ?? null),
+        ];
         if (!is_array($owns)) {
             $ergebnis['abgelehnt'][] = '"owns" im Manifest ist kein Objekt - Register ignoriert.';
             return $ergebnis;
@@ -148,7 +157,7 @@ final class PluginDataRegistry {
      * Tabellennamens. "3 Tabellen werden gelöscht" ist keine Information;
      * "1.284 Kontaktanfragen werden gelöscht" ist eine.
      *
-     * @return array{tables:array<string,int>, directories:array<string,int>, settings:string[], abgelehnt:string[]}
+     * @return array{tables:array<string,int>, directories:array<string,int>, settings:string[], abgelehnt:string[], deklariert:bool}
      */
     public static function vorschau(array $register): array {
         $vorschau = [
@@ -156,6 +165,7 @@ final class PluginDataRegistry {
             'directories' => [],
             'settings' => $register['settings'],
             'abgelehnt' => $register['abgelehnt'],
+            'deklariert' => (bool)($register['deklariert'] ?? false),
         ];
 
         try {
@@ -186,6 +196,114 @@ final class PluginDataRegistry {
         }
 
         return $vorschau;
+    }
+
+    /**
+     * Was trägt den Namen des Addons, steht aber nicht in seinem Register?
+     * (Audit M30)
+     *
+     * DAS PROBLEM. Fünf Addons legten in install() Tabellen an, ohne sie im
+     * Register zu nennen. Die Rückfrage meldete "rückstandsfrei", das
+     * Protokoll "Daten gelöscht" - und die Tabellen samt Inserenten-E-Mails
+     * blieben stehen. Der eigentliche Fix ist das Register in den Addons;
+     * diese Funktion sorgt dafür, dass der Kern solche Lücken wenigstens
+     * MELDET.
+     *
+     * NUR EIN HINWEIS, KEINE LÖSCHLISTE. Ein Name ist keine
+     * Eigentumserklärung (die Grenze aus #338): Was hier auftaucht, wird
+     * angezeigt und protokolliert, aber nie gelöscht. Die Heuristik ist
+     * bewusst begrenzt - abweichend benannte Tabellen (etwa
+     * `plugin_zuchtschau_teilwertungen` des Addons zuchtschau-ergebnisse)
+     * findet sie nicht. Deshalb behauptet die Rückfrage ohne Treffer auch
+     * nicht "rückstandsfrei", sondern nur, was sie geprüft hat.
+     *
+     * Präfix: `plugin_` + Slug mit `_` statt `-`. Ein Treffer ist genau das
+     * Präfix oder Präfix + `_…` - `plugin_foo` trifft also nicht
+     * `plugin_foobar`. Namen, die ein anderes Addon registriert oder die
+     * unter das längere Präfix eines anderen Addons fallen (`plugin_foo_bar_x`
+     * gehört eher `foo-bar` als `foo`), werden ausgenommen.
+     *
+     * @param array{tables?:string[], directories?:string[]} $register  geprüftes Register (fuer())
+     * @param string[] $vorhandeneTabellen  Tabellen der Datenbank (etwa aus SHOW TABLES)
+     * @param string[] $fremdRegistriert    Register-Tabellen und -Verzeichnisse (realpath)
+     *                                      aller anderen Addons
+     * @param string   $wurzel              Installationswurzel
+     * @param string[] $fremdeSlugs         Slugs aller anderen Addons
+     *
+     * @return array{tables:string[], directories:string[]} Verzeichnisse als realpath
+     */
+    public static function unregistrierteReste(
+        string $slug,
+        array $register,
+        array $vorhandeneTabellen,
+        array $fremdRegistriert,
+        string $wurzel,
+        array $fremdeSlugs = []
+    ): array {
+        $praefix = self::slugPraefix($slug);
+        $eigene = array_merge($register['tables'] ?? [], $register['directories'] ?? []);
+
+        $laengere = [];
+        foreach ($fremdeSlugs as $fremd) {
+            $p = self::slugPraefix((string)$fremd);
+            if ($p !== $praefix && str_starts_with($p, $praefix . '_')) {
+                $laengere[] = $p;
+            }
+        }
+
+        $passt = static function (string $name) use ($praefix, $eigene, $fremdRegistriert, $laengere): bool {
+            if ($name !== $praefix && !str_starts_with($name, $praefix . '_')) {
+                return false;
+            }
+            foreach ($laengere as $p) {
+                if ($name === $p || str_starts_with($name, $p . '_')) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        $tabellen = [];
+        foreach ($vorhandeneTabellen as $tabelle) {
+            $tabelle = (string)$tabelle;
+            if ($passt($tabelle) && !in_array($tabelle, $eigene, true) && !in_array($tabelle, $fremdRegistriert, true)) {
+                $tabellen[] = $tabelle;
+            }
+        }
+
+        $verzeichnisse = [];
+        $wurzelEcht = realpath($wurzel);
+        if ($wurzelEcht !== false) {
+            $kandidaten = array_merge(
+                glob($wurzelEcht . '/storage/' . $praefix, GLOB_NOSORT) ?: [],
+                glob($wurzelEcht . '/storage/' . $praefix . '_*', GLOB_NOSORT) ?: []
+            );
+            foreach ($kandidaten as $kandidat) {
+                if (!$passt(basename($kandidat)) || !is_dir($kandidat)) {
+                    continue;
+                }
+                $echt = realpath($kandidat);
+                if ($echt === false
+                    || !str_starts_with($echt . '/', $wurzelEcht . '/')
+                    || self::istTabu($echt, $wurzelEcht)
+                    || in_array($echt, $eigene, true)
+                    || in_array($echt, $fremdRegistriert, true)) {
+                    continue;
+                }
+                $verzeichnisse[] = $echt;
+            }
+        }
+
+        $tabellen = array_values(array_unique($tabellen));
+        $verzeichnisse = array_values(array_unique($verzeichnisse));
+        sort($tabellen);
+        sort($verzeichnisse);
+        return ['tables' => $tabellen, 'directories' => $verzeichnisse];
+    }
+
+    /** `plugin_` + Slug, Bindestriche als Unterstriche (Tabellen-/Verzeichnis-Präfix). */
+    public static function slugPraefix(string $slug): string {
+        return self::PRAEFIX . str_replace('-', '_', $slug);
     }
 
     /** @return string[] */

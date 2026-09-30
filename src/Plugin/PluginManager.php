@@ -1278,7 +1278,11 @@ final class PluginManager {
     /**
      * Was gehört diesem Addon? Geprüftes Register aus der plugin.json (#338).
      *
-     * @return array{tables:string[], directories:string[], settings:string[], abgelehnt:string[]}
+     * `directories` sind realpath-geprüft und frei von geschützten Orten -
+     * die einzige Quelle für Addon-Ablagen, auch für die Sicherung (Audit
+     * N27).
+     *
+     * @return array{tables:string[], directories:string[], settings:string[], abgelehnt:string[], deklariert:bool}
      */
     public function datenRegister(string $slug): array {
         $info = $this->discovered[$slug] ?? null;
@@ -1292,7 +1296,51 @@ final class PluginManager {
      * Zahl nennen kann statt eines Tabellennamens (#338).
      */
     public function deinstallationsVorschau(string $slug): array {
-        return PluginDataRegistry::vorschau($this->datenRegister($slug));
+        $register = $this->datenRegister($slug);
+        $vorschau = PluginDataRegistry::vorschau($register);
+        // Audit M30: Was den Namen des Addons trägt, aber nicht im Register
+        // steht - nur zur Anzeige, gelöscht wird es nicht.
+        $vorschau['unregistriert'] = $this->unregistrierteReste($slug, $register);
+        return $vorschau;
+    }
+
+    /**
+     * Tabellen `plugin_<slug>*` und Verzeichnisse `storage/plugin_<slug>*`,
+     * die nicht im Register des Addons stehen (Audit M30, siehe
+     * PluginDataRegistry::unregistrierteReste()). Ohne Datenbank bleibt die
+     * Tabellenliste leer.
+     *
+     * @param array{tables:string[], directories:string[]} $register
+     * @return array{tables:string[], directories:string[]}
+     */
+    private function unregistrierteReste(string $slug, array $register): array {
+        $vorhanden = [];
+        try {
+            $stmt = Database::getInstance()->query("SHOW TABLES LIKE 'plugin\\_%'");
+            $vorhanden = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_COLUMN) : [];
+        } catch (\Throwable $e) {
+            $vorhanden = [];
+        }
+
+        $fremd = [];
+        $fremdeSlugs = [];
+        foreach (array_keys($this->discovered) as $anderer) {
+            if ($anderer === $slug) {
+                continue;
+            }
+            $fremdeSlugs[] = (string)$anderer;
+            $r = $this->datenRegister((string)$anderer);
+            $fremd = array_merge($fremd, $r['tables'], $r['directories']);
+        }
+
+        return PluginDataRegistry::unregistrierteReste(
+            $slug,
+            $register,
+            is_array($vorhanden) ? $vorhanden : [],
+            $fremd,
+            $this->wurzel(),
+            $fremdeSlugs
+        );
     }
 
     /**
@@ -1369,9 +1417,12 @@ final class PluginManager {
      * 1. uninstallHookPruefung() - VOR dem Deaktivieren, denn danach wäre ein
      *    aktiviertes Addon nicht mehr als "geprüft geladen" erkennbar.
      * 2. Deaktivieren.
-     * 3. Nur bei $datenLoeschen: Sicherung, der uninstall()-Hook des Addons
-     *    (nur wenn die Prüfung es erlaubt - er weiss Dinge, die kein Register
-     *    aufzählen kann), dann das Datenregister aus der plugin.json.
+     * 3. Nur bei $datenLoeschen: Sicherung (mit den Register-Verzeichnissen,
+     *    Audit N27), der uninstall()-Hook des Addons (nur wenn die Prüfung es
+     *    erlaubt - er weiss Dinge, die kein Register aufzählen kann), dann das
+     *    Datenregister aus der plugin.json. Zum Schluss werden Tabellen und
+     *    Verzeichnisse mit dem Namen des Addons, die nicht im Register stehen,
+     *    als "NICHT gelöscht" gemeldet (Audit M30).
      * 4. In BEIDEN Fällen: der Addon-Code (plugins/<slug>) wird entfernt,
      *    danach die plugins-Zeile. Ohne Zeile (und damit ohne Herkunft) zieht
      *    ein Kern-Update das Addon nicht mehr mit.
@@ -1434,11 +1485,18 @@ final class PluginManager {
      * @param string[] $protokoll
      */
     private function datenEntfernen(string $slug, array $pruefung, array &$protokoll): void {
-        // 1. Sicherung, solange noch alles da ist.
+        // 1. Sicherung, solange noch alles da ist. Die Verzeichnisse, die
+        //    gleich gelöscht werden, sind darin IMMER enthalten - auch wenn
+        //    "Hochgeladene Dateien mitsichern" aus ist (Audit N27). Sonst
+        //    verschwänden etwa Gesundheitsdokumente ohne jede Kopie.
+        $zuLoeschendeVerzeichnisse = $this->datenRegister($slug)['directories'];
         try {
             if (\App\Service\BackupService::isConfigured($this->settingsFuerSicherung())) {
-                \App\Service\BackupService::run();
-                $protokoll[] = 'Sicherung vor dem Löschen ausgeführt.';
+                \App\Service\BackupService::run($zuLoeschendeVerzeichnisse);
+                $anzahl = count($zuLoeschendeVerzeichnisse);
+                $protokoll[] = $anzahl > 0
+                    ? "Sicherung vor dem Löschen ausgeführt (inkl. {$anzahl} Addon-Verzeichnis" . ($anzahl === 1 ? '' : 'se') . ').'
+                    : 'Sicherung vor dem Löschen ausgeführt.';
             } else {
                 $protokoll[] = 'HINWEIS: Keine Sicherung eingerichtet - es wurde ohne Sicherung gelöscht.';
             }
@@ -1492,6 +1550,18 @@ final class PluginManager {
             // bleibt liegen - und der Betreiber muss wissen, dass da noch
             // etwas ist.
             $protokoll[] = 'NICHT gelöscht: ' . $grund;
+        }
+
+        // 4. Was den Namen des Addons trägt, aber nicht im Register steht
+        //    (Audit M30). Bewusst NICHT gelöscht - ein Namensmuster ist keine
+        //    Eigentumserklärung (#338). Aber gemeldet, statt "Daten gelöscht"
+        //    zu behaupten, während die Tabelle weiter Daten hält.
+        $reste = $this->unregistrierteReste($slug, $register);
+        foreach ($reste['tables'] as $tabelle) {
+            $protokoll[] = "NICHT gelöscht (nicht im Datenregister des Addons): Tabelle {$tabelle}";
+        }
+        foreach ($reste['directories'] as $verzeichnis) {
+            $protokoll[] = 'NICHT gelöscht (nicht im Datenregister des Addons): Verzeichnis ' . basename($verzeichnis);
         }
     }
 

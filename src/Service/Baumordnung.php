@@ -137,6 +137,17 @@ final class Baumordnung {
         'config/db_config.php'   => self::BETREIBER,
         // Hochgeladene Dateien. Liegt in public/, gehört aber dem Betreiber.
         'public/uploads'         => self::BETREIBER,
+        // ... bis auf die beiden Schutzdateien darin (Audit N19). Sie sind
+        // Sicherheitsregeln des Releases, keine Betreiberdaten: die harte
+        // Sperre des statischen Wegs zu Pferdefotos (#366) und die
+        // korrigierte Einbettungsregel (#367). Solange public/uploads als
+        // Ganzes BETREIBER war, kamen beide per Update nie an. Der längere
+        // Eintrag gewinnt; Updates steigen über enthaeltKern() gezielt ab und
+        // kopieren dort NUR diese Dateien, der Abgleich löscht unter
+        // public/uploads weiterhin nichts. Auf Bestandsinstallationen legt
+        // sie einmalig SchemaMigrator an (App\Service\Schutzdateien).
+        'public/uploads/.htaccess'        => self::KERN,
+        'public/uploads/horses/.htaccess' => self::KERN,
         // Pferdefotos, seit #366 ausserhalb des Webroots.
         'storage/horses'         => self::BETREIBER,
         // Installierte Addons. Fremder Code und fremde Daten.
@@ -206,6 +217,24 @@ final class Baumordnung {
      */
     public static function istBetreiber(string $relPath): bool {
         return self::klasse($relPath) === self::BETREIBER;
+    }
+
+    /**
+     * Liegt unter diesem Pfad ein KERN-Eintrag der Ordnung? Für
+     * BETREIBER-Verzeichnisse mit KERN-Inhalt (public/uploads, Audit N19):
+     * Das Update steigt dort gezielt ab, statt sie ganz zu überspringen.
+     */
+    public static function enthaeltKern(string $relPath): bool {
+        $relPath = self::normalisiere($relPath);
+        if ($relPath === '') {
+            return true;
+        }
+        foreach (self::ORDNUNG as $pfad => $art) {
+            if ($art === self::KERN && str_starts_with($pfad, $relPath . '/')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

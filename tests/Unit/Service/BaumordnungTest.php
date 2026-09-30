@@ -165,6 +165,30 @@ class BaumordnungTest extends TestCase {
     }
 
     /**
+     * Die beiden Schutzdateien unter public/uploads sind KERN (Audit N19) -
+     * alles andere dort bleibt Betreiberdaten. enthaeltKern() ist die Frage,
+     * ob ein Update in ein BETREIBER-Verzeichnis gezielt absteigen muss.
+     */
+    public function testSchutzdateienImUploadVerzeichnisSindKern(): void {
+        $this->assertTrue(Baumordnung::istKern('public/uploads/.htaccess'));
+        $this->assertTrue(Baumordnung::istKern('public/uploads/horses/.htaccess'));
+
+        foreach (['public/uploads/x.jpg', 'public/uploads/horses/y.jpg', 'public/uploads/branding/logo.png', 'public/uploads/horses'] as $pfad) {
+            $this->assertTrue(Baumordnung::istBetreiber($pfad), $pfad);
+        }
+
+        $this->assertTrue(Baumordnung::enthaeltKern('public/uploads'));
+        $this->assertTrue(Baumordnung::enthaeltKern('public/uploads/horses'));
+        $this->assertFalse(Baumordnung::enthaeltKern('public/uploads/branding'));
+        $this->assertFalse(Baumordnung::enthaeltKern('plugins'));
+        $this->assertFalse(Baumordnung::enthaeltKern('config/db_config.php'));
+
+        // Der Abgleich löscht unter public/uploads weiterhin nichts.
+        $this->assertFalse(Baumordnung::darfAbgeglichenWerden('public/uploads'));
+        $this->assertContains('public/uploads', Baumordnung::geschuetztePfade());
+    }
+
+    /**
      * Die früher in UpdateService::PROTECTED_PATHS aufgezählten Pfade müssen
      * weiterhin alle geschützt sein. Der Umzug in die Baumordnung war eine
      * Umstellung der Zuständigkeit, keine Änderung der Wirkung.

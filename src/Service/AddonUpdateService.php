@@ -134,6 +134,25 @@ final class AddonUpdateService {
         if (!preg_match('/^[a-z0-9][a-z0-9-]*$/', $slug)) {
             return $fail('Ungültiger Addon-Slug.');
         }
+
+        // Dieselbe Sperre wie das Kern-Update (Audit M44): Ein vor dem
+        // Wartungsfenster begonnener manueller Lauf konnte sonst mit der
+        // Addon-Phase eines Kern-Updates in plugins/ überlappen. Innerhalb
+        // von performUpdate() ist die Sperre reentrant.
+        $wurzel = UpdateService::baseDir();
+        UpdateSperre::erwerben($wurzel, 'Addon-Update');
+        try {
+            return self::updateAddonUnterSperre($slug, $fail);
+        } finally {
+            UpdateSperre::freigeben($wurzel);
+        }
+    }
+
+    /**
+     * @param \Closure(string): array{ok: bool, error: ?string, from: ?string, to: ?string, ref: ?string} $fail
+     * @return array{ok: bool, error: ?string, from: ?string, to: ?string, ref: ?string}
+     */
+    private static function updateAddonUnterSperre(string $slug, \Closure $fail): array {
         $official = self::officialRepoRow();
         if ($official === null) {
             return $fail('Kein offizielles Addon-Repo registriert.');

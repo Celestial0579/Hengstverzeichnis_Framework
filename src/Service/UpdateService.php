@@ -22,10 +22,15 @@ use App\Database;
  * - Lokale Konfiguration und Daten werden nie überschrieben: config/
  *   db_config.php, public/uploads/, plugins/ und .env sind vom Kopieren
  *   ausgenommen (zusätzlich zur Tatsache, dass sie im Release-Zip ohnehin
- *   fehlen).
- * - Der Kopiervorgang ist additiv (überschreibt/ergänzt Dateien, löscht
- *   keine) - Migrationsschritte übernimmt wie bisher
- *   Database::ensureSchemaUpToDate() beim nächsten Request.
+ *   fehlen). Ausnahme sind die beiden Schutzdateien unter public/uploads
+ *   (Audit N19, siehe Baumordnung und Schutzdateien).
+ * - Der Kopiervorgang überschreibt und ergänzt; gelöscht wird nur, was der
+ *   Abgleich (#403) als abgelöste Kerndatei beweisen kann. Migrationsschritte
+ *   übernimmt wie bisher Database::ensureSchemaUpToDate() beim nächsten
+ *   Request.
+ * - Ein Lauf zur Zeit (UpdateSperre, Audit M44) und ein Rückweg, der auch
+ *   einen Fatal Error oder harten Abbruch übersteht (UpdateJournal und
+ *   update-rueckweg.php, Audit M45).
  * - Anstoßbar manuell im Admin-Bereich (siehe UpdateController) oder seit
  *   #290 unbeaufsichtigt über den Scheduler (registerScheduledTask()) - der
  *   in #85 als zweiter Schritt vorgesehene Cron-Lauf. Beide Wege gehen durch
@@ -581,6 +586,53 @@ class UpdateService {
             throw new \RuntimeException($hindernis);
         }
 
+        // Ab hier läuft der Lauf lange und darf nicht mehr halb enden
+        // (Audit M45): kein Zeitlimit, kein Abbruch durch ein geschlossenes
+        // Browserfenster, Rückweg im Shutdown-Handler.
+        $wurzel = self::baseDir();
+        $vorher = self::langlaeuferVorbereiten();
+        try {
+            // Genau ein Lauf zur Zeit (Audit M44). Der minütliche Cron konnte
+            // performUpdate() mehrfach starten, solange der erste Lauf noch
+            // mit Backup und Download beschäftigt war - mit doppelten
+            // Backups, die intakte ältere verdrängten, einem erneut
+            // eingespielten Kern und einem Wartungsmodus, den der zuerst
+            // fertige Lauf dem anderen mitten im Kopieren aufhob. Die Sperre
+            // steht deshalb VOR checkForUpdate() und dem Pflicht-Backup.
+            UpdateSperre::erwerben($wurzel, 'Kern-Update');
+            try {
+                return self::performUpdateUnterSperre($wurzel);
+            } finally {
+                UpdateSperre::freigeben($wurzel);
+            }
+        } finally {
+            self::langlaeuferZuruecksetzen($vorher);
+        }
+    }
+
+    /** Der eigentliche Lauf, unter der UpdateSperre. */
+    private static function performUpdateUnterSperre(string $wurzel): array {
+        // Ein früherer Lauf wurde hart beendet und nicht zurückgerollt (der
+        // frühe Haken in public/index.php greift erst beim nächsten Request):
+        // zuerst zurück, dann weiter. In einem eigenen, kurzen
+        // Wartungsfenster.
+        self::verwaistesImWartungsfensterZurueckrollen($wurzel);
+
+        // Hat dieser Prozess noch eine ältere Version geladen, als auf der
+        // Platte liegt, hat ein anderer Lauf inzwischen eingespielt - dann
+        // würde checkForUpdate() mit der veralteten Konstante vergleichen
+        // und dasselbe Release noch einmal einspielen (Audit M44). Ohne
+        // config/config.php im Ziel (Testziele) entfällt die Prüfung.
+        $aufDerPlatte = self::versionAusConfig($wurzel);
+        if ($aufDerPlatte !== ''
+            && self::normalizeVersion($aufDerPlatte) !== self::normalizeVersion(self::currentVersion())
+        ) {
+            throw new UpdateLaeuftBereits(
+                "Die Installation steht inzwischen auf {$aufDerPlatte} - dieser Lauf hat noch "
+                . self::currentVersion() . ' geladen und spielt nichts ein.'
+            );
+        }
+
         $check = self::checkForUpdate();
         if (!$check['update_available']) {
             $latestInfo = $check['latest'] !== null ? " (neuestes Release im Kanal '{$check['channel']}': {$check['latest']})" : '';
@@ -622,12 +674,18 @@ class UpdateService {
         // Datenmigrations-Addon schon existiert. Backup und Download bleiben
         // bewusst AUSSERHALB des Fensters, damit es so kurz wie möglich ist.
         // Das finally ist wesentlich: Bricht das Anwenden ab, darf die
-        // Installation nicht dauerhaft auf 503 stehen bleiben.
-        Maintenance::enable("Update wird eingespielt: {$check['current']} auf {$check['latest']}");
+        // Installation nicht dauerhaft auf 503 stehen bleiben. Mit Token
+        // (Audit N72): Aufgehoben wird nur DIESER Marker.
+        $token = Maintenance::enable("Update wird eingespielt: {$check['current']} auf {$check['latest']}");
         try {
             try {
                 self::verifyArchiveChecksum($zipPath, (string)$check['zip_name'], (string)$check['checksums_url']);
-                $files = self::applyUpdateArchive($zipPath, self::baseDir());
+                $files = self::applyUpdateArchive($zipPath, $wurzel, [
+                    'zweck' => 'Kern-Update',
+                    'von' => (string)$check['current'],
+                    'nach' => (string)$check['latest'],
+                    'download' => $zipPath,
+                ]);
             } finally {
                 @unlink($zipPath);
             }
@@ -644,8 +702,11 @@ class UpdateService {
             // die Addon-Phase schreibt bewusst über ihren eigenen Weg).
             $addonPhase = AddonUpdateService::updateOfficialAddonsAfterCoreUpdate($check['latest']);
         } finally {
-            Maintenance::disable();
+            Maintenance::disable($token);
         }
+
+        // Ein früherer Abbruch ist mit diesem Lauf erledigt.
+        UpdateJournal::abbruchHinweisLoeschen($wurzel);
 
         return [
             'from' => $check['current'],
@@ -654,6 +715,75 @@ class UpdateService {
             'addons' => $addonPhase['results'],
             'addons_ref' => $addonPhase['ref'],
         ];
+    }
+
+    /**
+     * Rollt ein verwaistes Journal in einem kurzen eigenen Wartungsfenster
+     * zurück (Audit M45, Punkt 7d). Der Aufrufer hält die UpdateSperre.
+     */
+    private static function verwaistesImWartungsfensterZurueckrollen(string $wurzel): void {
+        if (!UpdateJournal::offen($wurzel)) {
+            return;
+        }
+        $token = Maintenance::enable('Abgebrochenes Update wird zurückgerollt');
+        try {
+            $ergebnis = UpdateJournal::verwaistesZurueckrollen($wurzel);
+        } finally {
+            Maintenance::disable($token);
+        }
+        self::verwaistesErgebnisAuswerten($wurzel, $ergebnis);
+    }
+
+    private static function verwaistesErgebnisAuswerten(string $wurzel, string $ergebnis): void {
+        if ($ergebnis === 'belegt') {
+            throw new UpdateLaeuftBereits('Ein abgebrochener Lauf wird gerade von einem anderen Prozess zurückgerollt. Bitte später erneut versuchen.');
+        }
+        if ($ergebnis === 'unvollstaendig') {
+            throw new \RuntimeException(
+                'Ein abgebrochenes Update ließ sich nicht vollständig zurückrollen (meist Dateirechte). '
+                . 'Das Journal liegt in ' . UpdateJournal::VERZEICHNIS . '; nach Behebung der Ursache: php '
+                . UpdateJournal::VERZEICHNIS . '/' . UpdateJournal::RUECKWEG
+            );
+        }
+        if ($ergebnis === 'zurueckgerollt') {
+            self::abbruchProtokollieren($wurzel);
+        }
+    }
+
+    /**
+     * Schreibt den Audit-Eintrag zu einem zurückgerollten Abbruch - einmal.
+     * Der Rückweg selbst kann das nicht (kein Autoloader, keine Datenbank im
+     * Shutdown bzw. im frühen Haken); er hinterlässt dafür das Flag
+     * 'protokolliert' => false in var/update-abbruch.json.
+     *
+     * @return array<string, mixed>|null der Hinweis, falls einer vorliegt
+     */
+    public static function abbruchProtokollieren(?string $wurzel = null): ?array {
+        $wurzel ??= self::baseDir();
+        $abbruch = UpdateJournal::letzterAbbruch($wurzel);
+        if ($abbruch === null || ($abbruch['protokolliert'] ?? false) === true) {
+            return $abbruch;
+        }
+        try {
+            AuditLogger::log(
+                'Abgebrochenes Update zurückgerollt',
+                'update',
+                sprintf(
+                    '%s%s wurde abgebrochen (%s) und zurückgerollt: %s',
+                    (string)($abbruch['zweck'] ?? 'Update'),
+                    ($abbruch['nach'] ?? '') !== '' ? ' auf ' . $abbruch['nach'] : '',
+                    (string)($abbruch['ursache'] ?? '?'),
+                    json_encode($abbruch['bilanz'] ?? [], JSON_UNESCAPED_UNICODE)
+                ),
+                null,
+                'SYSTEM'
+            );
+            UpdateJournal::hinweisAktualisieren($wurzel, ['protokolliert' => true]);
+            $abbruch['protokolliert'] = true;
+        } catch (\Throwable $e) {
+            error_log('Abbruch-Hinweis nicht protokolliert: ' . $e->getMessage());
+        }
+        return $abbruch;
     }
 
     /**
@@ -793,6 +923,10 @@ class UpdateService {
             return;
         }
 
+        // Ein zurückgerollter Abbruch, den noch niemand gesehen hat, kommt
+        // ins Audit-Log (Audit M45) - der Rückweg selbst kann das nicht.
+        $abbruch = self::abbruchProtokollieren();
+
         try {
             $check = self::checkForUpdate();
         } catch (\Throwable $e) {
@@ -858,8 +992,58 @@ class UpdateService {
         $recipients = self::adminRecipients();
         $mailer = new Mailer();
 
+        // Dieselbe Zielversion ist schon einmal mitten im Einspielen
+        // abgebrochen (Audit M45). Ein zweiter unbeaufsichtigter Versuch
+        // liefe mit hoher Wahrscheinlichkeit in dieselbe Wand - Zeitlimit,
+        // Speicher, Rechte - und stünde jede Nacht erneut mit Wartungsmodus
+        // und Rückweg da. Die Admins erfahren es einmal; der manuelle Knopf
+        // unter /admin/updates bleibt.
+        if ($abbruch !== null
+            && ($abbruch['nach'] ?? '') !== ''
+            && self::normalizeVersion((string)$abbruch['nach']) === self::normalizeVersion((string)$check['latest'])
+        ) {
+            AuditLogger::log(
+                'Automatisches Update ausgesetzt: vorheriger Abbruch',
+                'update',
+                "Das Einspielen von {$check['latest']} wurde am " . (string)($abbruch['zeit'] ?? '?')
+                . ' abgebrochen und zurückgerollt (' . (string)($abbruch['ursache'] ?? '?') . '). '
+                . 'Die Automatik versucht dieselbe Version nicht erneut; manuell unter /admin/updates einspielbar.',
+                null,
+                'SYSTEM'
+            );
+            if (($abbruch['gemeldet'] ?? false) !== true) {
+                $gesendet = 0;
+                foreach ($recipients as $recipient) {
+                    if ($mailer->sendAutoUpdateNotification(
+                        $recipient,
+                        false,
+                        (string)$check['current'],
+                        (string)$check['latest'],
+                        'Das Einspielen von ' . $check['latest'] . ' wurde abgebrochen und zurückgerollt: '
+                        . (string)($abbruch['ursache'] ?? '?') . "\n\n"
+                        . 'Die Automatik versucht diese Version nicht erneut. Bitte die Ursache beheben '
+                        . '(etwa Zeit- oder Speicherlimit des Webservers) und das Update unter /admin/updates '
+                        . 'von Hand einspielen.'
+                    )) {
+                        $gesendet++;
+                    }
+                }
+                // Als gemeldet gilt es erst, wenn eine Mail rausging - wie
+                // bei runCheckAndNotify().
+                if ($gesendet > 0) {
+                    UpdateJournal::hinweisAktualisieren(self::baseDir(), ['gemeldet' => true]);
+                }
+            }
+            return;
+        }
+
         try {
             $result = self::performUpdate();
+        } catch (UpdateLaeuftBereits $e) {
+            // Ein anderer Lauf ist schon dabei (oder hat schon eingespielt).
+            // Das ist kein Fehlschlag: keine Mail, kein Weiterwerfen.
+            AuditLogger::log('Automatisches Update übersprungen: läuft bereits', 'update', $e->getMessage(), null, 'SYSTEM');
+            return;
         } catch (\Throwable $e) {
             foreach ($recipients as $recipient) {
                 $mailer->sendAutoUpdateNotification(
@@ -1083,79 +1267,247 @@ class UpdateService {
     }
 
     /**
-     * Entpackt ein Release-Zip und kopiert dessen Inhalt additiv über die
+     * Dateien, die copyTree() überspringt und applyUpdateArchive() ganz zum
+     * Schluss kopiert (Audit M45): config/config.php trägt CORE_VERSION -
+     * läge sie früh, hielte sich ein halb kopierter Baum für aktuell. Die
+     * Solliste der Integritätsprüfung gehört zum selben Stand.
+     */
+    private const ZULETZT_KOPIEREN = [Integritaet::MANIFEST, 'config/config.php'];
+
+    /** Das Journal des laufenden Kopiervorgangs (null außerhalb davon). */
+    private static ?UpdateJournal $offenesJournal = null;
+
+    /** Der Rückweg, geladen solange der Codebaum noch konsistent war. */
+    private static ?\Closure $rueckweg = null;
+
+    /** Speicher, der im Shutdown nach einem Speicherlimit-Fatal frei wird. */
+    private static ?string $notreserve = null;
+
+    private static bool $abbruchHandlerRegistriert = false;
+
+    /** @var (callable(string): void)|null */
+    private static $nachJederDatei = null;
+
+    /**
+     * Nur für Tests: wird nach jeder kopierten Datei mit ihrem relativen
+     * Pfad aufgerufen - die Naht, an der die Abbruch-Tests (Zeitlimit,
+     * Speicher, SIGKILL) mitten im Kopieren zuschlagen.
+     *
+     * @param (callable(string): void)|null $fn
+     */
+    public static function nachJederDateiFuerTests(?callable $fn): void {
+        self::$nachJederDatei = $fn;
+    }
+
+    /**
+     * Bereitet einen Lauf vor, der den Codebaum austauscht (Audit M45):
+     * kein Zeitlimit, kein Abbruch durch ein geschlossenes Browserfenster,
+     * eine Notreserve für den Speicherlimit-Fall, die Klassen des
+     * Abbruchpfads vorab geladen (später lägen sie womöglich halb neu auf der
+     * Platte) und der Shutdown-Handler, der ein offenes Journal zurückrollt.
+     * Registriert VOR Maintenance::enable(), damit er vor dessen Aufräumen
+     * läuft.
+     *
+     * @return array{zeit: int, abbruch: bool}
+     */
+    private static function langlaeuferVorbereiten(): array {
+        $vorher = [
+            'zeit' => (int)ini_get('max_execution_time'),
+            'abbruch' => (bool)ignore_user_abort(),
+        ];
+        \App\Helper\LongRunning::allow();
+        self::$notreserve ??= str_repeat("\0", 256 * 1024);
+        foreach ([UpdateJournal::class, UpdateSperre::class, UpdateLaeuftBereits::class, Maintenance::class, Baumordnung::class] as $klasse) {
+            class_exists($klasse);
+        }
+        self::$rueckweg ??= UpdateJournal::rueckweg();
+        if (!self::$abbruchHandlerRegistriert) {
+            self::$abbruchHandlerRegistriert = true;
+            register_shutdown_function([self::class, 'nachAbbruch']);
+        }
+        return $vorher;
+    }
+
+    /** @param array{zeit: int, abbruch: bool} $vorher */
+    private static function langlaeuferZuruecksetzen(array $vorher): void {
+        if ($vorher['zeit'] > 0 && function_exists('set_time_limit')) {
+            @set_time_limit($vorher['zeit']);
+        }
+        ignore_user_abort($vorher['abbruch']);
+    }
+
+    /**
+     * Shutdown-Handler (Audit M45): Endet der Prozess, während ein Journal
+     * offen ist - Zeit- oder Speicherlimit, Kompilierfehler in einer frisch
+     * kopierten Datei, exit() -, wird hier noch im selben Prozess
+     * zurückgerollt.
+     *
+     * KEIN AuditLogger und nichts, was die Datenbank oder den Autoloader
+     * braucht: Ein zweiter Fatal Error in einer Shutdown-Funktion bräche
+     * alle folgenden ab - auch das Aufräumen des Wartungsmodus. Das Audit
+     * holen UpdateController::index() bzw. der nächste Automatik-Lauf nach
+     * (Flag 'protokolliert' in var/update-abbruch.json).
+     *
+     * @internal nur für register_shutdown_function()
+     */
+    public static function nachAbbruch(): void {
+        $journal = self::$offenesJournal;
+        if ($journal === null || $journal->istGeschlossen()) {
+            return;
+        }
+        self::$offenesJournal = null;
+        self::$notreserve = null;
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+        self::speicherlimitAnheben();
+
+        $fehler = error_get_last();
+        $ursache = is_array($fehler) && in_array($fehler['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE, E_USER_ERROR, E_RECOVERABLE_ERROR], true)
+            ? sprintf('%s (%s:%d)', $fehler['message'], $fehler['file'], $fehler['line'])
+            : 'Der Prozess wurde beendet, bevor das Einspielen abgeschlossen war.';
+
+        try {
+            $rueckweg = self::$rueckweg ?? UpdateJournal::rueckweg();
+            $ergebnis = $rueckweg($journal->wurzel(), true, $ursache);
+            error_log("Update abgebrochen ({$ursache}) - Rückweg im selben Prozess: {$ergebnis}");
+        } catch (\Throwable $e) {
+            error_log('Update abgebrochen, Rückweg im Shutdown gescheitert: ' . $e->getMessage()
+                . ' - der nächste Request rollt über var/update-journal/rueckweg.php zurück.');
+        }
+    }
+
+    private static function speicherlimitAnheben(): void {
+        $limit = trim((string)ini_get('memory_limit'));
+        if ($limit === '' || $limit === '-1') {
+            return;
+        }
+        $zahl = (int)$limit;
+        $einheit = strtolower(substr($limit, -1));
+        $bytes = match ($einheit) {
+            'g' => $zahl * 1024 * 1024 * 1024,
+            'm' => $zahl * 1024 * 1024,
+            'k' => $zahl * 1024,
+            default => $zahl,
+        };
+        @ini_set('memory_limit', (string)($bytes + 64 * 1024 * 1024));
+    }
+
+    /**
+     * Entpackt ein Release-Zip und kopiert dessen Inhalt über die
      * Installation. Erwartet das Layout des Release-Workflows (ein einzelnes
      * Wurzelverzeichnis "hengstverzeichnis-framework-<version>/"), akzeptiert
      * aber auch Archive ohne Präfix-Verzeichnis. Öffentlich und ohne
      * Netzwerkzugriff, damit die Logik isoliert testbar ist.
      *
+     * Seit Audit M44/M45:
+     * - unter der UpdateSperre (reentrant - performUpdate() hält sie schon);
+     * - ein verwaistes Journal eines früheren Laufs wird zuerst zurückgerollt;
+     * - jede Dateioperation steht VOR ihrer Ausführung im persistenten
+     *   Journal var/update-journal/, die Sicherungen liegen dort statt im
+     *   System-Temp. Ein Abbruch, der das catch überspringt, rollt der
+     *   Shutdown-Handler bzw. der nächste Request zurück;
+     * - config/config.php und die Solliste kommen zuletzt.
+     *
+     * @param array<string, mixed> $kopf Angaben für das Journal (zweck, von, nach, download)
      * @return int Anzahl kopierter Dateien
      */
-    public static function applyUpdateArchive(string $zipPath, string $targetDir): int {
-        $extractDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_update_' . bin2hex(random_bytes(6));
-        if (!mkdir($extractDir, 0755, true)) {
-            throw new \RuntimeException('Temporäres Entpack-Verzeichnis konnte nicht angelegt werden.');
-        }
+    public static function applyUpdateArchive(string $zipPath, string $targetDir, array $kopf = []): int {
+        $target = rtrim($targetDir, '/');
+        $kopf += ['zweck' => 'Kern-Update'];
 
-        $backupDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_update_bak_' . bin2hex(random_bytes(6));
-        if (!mkdir($backupDir, 0700, true)) {
-            self::removeTree($extractDir);
-            throw new \RuntimeException('Temporäres Sicherungsverzeichnis konnte nicht angelegt werden.');
-        }
-
+        // Auch hier, nicht nur in performUpdate(): Wer das Archiv direkt
+        // anwendet, braucht denselben Shutdown-Rückweg (verschachtelt
+        // harmlos).
+        $vorher = self::langlaeuferVorbereiten();
         try {
-            self::extractArchive($zipPath, $extractDir);
+            UpdateSperre::erwerben($target, (string)$kopf['zweck']);
+        } catch (\Throwable $e) {
+            self::langlaeuferZuruecksetzen($vorher);
+            throw $e;
+        }
+        try {
+            self::verwaistesErgebnisAuswerten($target, UpdateJournal::verwaistesZurueckrollen($target));
 
-            // Wurzel des entpackten Codes ermitteln: entweder genau ein
-            // Verzeichnis (git archive --prefix) oder direkt die Dateien.
-            $entries = array_values(array_diff(scandir($extractDir) ?: [], ['.', '..']));
-            $sourceDir = (count($entries) === 1 && is_dir($extractDir . '/' . $entries[0]))
-                ? $extractDir . '/' . $entries[0]
-                : $extractDir;
-
-            $target = rtrim($targetDir, '/');
-
-            // Vorabprüfung, bevor die erste Datei angefasst wird: Lässt sich
-            // wirklich alles schreiben? Ein Abbruch auf halbem Weg hinterließe
-            // sonst einen Mischstand aus zwei Versionen - und der Codebaum ist
-            // genau das, was die Anwendung als Nächstes ausführt.
-            self::assertTreeIsWritable($sourceDir, $target, '');
-
-            // Journal: Was wurde überschrieben (mit Sicherungskopie), was neu
-            // angelegt. Bricht das Kopieren trotz Vorabprüfung ab - volle
-            // Platte, entzogene Rechte, Fehler im Dateisystem -, wird der
-            // Ausgangszustand daraus wiederhergestellt.
-            $journal = [
-                'restore' => [], 'created' => [], 'created_dirs' => [],
-                'deleted' => [], 'rmdir' => [],
-            ];
-
-            // Das Manifest der LAUFENDEN Installation JETZT lesen - vor
-            // copyTree().
-            //
-            // Es ist die zweite Beweisquelle des Abgleichs: Was ihm entspricht,
-            // ist nachweislich unsere Datei und seither unangetastet. Nur
-            // liegt KERN-SHA256SUMS.txt auch im Archiv, und copyTree() kopiert
-            // es mit - danach steht dort das Manifest des NEUEN Releases, und
-            // das weiss ueber die abgeloesten Dateien der alten Installation
-            // naturgemaess nichts.
-            //
-            // Die Quelle war damit in jedem echten Release wirkungslos: Sie
-            // half nur, wenn das Archiv gar kein Manifest mitbrachte - also
-            // ausgerechnet dann nicht, wenn sie gebraucht wird.
-            $eigeneBeweise = self::beweiseAusInstallation($target);
+            $extractDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_update_' . bin2hex(random_bytes(6));
+            if (!mkdir($extractDir, 0755, true)) {
+                throw new \RuntimeException('Temporäres Entpack-Verzeichnis konnte nicht angelegt werden.');
+            }
 
             try {
-                $kopiert = self::copyTree($sourceDir, $target, '', $backupDir, $journal);
+                self::extractArchive($zipPath, $extractDir);
 
-                // Abgleich der KERN-Pfade (#403): Was die Installation aus
-                // einer frueheren Version hat und das Archiv nicht mehr
-                // mitbringt, wird jetzt entfernt. NACH dem Kopieren, damit der
-                // Ersatz schon liegt; VOR entferneAbgeloesteAddons(), weil bis
-                // hierher noch zurueckgerollt werden kann.
-                $entfernt = self::abgleicheKernPfade($sourceDir, $target, $backupDir, $journal, $eigeneBeweise);
+                // Wurzel des entpackten Codes ermitteln: entweder genau ein
+                // Verzeichnis (git archive --prefix) oder direkt die Dateien.
+                $entries = array_values(array_diff(scandir($extractDir) ?: [], ['.', '..']));
+                $sourceDir = (count($entries) === 1 && is_dir($extractDir . '/' . $entries[0]))
+                    ? $extractDir . '/' . $entries[0]
+                    : $extractDir;
+
+                // Vorabprüfung, bevor die erste Datei angefasst wird: Lässt sich
+                // wirklich alles schreiben? Ein Abbruch auf halbem Weg hinterließe
+                // sonst einen Mischstand aus zwei Versionen - und der Codebaum ist
+                // genau das, was die Anwendung als Nächstes ausführt.
+                self::assertTreeIsWritable($sourceDir, $target, '');
+
+                // Journal im Speicher: Was wurde überschrieben (mit
+                // Sicherungskopie), was neu angelegt. Dasselbe steht
+                // fortlaufend in var/update-journal/journal.jsonl.
+                $journal = [
+                    'restore' => [], 'created' => [], 'created_dirs' => [],
+                    'deleted' => [], 'rmdir' => [],
+                ];
+
+                // Das Manifest der LAUFENDEN Installation JETZT lesen - vor
+                // copyTree().
+                //
+                // Es ist die zweite Beweisquelle des Abgleichs: Was ihm entspricht,
+                // ist nachweislich unsere Datei und seither unangetastet. Nur
+                // liegt KERN-SHA256SUMS.txt auch im Archiv, und das Kopieren
+                // bringt es mit - danach steht dort das Manifest des NEUEN
+                // Releases, und das weiss ueber die abgeloesten Dateien der
+                // alten Installation naturgemaess nichts.
+                $eigeneBeweise = self::beweiseAusInstallation($target);
+
+                $protokoll = UpdateJournal::oeffnen($target, $kopf + ['entpackt' => $extractDir]);
+                self::$offenesJournal = $protokoll;
+                $sicherungen = $protokoll->sicherungsVerzeichnis();
+
+                try {
+                    $kopiert = self::copyTree($sourceDir, $target, '', $sicherungen, $journal);
+
+                    // Abgleich der KERN-Pfade (#403): Was die Installation aus
+                    // einer frueheren Version hat und das Archiv nicht mehr
+                    // mitbringt, wird jetzt entfernt. NACH dem Kopieren, damit der
+                    // Ersatz schon liegt; VOR entferneAbgeloesteAddons(), weil bis
+                    // hierher noch zurueckgerollt werden kann.
+                    $entfernt = self::abgleicheKernPfade($sourceDir, $target, $sicherungen, $journal, $eigeneBeweise);
+
+                    // Zuletzt, was den Stand AUSWEIST (Audit M45).
+                    foreach (self::ZULETZT_KOPIEREN as $relPath) {
+                        if (is_file($sourceDir . '/' . $relPath)) {
+                            self::legeElternAn($target, $relPath, $journal);
+                            self::kopiereDatei($sourceDir . '/' . $relPath, $target . '/' . $relPath, $relPath, $sicherungen, $journal);
+                            $kopiert++;
+                        }
+                    }
+
+                    // Ab hier gibt es keinen Rückweg mehr - und keinen Bedarf.
+                    self::$offenesJournal = null;
+                    $protokoll->abschliessen();
+                } catch (\Throwable $e) {
+                    self::$offenesJournal = null;
+                    self::rollback($journal);
+                    $protokoll->abschliessen();
+                    throw new \RuntimeException(
+                        'Update abgebrochen und zurückgerollt: ' . $e->getMessage()
+                        . ' - die Installation steht wieder auf dem Stand vor dem Update.',
+                        0,
+                        $e
+                    );
+                }
+
                 $unklar = self::unklareFunde();
-
                 if ($entfernt > 0) {
                     AuditLogger::log(
                         'Update: abgeloeste Kerndateien entfernt',
@@ -1190,34 +1542,31 @@ class UpdateService {
                 // zurückgerollt werden, und ein Addon, das schon weg ist, käme
                 // dabei nicht wieder. Jetzt steht der neue Kern - und mit ihm
                 // der Ersatz für das, was gleich entfernt wird.
-                self::entferneAbgeloesteAddons($target, self::neueVersionAus($sourceDir));
+                self::entferneAbgeloesteAddons($target, self::versionAusConfig($sourceDir));
 
                 return $kopiert;
-            } catch (\Throwable $e) {
-                self::rollback($journal);
-                throw new \RuntimeException(
-                    'Update abgebrochen und zurückgerollt: ' . $e->getMessage()
-                    . ' - die Installation steht wieder auf dem Stand vor dem Update.',
-                    0,
-                    $e
-                );
+            } finally {
+                self::removeTree($extractDir);
             }
         } finally {
-            self::removeTree($extractDir);
-            self::removeTree($backupDir);
+            UpdateSperre::freigeben($target);
+            self::langlaeuferZuruecksetzen($vorher);
         }
     }
 
     /**
-     * Liest CORE_VERSION aus dem entpackten Archiv.
+     * Liest CORE_VERSION aus config/config.php unter der gegebenen Wurzel -
+     * dem entpackten Archiv oder der Installation. '' ohne Datei bzw. ohne
+     * erkennbare Konstante.
      *
-     * Nicht aus der laufenden Konstante: Die gehoert noch zum ALTEN Stand -
-     * der neue Code liegt erst auf der Platte, geladen ist er nicht. Wer hier
-     * CORE_VERSION nimmt, entfernt ein Addon eine Version zu frueh oder gar
-     * nicht.
+     * Nicht aus der laufenden Konstante: Die gehoert zum Stand, den dieser
+     * Prozess GELADEN hat - beim Entfernen abgeloester Addons ist das der
+     * alte, und seit Audit M44 ist genau die Abweichung zwischen Platte und
+     * geladenem Stand das Zeichen, dass ein anderer Lauf schon eingespielt
+     * hat.
      */
-    private static function neueVersionAus(string $sourceDir): string {
-        $datei = $sourceDir . '/config/config.php';
+    private static function versionAusConfig(string $wurzel): string {
+        $datei = rtrim($wurzel, '/') . '/config/config.php';
         if (!is_file($datei)) {
             return '';
         }
@@ -1312,12 +1661,11 @@ class UpdateService {
 
         foreach ($entries as $entry) {
             $relPath = $relative === '' ? $entry : $relative . '/' . $entry;
-            if (Baumordnung::istBetreiber($relPath)) {
-                continue;
-            }
-
             $src = $sourceDir . '/' . $relPath;
             $dst = $targetDir . '/' . $relPath;
+            if (self::bleibtUnberuehrt($relPath, $src)) {
+                continue;
+            }
 
             if (is_dir($src)) {
                 if (is_dir($dst) && !is_writable($dst)) {
@@ -1388,6 +1736,9 @@ class UpdateService {
                 $verknuepfungen++;
                 continue;
             }
+            if (!is_dir(dirname($original))) {
+                @mkdir(dirname($original), 0755, true);
+            }
             @copy($backup, $original);
         }
 
@@ -1396,6 +1747,9 @@ class UpdateService {
             @unlink($path);
         }
         foreach (array_reverse($journal['restore']) as [$backup, $original]) {
+            if (!is_dir(dirname($original))) {
+                @mkdir(dirname($original), 0755, true);
+            }
             @copy($backup, $original);
         }
 
@@ -1469,7 +1823,13 @@ class UpdateService {
     }
 
     /**
-     * @param array{restore: array<int, array{0: string, 1: string}>, created: array<int, string>} $journal
+     * Kopiert den Archivbaum. Übersprungen wird, was dem Betreiber gehört -
+     * mit einer Ausnahme (Audit N19): In ein BETREIBER-Verzeichnis, das
+     * KERN-Dateien enthält (public/uploads mit seinen .htaccess), steigt es
+     * gezielt ab und kopiert dort nur diese. Ebenfalls übersprungen wird
+     * ZULETZT_KOPIEREN - das kopiert applyUpdateArchive() am Ende.
+     *
+     * @param array{restore: array<int, array{0: string, 1: string}>, created: array<int, string>, created_dirs: array<int, string>} $journal
      */
     private static function copyTree(
         string $sourceDir,
@@ -1483,54 +1843,115 @@ class UpdateService {
 
         foreach ($entries as $entry) {
             $relPath = $relative === '' ? $entry : $relative . '/' . $entry;
-            if (Baumordnung::istBetreiber($relPath)) {
+            $src = $sourceDir . '/' . $relPath;
+            $dst = $targetDir . '/' . $relPath;
+            if (self::bleibtUnberuehrt($relPath, $src) || in_array($relPath, self::ZULETZT_KOPIEREN, true)) {
                 continue;
             }
 
-            $src = $sourceDir . '/' . $relPath;
-            $dst = $targetDir . '/' . $relPath;
-
             if (is_dir($src)) {
-                $existed = is_dir($dst);
-                if (!$existed && !mkdir($dst, 0755, true) && !is_dir($dst)) {
-                    throw new \RuntimeException("Verzeichnis konnte nicht angelegt werden: {$relPath}");
-                }
-                if (!$existed) {
-                    // Seit #403 wird das festgehalten. Vorher wurde $existed
-                    // berechnet und nur in der Bedingung darueber verwendet -
-                    // ein fehlgeschlagenes Update liess deshalb ein leeres
-                    // Verzeichnisgeruest stehen, weil rollback() gar nicht
-                    // wusste, welche Verzeichnisse neu waren.
-                    $journal['created_dirs'][] = $dst;
+                if (!is_dir($dst)) {
+                    // Seit #403 festgehalten, seit Audit M45 VOR dem mkdir:
+                    // Ein Abbruch zwischen beidem hinterlässt sonst ein
+                    // Verzeichnis, von dem der Rückweg nichts weiß.
+                    self::vermerke($journal, 'created_dirs', $dst);
+                    if (!mkdir($dst, 0755) && !is_dir($dst)) {
+                        throw new \RuntimeException("Verzeichnis konnte nicht angelegt werden: {$relPath}");
+                    }
                 }
                 $copied += self::copyTree($sourceDir, $targetDir, $relPath, $backupDir, $journal);
                 continue;
             }
 
-            if (is_dir($dst)) {
-                throw new \RuntimeException("Im Ziel liegt ein Verzeichnis, wo das Update eine Datei erwartet: {$relPath}");
-            }
-
-            if (file_exists($dst)) {
-                // Sicherungskopie in einer flachen Ablage - der relative Pfad
-                // wird zum Dateinamen, damit keine Verzeichnisstruktur
-                // nachgebaut werden muss.
-                $backupPath = $backupDir . '/' . self::sicherungsname('ueberschrieben', $relPath);
-                if (!copy($dst, $backupPath)) {
-                    throw new \RuntimeException("Sicherungskopie fehlgeschlagen: {$relPath}");
-                }
-                $journal['restore'][] = [$backupPath, $dst];
-            } else {
-                $journal['created'][] = $dst;
-            }
-
-            if (!copy($src, $dst)) {
-                throw new \RuntimeException("Datei konnte nicht kopiert werden: {$relPath}");
-            }
+            self::kopiereDatei($src, $dst, $relPath, $backupDir, $journal);
             $copied++;
         }
 
         return $copied;
+    }
+
+    /**
+     * Bleibt dieser Pfad beim Kopieren liegen? BETREIBER ja - außer einem
+     * Verzeichnis, unter dem die Baumordnung KERN-Dateien kennt (N19).
+     */
+    private static function bleibtUnberuehrt(string $relPath, string $src): bool {
+        if (!Baumordnung::istBetreiber($relPath)) {
+            return false;
+        }
+        return !(is_dir($src) && Baumordnung::enthaeltKern($relPath));
+    }
+
+    /**
+     * Eine Datei kopieren, write-ahead: erst sichern, dann vermerken, dann
+     * überschreiben (Audit M45).
+     *
+     * @param array<string, array<int, mixed>> $journal
+     */
+    private static function kopiereDatei(string $src, string $dst, string $relPath, string $backupDir, array &$journal): void {
+        if (is_dir($dst)) {
+            throw new \RuntimeException("Im Ziel liegt ein Verzeichnis, wo das Update eine Datei erwartet: {$relPath}");
+        }
+
+        if (file_exists($dst)) {
+            // Sicherungskopie in einer flachen Ablage - der relative Pfad
+            // wird zum Dateinamen, damit keine Verzeichnisstruktur
+            // nachgebaut werden muss.
+            $backupPath = $backupDir . '/' . self::sicherungsname('ueberschrieben', $relPath);
+            if (!copy($dst, $backupPath)) {
+                throw new \RuntimeException("Sicherungskopie fehlgeschlagen: {$relPath}");
+            }
+            self::vermerke($journal, 'restore', [$backupPath, $dst]);
+        } else {
+            self::vermerke($journal, 'created', $dst);
+        }
+
+        if (!copy($src, $dst)) {
+            throw new \RuntimeException("Datei konnte nicht kopiert werden: {$relPath}");
+        }
+
+        if (self::$nachJederDatei !== null) {
+            (self::$nachJederDatei)($relPath);
+        }
+    }
+
+    /**
+     * Legt fehlende Elternverzeichnisse einer Datei an - jede Ebene einzeln
+     * vermerkt, damit der Rückweg sie wieder entfernt.
+     *
+     * @param array<string, array<int, mixed>> $journal
+     */
+    private static function legeElternAn(string $targetDir, string $relPath, array &$journal): void {
+        $teile = explode('/', $relPath);
+        array_pop($teile);
+        $pfad = $targetDir;
+        foreach ($teile as $teil) {
+            $pfad .= '/' . $teil;
+            if (is_dir($pfad)) {
+                continue;
+            }
+            self::vermerke($journal, 'created_dirs', $pfad);
+            if (!@mkdir($pfad, 0755) && !is_dir($pfad)) {
+                throw new \RuntimeException("Verzeichnis konnte nicht angelegt werden: {$relPath}");
+            }
+        }
+    }
+
+    /**
+     * Write-ahead (Audit M45): zuerst ins persistente Journal - wirft das,
+     * unterbleibt die Aktion -, dann ins Journal im Speicher.
+     *
+     * @param array<string, array<int, mixed>> $journal
+     * @param string|array{0: ?string, 1: string} $eintrag
+     */
+    private static function vermerke(array &$journal, string $art, string|array $eintrag): void {
+        if (self::$offenesJournal !== null) {
+            if (is_array($eintrag)) {
+                self::$offenesJournal->anhaengen($art, $eintrag[1], $eintrag[0]);
+            } else {
+                self::$offenesJournal->anhaengen($art, $eintrag);
+            }
+        }
+        $journal[$art][] = $eintrag;
     }
 
     /** Name der Beweisliste im Release-Archiv (siehe scripts/kern-manifest.php). */
@@ -1746,9 +2167,11 @@ class UpdateService {
                 // gehen, wenn DIESER Abgleich es geleert hat. Dann bestand es
                 // nachweislich aus unseren Dateien. War es schon vorher leer,
                 // haben wir es nicht angelegt und fassen es nicht an.
-                if ($darin > 0 && @rmdir($ziel)) {
-                    $journal['rmdir'][] = $ziel;
-                    continue;
+                if ($darin > 0) {
+                    self::vermerke($journal, 'rmdir', $ziel);
+                    if (@rmdir($ziel)) {
+                        continue;
+                    }
                 }
 
                 // Uebrig bleibt: fehlt im Archiv, aber wir haben es nicht
@@ -1795,10 +2218,10 @@ class UpdateService {
                     "Sicherungskopie vor dem Entfernen fehlgeschlagen: {$relPath} - es wurde nichts entfernt."
                 );
             }
+            self::vermerke($journal, 'deleted', [$sicherung, $ziel]);
             if (!@unlink($ziel)) {
                 throw new \RuntimeException("Abgeloeste Datei konnte nicht entfernt werden: {$relPath}");
             }
-            $journal['deleted'][] = [$sicherung, $ziel];
             $entfernt++;
         }
 
@@ -1825,14 +2248,32 @@ class UpdateService {
      * @return array<int, string> tatsaechlich wiederhergestellte Pfade
      */
     public static function stelleDateienHer(string $zipPath, string $targetDir, array $pfade, array $soll): array {
+        $target = rtrim($targetDir, '/');
+        $vorher = self::langlaeuferVorbereiten();
+        try {
+            // Dieselbe Sperre wie das Update (Audit M44): Eine Reparatur
+            // neben einem laufenden Update schriebe in denselben Baum.
+            UpdateSperre::erwerben($target, 'Reparatur');
+            try {
+                self::verwaistesErgebnisAuswerten($target, UpdateJournal::verwaistesZurueckrollen($target));
+                return self::stelleDateienHerUnterSperre($zipPath, $target, $pfade, $soll);
+            } finally {
+                UpdateSperre::freigeben($target);
+            }
+        } finally {
+            self::langlaeuferZuruecksetzen($vorher);
+        }
+    }
+
+    /**
+     * @param array<int, string> $pfade
+     * @param array<string, string> $soll
+     * @return array<int, string>
+     */
+    private static function stelleDateienHerUnterSperre(string $zipPath, string $target, array $pfade, array $soll): array {
         $extractDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_repair_' . bin2hex(random_bytes(6));
         if (!mkdir($extractDir, 0755, true)) {
             throw new \RuntimeException('Temporaeres Entpack-Verzeichnis konnte nicht angelegt werden.');
-        }
-        $backupDir = rtrim(sys_get_temp_dir(), '/') . '/hengst_repair_bak_' . bin2hex(random_bytes(6));
-        if (!mkdir($backupDir, 0700, true)) {
-            self::removeTree($extractDir);
-            throw new \RuntimeException('Temporaeres Sicherungsverzeichnis konnte nicht angelegt werden.');
         }
 
         try {
@@ -1843,69 +2284,76 @@ class UpdateService {
                 ? $extractDir . '/' . $entries[0]
                 : $extractDir;
 
-            $target = rtrim($targetDir, '/');
+            // Erst alles pruefen, dann schreiben: Ein Archiv, das an einer
+            // Stelle nicht zur Pruefliste passt, spielt gar nichts ein.
+            $auswahl = [];
+            foreach ($pfade as $relPath) {
+                if (!isset($soll[$relPath]) || !Baumordnung::istKern($relPath)) {
+                    continue;
+                }
+                $src = $sourceDir . '/' . $relPath;
+                if (!is_file($src)) {
+                    throw new \RuntimeException(
+                        "Das Release-Archiv enthaelt {$relPath} nicht - es passt nicht zur Pruefliste."
+                    );
+                }
+                if (!hash_equals($soll[$relPath], (string)@hash_file('sha256', $src))) {
+                    throw new \RuntimeException(
+                        "Im Archiv weicht {$relPath} von der veroeffentlichten Pruefliste ab - "
+                        . 'es wird nichts eingespielt.'
+                    );
+                }
+                $auswahl[] = $relPath;
+            }
+            if ($auswahl === []) {
+                return [];
+            }
+
             $journal = [
                 'restore' => [], 'created' => [], 'created_dirs' => [],
                 'deleted' => [], 'rmdir' => [],
             ];
             $fertig = [];
 
+            // Persistentes Journal wie beim Update (Audit M45), und ein
+            // Wartungsfenster um die Kopierschleife - verschachtelbar, falls
+            // der Aufrufer schon eines hat.
+            $protokoll = UpdateJournal::oeffnen($target, [
+                'zweck' => 'Reparatur',
+                'von' => self::currentVersion(),
+                'nach' => '',
+                'entpackt' => $extractDir,
+            ]);
+            self::$offenesJournal = $protokoll;
+            $sicherungen = $protokoll->sicherungsVerzeichnis();
+            $token = Maintenance::enable('Codebaum wird repariert');
+
             try {
-                foreach ($pfade as $relPath) {
-                    if (!isset($soll[$relPath]) || !Baumordnung::istKern($relPath)) {
-                        continue;
-                    }
-
-                    $src = $sourceDir . '/' . $relPath;
-                    if (!is_file($src)) {
-                        throw new \RuntimeException(
-                            "Das Release-Archiv enthaelt {$relPath} nicht - es passt nicht zur Pruefliste."
-                        );
-                    }
-                    if (!hash_equals($soll[$relPath], (string)@hash_file('sha256', $src))) {
-                        throw new \RuntimeException(
-                            "Im Archiv weicht {$relPath} von der veroeffentlichten Pruefliste ab - "
-                            . 'es wird nichts eingespielt.'
-                        );
-                    }
-
-                    $dst = $target . '/' . $relPath;
-                    $ordner = dirname($dst);
-                    if (!is_dir($ordner)) {
-                        if (!mkdir($ordner, 0755, true) && !is_dir($ordner)) {
-                            throw new \RuntimeException("Verzeichnis konnte nicht angelegt werden: {$relPath}");
-                        }
-                        $journal['created_dirs'][] = $ordner;
-                    }
-
-                    if (file_exists($dst)) {
-                        $sicherung = $backupDir . '/' . str_replace('/', '__', $relPath);
-                        if (!@copy($dst, $sicherung)) {
-                            throw new \RuntimeException("Sicherungskopie fehlgeschlagen: {$relPath}");
-                        }
-                        $journal['restore'][] = [$sicherung, $dst];
-                    } else {
-                        $journal['created'][] = $dst;
-                    }
-
-                    if (!copy($src, $dst)) {
-                        throw new \RuntimeException("Datei konnte nicht kopiert werden: {$relPath}");
-                    }
+                foreach ($auswahl as $relPath) {
+                    self::legeElternAn($target, $relPath, $journal);
+                    // sicherungsname() statt str_replace('/', '__'): Das bildete
+                    // lang/a/b.php und lang/a__b.php auf dieselbe Sicherung ab.
+                    self::kopiereDatei($sourceDir . '/' . $relPath, $target . '/' . $relPath, $relPath, $sicherungen, $journal);
                     $fertig[] = $relPath;
                 }
 
+                self::$offenesJournal = null;
+                $protokoll->abschliessen();
                 return $fertig;
             } catch (\Throwable $e) {
+                self::$offenesJournal = null;
                 self::rollback($journal);
+                $protokoll->abschliessen();
                 throw new \RuntimeException(
                     'Reparatur abgebrochen und zurueckgerollt: ' . $e->getMessage(),
                     0,
                     $e
                 );
+            } finally {
+                Maintenance::disable($token);
             }
         } finally {
             self::removeTree($extractDir);
-            self::removeTree($backupDir);
         }
     }
 

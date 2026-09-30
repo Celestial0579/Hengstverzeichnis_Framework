@@ -66,6 +66,12 @@ class UpdateController extends BaseController {
 
         $addonCatalog = \App\Service\AddonOverview::officialCatalogFromCache();
 
+        // Ein abgebrochenes und zurückgerolltes Update (Audit M45). Der
+        // Rückweg selbst kann nicht ins Audit-Log schreiben (kein Autoloader,
+        // keine Datenbank im frühen Haken bzw. im Shutdown) - das geschieht
+        // beim ersten Anzeigen hier.
+        $letzterAbbruch = UpdateService::abbruchProtokollieren();
+
         $this->render('admin_updates', [
             'title' => 'Updates',
             'currentVersion' => UpdateService::currentVersion(),
@@ -89,6 +95,7 @@ class UpdateController extends BaseController {
             // Zweite Ebene: Der Transport kann stehen und die Mail trotzdem
             // niemanden erreichen, wenn alle Admin-Adressen ins Leere gehen.
             'adminRecipientReachable' => UpdateService::hasReachableAdminRecipient(),
+            'letzterAbbruch' => $letzterAbbruch,
         ]);
     }
 
@@ -411,7 +418,12 @@ class UpdateController extends BaseController {
         }
 
         $slug = (string)($_POST['slug'] ?? '');
-        $result = \App\Service\AddonUpdateService::updateAddon($slug);
+        try {
+            $result = \App\Service\AddonUpdateService::updateAddon($slug);
+        } catch (\App\Service\UpdateLaeuftBereits $e) {
+            // Ein Kern-Update oder eine Reparatur läuft gerade (Audit M44).
+            $result = ['ok' => false, 'error' => $e->getMessage()];
+        }
 
         if (!$result['ok']) {
             header("Location: /admin/updates?addon_error=" . urlencode((string)$result['error']) . "&slug=" . urlencode($slug));

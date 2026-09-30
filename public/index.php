@@ -1,6 +1,43 @@
 <?php
 // public/index.php
 
+// Unterbrochenes Update zurückrollen (Audit M45) - als ALLERERSTES, vor jedem
+// Autoloader und vor config/config.php.
+//
+// Ein Update, das beim Kopieren hart beendet wurde (Zeitlimit des
+// Webservers, getöteter Worker, Speicher), hinterlässt einen Mischstand aus
+// zwei Versionen. Trifft es vendor/, passen autoload.php und
+// autoload_real.php nicht mehr zusammen, und JEDER Request endet fatal, bevor
+// die Anwendung - und mit ihr Maintenance::guard() - überhaupt startet. Der
+// Rückweg liegt deshalb als eigenständiges Skript im Journal
+// (var/update-journal/rueckweg.php), das der Updater aus dem noch
+// konsistenten Altstand ablegt, bevor er die erste Datei anfasst; siehe
+// App\Service\UpdateJournal. Im Normalfall kostet dieser Block ein is_file().
+//
+// 'belegt' heißt: Ein anderer Prozess hält die Update-Sperre - ein Update
+// läuft gerade, oder ein anderer Request rollt schon zurück. Dann und bei
+// einem unvollständigen Rückweg gibt es nur 503; der Codebaum ist in diesem
+// Moment keiner, aus dem sich eine Antwort bauen ließe.
+if (is_file(__DIR__ . '/../var/update-journal/journal.jsonl')) {
+    (static function (): void {
+        $rueckweg = __DIR__ . '/../var/update-journal/rueckweg.php';
+        if (!is_file($rueckweg)) {
+            return;
+        }
+        $ergebnis = (require $rueckweg)(dirname(__DIR__));
+        if ($ergebnis === 'belegt' || $ergebnis === 'unvollstaendig') {
+            http_response_code(503);
+            header('Retry-After: 30');
+            header('Cache-Control: no-store');
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>503 - Wartungsmodus</title></head>'
+                . '<body><h1>503 - Wartungsmodus</h1><p>Die Anwendung wird gerade aktualisiert. '
+                . 'Bitte in einigen Augenblicken erneut versuchen.</p></body></html>';
+            exit;
+        }
+    })();
+}
+
 // Simple autoloader for our App namespace (vor config.php registriert, da diese
 // bereits App\Security\ClientIp für die Reverse-Proxy-Erkennung benötigt)
 spl_autoload_register(function ($class) {

@@ -157,6 +157,9 @@ final class Integritaet {
      * @return array{wiederhergestellt: array<int, string>, uebersprungen: array<int, string>}
      */
     public static function repariere(array $pfade): array {
+        // Download und Kopieren dürfen nicht am Zeitlimit enden (Audit M45);
+        // das Kopieren selbst sichert UpdateService::stelleDateienHer() ab.
+        \App\Helper\LongRunning::allow();
         $version = self::version();
         $assets = UpdateService::releaseAssets($version);
 

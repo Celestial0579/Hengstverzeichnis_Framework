@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 30; // 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 31; // 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -2416,6 +2416,44 @@ final class SchemaMigrator {
             return $meldungen;
         });
 
+        // 31g. Schutzdateien unter public/uploads (Audit N19, SCHEMA_VERSION 31).
+        //
+        // public/uploads/.htaccess und public/uploads/horses/.htaccess kamen
+        // per Update nie an - das Update übersprang public/uploads als
+        // Ganzes. Seit N19 sind beide KERN; auf Bestandsinstallationen legt
+        // dieser Schritt sie einmalig an bzw. ersetzt bekannte Altfassungen
+        // (App\Service\Schutzdateien, auch mit geänderten Zeilenenden). Eine
+        // vom Betreiber geänderte Fassung bleibt stehen und wird gemeldet.
+        //
+        // VOR Schritt 366: Die harte Sperre soll stehen, bevor Fotos bewegt
+        // werden - und solange welche liegen bleiben.
+        //
+        // Schlägt das Schreiben fehl, meldet sich der Schritt offen (kein
+        // Marker, kein Versionsstempel, gedrosselte Wiederholung nach Audit
+        // N76). Bis dahin zeigt die Integritätsprüfung die Datei als "fehlt"
+        // und kann sie über die Reparatur herstellen.
+        //
+        // Das Pferdefoto-Verzeichnis über HorseImagePath::legacyDir() - per
+        // overrideForTests() umbiegbar, damit die Integrations-Suite dort
+        // nicht in den Arbeitsbaum schreibt (public/uploads/.htaccess liegt
+        // im Arbeitsbaum ohnehin in der aktuellen Fassung). Im Container (public/uploads ist das Volume uploads_data)
+        // wirken die Dateien nicht, dort gilt docker/apache-uploads.conf; das
+        // Anlegen im Volume schadet nicht und hält die Integritätsprüfung
+        // grün.
+        $dataStep('kern_schutzdateien_uploads', function (callable $vermerke, callable $offen): ?array {
+            $ergebnis = Schutzdateien::sicherstellen(
+                dirname(__DIR__, 2) . '/public/uploads',
+                \App\Helper\HorseImagePath::legacyDir()
+            );
+            if ($ergebnis === null) {
+                return $offen('Schutzdateien (N19): public/uploads/.htaccess bzw. public/uploads/horses/.htaccess '
+                    . 'ließen sich nicht schreiben (Rechte prüfen) - bis dahin meldet die Integritätsprüfung sie '
+                    . 'als fehlend bzw. geändert und kann sie reparieren - nächster Versuch automatisch in '
+                    . '15 Minuten oder sofort per php database/migrate.php');
+            }
+            return $ergebnis;
+        });
+
         // 31h. Pferdefotos aus dem Webroot holen (#366, SCHEMA_VERSION 12).
         //
         // Bis v0.8.0 lagen sie unter public/uploads/horses/ und wurden vom
@@ -2529,13 +2567,20 @@ final class SchemaMigrator {
             }
 
             if ($liegengeblieben > 0) {
+                // "statisch gesperrt" nur, wenn die Sperre auch da ist
+                // (Audit N19) - sonst wäre die Meldung eine Beruhigung für
+                // einen offenen Zustand.
+                $sperre = is_file($quelle . '/.htaccess')
+                    ? 'Sie werden weiter ausgeliefert und sind statisch gesperrt'
+                    : 'ACHTUNG: public/uploads/horses/.htaccess fehlt - die Fotos sind statisch abrufbar';
                 return $offen(sprintf(
                     'Pferdefotos (#366): %d von %d Datei(en) nach storage/horses verschoben, %d liegen noch in '
-                    . 'public/uploads/horses (Rechte prüfen). Sie werden weiter ausgeliefert und sind statisch '
-                    . 'gesperrt - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php',
+                    . 'public/uploads/horses (Rechte prüfen). %s - nächster Versuch automatisch in 15 Minuten '
+                    . 'oder sofort per php database/migrate.php',
                     $verschoben,
                     count($bilder),
-                    $liegengeblieben
+                    $liegengeblieben,
+                    $sperre
                 ));
             }
 

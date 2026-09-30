@@ -131,7 +131,7 @@ PHP);
 
     /** @return array<string, mixed> */
     private function pluginRow(): array {
-        $stmt = self::$db->prepare("SELECT enabled, installed_version, content_hash, dir_stamp, source FROM plugins WHERE slug = ?");
+        $stmt = self::$db->prepare("SELECT enabled, installed_version, content_hash, dir_stamp, source, pending_reason, pending_marker FROM plugins WHERE slug = ?");
         $stmt->execute([self::SLUG]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $this->assertIsArray($row, 'plugins-Zeile für das Fixture fehlt');
@@ -147,6 +147,13 @@ PHP);
     private function auditCount(string $action): int {
         $stmt = self::$db->prepare("SELECT COUNT(*) FROM audit_logs WHERE action = ?");
         $stmt->execute([$action]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    /** Audit-Einträge einer Aktion für DIESES Fixture (Filter auf den Slug in details). */
+    private function slugAuditCount(string $action): int {
+        $stmt = self::$db->prepare("SELECT COUNT(*) FROM audit_logs WHERE action = ? AND details LIKE ?");
+        $stmt->execute([$action, 'Slug: ' . self::SLUG . '%']);
         return (int)$stmt->fetchColumn();
     }
 
@@ -210,10 +217,40 @@ PHP);
     public function testChangedContentWithSameVersionRequiresReapproval(): void {
         // Code-Austausch ohne Versionswechsel: anderer Inhalt UND andere Länge,
         // damit sicher auch der Stempel abweicht und der Hash-Vergleich greift.
+        $baseline = $this->pluginRow();
+        $logsVorher = $this->slugAuditCount('Plugin-Code seit Aktivierung geändert');
         file_put_contents(self::$pluginDir . '/data.txt', 'heimlich ausgetauschter inhalt (laenger)');
 
         $manager = self::bootFreshManager();
         $this->assertTrue($manager->needsReapproval(self::SLUG), 'Ausgetauschter Code bei gleicher Version muss fail-closed zur Re-Freigabe führen');
+
+        // Audit N63: Weitere Requests im selben Wartezustand protokollieren
+        // nicht erneut und berechnen den SHA-256 nicht noch einmal.
+        for ($i = 2; $i <= 3; $i++) {
+            $manager = self::bootFreshManager();
+            $this->assertTrue($manager->needsReapproval(self::SLUG), "Boot {$i}: muss weiter auf Freigabe warten");
+            $this->assertNull(
+                $manager->getDiscoveredPlugins()[self::SLUG]['fingerprint'],
+                "Boot {$i}: SHA-256 wurde trotz vermerktem Stand erneut berechnet"
+            );
+        }
+        $this->assertSame($logsVorher + 1, $this->slugAuditCount('Plugin-Code seit Aktivierung geändert'), 'Drei Requests, genau ein Eintrag');
+
+        $row = $this->pluginRow();
+        $this->assertSame('code_geaendert', $row['pending_reason']);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', (string)$row['pending_marker']);
+        // Nicht-destruktiv: Die Freigabe-Baseline bleibt unangetastet.
+        foreach (['enabled', 'installed_version', 'content_hash', 'dir_stamp', 'source'] as $spalte) {
+            $this->assertSame($baseline[$spalte], $row[$spalte], "Baseline-Spalte {$spalte} wurde verändert");
+        }
+
+        // Ein weiterer, anderer Stand (andere Länge) ist ein neuer Übergang.
+        file_put_contents(self::$pluginDir . '/data.txt', 'noch einmal ausgetauscht, wieder mit anderer laenge');
+        self::bootFreshManager();
+        $manager = self::bootFreshManager();
+        $this->assertTrue($manager->needsReapproval(self::SLUG));
+        $this->assertSame($logsVorher + 2, $this->slugAuditCount('Plugin-Code seit Aktivierung geändert'), 'Ein neuer Stand erzeugt genau einen weiteren Eintrag');
+        $this->assertNotSame($row['pending_marker'], $this->pluginRow()['pending_marker']);
 
         // Bewusste Re-Freigabe durch den Admin: setEnabled() setzt die neue
         // Baseline und ruft install() erneut auf (idempotenter Hook).
@@ -222,16 +259,35 @@ PHP);
 
         $manager = self::bootFreshManager();
         $this->assertFalse($manager->needsReapproval(self::SLUG));
+        // Das erste erfolgreiche Laden löscht den Wartevermerk (Audit N63).
+        $row = $this->pluginRow();
+        $this->assertNull($row['pending_reason']);
+        $this->assertNull($row['pending_marker']);
     }
 
     #[Depends('testChangedContentWithSameVersionRequiresReapproval')]
     public function testVersionBumpWithoutReleaseSourceRequiresReapproval(): void {
         // #212: Versionswechsel OHNE belegte Release-Herkunft (source ist NULL -
         // manuell kopiertes Plugin) darf nicht mehr automatisch akzeptiert werden.
+        $logsVorher = $this->slugAuditCount('Plugin-Update ohne Release-Herkunft');
         self::writeManifest('1.1.0');
 
         $manager = self::bootFreshManager();
         $this->assertTrue($manager->needsReapproval(self::SLUG), 'Versionswechsel ohne Release-Herkunft muss fail-closed zur Re-Freigabe führen');
+
+        // Audit N63: Der zweite Request protokolliert nicht erneut.
+        $manager = self::bootFreshManager();
+        $this->assertTrue($manager->needsReapproval(self::SLUG));
+        $this->assertSame($logsVorher + 1, $this->slugAuditCount('Plugin-Update ohne Release-Herkunft'), 'Zwei Requests, genau ein Eintrag');
+        $this->assertSame('version_ohne_release', $this->pluginRow()['pending_reason']);
+
+        // Ein weiterer Code-Austausch unter derselben, nicht freigegebenen
+        // Version ist ein neuer beobachteter Stand und wird protokolliert.
+        file_put_contents(self::$pluginDir . '/data.txt', 'code unter 1.1.0 nochmals getauscht');
+        $manager = self::bootFreshManager();
+        $this->assertTrue($manager->needsReapproval(self::SLUG));
+        self::bootFreshManager();
+        $this->assertSame($logsVorher + 2, $this->slugAuditCount('Plugin-Update ohne Release-Herkunft'), 'Codeänderung unter derselben Version erzeugt genau einen weiteren Eintrag');
 
         // Nicht-destruktive Garantie: Die Freigabe-Baseline bleibt unangetastet.
         $this->assertSame('1.0.0', $this->pluginRow()['installed_version']);
@@ -244,6 +300,9 @@ PHP);
         $this->assertTrue($manager->needsReapproval(self::SLUG), 'Versionswechsel aus einem Branch-Stand muss fail-closed zur Re-Freigabe führen');
         $this->assertSame('1.0.0', $this->pluginRow()['installed_version']);
         $this->assertSame(2, $this->installCalls(), 'Ein Branch-Stand darf install() nicht auslösen');
+        // Andere Herkunft = anderer beobachteter Stand: genau ein weiterer Eintrag.
+        self::bootFreshManager();
+        $this->assertSame($logsVorher + 3, $this->slugAuditCount('Plugin-Update ohne Release-Herkunft'));
     }
 
     #[Depends('testVersionBumpWithoutReleaseSourceRequiresReapproval')]
@@ -268,6 +327,9 @@ PHP);
         $discovered = $manager->getDiscoveredPlugins()[self::SLUG];
         $this->assertSame($discovered['fingerprint'], $row['content_hash']);
         $this->assertSame($discovered['dir_stamp'], $row['dir_stamp']);
+        // Der Wartevermerk aus dem vorherigen Test ist mit der Übernahme weg (Audit N63).
+        $this->assertNull($row['pending_reason']);
+        $this->assertNull($row['pending_marker']);
     }
 
     #[Depends('testVersionBumpFromReleaseTagIsAutoAccepted')]
@@ -329,5 +391,54 @@ PHP);
         $before = $this->installCalls();
         PluginManager::getInstance()->runInstallHook(self::SLUG);
         $this->assertSame($before + 1, $this->installCalls());
+    }
+
+    /**
+     * Audit N63: Wird der Code auf den freigegebenen Stand zurückgedreht,
+     * lädt das Addon wieder, der Vermerk verschwindet, und es entsteht kein
+     * weiterer Eintrag. Die neue mtime liegt sicher woanders, damit der
+     * Stempel nicht zufällig der Wartemarke des abweichenden Standes gleicht.
+     */
+    #[Depends('testRunInstallHookIsPubliclyCallable')]
+    public function testRevertedCodeClearsPendingState(): void {
+        $datei = self::$pluginDir . '/data.txt';
+        $original = (string)file_get_contents($datei);
+        $logsVorher = $this->slugAuditCount('Plugin-Code seit Aktivierung geändert');
+
+        file_put_contents($datei, $original . ' - mit anderer laenge');
+        $manager = self::bootFreshManager();
+        $this->assertTrue($manager->needsReapproval(self::SLUG));
+        $this->assertSame('code_geaendert', $this->pluginRow()['pending_reason']);
+        $this->assertSame($logsVorher + 1, $this->slugAuditCount('Plugin-Code seit Aktivierung geändert'));
+
+        file_put_contents($datei, $original);
+        touch($datei, time() + 2);
+        clearstatcache();
+
+        $manager = self::bootFreshManager();
+        $this->assertFalse($manager->needsReapproval(self::SLUG), 'Zurückgedrehter Code muss wieder laden');
+        $row = $this->pluginRow();
+        $this->assertNull($row['pending_reason']);
+        $this->assertNull($row['pending_marker']);
+        $this->assertSame($logsVorher + 1, $this->slugAuditCount('Plugin-Code seit Aktivierung geändert'), 'Kein zusätzlicher Eintrag');
+    }
+
+    /**
+     * Audit N63: Fehlen die neuen Spalten (Migration gescheitert - Database::
+     * ensureSchemaUpToDate() schluckt den Fehler), fällt loadEnabledStates()
+     * auf die Abfrage ohne sie zurück. Aktivierte Addons laden weiter.
+     */
+    #[Depends('testRevertedCodeClearsPendingState')]
+    public function testMissingPendingColumnsDoNotDisableAddons(): void {
+        self::$db->exec("ALTER TABLE plugins DROP COLUMN pending_marker, DROP COLUMN pending_reason");
+        try {
+            $manager = self::bootFreshManager();
+            $this->assertTrue($manager->isEnabled(self::SLUG));
+            $this->assertFalse($manager->needsReapproval(self::SLUG), 'Ohne die Vermerk-Spalten muss das Addon weiter laden');
+            $geprueft = (new \ReflectionProperty(PluginManager::class, 'vertrauensgeprueft'))->getValue($manager);
+            $this->assertTrue($geprueft[self::SLUG] ?? false, 'Addon wurde ohne die Vermerk-Spalten nicht geladen');
+        } finally {
+            self::$db->exec("ALTER TABLE plugins ADD COLUMN pending_reason VARCHAR(32) NULL DEFAULT NULL AFTER `source`, ADD COLUMN pending_marker VARCHAR(64) NULL DEFAULT NULL AFTER `pending_reason`");
+        }
     }
 }

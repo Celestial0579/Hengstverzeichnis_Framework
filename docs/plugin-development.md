@@ -19,7 +19,10 @@ oder einem beliebigen selbst hinzugefügten GitHub-Repo installieren - siehe
 [plugin-system-plan.md](plugin-system-plan.md), Abschnitt 2.7. Auch dabei
 gilt unverändert: Installieren legt den Code nur unter `plugins/<slug>/` ab,
 aktiviert ihn aber nicht - die Aktivierung bleibt der bewusste, separate
-Schritt unten auf dieser Seite.
+Schritt unten auf dieser Seite. Grenzen des Stores (Schutz vor
+Archivbomben, Audit N16): höchstens 20 MB Download, 100 MB entpackt und
+10.000 Einträge (Dateien und Verzeichnisse) je Repository-Archiv - größere
+Repositories lehnt der Store mit Begründung ab.
 
 ## Schnellstart: Referenz-Plugin ausprobieren
 
@@ -71,8 +74,8 @@ Erlaubt sind Kleinbuchstaben, Ziffern und Bindestriche (`^[a-z0-9][a-z0-9-]*$`).
 | `version` | ✅ | Frei wählbar (z. B. SemVer). Bei jedem Update **muss** sie sich ändern - siehe Abschnitt "Update-Erkennung" unten, sonst wird ein reguläres Update fälschlich als verdächtige Änderung erkannt. |
 | `core_compatibility` | ✅ | Vergleichsausdruck gegen `CORE_VERSION` (siehe unten). |
 | `core_supported_max` | ✅ | Höchste unterstützte Kern-Linie als `"Major.Minor"` (z. B. `"0.4"`). **Pflicht** seit dem Addon-Autoupdate (#197): Manifeste ohne (gültige) Angabe werden abgewiesen - Installation und Laden verweigert, fail-closed. Läuft ein neuerer Kern als angegeben, gilt das Plugin als inkompatibel (wird nicht geladen); die Update-Seite prüft die Angabe zusätzlich gegen die **Ziel**version eines anstehenden Kern-Updates und warnt vor dem Einspielen. |
-| `description` | – | Anzeigetext im Admin-Bereich. |
-| `author` | – | Anzeigetext im Admin-Bereich. |
+| `description` | – | Anzeigetext im Admin-Bereich. Text (String); ein anderer Typ (z. B. ein Objekt `{"de": …, "en": …}`) macht das Manifest ungültig. |
+| `author` | – | Anzeigetext im Admin-Bereich. Text (String); ein anderer Typ macht das Manifest ungültig. |
 | `hooks` | – | Rein deklarativ/informativ - zeigt Admins vor der Aktivierung, was das Plugin laut Selbstauskunft tut. Wird **nicht** technisch erzwungen. |
 | `permissions` | – | Ebenfalls rein deklarativ/informativ (Selbstauskunft wie `hooks`). Tatsächlich registriert werden Berechtigungen ausschließlich über die `permissions()`-Methode der Plugin-Klasse, siehe Abschnitt „Berechtigungen". |
 | `entry` | – | PHP-Datei mit der Plugin-Klasse, relativ zum Plugin-Verzeichnis. Default: `Plugin.php`. |
@@ -131,6 +134,18 @@ Bei jedem folgenden Request wird das verglichen:
   diesen Request **nicht geladen**, bis ein Admin es unter `/admin/plugins`
   über den Button "Mit bisherigem Status erneut freigeben" bestätigt.
 
+Solange ein Plugin auf die erneute Freigabe wartet, protokolliert das
+Audit-Log den Übergang **einmal je beobachtetem Stand** („Plugin-Code seit
+Aktivierung geändert“ bzw. „Plugin-Update ohne Release-Herkunft“), nicht bei
+jedem Request (Audit N63). Dazu vermerkt der Kern Grund und Stand in
+`plugins.pending_reason`/`plugins.pending_marker`; ändert sich der Code
+erneut, folgt genau ein weiterer Eintrag. Beim ersten erfolgreichen Laden
+(nach der Freigabe, nach einem Auto-Accept aus einem Release-Tag oder wenn
+der Code auf den freigegebenen Stand zurückgedreht wurde) wird der Vermerk
+gelöscht. Randfall: Stimmt ein zurückgedrehter Stand in höchster `filemtime`,
+Dateianzahl und Gesamtgröße exakt mit dem zuvor als abweichend vermerkten
+überein, bleibt das Plugin gesperrt, bis ein Klick es wieder freigibt.
+
 **Deshalb: Bei jeder inhaltlichen Änderung am Plugin-Code die `version` im
 Manifest erhöhen** - sonst zeigt `/admin/plugins` nach dem nächsten Request
 fälschlich "Code geändert - erneute Freigabe nötig" an, obwohl es sich um
@@ -147,9 +162,12 @@ Hashen komplett. Jede Abweichung führt weiterhin zum vollen
 Fingerabdruck-Vergleich - an den Freigabe-Regeln oben ändert das nichts.
 
 **Nicht-destruktive Garantie:** Die Erkennung einer verdächtigen Änderung
-verändert oder löscht nie die bestehende `plugins`-Zeile, zugewiesene
-Berechtigungen (`group_permissions`) oder sonstige Konfiguration - sie
-markiert das Plugin nur für den aktuellen Request als "nicht laden". Ein
+verändert nie die Freigabe in der `plugins`-Zeile (`enabled`,
+`installed_version`, `content_hash`, `dir_stamp`, `source`), löscht die
+Zeile nicht und fasst weder zugewiesene Berechtigungen (`group_permissions`)
+noch sonstige Konfiguration an - sie markiert das Plugin nur als "nicht
+laden" und schreibt den Wartevermerk (`pending_reason`/`pending_marker`,
+siehe oben). Ein
 Bug in der Fingerabdruck-Berechnung kann daher höchstens fälschlich diese
 Markierung auslösen, nie Daten zerstören; die Wiederherstellung ist immer
 ein einzelner Klick.

@@ -23,8 +23,17 @@ namespace App\Service;
  * docs/plugin-development.md, Abschnitt "Sicherheitsmodell"). Was diese
  * Klasse dagegen technisch durchsetzt:
  * - Größenlimit (`MAX_TARBALL_BYTES`) und Timeout beim Download - kein
- *   unbegrenztes Herunterladen/Aufblähen des Datenträgers durch eine bewusst
- *   riesige oder "zip-bomb"-artige Antwort.
+ *   unbegrenztes Herunterladen einer bewusst riesigen Antwort. Diese Grenze
+ *   gilt nur für die KOMPRIMIERTEN Bytes.
+ * - Entpack-Grenzen gegen Archivbomben (Audit N16): Das gzip wird gestreamt
+ *   und mit Byte-Zähler in ein unkomprimiertes Tar entpackt
+ *   (`MAX_UNPACKED_BYTES`), danach werden Anzahl (`MAX_ENTRIES`) und
+ *   Summe der Einträge geprüft - erst dann wird ausgepackt. Ein
+ *   `new PharData('x.tar.gz')` würde das gzip bereits im Konstruktor
+ *   vollständig nach sys_get_temp_dir() entpacken, eine Prüfung erst vor
+ *   extractTo() käme also zu spät. Arbeitsverzeichnisse werden zusätzlich
+ *   per Shutdown-Funktion aufgeräumt, auch nach einem Abbruch durch
+ *   `max_execution_time`.
  * - Owner/Repo/Ref werden strikt validiert, bevor sie in eine URL
  *   eingesetzt werden - ausschließlich feste Zielhosts (`api.github.com`),
  *   kein SSRF über einen manipulierten Host-Teil.
@@ -40,8 +49,29 @@ namespace App\Service;
  */
 final class GithubAddonRepository {
 
-    /** Sicherheitsobergrenze gegen übermäßig große/entartete Downloads. */
+    /** Sicherheitsobergrenze gegen übermäßig große/entartete Downloads (komprimierte Bytes). */
     private const MAX_TARBALL_BYTES = 20 * 1024 * 1024;
+
+    /**
+     * Entpack-Grenzen gegen Archivbomben (Audit N16, Entscheidung D31: feste
+     * Konstanten). MAX_UNPACKED_BYTES begrenzt das unkomprimierte Tar und
+     * damit auch die Summe aller Dateigrößen, MAX_ENTRIES zählt Dateien und
+     * Verzeichnisse. Zum Vergleich das offizielle Addons-Repo @e37f227:
+     * 279 Einträge, 2,7 MB entpackt, 0,67 MB als gz.
+     */
+    private const MAX_UNPACKED_BYTES = 100 * 1024 * 1024;
+    private const MAX_ENTRIES = 10000;
+
+    /**
+     * Register der per makeTempDir() angelegten, noch nicht aufgeräumten
+     * Arbeitsverzeichnisse. Eine Shutdown-Funktion räumt sie ab, falls ein
+     * finally-Block nicht mehr läuft (Fatal Error, max_execution_time).
+     *
+     * @var array<string, true>
+     */
+    private static array $offeneArbeitsverzeichnisse = [];
+
+    private static bool $aufraeumenRegistriert = false;
 
     private const TIMEOUT_SECONDS = 20;
 
@@ -103,7 +133,7 @@ final class GithubAddonRepository {
         try {
             return self::scanTarballFile($tarPath);
         } finally {
-            self::deleteDirRecursive(dirname($tarPath));
+            self::removeWorkDir(dirname($tarPath));
         }
     }
 
@@ -123,7 +153,7 @@ final class GithubAddonRepository {
         try {
             return self::installFromTarballFile($tarPath, $slug, $pluginsDir, $overwrite);
         } finally {
-            self::deleteDirRecursive(dirname($tarPath));
+            self::removeWorkDir(dirname($tarPath));
         }
     }
 
@@ -142,8 +172,9 @@ final class GithubAddonRepository {
         }
 
         try {
-            if (!self::extractSafely($tarGzPath, $workDir)) {
-                return ['ok' => false, 'plugins' => [], 'error' => 'Archiv konnte nicht sicher entpackt werden (beschädigt oder manipuliert).'];
+            $fehler = self::extractSafely($tarGzPath, $workDir);
+            if ($fehler !== null) {
+                return ['ok' => false, 'plugins' => [], 'error' => $fehler];
             }
 
             $repoRoot = self::findRepoRoot($workDir);
@@ -175,7 +206,7 @@ final class GithubAddonRepository {
 
             return ['ok' => true, 'plugins' => $plugins, 'error' => null];
         } finally {
-            self::deleteDirRecursive($workDir);
+            self::removeWorkDir($workDir);
         }
     }
 
@@ -196,8 +227,9 @@ final class GithubAddonRepository {
         }
 
         try {
-            if (!self::extractSafely($tarGzPath, $workDir)) {
-                return ['ok' => false, 'error' => 'Archiv konnte nicht sicher entpackt werden (beschädigt oder manipuliert).', 'version' => null];
+            $fehler = self::extractSafely($tarGzPath, $workDir);
+            if ($fehler !== null) {
+                return ['ok' => false, 'error' => $fehler, 'version' => null];
             }
 
             $repoRoot = self::findRepoRoot($workDir);
@@ -262,7 +294,7 @@ final class GithubAddonRepository {
 
             return ['ok' => true, 'error' => null, 'version' => $manifest['version']];
         } finally {
-            self::deleteDirRecursive($workDir);
+            self::removeWorkDir($workDir);
         }
     }
 
@@ -278,7 +310,7 @@ final class GithubAddonRepository {
 
     /** Räumt das Arbeitsverzeichnis eines per downloadTarballFor() geholten Tarballs ab. */
     public static function deleteWorkDirOf(string $tarPath): void {
-        self::deleteDirRecursive(dirname($tarPath));
+        self::removeWorkDir(dirname($tarPath));
     }
 
     /**
@@ -431,7 +463,7 @@ final class GithubAddonRepository {
         $out = @fopen($tarPath, 'wb');
         if ($out === false) {
             fclose($in);
-            self::deleteDirRecursive($workDir);
+            self::removeWorkDir($workDir);
             return null;
         }
 
@@ -453,7 +485,7 @@ final class GithubAddonRepository {
         fclose($out);
 
         if ($tooLarge) {
-            self::deleteDirRecursive($workDir);
+            self::removeWorkDir($workDir);
             return null;
         }
 
@@ -478,16 +510,235 @@ final class GithubAddonRepository {
      * kompletten entpackten Baum (siehe verifyExtractedTreeIsSafe()) -
      * zusätzlich zu PharData::extractTo()s eigener, seit Langem etablierter
      * Absicherung gegen "..'"-Pfade (defense in depth, siehe Klassen-PHPDoc).
+     *
+     * Schutz vor Archivbomben (Audit N16): `new PharData($tarGz)` entpackt
+     * das gesamte gzip schon im Konstruktor in eine Temp-Datei - eine
+     * Größenprüfung danach käme zu spät. Deshalb zuerst gestreamt und
+     * byte-begrenzt nach `<eigenes Arbeitsverzeichnis>/archive.tar`
+     * entpacken (nicht in $destDir, sonst sähe findRepoRoot() das Tar),
+     * dann dieses unkomprimierte Tar explizit als TAR öffnen, Anzahl und
+     * Summe der Einträge prüfen und erst dann auspacken.
+     *
+     * @return string|null null bei Erfolg, sonst ein deutscher Fehlertext
      */
-    private static function extractSafely(string $tarGzPath, string $destDir): bool {
+    private static function extractSafely(string $tarGzPath, string $destDir): ?string {
+        $beschaedigt = 'Archiv konnte nicht sicher entpackt werden (beschädigt oder manipuliert).';
+
+        $tarDir = self::makeTempDir();
+        if ($tarDir === null) {
+            return 'Temporäres Verzeichnis konnte nicht angelegt werden.';
+        }
+        $tarPath = $tarDir . '/archive.tar';
+        $phar = null;
+
         try {
-            $phar = new \PharData($tarGzPath);
-            $phar->extractTo($destDir, null, true);
-        } catch (\Throwable $e) {
-            return false;
+            $fehler = self::gunzipBegrenzt($tarGzPath, $tarPath, self::MAX_UNPACKED_BYTES);
+            if ($fehler !== null) {
+                return $fehler;
+            }
+
+            try {
+                // Format explizit: ein unter diesem Namen liegender Zip-Inhalt
+                // würde so nie mit Kompression pro Eintrag gelesen.
+                $phar = new \PharData($tarPath, 0, null, \Phar::TAR);
+            } catch (\Throwable $e) {
+                return $beschaedigt;
+            }
+
+            $fehler = self::pruefeEintragsgrenzen($phar, self::MAX_ENTRIES, self::MAX_UNPACKED_BYTES);
+            if ($fehler !== null) {
+                return $fehler;
+            }
+
+            try {
+                $phar->extractTo($destDir, null, true);
+            } catch (\Throwable $e) {
+                return $beschaedigt;
+            }
+        } finally {
+            $phar = null;
+            self::removeWorkDir($tarDir);
         }
 
-        return self::verifyExtractedTreeIsSafe($destDir);
+        return self::verifyExtractedTreeIsSafe($destDir) ? null : $beschaedigt;
+    }
+
+    /**
+     * Entpackt $gzPath gestreamt nach $tarPath und bricht ab, sobald mehr
+     * als $maxBytes unkomprimierte Bytes anfallen.
+     *
+     * Bewusst über inflate_init()/inflate_add() statt gzopen()/gzread():
+     * gzread() liefert bei einer abgeschnittenen Datei stillschweigend den
+     * lesbaren Teil, nur inflate_get_status() zeigt, ob das gzip-Ende samt
+     * Prüfsumme erreicht wurde. Die Eingabe wird in kleinen Stücken (8 KB)
+     * gelesen, damit auch das maximale deflate-Verhältnis (~1:1000) je
+     * Schritt nur wenige MB Speicher kostet. Mehrteilige gzip-Dateien werden
+     * unterstützt; eine Datei ohne gzip-Kennung wird unverändert (ebenfalls
+     * begrenzt) übernommen, wie es gzopen() täte.
+     *
+     * @return string|null null bei Erfolg, sonst ein deutscher Fehlertext
+     *                     (die Zieldatei ist dann entfernt)
+     */
+    private static function gunzipBegrenzt(string $gzPath, string $tarPath, int $maxBytes): ?string {
+        if (!function_exists('inflate_init')) {
+            return 'Archiv kann nicht entpackt werden: Die PHP-Erweiterung zlib fehlt.';
+        }
+        $beschaedigt = 'Archiv konnte nicht sicher entpackt werden (beschädigt oder manipuliert).';
+        $zuGross = sprintf(
+            'Archiv ist entpackt größer als %d MB - abgelehnt (Schutz vor Archivbomben).',
+            intdiv($maxBytes, 1024 * 1024)
+        );
+
+        $in = @fopen($gzPath, 'rb');
+        if ($in === false) {
+            return $beschaedigt;
+        }
+        $out = @fopen($tarPath, 'wb');
+        if ($out === false) {
+            fclose($in);
+            return 'Temporäre Datei zum Entpacken konnte nicht angelegt werden.';
+        }
+
+        $fehler = null;
+        $geschrieben = 0;
+        $schreibe = static function (string $daten) use ($out, $maxBytes, $zuGross, &$geschrieben): ?string {
+            if ($daten === '') {
+                return null;
+            }
+            $geschrieben += strlen($daten);
+            if ($geschrieben > $maxBytes) {
+                return $zuGross;
+            }
+            if (fwrite($out, $daten) !== strlen($daten)) {
+                return 'Archiv konnte nicht entpackt werden (Speicherplatz im temporären Verzeichnis prüfen).';
+            }
+            return null;
+        };
+
+        try {
+            $kopf = (string)fread($in, 2);
+            $istGzip = $kopf === "\x1f\x8b";
+            $puffer = $kopf;
+            $ctx = null;
+            $zugefuehrt = 0;
+
+            while (true) {
+                if ($puffer === '') {
+                    if (feof($in)) {
+                        break;
+                    }
+                    $gelesen = fread($in, 8192);
+                    if ($gelesen === false) {
+                        $fehler = $beschaedigt;
+                        break;
+                    }
+                    if ($gelesen === '') {
+                        continue;
+                    }
+                    $puffer = $gelesen;
+                }
+
+                if (!$istGzip) {
+                    $fehler = $schreibe($puffer);
+                    $puffer = '';
+                    if ($fehler !== null) {
+                        break;
+                    }
+                    continue;
+                }
+
+                if ($ctx === null) {
+                    // Nach dem Ende eines Teils folgende Füll-Nullbytes ignorieren.
+                    if (trim($puffer, "\0") === '' && $zugefuehrt > 0) {
+                        $puffer = '';
+                        continue;
+                    }
+                    $ctx = inflate_init(ZLIB_ENCODING_GZIP);
+                    $zugefuehrt = 0;
+                }
+
+                $stueck = $puffer;
+                $puffer = '';
+                $ergebnis = @inflate_add($ctx, $stueck, ZLIB_SYNC_FLUSH);
+                if ($ergebnis === false) {
+                    $fehler = $beschaedigt;
+                    break;
+                }
+                $zugefuehrt += strlen($stueck);
+                $fehler = $schreibe($ergebnis);
+                if ($fehler !== null) {
+                    break;
+                }
+
+                if (inflate_get_status($ctx) === ZLIB_STREAM_END) {
+                    // Nicht verbrauchte Bytes gehören zum nächsten Teil.
+                    $rest = $zugefuehrt - inflate_get_read_len($ctx);
+                    if ($rest > 0) {
+                        $puffer = substr($stueck, -$rest);
+                    }
+                    $ctx = null;
+                }
+            }
+
+            // Endet die Eingabe mitten in einem gzip-Teil, ist die Datei
+            // abgeschnitten oder beschädigt (gzip-Prüfsumme nie erreicht).
+            if ($fehler === null && $istGzip && $ctx !== null) {
+                $fehler = $beschaedigt;
+            }
+        } catch (\Throwable $e) {
+            $fehler = $beschaedigt;
+        } finally {
+            fclose($in);
+            fclose($out);
+        }
+
+        if ($fehler !== null) {
+            @unlink($tarPath);
+        }
+        return $fehler;
+    }
+
+    /**
+     * Prüft Anzahl und Gesamtgröße der Einträge eines geöffneten Tars, bevor
+     * etwas ausgepackt wird. Zuerst die billige Gesamtzahl über count(),
+     * dann Zählen und Aufsummieren über den Iterator.
+     *
+     * @return string|null null wenn innerhalb der Grenzen, sonst ein deutscher Fehlertext
+     */
+    private static function pruefeEintragsgrenzen(\PharData $phar, int $maxEntries, int $maxBytes): ?string {
+        $zuViele = sprintf(
+            'Archiv enthält mehr als %s Einträge - abgelehnt.',
+            number_format($maxEntries, 0, ',', '.')
+        );
+        $zuGross = sprintf(
+            'Archiv ist entpackt größer als %d MB - abgelehnt (Schutz vor Archivbomben).',
+            intdiv($maxBytes, 1024 * 1024)
+        );
+
+        try {
+            if ($phar->count() > $maxEntries) {
+                return $zuViele;
+            }
+
+            $anzahl = 0;
+            $summe = 0;
+            foreach (new \RecursiveIteratorIterator($phar, \RecursiveIteratorIterator::SELF_FIRST) as $eintrag) {
+                /** @var \PharFileInfo $eintrag */
+                if (++$anzahl > $maxEntries) {
+                    return $zuViele;
+                }
+                if ($eintrag->isFile()) {
+                    $summe += (int)$eintrag->getSize();
+                    if ($summe > $maxBytes) {
+                        return $zuGross;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            return 'Archiv konnte nicht sicher entpackt werden (beschädigt oder manipuliert).';
+        }
+
+        return null;
     }
 
     private static function verifyExtractedTreeIsSafe(string $destDir): bool {
@@ -567,6 +818,15 @@ final class GithubAddonRepository {
         if (!is_string($max) || !preg_match('/^\d+\.\d+$/', $max)) {
             return null;
         }
+        // description/author müssen Text sein, wenn gesetzt - dieselbe Regel
+        // wie PluginManager::validateManifest() (Audit N84). Sonst würde der
+        // Store ein Addon anbieten, das nach der Installation als "Ungültiges
+        // Manifest" gilt.
+        foreach (['description', 'author'] as $field) {
+            if (isset($manifest[$field]) && !is_string($manifest[$field])) {
+                return null;
+            }
+        }
         if (!preg_match('/^[a-z0-9][a-z0-9-]*$/', $manifest['slug'])) {
             return null;
         }
@@ -590,7 +850,35 @@ final class GithubAddonRepository {
 
     private static function makeTempDir(): ?string {
         $dir = sys_get_temp_dir() . '/hengst_addon_' . bin2hex(random_bytes(16));
-        return @mkdir($dir, 0700, true) ? $dir : null;
+        if (!@mkdir($dir, 0700, true)) {
+            return null;
+        }
+        self::$offeneArbeitsverzeichnisse[$dir] = true;
+        if (!self::$aufraeumenRegistriert) {
+            // Closure statt [self::class, '...']: die Methode ist privat.
+            register_shutdown_function(static function (): void {
+                self::raeumeArbeitsverzeichnisseAuf();
+            });
+            self::$aufraeumenRegistriert = true;
+        }
+        return $dir;
+    }
+
+    /** Löscht ein per makeTempDir() angelegtes Arbeitsverzeichnis und trägt es aus dem Register aus. */
+    private static function removeWorkDir(string $dir): void {
+        self::deleteDirRecursive($dir);
+        unset(self::$offeneArbeitsverzeichnisse[$dir]);
+    }
+
+    /**
+     * Shutdown-Aufräumen (Audit N16): entfernt alle noch registrierten
+     * Arbeitsverzeichnisse, etwa wenn ein Request während des Entpackens an
+     * max_execution_time scheiterte und die finally-Blöcke nicht mehr liefen.
+     */
+    private static function raeumeArbeitsverzeichnisseAuf(): void {
+        foreach (array_keys(self::$offeneArbeitsverzeichnisse) as $dir) {
+            self::removeWorkDir($dir);
+        }
     }
 
     /**

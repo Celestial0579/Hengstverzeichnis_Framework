@@ -432,6 +432,190 @@ class GithubAddonRepositoryTest extends TestCase {
 
     // ---- Test-Tarball-Konstruktion -------------------------------------
 
+    // ---- Entpack-Grenzen gegen Archivbomben (Audit N16) ----------------
+
+    public function testGunzipBegrenztBrichtBeiUeberschreitungAb(): void {
+        $gz = $this->tempPath('.gz');
+        file_put_contents($gz, gzencode(str_repeat("\0", 2000000), 9));
+        $ziel = $this->tempPath('.tar');
+        $methode = new \ReflectionMethod(GithubAddonRepository::class, 'gunzipBegrenzt');
+
+        $fehler = $methode->invoke(null, $gz, $ziel, 1024 * 1024);
+        $this->assertIsString($fehler);
+        $this->assertStringContainsString('größer als 1 MB', $fehler);
+        $this->assertFileDoesNotExist($ziel, 'Nach Abbruch darf keine Teildatei liegen bleiben');
+
+        $this->assertNull($methode->invoke(null, $gz, $ziel, 4 * 1024 * 1024));
+        clearstatcache();
+        $this->assertSame(2000000, filesize($ziel));
+    }
+
+    public function testGunzipBegrenztMeldetAbgeschnitteneDatei(): void {
+        $voll = gzencode(str_repeat("\0", 2000000), 9);
+        $gz = $this->tempPath('.gz');
+        file_put_contents($gz, substr($voll, 0, intdiv(strlen($voll), 2)));
+        $ziel = $this->tempPath('.tar');
+        $methode = new \ReflectionMethod(GithubAddonRepository::class, 'gunzipBegrenzt');
+
+        $fehler = $methode->invoke(null, $gz, $ziel, 4 * 1024 * 1024);
+
+        $this->assertIsString($fehler, 'Eine abgeschnittene gz-Datei muss als Fehler gemeldet werden');
+        $this->assertStringContainsString('beschädigt', $fehler);
+        $this->assertFileDoesNotExist($ziel);
+    }
+
+    public function testGunzipBegrenztVerarbeitetMehrteiligesGzip(): void {
+        $gz = $this->tempPath('.gz');
+        file_put_contents($gz, gzencode('erster teil ', 9) . gzencode('zweiter teil', 9));
+        $ziel = $this->tempPath('.tar');
+        $methode = new \ReflectionMethod(GithubAddonRepository::class, 'gunzipBegrenzt');
+
+        $this->assertNull($methode->invoke(null, $gz, $ziel, 1024));
+        $this->assertSame('erster teil zweiter teil', file_get_contents($ziel));
+    }
+
+    public function testScanTarballFileLehntZuVieleEintraegeAb(): void {
+        $max = (new \ReflectionClassConstant(GithubAddonRepository::class, 'MAX_ENTRIES'))->getValue();
+        $dateien = [];
+        for ($i = 0; $i <= $max; $i++) {
+            $dateien['testrepo-main/viele/f' . $i . '.txt'] = '';
+        }
+        $tarPath = $this->buildTarGzFromFiles($dateien);
+        $vorher = $this->arbeitsverzeichnisse();
+
+        $result = GithubAddonRepository::scanTarballFile($tarPath);
+
+        $this->assertFalse($result['ok']);
+        $this->assertStringContainsString('Einträge', (string)$result['error']);
+        $this->assertSame([], $this->neueArbeitsverzeichnisse($vorher), 'Abgelehntes Archiv hinterlässt Arbeitsverzeichnisse');
+    }
+
+    public function testPruefeEintragsgrenzenMeldetZuGrosseSumme(): void {
+        $tarPath = $this->tempPath('.tar');
+        $phar = new \PharData($tarPath, 0, null, \Phar::TAR);
+        $phar->addFromString('a.bin', str_repeat('a', 600 * 1024));
+        $phar->addFromString('b.bin', str_repeat('b', 600 * 1024));
+        // Frisch öffnen wie extractSafely(): Ein gerade erst gebautes PharData
+        // liefert beim Iterieren noch keine Einträge.
+        unset($phar);
+        $phar = new \PharData($tarPath, 0, null, \Phar::TAR);
+        $methode = new \ReflectionMethod(GithubAddonRepository::class, 'pruefeEintragsgrenzen');
+
+        $fehler = $methode->invoke(null, $phar, 100, 1024 * 1024);
+        $this->assertIsString($fehler);
+        $this->assertStringContainsString('größer als 1 MB', $fehler);
+
+        $this->assertNull($methode->invoke(null, $phar, 100, 10 * 1024 * 1024));
+
+        $fehler = $methode->invoke(null, $phar, 1, 10 * 1024 * 1024);
+        $this->assertIsString($fehler);
+        $this->assertStringContainsString('Einträge', $fehler);
+        unset($phar);
+    }
+
+    public function testKeineArbeitsverzeichnisseBleibenLiegen(): void {
+        $gueltig = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/demo-addon/plugin.json' => json_encode([
+                'slug' => 'demo-addon',
+                'name' => 'Demo Addon',
+                'version' => '1.0.0',
+                'core_compatibility' => '>=0.1.0-beta.1',
+                'core_supported_max' => '9.9',
+            ]),
+        ]);
+        $kaputt = $this->tempPath('.tar.gz');
+        file_put_contents($kaputt, 'kein archiv');
+        $register = new \ReflectionProperty(GithubAddonRepository::class, 'offeneArbeitsverzeichnisse');
+        $vorher = $this->arbeitsverzeichnisse();
+
+        $this->assertTrue(GithubAddonRepository::scanTarballFile($gueltig)['ok']);
+        $this->assertFalse(GithubAddonRepository::scanTarballFile($kaputt)['ok']);
+
+        $this->assertSame([], $this->neueArbeitsverzeichnisse($vorher));
+        $this->assertSame([], $register->getValue());
+    }
+
+    public function testShutdownAufraeumenEntferntOffeneArbeitsverzeichnisse(): void {
+        $anlegen = new \ReflectionMethod(GithubAddonRepository::class, 'makeTempDir');
+        $aufraeumen = new \ReflectionMethod(GithubAddonRepository::class, 'raeumeArbeitsverzeichnisseAuf');
+        $register = new \ReflectionProperty(GithubAddonRepository::class, 'offeneArbeitsverzeichnisse');
+        $registriert = new \ReflectionProperty(GithubAddonRepository::class, 'aufraeumenRegistriert');
+
+        $dir = $anlegen->invoke(null);
+        $this->assertIsString($dir);
+        $this->cleanupPaths[] = $dir;
+        mkdir($dir . '/tief/er', 0700, true);
+        file_put_contents($dir . '/tief/er/rest.tar', 'halb entpackt');
+
+        $this->assertArrayHasKey($dir, $register->getValue());
+        $this->assertTrue($registriert->getValue(), 'Die Shutdown-Funktion muss registriert sein');
+
+        // Simuliert den Shutdown nach einem Abbruch (finally lief nicht).
+        $aufraeumen->invoke(null);
+
+        $this->assertDirectoryDoesNotExist($dir);
+        $this->assertSame([], $register->getValue());
+    }
+
+    // ---- Manifest-Typen (Audit N84) ------------------------------------
+
+    public function testScanTarballFileIgnoresPluginWithNonStringDescription(): void {
+        $basis = [
+            'version' => '1.0.0',
+            'core_compatibility' => '>=0.1.0-beta.1',
+            'core_supported_max' => '9.9',
+        ];
+        $tarPath = $this->buildTarGzFromFiles([
+            'testrepo-main/plugins/gut/plugin.json' => json_encode(['slug' => 'gut', 'name' => 'Gut', 'description' => 'Text'] + $basis),
+            'testrepo-main/plugins/i18n/plugin.json' => json_encode(['slug' => 'i18n', 'name' => 'I18n', 'description' => ['de' => 'Hallo', 'en' => 'Hello']] + $basis),
+            'testrepo-main/plugins/autor/plugin.json' => json_encode(['slug' => 'autor', 'name' => 'Autor', 'author' => 123] + $basis),
+        ]);
+
+        $result = GithubAddonRepository::scanTarballFile($tarPath);
+
+        $this->assertTrue($result['ok'], $result['error'] ?? '');
+        $this->assertSame(['gut'], array_column($result['plugins'], 'slug'));
+
+        $pluginsDir = sys_get_temp_dir() . '/hengst_addon_test_plugins_' . bin2hex(random_bytes(8));
+        mkdir($pluginsDir, 0700, true);
+        $this->cleanupPaths[] = $pluginsDir;
+        $install = GithubAddonRepository::installFromTarballFile($tarPath, 'i18n', $pluginsDir, false);
+        $this->assertFalse($install['ok']);
+        $this->assertDirectoryDoesNotExist($pluginsDir . '/i18n');
+    }
+
+    private function tempPath(string $endung): string {
+        $pfad = sys_get_temp_dir() . '/hengst_addon_test_' . bin2hex(random_bytes(8)) . $endung;
+        $this->cleanupPaths[] = $pfad;
+        return $pfad;
+    }
+
+    /** @return array<int, string> Arbeitsverzeichnisse von makeTempDir() in sys_get_temp_dir() */
+    private function arbeitsverzeichnisse(): array {
+        return array_values(array_filter(
+            glob(sys_get_temp_dir() . '/hengst_addon_*') ?: [],
+            static fn(string $p): bool => preg_match('#/hengst_addon_[0-9a-f]{32}$#', $p) === 1
+        ));
+    }
+
+    /**
+     * Neu hinzugekommene Arbeitsverzeichnisse. Parallel laufende Testprozesse
+     * können kurzzeitig eigene anlegen - die verschwinden gleich wieder, ein
+     * echter Rest dieses Prozesses bleibt dagegen liegen.
+     *
+     * @param array<int, string> $vorher
+     * @return array<int, string>
+     */
+    private function neueArbeitsverzeichnisse(array $vorher): array {
+        $neu = array_values(array_diff($this->arbeitsverzeichnisse(), $vorher));
+        if ($neu !== []) {
+            usleep(500000);
+            clearstatcache();
+            $neu = array_values(array_filter($neu, 'is_dir'));
+        }
+        return $neu;
+    }
+
     /**
      * Baut ein gültiges .tar.gz aus einer Datei-Map (relativer Pfad => Inhalt)
      * über PharData::buildFromDirectory()/compress() - PHPs eigener Tar-Writer,

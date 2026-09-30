@@ -535,6 +535,9 @@ CREATE TABLE IF NOT EXISTS `login_attempts` (
 -- dir_stamp (#224): billiger Verzeichnis-Stempel, spart den SHA-256-Vergleich
 -- beim Bootstrap, solange sich der Plugin-Ordner nicht geändert hat.
 -- source (#212): Store-Herkunft ('owner/repo@ref'), NULL bei manueller Installation.
+-- pending_reason/pending_marker (Audit N63): Wiederfreigabe-Vermerk - Grund
+-- ('code_geaendert'/'version_ohne_release') und Marke des beobachteten Standes,
+-- damit nur der Übergang protokolliert wird; NULL, solange nichts wartet.
 CREATE TABLE IF NOT EXISTS `plugins` (
     `slug` VARCHAR(100) NOT NULL PRIMARY KEY,
     `enabled` TINYINT(1) NOT NULL DEFAULT 0,
@@ -542,6 +545,8 @@ CREATE TABLE IF NOT EXISTS `plugins` (
     `content_hash` VARCHAR(64) NULL DEFAULT NULL,
     `dir_stamp` VARCHAR(64) NULL DEFAULT NULL,
     `source` VARCHAR(150) NULL DEFAULT NULL,
+    `pending_reason` VARCHAR(32) NULL DEFAULT NULL,
+    `pending_marker` VARCHAR(64) NULL DEFAULT NULL,
     `activated_at` DATETIME NULL DEFAULT NULL,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

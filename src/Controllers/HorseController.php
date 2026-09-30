@@ -195,35 +195,19 @@ class HorseController extends BaseController {
      * Startwert ist die leere Liste. Ein abgestuerztes Addon darf keine
      * Veroeffentlichung blockieren, denn niemand koennte den Grund beheben.
      *
-     * @return string[] Menschenlesbare Gruende. Leer = veroeffentlichen ist in Ordnung.
-     */
-    private function publishBlockers(int $horseId): array {
-        $stmt = Database::getInstance()->prepare(
-            "SELECT * FROM horses WHERE id = ? AND deleted_at IS NULL"
-        );
-        $stmt->execute([$horseId]);
-        $horse = $stmt->fetch();
-        if (!$horse) {
-            return [];
-        }
-
-        $blockers = $this->hooks()->applyFilters('horse.publish_blockers', [], $horseId, $horse);
-        if (!is_array($blockers)) {
-            return [];
-        }
-
-        $sauber = [];
-        foreach ($blockers as $grund) {
-            if (is_string($grund) && trim($grund) !== '') {
-                $sauber[] = trim($grund);
-            }
-        }
-        return $sauber;
-    }
-
-    /**
-     * Setzt die Veroeffentlichung zurueck, wenn ein Addon Einwaende hat (#335),
-     * und liefert die Gruende fuer die Rueckmeldung an den Bearbeiter.
+     * Die Abfrage selbst lebt seit Audit N49 in App\Service\HorsePublishVeto
+     * (einwaende()/freigeben()), damit Formular, Massen-Veroeffentlichung und
+     * CSV-Import denselben Weg gehen.
+     *
+     * Diese Huelle veroeffentlicht das Pferd, wenn es gewuenscht ist und kein Addon
+     * Einwaende hat (#335), und liefert die Gruende fuer die Rueckmeldung an
+     * den Bearbeiter.
+     *
+     * Seit Audit N49 der EINZIGE Uebergang 0→1 im Formular: store() und
+     * update() schreiben das Haekchen nicht mehr im Haupt-INSERT/-UPDATE,
+     * sondern rufen am Ende des Speicherpfads (nach horse.after_save) diese
+     * Methode. Bricht ein Zwischenschritt ab, bleibt ein unveroeffentlichtes
+     * Pferd unveroeffentlicht (fail-safe).
      *
      * Der Datensatz bleibt gespeichert - nur das Haekchen faellt. Das ist der
      * ganze Punkt: Die Arbeit geht nicht verloren, sie wird nur nicht
@@ -235,13 +219,10 @@ class HorseController extends BaseController {
         if ($gewuenscht !== 1) {
             return [];
         }
-        $blockers = $this->publishBlockers($horseId);
+        $blockers = \App\Service\HorsePublishVeto::freigeben($horseId);
         if ($blockers === []) {
             return [];
         }
-
-        $stmt = Database::getInstance()->prepare("UPDATE horses SET is_published = 0 WHERE id = ?");
-        $stmt->execute([$horseId]);
 
         \App\Service\AuditLogger::log(
             "Veroeffentlichung durch Addon verhindert",
@@ -290,7 +271,7 @@ class HorseController extends BaseController {
                 // Depublizieren muss immer moeglich bleiben, sonst haenge die
                 // Ruecknahme einer Veroeffentlichung am Zustand eines Addons.
                 if ($publish === 1) {
-                    $gruende = $this->publishBlockers((int)$id);
+                    $gruende = \App\Service\HorsePublishVeto::einwaende((int)$id);
                     if ($gruende !== []) {
                         $blockiert[(int)$id] = $gruende;
                         continue;
@@ -554,7 +535,9 @@ class HorseController extends BaseController {
         $db = Database::getInstance();
         $stmt = $db->prepare("INSERT INTO horses (name, ueln, foreign_ueln, sire_id, sire_name, sire_ueln, dam_id, dam_name, dam_ueln, birth_year, birth_date, birth_date_precision, color, sex, castration_date, breed, height_cm, breeding_station_id, breeding_station, description, status, is_deceased, death_year, is_published, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         try {
-            $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $imageUrl]);
+            // is_published = 0 (Audit N49): Veröffentlicht wird erst am Ende,
+            // wenn kein Addon Einwände hat - siehe enforcePublishBlockers().
+            $stmt->execute([$name, $ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, 0, $imageUrl]);
         } catch (\PDOException $e) {
             // Das Foto liegt schon in der Ablage, der Datensatz, der darauf
             // verweisen sollte, nicht (Audit N48).
@@ -902,8 +885,22 @@ class HorseController extends BaseController {
         // übermittelter Leerstring soll NULL speichern (wie früher `?: null`),
         // nicht den Leerstring selbst.
         $stmt = $db->prepare("UPDATE horses SET name = ?, ueln = ?, foreign_ueln = CASE WHEN ? IS NULL THEN foreign_ueln ELSE NULLIF(?, '') END, sire_id = ?, sire_name = ?, sire_ueln = ?, dam_id = ?, dam_name = ?, dam_ueln = ?, birth_year = ?, birth_date = ?, birth_date_precision = ?, color = ?, sex = ?, castration_date = ?, breed = ?, height_cm = ?, breeding_station_id = ?, breeding_station = COALESCE(?, breeding_station), description = ?, status = ?, is_deceased = ?, death_year = ?, is_published = ?, image_url = ? WHERE id = ? AND deleted_at IS NULL");
+        // Das Häkchen steht NICHT im Haupt-UPDATE (Audit N49): Bisher wurde
+        // is_published = 1 hier festgeschrieben und erst am Ende bei einem
+        // Addon-Einwand zurückgenommen. Brach ein Zwischenschritt ab
+        // (saveHorsePersons() & Co.), blieb das Pferd ungeprüft öffentlich.
+        // Jetzt: Depublizieren wirkt sofort, ein bereits veröffentlichtes
+        // Pferd bleibt es vorläufig, der Übergang 0→1 geschieht nur in
+        // enforcePublishBlockers(). Bekannte Restlücke (Status quo, nicht
+        // Gegenstand des Befunds): Ein BEREITS veröffentlichtes Pferd bleibt
+        // bei einem Abbruch veröffentlicht, auch mit neuen, widersprüchlichen
+        // Stammdaten. Die bekannten Abbruch-Auslöser entfallen durch
+        // jahrAusEingabe() und die Prüfungen aus Audit N48. Eine Transaktion
+        // über den ganzen Speicherpfad gibt es bewusst nicht - Hooks sollen
+        // nicht in einer offenen Transaktion laufen.
+        $vorlaeufig = ($isPublished === 1 && (int)$existing['is_published'] === 1) ? 1 : 0;
         try {
-            $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $isPublished, $currentImageUrl, $id]);
+            $stmt->execute([$name, $ueln, $foreign_ueln, $foreign_ueln, $sire_id, $sire_name, $sire_ueln, $dam_id, $dam_name, $dam_ueln, $birth_year, $birth_date, $birth_date_precision, $color, $sex, $castration_date, $breed, $height_cm, $breeding_station_id, $breeding_station, $description, $status, $is_deceased, $death_year, $vorlaeufig, $currentImageUrl, $id]);
         } catch (\PDOException $e) {
             // 1062 (Audit N48): Rennen zwischen uelnConflict() und dem UPDATE.
             // Bis hierher wurde nichts geschrieben.
@@ -965,6 +962,14 @@ class HorseController extends BaseController {
         }
         $year = (int)$value;
         return ($year >= 1600 && $year <= (int)date('Y') + 1) ? $year : null;
+    }
+
+    /**
+     * Jahresangabe einer Zuordnungszeile (from_year/until_year): wie
+     * parseYear(), Nicht-Skalare (persons[0][from_year][]=…) werden NULL.
+     */
+    private function jahrAusEingabe(mixed $wert): ?int {
+        return is_scalar($wert) ? $this->parseYear((string)$wert) : null;
     }
 
     /**
@@ -1071,7 +1076,9 @@ class HorseController extends BaseController {
                 continue;
             }
             foreach (['from_year', 'until_year'] as $feld) {
-                $jahr = $this->parseYear((string)($item[$feld] ?? ''));
+                // Derselbe Helfer wie in saveHorsePersons(): geprüft wird genau
+                // der Wert, der gespeichert wird (Audit N49).
+                $jahr = $this->jahrAusEingabe($item[$feld] ?? null);
                 if ($jahr !== null && $jahr > $deathYear) {
                     return 'period_after_death';
                 }
@@ -1865,8 +1872,12 @@ class HorseController extends BaseController {
                     $fromYear = null;
                     $untilYear = null;
                 } else {
-                    $fromYear = !empty($item['from_year']) ? (int)$item['from_year'] : null;
-                    $untilYear = !empty($item['until_year']) ? (int)$item['until_year'] : null;
+                    // Wie das Todesjahr normalisiert (Audit N49): Werte
+                    // außerhalb 1600 bis Folgejahr werden NULL. Vorher lief
+                    // ein Jahr "70000" per (int) in die SMALLINT-Spalte und
+                    // brach das Speichern mitten im Pfad ab.
+                    $fromYear = $this->jahrAusEingabe($item['from_year'] ?? null);
+                    $untilYear = $this->jahrAusEingabe($item['until_year'] ?? null);
                 }
 
                 // Calculate score to identify the current/latest active breeding station

@@ -136,6 +136,8 @@ class ImportController extends BaseController {
         $isPublished = (!empty($_POST['is_published']) && $canPublish) ? 1 : 0;
         $importedCount = 0;
         $skippedCount = 0;
+        // Neu angelegte Pferde (ID => Name) für das Veto nach dem Commit.
+        $neueIds = [];
 
         $insertStmt = $db->prepare("
             INSERT INTO horses (name, ueln, foreign_ueln, sire_name, sire_ueln, dam_name, dam_ueln, birth_year, birth_date, birth_date_precision, color, sex, breed, height_cm, breeding_station, description, status, is_deceased, death_year, is_published)
@@ -164,8 +166,11 @@ class ImportController extends BaseController {
                     $data['birth_year'], $data['birth_date'], $data['birth_date_precision'],
                     $data['color'], $data['sex'], $data['breed'],
                     $data['height_cm'], $data['breeding_station'], $data['description'],
-                    $data['status'], $data['deceased'], $data['death_year'], $isPublished,
+                    // Unveröffentlicht anlegen (Audit N49); veröffentlicht wird
+                    // erst nach dem Commit über das Addon-Veto.
+                    $data['status'], $data['deceased'], $data['death_year'], 0,
                 ]);
+                $neueIds[(int)$db->lastInsertId()] = $data['name'];
                 $importedCount++;
             }
 
@@ -201,16 +206,38 @@ class ImportController extends BaseController {
 
         unset($_SESSION[self::SESSION_KEY]);
 
+        // Veröffentlichen erst jetzt, je Pferd über das Addon-Veto (Audit N49)
+        // - derselbe Weg wie Formular und Massen-Veröffentlichung. Vorher
+        // wurde das Häkchen ungeprüft im INSERT gesetzt, und ein Addon wie
+        // plausibilitaetspruefung hatte beim Import nichts zu sagen. Bewusst
+        // NACH dem Commit: Die Hooks sollen nicht in der offenen Transaktion
+        // laufen. Wirft ein Aufruf mittendrin, bleiben die restlichen Pferde
+        // unveröffentlicht (fail-safe).
+        $blockiert = [];
+        if ($isPublished === 1) {
+            foreach ($neueIds as $id => $name) {
+                $gruende = \App\Service\HorsePublishVeto::freigeben($id);
+                if ($gruende !== []) {
+                    $blockiert[$id] = ['name' => $name, 'gruende' => $gruende];
+                }
+            }
+        }
+
         \App\Service\AuditLogger::log(
             "Bulk-Import Pferde (CSV)",
             "horses",
             "{$importedCount} importiert, {$skippedCount} übersprungen (Fehler)"
+            . ($blockiert === [] ? '' : sprintf(
+                ', %d durch Addon-Einwand nicht veröffentlicht (IDs: %s)',
+                count($blockiert),
+                implode(', ', array_keys($blockiert))
+            ))
         );
 
         $this->render('admin_import_horses', [
             'title' => 'Pferde-Bulk-Import (CSV) - Ergebnis',
             'preview' => null,
-            'result' => ['imported' => $importedCount, 'skipped' => $skippedCount],
+            'result' => ['imported' => $importedCount, 'skipped' => $skippedCount, 'notPublished' => $blockiert],
         ]);
     }
 }

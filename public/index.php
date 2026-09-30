@@ -99,11 +99,26 @@ $pluginManager->boot();
 // laufender Prozess) und wird nur tatsächlich fällig, wenn sie zusätzlich
 // über den Admin-Bereich konfiguriert/aktiviert wurde - registerScheduledTask()
 // ist dafür jeweils selbst verantwortlich (No-Op ohne Konfiguration).
-\App\Service\BackupService::registerScheduledTask();
-\App\Service\DigestService::registerScheduledTask();
-\App\Service\UpdateService::registerScheduledTask();
-\App\Service\DormantAccountService::registerScheduledTask();
-\App\Service\EmailVerification::registerScheduledTask();
+//
+// Jede Anmeldung einzeln abgesichert (Audit N67): Eine kaputte Einstellung
+// (etwa ein riesiges Intervall) darf nicht jeden Request scheitern lassen -
+// sonst wäre auch die Admin-Seite unerreichbar, auf der sie sich korrigieren
+// ließe. error_log statt AuditLogger, weil sonst jeder Request das
+// Audit-Log fluten würde; die Aufgabe fehlt dann unter /admin/cron.
+foreach ([
+    \App\Service\BackupService::class,
+    \App\Service\DigestService::class,
+    \App\Service\UpdateService::class,
+    \App\Service\DormantAccountService::class,
+    \App\Service\EmailVerification::class,
+] as $cronDienst) {
+    try {
+        $cronDienst::registerScheduledTask();
+    } catch (\Throwable $e) {
+        error_log("Cron-Aufgabe von {$cronDienst} nicht angemeldet: " . $e->getMessage());
+    }
+}
+unset($cronDienst);
 
 $router = new Router();
 

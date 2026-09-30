@@ -112,4 +112,67 @@ class BackupSettingsTest extends FunctionalTestCase {
         $this->assertSame(302, $response->statusCode);
         $this->assertStringStartsWith('/admin/backups?error=', $response->location());
     }
+
+    /**
+     * Audit N67: Ein riesiges Intervall wird beim Speichern auf 8760 h
+     * begrenzt. Ein früher gespeicherter Riesenwert heilt beim Lesen - vorher
+     * scheiterte JEDER Request beim Anmelden der Cron-Aufgabe, auch die
+     * Admin-Seite, auf der er sich hätte korrigieren lassen.
+     */
+    public function testHugeIntervalIsClampedAndDoesNotBreakTheSite(): void {
+        $admin = $this->authenticatedClient();
+        $db = \App\Database::getInstance();
+        $vorher = [];
+        foreach (['backup_enabled', 'backup_interval_hours'] as $key) {
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $stmt->execute([$key]);
+            $vorher[$key] = $stmt->fetchColumn();
+        }
+
+        try {
+            $formPage = $admin->get('/admin/backups');
+            $response = $admin->post('/admin/backups', array_merge([
+                'csrf_token' => $formPage->formField('csrf_token') ?? '',
+                'backup_enabled' => '1',
+                'backup_interval_hours' => '9999999999999999',
+            ], [
+                'backup_s3_endpoint' => 'fake-endpoint.example.com',
+                'backup_s3_region' => 'eu-central-1',
+                'backup_s3_bucket' => 'functional-test-bucket',
+                'backup_s3_access_key' => 'FUNCTIONALTESTKEY',
+                'backup_s3_secret_key' => 'super-secret-value',
+                'backup_s3_path_style' => '1',
+                'backup_retention_count' => '7',
+            ]));
+            $this->assertSame('/admin/backups?success=1', $response->location());
+
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'backup_interval_hours'");
+            $stmt->execute();
+            $this->assertSame('8760', $stmt->fetchColumn());
+
+            foreach (['/', '/admin/backups', '/admin/cron'] as $pfad) {
+                $this->assertSame(200, $admin->get($pfad)->statusCode, "{$pfad} nach dem Speichern");
+            }
+            $this->assertSame('8760', $admin->get('/admin/backups')->formField('backup_interval_hours'));
+
+            // Altbestand aus der Zeit vor der Grenze, direkt in der Datenbank.
+            $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'backup_interval_hours'")
+                ->execute(['99999999999999999999']);
+            $this->assertSame(200, $this->newClient()->get('/')->statusCode, 'Startseite mit Altbestand');
+            $cronSeite = $admin->get('/admin/cron');
+            $this->assertSame(200, $cronSeite->statusCode);
+            // Die Aufgabe ist trotz Altbestand angemeldet - nicht bloss vom
+            // Auffangnetz in public/index.php verschluckt.
+            $this->assertStringContainsString('backup.external', $cronSeite->body);
+            $this->assertSame('8760', $admin->get('/admin/backups')->formField('backup_interval_hours'));
+        } finally {
+            foreach ($vorher as $key => $value) {
+                if ($value === false) {
+                    $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$key]);
+                } else {
+                    $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = ?")->execute([$value, $key]);
+                }
+            }
+        }
+    }
 }

@@ -153,4 +153,59 @@ class DigestSettingsTest extends FunctionalTestCase {
         $wert = $stmt->fetchColumn();
         return $wert === false ? null : (string)$wert;
     }
+
+    /**
+     * Audit N67: Ein riesiges Intervall wird beim Speichern auf 8760 h
+     * begrenzt. Ein früher gespeicherter Riesenwert heilt beim Lesen - vorher
+     * scheiterte JEDER Request beim Anmelden der Cron-Aufgabe, auch die
+     * Admin-Seite, auf der er sich hätte korrigieren lassen.
+     */
+    public function testHugeIntervalIsClampedAndDoesNotBreakTheSite(): void {
+        $admin = $this->authenticatedClient();
+        $db = \App\Database::getInstance();
+        $vorher = [];
+        foreach (['digest_enabled', 'digest_interval_hours'] as $key) {
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+            $stmt->execute([$key]);
+            $vorher[$key] = $stmt->fetchColumn();
+        }
+
+        try {
+            $formPage = $admin->get('/admin/digest');
+            $response = $admin->post('/admin/digest', array_merge([
+                'csrf_token' => $formPage->formField('csrf_token') ?? '',
+                'digest_enabled' => '1',
+                'digest_interval_hours' => '9999999999999999',
+            ], ['digest_recipient_groups' => ['admin', 'editor']]));
+            $this->assertSame('/admin/digest?success=1', $response->location());
+
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'digest_interval_hours'");
+            $stmt->execute();
+            $this->assertSame('8760', $stmt->fetchColumn());
+
+            foreach (['/', '/admin/digest', '/admin/cron'] as $pfad) {
+                $this->assertSame(200, $admin->get($pfad)->statusCode, "{$pfad} nach dem Speichern");
+            }
+            $this->assertSame('8760', $admin->get('/admin/digest')->formField('digest_interval_hours'));
+
+            // Altbestand aus der Zeit vor der Grenze, direkt in der Datenbank.
+            $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'digest_interval_hours'")
+                ->execute(['99999999999999999999']);
+            $this->assertSame(200, $this->newClient()->get('/')->statusCode, 'Startseite mit Altbestand');
+            $cronSeite = $admin->get('/admin/cron');
+            $this->assertSame(200, $cronSeite->statusCode);
+            // Die Aufgabe ist trotz Altbestand angemeldet - nicht bloss vom
+            // Auffangnetz in public/index.php verschluckt.
+            $this->assertStringContainsString('digest.admin_editor', $cronSeite->body);
+            $this->assertSame('8760', $admin->get('/admin/digest')->formField('digest_interval_hours'));
+        } finally {
+            foreach ($vorher as $key => $value) {
+                if ($value === false) {
+                    $db->prepare("DELETE FROM settings WHERE setting_key = ?")->execute([$key]);
+                } else {
+                    $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = ?")->execute([$value, $key]);
+                }
+            }
+        }
+    }
 }

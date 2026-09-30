@@ -542,6 +542,52 @@ Breaking Changes sind jederzeit möglich).
   Datenmigration nach dem Import mit
   `docker compose cp app:/var/www/html/var/datenmigration ./` herausholen;
   `docker-compose.yml` enthält dafür auch eine auskommentierte Volume-Zeile.
+- **Lang laufende Cron-Aufgaben starteten jede Minute parallel neu** (Audit
+  M38). Ein externes Backup, das länger als eine Minute dauerte, wurde bei
+  jedem weiteren Aufruf von `/cron/run` erneut gestartet. Die Folgen waren
+  volle Temp-Verzeichnisse, belegte Worker und doppelte Digest- und
+  Update-Mails. Jede Aufgabe läuft jetzt unter einer Datenbanksperre
+  (`GET_LOCK`, neuer Dienst `App\Service\DbLock`), und ihr Zeitstempel wird
+  vor dem Lauf gesetzt. Fällige Aufgaben, die gerade ein anderer Aufruf
+  ausführt, werden übersprungen und erscheinen in der Antwort von
+  `/cron/run` unter `skipped`. Wo `GET_LOCK` nicht nutzbar ist (etwa Percona
+  XtraDB Cluster mit `pxc_strict_mode=ENFORCING`), laufen die Aufgaben nur
+  mit dem vorgezogenen Zeitstempel; in einem Galera-Cluster wirkt die Sperre
+  je Knoten.
+
+- **Eine abstürzende Cron-Aufgabe legte alle folgenden still** (Audit M39).
+  Nach einem Fatal Error (etwa Speicher erschöpft) begann bisher jeder
+  Cron-Aufruf wieder mit derselben Aufgabe. Update-Prüfung, automatische
+  Sicherheitsupdates, Digest und die Deaktivierung ungeschützter Konten
+  liefen dann nie mehr. Jetzt gilt eine Aufgabe schon beim Start als
+  gelaufen. Abbrüche werden im Audit-Log („Cron-Aufgabe abgebrochen: …“)
+  und unter `/admin/cron` festgehalten, und die übrigen Aufgaben laufen beim
+  nächsten Aufruf. Nach einem Absturz läuft die Aufgabe erst nach ihrem
+  Intervall wieder, nicht mehr minütlich; in Produktion antwortet
+  `/cron/run` dann weiter mit HTTP 500. Cron-Aufrufe laufen ohne
+  PHP-Zeitlimit und brechen nicht mehr ab, wenn der aufrufende Client
+  auflegt (`App\Helper\LongRunning`). Ein manueller Lauf unter `/admin/cron`
+  gibt vorher die Session frei und blockiert die übrigen Admin-Tabs nicht
+  mehr.
+
+- **Lange Aufgaben- und Funktionsnamen aus Addons** (Audit N74). Namen über
+  35 Zeichen (Cron) bzw. 30 Zeichen (Zusatzfunktionen) sprengten die Spalte
+  `settings.setting_key`, Funktionsnamen über 42 Zeichen die Spalte
+  `group_permissions.module`. Im Strict-Mode scheiterten dann der Cron-Lauf,
+  das Speichern der Systemeinstellungen oder der Gruppenrechte. Überlange
+  Schlüssel werden jetzt intern auf einen Hash gekürzt (neuer Helfer
+  `App\Helper\BoundedKey`), alle bestehenden Schlüssel bleiben unverändert.
+  Dasselbe gilt für Captcha-Kontexte über 33 Zeichen.
+
+- **Ein sehr großes Digest- oder Backup-Intervall legte die ganze
+  Installation lahm** (Audit N67). Ein Wert wie `9999999999999999` Stunden
+  ließ die Umrechnung in Sekunden überlaufen, und jeder Request endete mit
+  einem Fehler – auch die Admin-Seite, auf der sich der Wert hätte
+  korrigieren lassen. Intervalle sind jetzt auf 1 bis 8760 Stunden (ein
+  Jahr) begrenzt, beim Speichern und beim Lesen; bereits gespeicherte
+  Riesenwerte heilen damit ohne Eingriff. Ein Fehler beim Anmelden einer
+  Kern-Cron-Aufgabe landet im PHP-Fehlerprotokoll und blockiert die
+  Anwendung nicht mehr.
 
 - **Zusammenführen ließ alte Adressen und Addon-Daten zurück** (Audit M33).
   Die Zuordnung alter Personen- und Stationskennungen (`contact_id_map`)
@@ -849,6 +895,24 @@ Breaking Changes sind jederzeit möglich).
     Schreibrechte auf `var/`, die Volume-Erkennung und die Upload-Sperren
     gegen ein Alt-Volume aus 0.7.x.
   - Das Verzeichnis `docker/` gehört nicht ins Shared-Hosting-Archiv.
+- **`/admin/cron` zeigt je Aufgabe das letzte Ergebnis** (Audit M39): ok,
+  Fehler (mit Meldung), läuft, abgebrochen – auch „abgebrochen (ohne
+  Rückmeldung beendet)“, wenn ein Worker per Kill oder
+  `request_terminate_timeout` endete. Der Status steht in neuen
+  `settings`-Zeilen `cron_status__<name>`. Die Spalte „Zuletzt ausgeführt“
+  heißt jetzt **„Zuletzt gestartet“**: Der Zeitstempel ist der Start des
+  Laufs, Intervalle zählen von Start zu Start. Die Antwort von `/cron/run`
+  enthält zusätzlich `skipped` (Liste der Namen); `ran` enthält wie bisher
+  nur ausgeführte Aufgaben. Die Weiterleitung nach einem manuellen Lauf
+  trägt bei Bedarf `&skipped=N`.
+
+- **Neue Scheduler-API für Addons** (Audit M38, M39):
+  `Scheduler::forget($name)` entfernt alles, was der Scheduler zu einer
+  Aufgabe gespeichert hat (für `uninstall()`), `Scheduler::runExclusive($name,
+  $callback)` führt Code unter der Sperre einer Aufgabe aus. Addons sollen
+  Einstellungsschlüssel nicht selbst zusammensetzen, sondern
+  `FeatureRegistry::settingKey()` bzw. `Scheduler::forget()` verwenden.
+  Bestehende Addons laufen unverändert weiter.
 
 - **Neuer Hook `contact.merged` für Addons** (Audit M33). Er feuert nach dem
   erfolgreichen Zusammenführen, nach dem Commit, mit

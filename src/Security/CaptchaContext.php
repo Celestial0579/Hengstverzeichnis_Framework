@@ -100,7 +100,10 @@ final class CaptchaContext {
      * das erwartete Verhalten.
      */
     public static function settingKey(string $key): string {
-        return 'captcha_provider_' . $key;
+        // Kontexte dürfen bis 64 Zeichen lang sein, `setting_key` fasst 50.
+        // Überlange Schlüssel werden gehasht (Audit N74), alle heutigen
+        // bleiben unverändert.
+        return \App\Helper\BoundedKey::fit('captcha_provider_', $key);
     }
 
     /**

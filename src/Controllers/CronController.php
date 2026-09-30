@@ -42,7 +42,18 @@ class CronController extends BaseController {
             return;
         }
 
-        $results = Scheduler::runDue();
-        echo json_encode(['ran' => $results, 'timestamp' => date('c')]);
+        // 'ran' enthält wie bisher nur ausgeführte Aufgaben (ok/error).
+        // Übersprungene - fällig, aber gerade in einem anderen Cron-Aufruf
+        // unterwegs (Audit M38) - stehen als Namensliste unter 'skipped'.
+        $ran = [];
+        $skipped = [];
+        foreach (Scheduler::runDue() as $result) {
+            if ($result['status'] === 'skipped') {
+                $skipped[] = $result['name'];
+            } else {
+                $ran[] = $result;
+            }
+        }
+        echo json_encode(['ran' => $ran, 'skipped' => $skipped, 'timestamp' => date('c')]);
     }
 }

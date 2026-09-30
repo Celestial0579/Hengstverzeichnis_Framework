@@ -3,6 +3,8 @@
 
 namespace App\Permission;
 
+use App\Helper\BoundedKey;
+
 /**
  * Class FeatureRegistry
  *
@@ -90,13 +92,17 @@ final class FeatureRegistry {
      * Gruppen-Berechtigungsmatrix.
      */
     public static function permissionModule(string $key): string {
-        return 'feature_' . $key;
+        // group_permissions.module ist VARCHAR(50); überlange Schlüssel
+        // werden gehasht statt die Rechte-Transaktion zu sprengen (Audit N74).
+        return BoundedKey::fit('feature_', $key, BoundedKey::PERMISSION_MODULE_LENGTH);
     }
 
     /**
      * Schlüssel der Sichtbarkeits-Einstellung in der `settings`-Tabelle.
+     * Addons und Views setzen ihn nie selbst zusammen: Ab 31 Zeichen
+     * Funktionsname ist er gehasht (Audit N74, siehe App\Helper\BoundedKey).
      */
     public static function settingKey(string $key): string {
-        return 'feature_visibility__' . $key;
+        return BoundedKey::fit('feature_visibility__', $key);
     }
 }

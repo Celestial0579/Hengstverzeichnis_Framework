@@ -56,7 +56,9 @@ final class BackupService {
             return;
         }
 
-        $intervalHours = max(1, (int)($settings['backup_interval_hours'] ?? self::DEFAULT_INTERVAL_HOURS));
+        // Beim Lesen geklemmt (Audit N67), damit auch ein früher
+        // gespeicherter Riesenwert heilt, ohne Datenschritt.
+        $intervalHours = Scheduler::clampIntervalHours($settings['backup_interval_hours'] ?? self::DEFAULT_INTERVAL_HOURS);
         Scheduler::register(self::TASK_NAME, $intervalHours * 3600, [self::class, 'run']);
     }
 

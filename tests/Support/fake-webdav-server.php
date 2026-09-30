@@ -44,6 +44,13 @@ if ($method === 'PUT') {
         http_response_code(409); // Conflict: Elternordner fehlt, wie bei echtem WebDAV
         exit;
     }
+    if (is_file($storageDir . '/.put-fails')) {
+        // Test-Schalter: abgebrochener Upload, der ein angefangenes Objekt
+        // hinterlässt (siehe BackupService::hochladen(), Audit N65).
+        file_put_contents($localPath, substr((string)file_get_contents('php://input'), 0, 100));
+        http_response_code(500);
+        exit;
+    }
     file_put_contents($localPath, file_get_contents('php://input'));
     http_response_code(201);
     exit;

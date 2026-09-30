@@ -540,13 +540,28 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   $write)` streamt den Dump statement-/zeilenweise mit konstantem
   Speicherbedarf (Daten-SELECTs unbuffered, der Dump liegt nie als
   Gesamtstring im Speicher); `dump(): string` bleibt als dünner,
-  byte-identischer Wrapper für Bestandsaufrufer erhalten.
+  byte-identischer Wrapper für Bestandsaufrufer erhalten. Gelesen wird in
+  einer eigenen Lesetransaktion (`START TRANSACTION WITH CONSISTENT
+  SNAPSHOT`, wie `mysqldump --single-transaction`; `SHOW TABLES` erst danach)
+  und in der Sitzungszeitzone UTC (Audit N66). Der Dump merkt sich im Kopf
+  die Zeitzone der einspielenden Sitzung, setzt `+00:00` und stellt im Fuß
+  die alte wieder her (`DatabaseDumper::ZEITZONE_*`; das Addon
+  `datenmigration` führt genau diese drei Anweisungen in seiner
+  Positivliste). Eine offene Transaktion des Aufrufers bleibt unberührt;
+  Transaktion und Zeitzone der Verbindung sind danach wie vorher. Während
+  des Dumps halten die gelesenen Tabellen Metadaten-Sperren, gleichzeitige
+  DDL wartet bis zum Ende.
 - `App\Service\TarArchive` (#233): streamender ustar-Schreiber in reinem
   PHP (aus dem bewährten TarWriter des Addons `datenmigration` in den Kern
   übernommen) - schreibt Datei für Datei in 512-KiB-Chunks direkt in die
   Zieldatei (optional gzip via zlib), archiviert ausschließlich reguläre
   Dateien und trägt Pfade bis 255 Zeichen über das ustar-prefix-Feld.
-  Hauptnutzer ist das optionale Uploads-Backup (siehe unten).
+  Hauptnutzer ist das optionale Uploads-Backup (siehe unten). Geschrieben
+  wird über `App\Service\CheckedFileWriter` (Audit M43): `gzwrite()` meldet
+  einen vollen Datenträger mit 0 statt `false`, `gzclose()` meldet trotzdem
+  Erfolg. Der Writer verlangt je Schreibvorgang die volle Byte-Zahl und
+  prüft nach dem Schließen Dateigröße bzw. gzip-Kennung und -Abschluss
+  (CRC32 und Länge). `abort()` schließt im Fehlerpfad ohne Prüfung.
 - `App\Service\BackupTarget`: gemeinsame Schnittstelle (`putObject`/
   `putObjectFromFile`/`deleteObject`/`listObjects`) für alle drei
   unterstützten Ziele (#93), damit `BackupService` unabhängig vom konkret
@@ -566,6 +581,9 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   - `App\Service\WebDavClient`: ein WebDAV-Server, z. B. eine vereinseigene
     Nextcloud-/ownCloud-Instanz. Ebenfalls reine PHP-Streams, kein curl
     nötig. Legt den Zielordner bei Bedarf selbst per `MKCOL` an.
+    `keysFromHrefs()` dekodiert Basis-URL und PROPFIND-hrefs gleich, kürzt
+    absolute hrefs auf den Pfad und gleicht segmentgenau ab (Audit N82);
+    passt kein href zur Basis-URL, wirft sie, statt still `[]` zu liefern.
   - `App\Service\FtpsClient`: ein klassischer FTPS-Zugang (z. B. beim
     Hoster). Anders als die beiden anderen Ziele auf die PHP-`ftp`-Extension
     angewiesen (im mitgelieferten Dockerfile installiert), da sich das
@@ -592,6 +610,29 @@ aktivierter/vollständiger Konfiguration selbst über `App\Service\Scheduler`
   (`backup_last_status`/`backup_last_run_at`/`backup_last_error`) wird in
   der `settings`-Tabelle für die Admin-Anzeige unter `/admin/backups`
   persistiert.
+
+  Ablauf im Einzelnen (Audit M37, M43, N65):
+  1. Zeitlimit aufheben und Verbindungsabbruch ignorieren
+     (`App\Helper\LongRunning`) - in `run()` selbst, damit Cron, „Jetzt
+     sichern“, Pflicht-Backup vor Update und Addon-Deinstallation es alle
+     bekommen. Verwaiste `hv-backup-sql-*`/`hv-backup-uploads-*`-Dateien im
+     System-Temp-Verzeichnis, älter als 24 h, löschen.
+  2. Sperre `backup:run` über `App\Service\DbLock` (bis 30 s warten): Es
+     läuft höchstens eine Sicherung zur Zeit, denn zwei Läufe in derselben
+     Sekunde hätten denselben Schlüssel. Belegt: Abbruch mit Meldung. Nicht
+     verfügbar (`null`): weiter ohne Sperre, aber ohne Aufräumen am Ziel.
+  3. Datenbank zuerst: Dump geprüft in eine Temp-Datei, hochladen, Temp-Datei
+     sofort löschen. Jeder Fehler hier ergibt Status `error`.
+  4. Danach, falls aktiviert, das Uploads-Archiv genauso. Scheitert nur
+     dieser Teil, lautet der Status `partial` - der Dump liegt am Ziel.
+  5. Rotation (auch nach `partial`), danach wirft `run()` bei `partial`
+     trotzdem: Aufrufer verlassen sich auf „wirft bei jedem Fehler“.
+
+  Temp-Dateien meldet `tempFile()` bei einer Shutdown-Funktion an, die sie
+  auch nach einem Fatal Error löscht. Scheitert ein Upload zu WebDAV oder
+  FTPS, wird der eigene Schlüssel best effort gelöscht (nicht bei S3, dort
+  ist ein PUT atomar). Status-Schreibfehler landen nur in `error_log`,
+  damit sie die eigentliche Ursache nicht verdecken.
 - Zielauswahl (S3/FTPS/WebDAV) sowie die jeweiligen Zugangsdaten, Intervall
   und Aufbewahrungsanzahl sind unter `/admin/backups` konfigurierbar
   (`AdminController::backupSettings()`/`updateBackupSettings()`/

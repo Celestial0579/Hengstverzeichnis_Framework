@@ -178,4 +178,53 @@ class TarArchiveTest extends TestCase {
         $this->assertSame(0, $exitCode);
         $this->assertSame(['uploads/echt.txt'], $listing);
     }
+
+    private function requireDevFull(): void {
+        if (!is_writable('/dev/full')) {
+            $this->markTestSkipped('/dev/full nicht verfügbar - voller Datenträger lässt sich nicht nachstellen.');
+        }
+        if (!function_exists('gzopen')) {
+            $this->markTestSkipped('zlib-Extension fehlt.');
+        }
+    }
+
+    /**
+     * Audit M43: gzwrite() meldete den vollen Datenträger mit 0, das Archiv
+     * lief als "fertig" durch. Jetzt wirft schon das Schreiben.
+     */
+    public function testSchreibfehlerAufVollemDatentraegerWirft(): void {
+        $this->requireDevFull();
+
+        $archive = TarArchive::create('/dev/full', true);
+        try {
+            $this->expectException(\RuntimeException::class);
+            for ($i = 0; $i < 20; $i++) {
+                $archive->addString("uploads/datei-{$i}.bin", random_bytes(200_000));
+            }
+        } finally {
+            $archive->abort();
+        }
+    }
+
+    /**
+     * Kleine Archive bleiben im zlib-Puffer - der Fehler zeigt sich erst beim
+     * Abschluss. close() muss ihn trotzdem melden.
+     */
+    public function testSchreibfehlerErstBeimAbschlussWirft(): void {
+        $this->requireDevFull();
+
+        $archive = TarArchive::create('/dev/full', true);
+        $archive->addString('uploads/klein.txt', 'inhalt');
+        $this->expectException(\RuntimeException::class);
+        $archive->close();
+    }
+
+    public function testAbortSchliesstOhneFehler(): void {
+        $archivePath = $this->workDir . '/abgebrochen.tar.gz';
+        $archive = TarArchive::create($archivePath);
+        $archive->addString('uploads/a.txt', 'a');
+        $archive->abort();
+        $archive->abort();
+        $this->assertFileExists($archivePath);
+    }
 }

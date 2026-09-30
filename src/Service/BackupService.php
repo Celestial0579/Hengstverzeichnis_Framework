@@ -4,6 +4,7 @@
 namespace App\Service;
 
 use App\Database;
+use App\Helper\LongRunning;
 use App\Security\Crypto;
 
 /**
@@ -39,6 +40,17 @@ final class BackupService {
     private const DEFAULT_INTERVAL_HOURS = 24;
     private const DEFAULT_RETENTION_COUNT = 14;
     private const OBJECT_PREFIX = 'backups/';
+
+    /** Zwischendateien, die länger liegen, gelten als verwaist (Audit M37). */
+    private const VERWAISTE_TEMP_DATEIEN_NACH_SEKUNDEN = 86400;
+
+    /** Sperre "eine Sicherung zur Zeit" (siehe run()) und wie lange darauf gewartet wird. */
+    private const RUN_LOCK = 'backup:run';
+    private const RUN_LOCK_WAIT_SECONDS = 30;
+
+    /** @var array<string, true> Pfad => true, siehe tempFile() */
+    private static array $offeneTempDateien = [];
+    private static bool $aufraeumenRegistriert = false;
 
     public const TARGET_S3 = 's3';
     public const TARGET_FTPS = 'ftps';
@@ -95,16 +107,25 @@ final class BackupService {
     }
 
     /**
-     * Führt einen einzelnen Backup-Lauf durch: Datenbank-Dump streamend
-     * erzeugen (#231), komprimieren, hochladen - bei aktivierter Option
-     * zusätzlich das tar-Archiv der Uploads (#233) -, danach die
-     * Aufbewahrungsrotation anwenden. Wird
-     * sowohl vom Scheduler (Cron-Trigger/manueller Admin-Klick) als auch von
-     * AdminController::testBackup() (siehe dort) aufgerufen.
+     * Führt einen einzelnen Backup-Lauf durch. Wird vom Scheduler
+     * (Cron-Trigger/manueller Admin-Klick), von AdminController::testBackup(),
+     * vom Pflicht-Backup vor einem Update (UpdateService) und vor dem Löschen
+     * der Daten eines Addons (PluginManager) aufgerufen.
      *
-     * @throws \RuntimeException Falls Backup nicht konfiguriert ist oder der
-     *                           Upload fehlschlägt - der Aufrufer (Scheduler)
-     *                           protokolliert das zentral im Audit-Log.
+     * Reihenfolge (Audit N65):
+     * 1. Datenbank-Dump streamend (#231) in eine Temp-Datei, geprüft
+     *    (CheckedFileWriter, Audit M43), hochladen, Temp-Datei sofort löschen.
+     * 2. Nur bei aktivierter Option (#233): Uploads-Archiv genauso.
+     * 3. Status: 'ok', oder 'partial', wenn nur das Uploads-Archiv scheiterte
+     *    (der Dump liegt dann am Ziel). Jeder andere Fehler: 'error'.
+     * 4. Aufbewahrungsrotation - nur nach verifiziertem Upload; ihr Fehler
+     *    landet im Audit-Log und macht den Lauf nicht zum Fehlschlag.
+     *
+     * @throws \RuntimeException bei JEDEM Fehler, auch beim Teilfehler
+     *         ('partial'): nicht konfiguriert, eine andere Sicherung läuft
+     *         noch, Dump/Archiv/Upload gescheitert. Die Aufrufer verlassen
+     *         sich darauf - das Pflicht-Backup vor einem Update bricht ab,
+     *         der Scheduler protokolliert den Fehler.
      */
     public static function run(): void {
         $settings = self::loadSettings();
@@ -112,62 +133,148 @@ final class BackupService {
             throw new \RuntimeException('Backup ist nicht (vollständig) konfiguriert.');
         }
 
-        $client = self::buildClient($settings);
+        // Audit M37: Die Sicherung läuft auch aus dem Web-Request (Cron,
+        // "Jetzt sichern", Pflicht-Backup vor Update, Addon-Deinstallation).
+        // Ohne php.ini gelten dort 30 s Rechenzeit, gzip eines gewachsenen
+        // Bildbestands überschreitet das. Hier statt bei jedem Aufrufer, damit
+        // kein Einstiegspunkt es vergisst.
+        LongRunning::allow();
+        self::verwaisteTempDateienEntfernen();
 
+        // Eine Sicherung zur Zeit. Die Cron-Sperre des Schedulers deckt nur
+        // den Cron-Weg ab; "Jetzt sichern", Pflicht-Backup und Deinstallation
+        // rufen run() direkt auf. Zwei Läufe in derselben Sekunde hätten
+        // denselben Schlüssel, und das Aufräumen eines gescheiterten Uploads
+        // (siehe hochladen()) könnte das gute Objekt des anderen Laufs löschen.
+        $sperre = DbLock::acquire(self::RUN_LOCK, self::$sperrWartezeitOverride ?? self::RUN_LOCK_WAIT_SECONDS);
+        if ($sperre === false) {
+            throw new \RuntimeException('Es läuft bereits eine Sicherung - bitte nach deren Ende erneut versuchen.');
+        }
+        // null: GET_LOCK gibt es auf dieser Plattform nicht (DbLock). Die
+        // Sicherung läuft trotzdem - ohne Sicherung wäre schlimmer. Weil sich
+        // ein paralleler Lauf dann nicht ausschließen lässt, räumt sie ein
+        // halb hochgeladenes Objekt am Ziel aber nicht selbst weg.
+        try {
+            self::lauf($settings, $sperre === true);
+        } finally {
+            if ($sperre === true) {
+                DbLock::release(self::RUN_LOCK);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, string> $settings
+     */
+    private static function lauf(array $settings, bool $exklusiv): void {
         $useGzip = function_exists('gzopen');
         $stamp = gmdate('Y-m-d_His');
-        $dumpFile = null;
-        $uploadsFile = null;
 
+        // 1. Datenbank. Jeder Fehler hier - auch beim Aufbau des Clients -
+        // wird als Status erfasst, sonst zeigte /admin/backups weiter den
+        // letzten Erfolg (Audit N65).
         try {
-            // Dump streamend (#231) in eine Temp-Datei schreiben - über
-            // DatabaseDumper::dumpTo() direkt in den gzip-Stream, der Dump
-            // liegt nie als Gesamtstring im Speicher.
+            $client = self::buildClient($settings);
             $dumpFile = self::tempFile('hv-backup-sql-');
-            self::writeDumpFile($dumpFile, $useGzip);
-            $dumpKey = self::OBJECT_PREFIX . 'backup-' . $stamp . ($useGzip ? '.sql.gz' : '.sql');
+            try {
+                self::writeDumpFile($dumpFile, $useGzip);
+                // Streamender Upload (#237): Die Ziel-Clients übernehmen die
+                // fertige, geprüfte Temp-Datei direkt - der Inhalt liegt nie
+                // als Gesamtstring im Speicher.
+                self::hochladen(
+                    $client,
+                    self::OBJECT_PREFIX . 'backup-' . $stamp . ($useGzip ? '.sql.gz' : '.sql'),
+                    $dumpFile,
+                    $useGzip ? 'application/gzip' : 'application/sql',
+                    $exklusiv
+                );
+            } finally {
+                // Sofort weg: Im Temp-Verzeichnis liegt so höchstens eine der
+                // beiden Zwischendateien, nie Dump und Archiv zugleich.
+                self::tempDateiEntfernen($dumpFile);
+            }
+        } catch (\Throwable $e) {
+            self::recordStatusSicher('error', $e->getMessage());
+            throw $e;
+        }
 
-            // Uploads-Archiv (#233, Opt-in) ebenfalls streamend in eine
-            // Temp-Datei bauen (App\Service\TarArchive), dann hochladen.
-            $uploadsKey = null;
-            if (self::includeUploads($settings)) {
+        // 2. Uploads-Archiv (#233, Opt-in). Ein Fehler hier nimmt dem
+        // bereits gesicherten Dump nichts - er wird gemerkt, nicht sofort
+        // geworfen.
+        $uploadsFehler = null;
+        if (self::includeUploads($settings)) {
+            $uploadsFile = null;
+            try {
                 $uploadsFile = self::tempFile('hv-backup-uploads-');
                 self::writeUploadsArchive($uploadsFile, $useGzip);
-                $uploadsKey = self::OBJECT_PREFIX . 'uploads-' . $stamp . ($useGzip ? '.tar.gz' : '.tar');
-            }
-
-            try {
-                // Streamender Upload (#237): Die Ziel-Clients übernehmen die
-                // fertige (komprimierte) Temp-Datei direkt - über die gesamte
-                // Backup-Kette (Dump #231, Archiv #233, Upload #237) wird der
-                // Inhalt damit nie als Gesamtstring in den Speicher geladen.
-                $client->putObjectFromFile($dumpKey, $dumpFile, $useGzip ? 'application/gzip' : 'application/sql');
-                if ($uploadsKey !== null) {
-                    $client->putObjectFromFile($uploadsKey, $uploadsFile, $useGzip ? 'application/gzip' : 'application/x-tar');
-                }
+                self::hochladen(
+                    $client,
+                    self::OBJECT_PREFIX . 'uploads-' . $stamp . ($useGzip ? '.tar.gz' : '.tar'),
+                    $uploadsFile,
+                    $useGzip ? 'application/gzip' : 'application/x-tar',
+                    $exklusiv
+                );
             } catch (\Throwable $e) {
-                self::recordStatus('error', $e->getMessage());
-                throw $e;
-            }
-        } finally {
-            if ($dumpFile !== null) {
-                @unlink($dumpFile);
-            }
-            if ($uploadsFile !== null) {
-                @unlink($uploadsFile);
+                $uploadsFehler = $e;
+            } finally {
+                if ($uploadsFile !== null) {
+                    self::tempDateiEntfernen($uploadsFile);
+                }
             }
         }
 
-        self::recordStatus('ok', null);
+        // 3. Status.
+        if ($uploadsFehler === null) {
+            self::recordStatusSicher('ok', null);
+        } else {
+            self::recordStatusSicher(
+                'partial',
+                'Uploads-Archiv nicht gesichert (Datenbank-Dump wurde gesichert): ' . $uploadsFehler->getMessage()
+            );
+        }
 
-        // Aufbewahrungsrotation ist ein separater, nicht-kritischer Schritt:
+        // 4. Aufbewahrungsrotation ist ein separater, nicht-kritischer Schritt:
         // ein bereits erfolgreich hochgeladenes Backup gilt unabhängig davon
         // als Erfolg (Datensicherheit erreicht), ein Rotationsfehler wird nur
-        // protokolliert, nicht als Gesamtfehler des Laufs gewertet.
+        // protokolliert, nicht als Gesamtfehler des Laufs gewertet. Auch nach
+        // 'partial': Der neue Dump ist verifiziert am Ziel, und für die Art
+        // 'uploads-' kam kein neues Objekt hinzu - dort wird nichts
+        // zusätzlich gelöscht.
         try {
             self::applyRetention($client, $settings);
         } catch (\Throwable $e) {
             AuditLogger::log('Backup-Aufbewahrungsrotation fehlgeschlagen', 'settings', $e->getMessage());
+        }
+
+        if ($uploadsFehler !== null) {
+            throw new \RuntimeException(
+                'Datenbank gesichert, Uploads-Archiv fehlgeschlagen: ' . $uploadsFehler->getMessage(),
+                0,
+                $uploadsFehler
+            );
+        }
+    }
+
+    /**
+     * Lädt eine geprüfte Zwischendatei hoch. Scheitert das bei WebDAV oder
+     * FTPS, kann am Ziel ein angefangenes Objekt liegen - in der Rotation
+     * zählte es als neuestes und verdrängte ein intaktes. Deshalb wird der
+     * eigene, gerade erzeugte Schlüssel best effort wieder gelöscht (Audit
+     * N65), aber nur, wenn dieser Lauf exklusiv ist (siehe run()). Ein
+     * S3-PUT ist atomar, dort entfällt der Schritt.
+     */
+    private static function hochladen(BackupTarget $client, string $key, string $file, string $contentType, bool $exklusiv): void {
+        try {
+            $client->putObjectFromFile($key, $file, $contentType);
+        } catch (\Throwable $e) {
+            if ($exklusiv && ($client instanceof WebDavClient || $client instanceof FtpsClient)) {
+                try {
+                    $client->deleteObject($key);
+                } catch (\Throwable $ignoriert) {
+                    // Best effort - die eigentliche Ursache ist $e.
+                }
+            }
+            throw $e;
         }
     }
 
@@ -212,20 +319,19 @@ final class BackupService {
      * gzip-komprimiert, sofern die zlib-Extension vorhanden ist.
      */
     private static function writeDumpFile(string $path, bool $gzip): void {
-        $handle = $gzip ? gzopen($path, 'wb9') : fopen($path, 'wb');
-        if ($handle === false) {
-            throw new \RuntimeException("Backup-Zwischendatei nicht schreibbar: {$path}");
-        }
+        // Jeder Schreibvorgang und der gzip-Abschluss werden geprüft (Audit
+        // M43) - gzwrite() meldet einen vollen Datenträger sonst nicht, und
+        // eine abgeschnittene Datei ginge als Sicherung durch.
+        $writer = CheckedFileWriter::open($path, $gzip, 9);
         try {
-            DatabaseDumper::dumpTo(function (string $chunk) use ($handle, $gzip): void {
-                $ok = $gzip ? gzwrite($handle, $chunk) : fwrite($handle, $chunk);
-                if ($ok === false) {
-                    throw new \RuntimeException('Schreiben des Datenbank-Dumps fehlgeschlagen.');
-                }
+            DatabaseDumper::dumpTo(function (string $chunk) use ($writer): void {
+                $writer->write($chunk);
             });
-        } finally {
-            $gzip ? gzclose($handle) : fclose($handle);
+        } catch (\Throwable $e) {
+            $writer->abort();
+            throw $e;
         }
+        $writer->close();
     }
 
     /**
@@ -236,6 +342,17 @@ final class BackupService {
      */
     private static function writeUploadsArchive(string $path, bool $gzip): void {
         $archive = TarArchive::create($path, $gzip);
+        try {
+            self::archivFuellen($archive);
+            // close() prüft den Abschluss der Datei (Audit M43).
+            $archive->close();
+        } catch (\Throwable $e) {
+            $archive->abort();
+            throw $e;
+        }
+    }
+
+    private static function archivFuellen(TarArchive $archive): void {
         $dir = self::uploadsDir();
         if (is_dir($dir)) {
             $archive->addDirectoryTree($dir, 'uploads');
@@ -250,7 +367,6 @@ final class BackupService {
         if (is_dir($horses)) {
             $archive->addDirectoryTree($horses, 'uploads/horses');
         }
-        $archive->close();
     }
 
     private static ?string $uploadsDirOverride = null;
@@ -265,16 +381,72 @@ final class BackupService {
         self::$uploadsDirOverride = $dir;
     }
 
+    private static ?int $sperrWartezeitOverride = null;
+
+    /**
+     * Nur für Tests: wie lange run() auf eine laufende Sicherung wartet.
+     * `null` stellt den Normalzustand wieder her.
+     */
+    public static function overrideLockWaitForTests(?int $seconds): void {
+        self::$sperrWartezeitOverride = $seconds;
+    }
+
     private static function uploadsDir(): string {
         return self::$uploadsDirOverride ?? dirname(__DIR__, 2) . '/public/uploads';
     }
 
+    /**
+     * Legt eine Zwischendatei an und merkt sie sich (Audit M37). Eine
+     * Shutdown-Funktion löscht alle noch gemerkten Dateien - sie läuft auch
+     * nach einem Fatal Error (Zeit- oder Speicherlimit) und nach exit, wo
+     * ein finally übersprungen wird.
+     */
     private static function tempFile(string $prefix): string {
-        $path = tempnam(sys_get_temp_dir(), $prefix);
+        $path = @tempnam(sys_get_temp_dir(), $prefix);
         if ($path === false) {
             throw new \RuntimeException('Konnte keine temporäre Backup-Datei anlegen.');
         }
+        self::$offeneTempDateien[$path] = true;
+        if (!self::$aufraeumenRegistriert) {
+            self::$aufraeumenRegistriert = true;
+            register_shutdown_function(static function (): void {
+                self::offeneTempDateienLoeschen();
+            });
+        }
         return $path;
+    }
+
+    private static function tempDateiEntfernen(string $path): void {
+        @unlink($path);
+        unset(self::$offeneTempDateien[$path]);
+    }
+
+    private static function offeneTempDateienLoeschen(): void {
+        foreach (array_keys(self::$offeneTempDateien) as $path) {
+            self::tempDateiEntfernen($path);
+        }
+    }
+
+    /**
+     * Entfernt Zwischendateien, die kein Shutdown mehr aufräumen konnte
+     * (SIGKILL, request_terminate_timeout von PHP-FPM, Stromausfall). Nur
+     * eigene Präfixe und nur älter als VERWAISTE_TEMP_DATEIEN_NACH_SEKUNDEN -
+     * weit über jeder realistischen Laufzeit, damit ein paralleler Lauf
+     * (etwa eine zweite Instanz mit gemeinsamem /tmp) keine Datei verliert.
+     * Fehler werden bewusst ignoriert, das Aufräumen ist nicht kritisch.
+     */
+    private static function verwaisteTempDateienEntfernen(): void {
+        $grenze = time() - self::VERWAISTE_TEMP_DATEIEN_NACH_SEKUNDEN;
+        foreach (glob(sys_get_temp_dir() . '/hv-backup-*') ?: [] as $path) {
+            $name = basename($path);
+            if (!str_starts_with($name, 'hv-backup-sql-') && !str_starts_with($name, 'hv-backup-uploads-')) {
+                continue;
+            }
+            $mtime = @filemtime($path);
+            if (is_file($path) && $mtime !== false && $mtime < $grenze) {
+                @unlink($path);
+            }
+        }
     }
 
     /**
@@ -310,6 +482,18 @@ final class BackupService {
         };
     }
 
+    /**
+     * recordStatus() ohne Ausnahme: Ein Fehler beim Protokollieren (etwa
+     * Datenbank weg) darf nie die eigentliche Ursache verdecken.
+     */
+    private static function recordStatusSicher(string $status, ?string $error): void {
+        try {
+            self::recordStatus($status, $error);
+        } catch (\Throwable $e) {
+            error_log("BackupService: Status '{$status}' nicht gespeichert: " . $e->getMessage() . ($error !== null ? " (Ursache: {$error})" : ''));
+        }
+    }
+
     private static function recordStatus(string $status, ?string $error): void {
         $db = Database::getInstance();
         $values = [
@@ -323,7 +507,11 @@ final class BackupService {
         }
 
         AuditLogger::log(
-            $status === 'ok' ? 'Externes Backup erfolgreich' : 'Externes Backup fehlgeschlagen',
+            match ($status) {
+                'ok' => 'Externes Backup erfolgreich',
+                'partial' => 'Externes Backup teilweise fehlgeschlagen',
+                default => 'Externes Backup fehlgeschlagen',
+            },
             'settings',
             $error
         );

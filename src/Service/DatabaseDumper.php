@@ -22,10 +22,34 @@ use PDO;
  *   je als Gesamtstring im Speicher zu liegen. Für große Bestände (externe
  *   Backups, Datenmigrations-Addon) der richtige Weg.
  * - dump(): string - dünner Wrapper um dumpTo() für Rückwärtskompatibilität;
- *   sammelt alle Chunks in einem String. Byte-identisch zum bisherigen
- *   Verhalten.
+ *   sammelt alle Chunks in einem String. Byte-identisch zu dumpTo().
+ *
+ * Konsistenz und Zeitzone (Audit N66): Der Dump liest alle Tabellen aus einem
+ * gemeinsamen Stand (START TRANSACTION WITH CONSISTENT SNAPSHOT, wie
+ * `mysqldump --single-transaction`) und in der Sitzungszeitzone UTC. Er
+ * setzt beim Einspielen selbst UTC und stellt am Ende die vorherige
+ * Zeitzone der einspielenden Sitzung wieder her - siehe ZEITZONE_*.
+ * Während des Dumps hält die Lesetransaktion Metadaten-Sperren auf die
+ * gelesenen Tabellen: Gleichzeitige Schemaänderungen (etwa eine
+ * Addon-Installation) warten bis zum Dump-Ende.
  */
 final class DatabaseDumper {
+
+    /*
+     * Die drei Zeitzonen-Anweisungen des Dumps (Audit N66), exakt so im Dump.
+     * Das Addon datenmigration führt sie wörtlich in seiner
+     * Anweisungs-Positivliste (DumpPruefer::SET_ZEILEN) - wer sie ändert,
+     * muss das Addon nachziehen, sonst lehnt dessen Import neue Dumps ab.
+     */
+
+    /** Kopf: Zeitzone der einspielenden Sitzung merken. */
+    public const ZEITZONE_MERKEN = 'SET @hv_dump_zeitzone = @@SESSION.time_zone;';
+
+    /** Kopf: Die Zeitstempel im Dump stehen in UTC. */
+    public const ZEITZONE_UTC = "SET time_zone = '+00:00';";
+
+    /** Fuß (letzte Zeile, ohne abschließenden Zeilenumbruch): zurücksetzen. */
+    public const ZEITZONE_ZURUECK = 'SET time_zone = @hv_dump_zeitzone;';
 
     /**
      * Erzeugt einen vollständigen SQL-Dump (Schema + Daten) aller Tabellen
@@ -52,6 +76,11 @@ final class DatabaseDumper {
      * und Fremdschlüssel-Prüfungen für die Dauer des Imports deaktiviert,
      * damit die Wiederherstellungsreihenfolge unabhängig von
      * Fremdschlüssel-Abhängigkeiten funktioniert.
+     *
+     * Gelesen wird in einer eigenen Lesetransaktion mit konsistentem Snapshot
+     * und in UTC (Audit N66, siehe Klassendoc). Danach sind Transaktion und
+     * Sitzungszeitzone der Verbindung wieder wie vorher; eine bereits offene
+     * Transaktion des Aufrufers bleibt offen.
      *
      * TABELLENAUSWAHL (#342). $tables = null heißt weiterhin "alles" - das ist
      * der Bestandsaufruf und muss es bleiben, weil das automatische Backup
@@ -81,51 +110,107 @@ final class DatabaseDumper {
      */
     public static function dumpTo(callable $write, ?array $tables = null): void {
         $pdo = Database::getInstance();
-        $dbName = $pdo->query('SELECT DATABASE()')->fetchColumn();
 
-        // SHOW TABLES vollständig einlesen, BEVOR unten unbuffered gearbeitet
-        // wird - die Tabellenliste ist klein, die Daten sind es nicht.
-        $vorhanden = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+        // Zeitzone (Audit N66): SELECT * gibt TIMESTAMP-Spalten in der
+        // Sitzungszeitzone aus - die App setzt dort den PHP-Versatz, im
+        // Sommer also +02:00, ohne dass der Dump das vermerkt. Deshalb in UTC
+        // lesen und das im Dump-Kopf festhalten. Scheitert das SET, bricht
+        // der Dump ab: Ein Dump in falscher Zeitzone mit UTC-Kopf wäre
+        // schlimmer als keiner. DATETIME-Spalten sind davon nicht betroffen.
+        $alteZeitzone = (string)$pdo->query('SELECT @@SESSION.time_zone')->fetchColumn();
+        $pdo->exec("SET time_zone = '+00:00'");
 
-        if ($tables === null) {
-            $tables = $vorhanden;
-            $auswahlHinweis = '';
-        } else {
-            // Schnittmenge, Reihenfolge aus SHOW TABLES (stabile Dumps).
-            $gewuenscht = array_flip(array_map('strval', $tables));
-            $tables = array_values(array_filter(
-                $vorhanden,
-                static fn($t) => isset($gewuenscht[$t])
-            ));
-            $auswahlHinweis = sprintf(
-                "-- Auswahl (#342): %d von %d Tabellen - dies ist KEINE vollständige Sicherung.\n",
-                count($tables),
-                count($vorhanden)
-            );
-        }
-
-        $write('-- Automatisches Backup (#59) - ' . gmdate('Y-m-d H:i:s') . " UTC\n");
-        $write('-- Datenbank: ' . $dbName . "\n");
-        // Der Hinweis steht bewusst IM Dump: Wer eine Teilsicherung Monate
-        // später vor sich hat, sieht sonst eine gültige .sql-Datei und hält
-        // sie für ein Backup.
-        $write($auswahlHinweis);
-        $write("SET FOREIGN_KEY_CHECKS=0;\n");
-        $write("SET NAMES utf8mb4;\n\n");
-
-        $wasBuffered = $pdo->getAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY);
-        $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, false);
+        // Ein gemeinsamer Stand für alle Tabellen (Audit N66). Eine offene
+        // Transaktion des Aufrufers wird nicht angetastet (kein implizites
+        // COMMIT); inTransaction() erkennt bei pdo_mysql auch per exec()
+        // gestartete Transaktionen.
+        $eigeneTransaktion = false;
+        $wasBuffered = null;
         try {
+            if (!$pdo->inTransaction()) {
+                // Gilt nur für die nächste Transaktion - schützt vor einem
+                // global eingestellten READ COMMITTED beim Hoster.
+                $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+                $pdo->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+                $eigeneTransaktion = true;
+            }
+
+            // Erst NACH dem Snapshot-Beginn: Sonst könnte eine zwischen
+            // SHOW TABLES und Snapshot angelegte Tabelle fehlen oder eine
+            // gelöschte angefragt werden. Vollständig eingelesen, BEVOR unten
+            // unbuffered gearbeitet wird - die Tabellenliste ist klein.
+            $dbName = $pdo->query('SELECT DATABASE()')->fetchColumn();
+            $vorhanden = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+
+            if ($tables === null) {
+                $tables = $vorhanden;
+                $auswahlHinweis = '';
+            } else {
+                // Schnittmenge, Reihenfolge aus SHOW TABLES (stabile Dumps).
+                $gewuenscht = array_flip(array_map('strval', $tables));
+                $tables = array_values(array_filter(
+                    $vorhanden,
+                    static fn($t) => isset($gewuenscht[$t])
+                ));
+                $auswahlHinweis = sprintf(
+                    "-- Auswahl (#342): %d von %d Tabellen - dies ist KEINE vollständige Sicherung.\n",
+                    count($tables),
+                    count($vorhanden)
+                );
+            }
+
+            $write('-- Automatisches Backup (#59) - ' . gmdate('Y-m-d H:i:s') . " UTC\n");
+            $write('-- Datenbank: ' . $dbName . "\n");
+            // Der Hinweis steht bewusst IM Dump: Wer eine Teilsicherung Monate
+            // später vor sich hat, sieht sonst eine gültige .sql-Datei und hält
+            // sie für ein Backup.
+            $write($auswahlHinweis);
+            $write("-- Zeitstempel (TIMESTAMP) in UTC\n");
+            $write(self::ZEITZONE_MERKEN . "\n");
+            $write(self::ZEITZONE_UTC . "\n");
+            $write("SET FOREIGN_KEY_CHECKS=0;\n");
+            $write("SET NAMES utf8mb4;\n\n");
+
+            $wasBuffered = $pdo->getAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY);
+            $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, false);
             foreach ($tables as $table) {
                 self::dumpTableTo($pdo, $table, $write);
             }
-        } finally {
-            // Die Verbindung ist ein App-weites Singleton - den Puffer-Modus
-            // für alle nachfolgenden Nutzer wiederherstellen.
-            $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, (bool)$wasBuffered);
-        }
 
-        $write('SET FOREIGN_KEY_CHECKS=1;');
+            // Letzte Zeile wie bisher ohne abschließenden Zeilenumbruch.
+            $write("SET FOREIGN_KEY_CHECKS=1;\n" . self::ZEITZONE_ZURUECK);
+        } finally {
+            // Aufräumen in fester Reihenfolge, jeder Schritt für sich: Ein
+            // Fehler hier darf die eigentliche Ursache nicht verdecken.
+            if ($wasBuffered !== null) {
+                try {
+                    // Die Verbindung ist ein App-weites Singleton - den
+                    // Puffer-Modus für alle nachfolgenden Nutzer wiederherstellen.
+                    $pdo->setAttribute(\Pdo\Mysql::ATTR_USE_BUFFERED_QUERY, (bool)$wasBuffered);
+                } catch (\Throwable $e) {
+                    error_log('DatabaseDumper: Puffer-Modus nicht wiederhergestellt: ' . $e->getMessage());
+                }
+            }
+            if ($eigeneTransaktion) {
+                // exec statt $pdo->commit(): Die Transaktion wurde per exec
+                // gestartet. Es wurde nur gelesen - COMMIT oder ROLLBACK ist
+                // gleichwertig, Hauptsache sie endet.
+                try {
+                    $pdo->exec('COMMIT');
+                } catch (\Throwable $e) {
+                    try {
+                        $pdo->exec('ROLLBACK');
+                    } catch (\Throwable $e2) {
+                        error_log('DatabaseDumper: Lesetransaktion nicht beendet: ' . $e2->getMessage());
+                    }
+                }
+            }
+            try {
+                $pdo->prepare('SET time_zone = ?')->execute([$alteZeitzone]);
+            } catch (\Throwable $e) {
+                error_log('DatabaseDumper: Sitzungszeitzone nicht wiederhergestellt: ' . $e->getMessage());
+            }
+        }
     }
 
     /**
@@ -144,18 +229,25 @@ final class DatabaseDumper {
         $write("{$createSql};\n");
 
         $stmt = $pdo->query("SELECT * FROM {$quotedTable}");
-        $columns = null;
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            if ($columns === null) {
-                $columns = array_map(fn($col) => '`' . str_replace('`', '``', $col) . '`', array_keys($row));
+        try {
+            $columns = null;
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                if ($columns === null) {
+                    $columns = array_map(fn($col) => '`' . str_replace('`', '``', $col) . '`', array_keys($row));
+                }
+                $values = array_map(
+                    fn($value) => $value === null ? 'NULL' : $pdo->quote((string)$value),
+                    array_values($row)
+                );
+                $write("INSERT INTO {$quotedTable} (" . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ");\n");
             }
-            $values = array_map(
-                fn($value) => $value === null ? 'NULL' : $pdo->quote((string)$value),
-                array_values($row)
-            );
-            $write("INSERT INTO {$quotedTable} (" . implode(', ', $columns) . ') VALUES (' . implode(', ', $values) . ");\n");
+        } finally {
+            // Auch nach einem Schreibfehler mitten in der Tabelle (Audit N65):
+            // Eine offene unbuffered-Abfrage blockierte sonst die
+            // Singleton-Verbindung, und COMMIT sowie das Statusschreiben
+            // danach scheiterten mit 2014.
+            $stmt->closeCursor();
         }
-        $stmt->closeCursor();
 
         $write("\n");
     }

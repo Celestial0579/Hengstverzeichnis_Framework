@@ -6,11 +6,13 @@ namespace Tests\Integration;
 use App\Database;
 use App\Security\Crypto;
 use App\Service\BackupService;
+use App\Service\DbLock;
 use App\Service\Scheduler;
 use PDO;
 use PDOException;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\FakeS3Server;
+use Tests\Support\FakeWebDavServer;
 
 /**
  * Prüft App\Service\BackupService (#59) end-to-end: DB-Dump erzeugen,
@@ -67,8 +69,22 @@ class ExternalBackupTest extends TestCase {
         }
     }
 
+    /** @var array<int, string> Wegwerf-Verzeichnisse dieses Tests */
+    private array $wegwerfVerzeichnisse = [];
+
     protected function tearDown(): void {
         BackupService::overrideUploadsDirForTests(null);
+        BackupService::overrideLockWaitForTests(null);
+        DbLock::simulateUnavailableForTests(false);
+        foreach ($this->wegwerfVerzeichnisse as $dir) {
+            exec('rm -rf ' . escapeshellarg($dir));
+        }
+    }
+
+    private function setting(string $key): string|false {
+        $stmt = self::$db->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+        $stmt->execute([$key]);
+        return $stmt->fetchColumn();
     }
 
     /**
@@ -81,6 +97,7 @@ class ExternalBackupTest extends TestCase {
     private function prepareFakeUploadsDir(): array {
         $dir = sys_get_temp_dir() . '/backup_uploads_' . uniqid();
         mkdir($dir . '/horses', 0777, true);
+        $this->wegwerfVerzeichnisse[] = $dir;
         $files = [
             'uploads/.htaccess' => "Deny from all\n",
             'uploads/horses/hengst.jpg' => random_bytes(1500),
@@ -235,7 +252,9 @@ class ExternalBackupTest extends TestCase {
             $this->assertSame('error', $status);
         }
 
-        $this->assertSame($tempFilesBefore, glob(sys_get_temp_dir() . '/hv-backup-*'), 'Temp-Dateien des fehlgeschlagenen Laufs wurden nicht aufgeräumt');
+        // array_diff statt Gleichheit: Der Lauf darf verwaiste Fremddateien
+        // (älter als 24 h, Audit M37) entfernen.
+        $this->assertSame([], array_values(array_diff(glob(sys_get_temp_dir() . '/hv-backup-*'), $tempFilesBefore)), 'Temp-Dateien des fehlgeschlagenen Laufs wurden nicht aufgeräumt');
     }
 
     public function testRunThrowsAndRecordsErrorStatusWhenUploadFails(): void {
@@ -314,5 +333,218 @@ class ExternalBackupTest extends TestCase {
         $this->assertContains('backups/backup-2021-01-01_000000.sql.gz', $remainingKeys);
         $this->assertContains('backups/uploads-2021-01-01_000000.tar.gz', $remainingKeys);
         $this->assertCount(4, $remainingKeys);
+    }
+
+    /**
+     * Audit M37: Die Sicherung hebt das Zeitlimit selbst auf und läuft
+     * weiter, wenn der Browser auflegt - an jedem Einstiegspunkt, weil
+     * run() es selbst tut.
+     */
+    public function testRunHebtZeitlimitAufUndIgnoriertAbbruch(): void {
+        $this->configureBackup();
+        set_time_limit(300);
+        ignore_user_abort(false);
+        try {
+            BackupService::run();
+            $this->assertSame('0', ini_get('max_execution_time'));
+            $this->assertSame(1, ignore_user_abort());
+        } finally {
+            set_time_limit(0);
+            ignore_user_abort(false);
+        }
+    }
+
+    /**
+     * Audit M37: Nach einem Kill (SIGKILL, request_terminate_timeout) läuft
+     * keine Shutdown-Funktion. Verwaiste Zwischendateien älter als 24 h
+     * räumt der nächste Lauf weg, frische (ein paralleler Lauf) bleiben.
+     */
+    public function testRunEntferntVerwaisteTempDateien(): void {
+        $this->configureBackup();
+        $alt = sys_get_temp_dir() . '/hv-backup-sql-test' . uniqid();
+        $frisch = sys_get_temp_dir() . '/hv-backup-uploads-test' . uniqid();
+        $fremd = sys_get_temp_dir() . '/hv-backup-fremd-test' . uniqid();
+        foreach ([$alt, $frisch, $fremd] as $pfad) {
+            file_put_contents($pfad, 'x');
+        }
+        touch($alt, time() - 2 * 86400);
+        touch($fremd, time() - 2 * 86400);
+        try {
+            BackupService::run();
+            $this->assertFileDoesNotExist($alt);
+            $this->assertFileExists($frisch);
+            $this->assertFileExists($fremd, 'Nur die eigenen Präfixe werden aufgeräumt');
+        } finally {
+            foreach ([$alt, $frisch, $fremd] as $pfad) {
+                @unlink($pfad);
+            }
+        }
+    }
+
+    /**
+     * Audit N65: Scheitert nur das Uploads-Archiv, bleibt der Dump
+     * gesichert, und der Status sagt das ('partial'). Vorher wurde der
+     * fertige Dump verworfen, und /admin/backups zeigte den alten Erfolg.
+     */
+    public function testUploadsFehlerSichertDumpUndMeldetTeilfehler(): void {
+        $this->prepareFakeUploadsDir();
+        $dir = end($this->wegwerfVerzeichnisse);
+        // "uploads/horses/<124 Zeichen>" - der Teil nach dem letzten '/' ist
+        // für ustar zu lang, TarArchive wirft deterministisch.
+        file_put_contents($dir . '/horses/' . str_repeat('h', 120) . '.jpg', 'bild');
+        $this->configureBackup(['backup_include_uploads' => '1']);
+        $tempFilesBefore = glob(sys_get_temp_dir() . '/hv-backup-*');
+
+        try {
+            BackupService::run();
+            $this->fail('Erwartete RuntimeException beim Uploads-Archiv.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Uploads-Archiv', $e->getMessage());
+        }
+
+        $dumps = glob(FakeS3Server::storageDir() . '/test-bucket__backups~backup-*.sql.gz');
+        $this->assertCount(1, $dumps, 'Der Dump muss trotz Archivfehler am Ziel liegen');
+        $this->assertStringContainsString('CREATE TABLE', (string)gzdecode((string)file_get_contents($dumps[0])));
+        $this->assertSame([], glob(FakeS3Server::storageDir() . '/test-bucket__backups~uploads-*'));
+
+        $this->assertSame('partial', $this->setting('backup_last_status'));
+        $this->assertStringContainsString('Pfad zu lang', (string)$this->setting('backup_last_error'));
+        $this->assertSame([], array_values(array_diff(glob(sys_get_temp_dir() . '/hv-backup-*'), $tempFilesBefore)));
+    }
+
+    /**
+     * Audit N65: Ein Fehler beim Erstellen des Dumps landet im Status - und
+     * die Verbindung ist danach sauber (keine offene Transaktion, alte
+     * Zeitzone), sonst würde nicht einmal der Status gespeichert.
+     */
+    public function testDumpFehlerWirdAlsStatusErfasst(): void {
+        $this->configureBackup();
+        self::$db->exec("UPDATE settings SET setting_value = '0' WHERE setting_key = 'backup_last_run_at'");
+        $zeitzoneVorher = self::$db->query('SELECT @@SESSION.time_zone')->fetchColumn();
+        self::$db->exec('CREATE TABLE hv_test_basis (id INT)');
+        self::$db->exec('CREATE VIEW hv_test_kaputt AS SELECT id FROM hv_test_basis');
+        self::$db->exec('DROP TABLE hv_test_basis');
+        try {
+            try {
+                BackupService::run();
+                $this->fail('Erwartete Ausnahme bei ungültiger View.');
+            } catch (\RuntimeException $e) {
+                $this->assertNotSame('', $e->getMessage());
+            }
+
+            $this->assertFalse(self::$db->inTransaction());
+            $this->assertSame($zeitzoneVorher, self::$db->query('SELECT @@SESSION.time_zone')->fetchColumn());
+            $this->assertSame('error', $this->setting('backup_last_status'));
+            $this->assertGreaterThan(0, (int)$this->setting('backup_last_run_at'));
+            $this->assertNotSame('', (string)$this->setting('backup_last_error'));
+            $this->assertSame([], glob(FakeS3Server::storageDir() . '/test-bucket__backups~*'));
+        } finally {
+            self::$db->exec('DROP VIEW IF EXISTS hv_test_kaputt');
+            self::$db->exec('DROP TABLE IF EXISTS hv_test_basis');
+        }
+    }
+
+    /**
+     * Eine Sicherung zur Zeit: Hält eine andere Verbindung die Sperre, bricht
+     * run() mit klarer Meldung ab, statt parallel denselben Schlüssel zu
+     * beschreiben.
+     */
+    public function testLaufendeSicherungBlockiertZweitenLauf(): void {
+        $this->configureBackup();
+        $andere = new PDO(
+            "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4",
+            DB_USER,
+            DB_PASS,
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+        $stmt = $andere->prepare('SELECT GET_LOCK(?, 0)');
+        $stmt->execute([DbLock::lockName('backup:run')]);
+        $this->assertSame(1, (int)$stmt->fetchColumn());
+        BackupService::overrideLockWaitForTests(0);
+        try {
+            BackupService::run();
+            $this->fail('Erwartete RuntimeException bei laufender Sicherung.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('läuft bereits eine Sicherung', $e->getMessage());
+        } finally {
+            $andere->prepare('SELECT RELEASE_LOCK(?)')->execute([DbLock::lockName('backup:run')]);
+        }
+        $this->assertSame([], glob(FakeS3Server::storageDir() . '/test-bucket__backups~*'));
+
+        // Danach läuft die Sicherung wieder.
+        BackupService::run();
+        $this->assertSame('ok', $this->setting('backup_last_status'));
+    }
+
+    private function configureWebDavBackup(): string {
+        FakeWebDavServer::ensureStarted();
+        $ziel = 'backup-ziel-' . uniqid();
+        $this->configureBackup([
+            'backup_target' => BackupService::TARGET_WEBDAV,
+            'backup_webdav_url' => FakeWebDavServer::baseUrl() . '/' . $ziel,
+            'backup_webdav_user' => 'testuser',
+            'backup_webdav_pass' => Crypto::encrypt('testpass'),
+        ]);
+        return FakeWebDavServer::storageDir() . '/' . $ziel . '/backups';
+    }
+
+    /**
+     * Audit N65: Ein abgebrochener WebDAV-Upload hinterlässt ein angefangenes
+     * Objekt. Es würde in der Rotation als neuestes zählen und ein intaktes
+     * verdrängen - der Lauf räumt seinen eigenen Schlüssel deshalb weg.
+     */
+    public function testAbgebrochenerWebDavUploadWirdAmZielEntfernt(): void {
+        $ordner = $this->configureWebDavBackup();
+        $schalter = FakeWebDavServer::storageDir() . '/.put-fails';
+        touch($schalter);
+        try {
+            try {
+                BackupService::run();
+                $this->fail('Erwartete RuntimeException beim Upload.');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('PUT', $e->getMessage());
+            }
+            $this->assertSame([], glob($ordner . '/backup-*'), 'Das angefangene Objekt muss entfernt sein');
+            $this->assertSame('error', $this->setting('backup_last_status'));
+
+            // Ohne verfügbare Sperre lässt sich ein paralleler Lauf mit
+            // demselben Schlüssel nicht ausschließen - dann wird am Ziel
+            // bewusst nichts gelöscht.
+            DbLock::simulateUnavailableForTests(true);
+            try {
+                BackupService::run();
+                $this->fail('Erwartete RuntimeException beim Upload.');
+            } catch (\RuntimeException $e) {
+                $this->assertStringContainsString('PUT', $e->getMessage());
+            }
+            $this->assertCount(1, glob($ordner . '/backup-*'));
+        } finally {
+            @unlink($schalter);
+        }
+    }
+
+    /**
+     * Audit N82 im Zusammenspiel: Mit einer prozentkodierten WebDAV-Adresse
+     * rotiert die Sicherung wieder.
+     */
+    public function testWebDavRotationMitProzentkodierterAdresse(): void {
+        FakeWebDavServer::ensureStarted();
+        $ziel = 'max%40verein.de/Meine%20Backups-' . uniqid();
+        $this->configureBackup([
+            'backup_target' => BackupService::TARGET_WEBDAV,
+            'backup_webdav_url' => FakeWebDavServer::baseUrl() . '/' . $ziel,
+            'backup_webdav_user' => 'testuser',
+            'backup_webdav_pass' => Crypto::encrypt('testpass'),
+            'backup_retention_count' => '1',
+        ]);
+        $ordner = FakeWebDavServer::storageDir() . '/' . $ziel . '/backups';
+        mkdir($ordner, 0777, true);
+        file_put_contents($ordner . '/backup-2020-01-01_000000.sql.gz', 'alt');
+
+        BackupService::run();
+
+        $this->assertFileDoesNotExist($ordner . '/backup-2020-01-01_000000.sql.gz');
+        $this->assertCount(1, glob($ordner . '/backup-*'));
+        $this->assertSame('ok', $this->setting('backup_last_status'));
     }
 }

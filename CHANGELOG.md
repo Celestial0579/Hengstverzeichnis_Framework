@@ -602,6 +602,69 @@ Breaking Changes sind jederzeit möglich).
   Datenmigration nach dem Import mit
   `docker compose cp app:/var/www/html/var/datenmigration ./` herausholen;
   `docker-compose.yml` enthält dafür auch eine auskommentierte Volume-Zeile.
+- **Sicherungen großer Bestände brachen nach 30 Sekunden ab** (Audit M37).
+  Unter Apache ohne eigene php.ini (etwa im mitgelieferten Docker-Image)
+  gilt ein Zeitlimit von 30 Sekunden Rechenzeit, und das Komprimieren eines
+  gewachsenen Bildbestands dauerte länger. Der Lauf endete mit einem Fatal
+  Error, halbfertige Zwischendateien blieben in /tmp liegen, und „Jetzt
+  sichern“ endete auf einer Fehlerseite. Die Sicherung hebt das Zeitlimit
+  jetzt für ihren Request selbst auf und läuft weiter, wenn der Browser die
+  Verbindung schließt – bei jedem Aufruf, also auch beim Pflicht-Backup vor
+  einem Update und vor dem Löschen der Daten eines Addons. Zwischendateien
+  werden auch nach einem Abbruch entfernt; verwaiste `hv-backup-sql-*`- und
+  `hv-backup-uploads-*`-Dateien im System-Temp-Verzeichnis, die älter als
+  ein Tag sind, räumt der nächste Lauf weg. Unter PHP-FPM begrenzt
+  `request_terminate_timeout` weiterhin.
+
+- **Abgeschnittene Sicherungen galten als erfolgreich** (Audit M43). Lief
+  das Temp-Verzeichnis oder das Kontingent während des Schreibens voll,
+  meldete PHP den Fehler im gzip-Modus nicht. Das unvollständige Archiv wurde
+  hochgeladen und als „Erfolgreich“ angezeigt, und die Rotation löschte
+  dafür eine intakte ältere Sicherung. Jede Zwischendatei wird jetzt vor dem
+  Hochladen geprüft: die geschriebenen Bytes sowie der gzip-Abschluss mit
+  Prüfsumme (neue Klasse `App\Service\CheckedFileWriter`, genutzt vom
+  SQL-Dump und von `TarArchive`). Eine defekte Datei gilt als Fehlschlag,
+  sie wird nicht hochgeladen, und es wird nichts rotiert.
+
+- **Fehler beim Erstellen einer Sicherung blieben unsichtbar, und ein Problem
+  mit dem Uploads-Archiv verhinderte auch die Datenbanksicherung** (Audit
+  N65). Scheiterte der Dump oder das Uploads-Archiv, zeigte /admin/backups
+  weiter den letzten erfolgreichen Lauf an. Außerdem wurde der fertige
+  Datenbank-Dump verworfen, sobald das Archiv scheiterte. Die Datenbank wird
+  jetzt zuerst gesichert und hochgeladen, erst danach das Uploads-Archiv.
+  Scheitert nur das Archiv, zeigt /admin/backups „⚠ Nur Datenbank gesichert“
+  mit dem Grund. Jeder andere Fehler erscheint als „✗ Fehlgeschlagen“. Ein
+  abgebrochener Upload zu WebDAV oder FTPS wird am Ziel wieder entfernt,
+  damit er in der Rotation keine intakte Sicherung verdrängt. Es läuft
+  jetzt höchstens eine Sicherung zur Zeit: Ein zweiter Lauf („Jetzt
+  sichern“, Pflicht-Backup vor einem Update) wartet bis zu 30 Sekunden und
+  bricht dann mit „Es läuft bereits eine Sicherung“ ab. Auf Datenbanken
+  ohne `GET_LOCK` (etwa Percona XtraDB Cluster im Modus ENFORCING) läuft die
+  Sicherung ohne diese Sperre und lässt ein halb hochgeladenes Objekt am
+  Ziel stehen.
+
+- **Zeitstempel verschoben sich beim Zurückspielen einer Sicherung um ein bis
+  zwei Stunden** (Audit N66). Der Dump schrieb Zeitstempel in der Zeitzone
+  des Webservers, etwa +02:00 im Sommer, ohne sie anzugeben. Beim Einspielen
+  auf einem anderen Server oder zu einer anderen Jahreszeit lagen
+  `created_at`, `updated_at` und die Zeiten im Audit-Log daneben. Der Dump
+  schreibt Zeitstempel jetzt in UTC und setzt die Zeitzone beim Einspielen
+  selbst. Außerdem liest er alle Tabellen aus einem gemeinsamen
+  Datenbankstand, deshalb verweist eine Sicherung nicht mehr auf Datensätze,
+  die erst während des Laufs angelegt wurden.
+
+- **WebDAV: Alte Sicherungen wurden bei prozentkodierter Adresse nie
+  gelöscht** (Audit N82). Enthielt die WebDAV-Adresse kodierte Zeichen, etwa
+  `max%40verein.de` bei Nextcloud oder `%20` bei Ordnern mit Leerzeichen,
+  fand die Aufbewahrungsrotation keine Sicherungen und löschte nichts, bis
+  das Kontingent voll war. **Hinweis für Betreiber:** Beim ersten Lauf nach
+  dem Update löscht die Rotation einmalig alle aufgelaufenen Sicherungen über
+  der eingestellten Anzahl. Wer sie behalten will, sichert sie vorher weg.
+  Passt die Antwort des Servers gar nicht zur eingetragenen Adresse (etwa
+  hinter einem Reverse-Proxy mit Pfadumschreibung), steht das jetzt bei
+  jedem Lauf im Audit-Log („Backup-Aufbewahrungsrotation fehlgeschlagen“),
+  statt dass still nichts gelöscht wird.
+
 - **Lang laufende Cron-Aufgaben starteten jede Minute parallel neu** (Audit
   M38). Ein externes Backup, das länger als eine Minute dauerte, wurde bei
   jedem weiteren Aufruf von `/cron/run` erneut gestartet. Die Folgen waren
@@ -966,6 +1029,28 @@ Breaking Changes sind jederzeit möglich).
     Schreibrechte auf `var/`, die Volume-Erkennung und die Upload-Sperren
     gegen ein Alt-Volume aus 0.7.x.
   - Das Verzeichnis `docker/` gehört nicht ins Shared-Hosting-Archiv.
+- **Aufbau des SQL-Dumps** (Audit N66). Der Dump enthält drei zusätzliche
+  Anweisungen: im Kopf `SET @hv_dump_zeitzone = @@SESSION.time_zone;` und
+  `SET time_zone = '+00:00';`, im Fuß `SET time_zone = @hv_dump_zeitzone;`
+  (als `DatabaseDumper::ZEITZONE_*` veröffentlicht). Das Einspielen per
+  `mysql < dump.sql` ergibt korrekte Zeitpunkte, die einspielende Sitzung
+  steht danach wieder auf ihrer vorherigen Zeitzone. Wer Sicherungen mit
+  eigenen Skripten prüft oder filtert, muss diese Anweisungen zulassen; die
+  Positivliste des Addons `datenmigration` kennt sie bereits. Während des
+  Dumps hält die Sicherung eine Lesetransaktion; gleichzeitige
+  Schemaänderungen, etwa eine Addon-Installation, warten bis zu ihrem Ende.
+
+- **Neuer Sicherungsstatus `partial`** (Audit N65): Die Datenbank ist
+  gesichert, das Uploads-Archiv ist fehlgeschlagen. Eigenes Monitoring, das
+  `backup_last_status` liest, muss den Wert kennen. Der Lauf gilt weiterhin
+  als Fehler, das Pflicht-Backup vor einem Update bricht in diesem Fall also
+  wie bisher ab – Abhilfe: die Ursache beheben (die Meldung nennt sie) oder
+  „Hochgeladene Dateien mitsichern“ abschalten.
+
+- `TarArchive::abort()` ist neu (rein additiv, für Fehlerpfade). Eine
+  Konfigurationsänderung ist für dieses Paket nicht nötig, das
+  Datenbankschema bleibt unverändert.
+
 - **`/admin/cron` zeigt je Aufgabe das letzte Ergebnis** (Audit M39): ok,
   Fehler (mit Meldung), läuft, abgebrochen – auch „abgebrochen (ohne
   Rückmeldung beendet)“, wenn ein Worker per Kill oder

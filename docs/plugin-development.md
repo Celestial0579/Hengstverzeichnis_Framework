@@ -313,6 +313,17 @@ Die Katalog-Query liefert eine feste Spaltenteilmenge (`id`, `name`, `ueln`,
 „Was in `$horse` … steht" unten beschreibt den vollen Satz der
 **Detailseite**; für Katalogkarten gilt nur diese Teilmenge.
 
+**Fotos:** `image_url` ist der gespeicherte Dateiwert, keine Adresse. Für
+ein `<img>` immer `\App\Helper\MediaUrl::horseImage($horse)` (bzw.
+`horseMediaImage($id, $groesse, $dateiname)` für weitere Medien) nehmen. Die
+Adresse trägt eine Version (`&v=…`), die sich mit dem Foto ändert, und ist
+als undurchsichtig zu behandeln: nicht zerlegen, nicht aus der ID nachbauen,
+nicht exakt vergleichen. Nur mit passender Version darf der Browser das Bild
+ein Jahr lang zwischenspeichern. Addons, die Fotos am Upload vorbei in die
+Ablage legen (Importe), rufen danach
+`\App\Service\BildMetadaten::bestandBereinigen($pdo)` auf (per
+`method_exists` absichern), damit GPS- und Kameradaten entfernt werden.
+
 **Achtung, `horse.edit_sections` funktioniert anders als alle anderen
 Abschnitts-Hooks — in drei Punkten:**
 

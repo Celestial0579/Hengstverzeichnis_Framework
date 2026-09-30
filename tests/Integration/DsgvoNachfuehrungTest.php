@@ -137,7 +137,7 @@ class DsgvoNachfuehrungTest extends TestCase {
         $schritte = SchemaMigrator::run($this->pdo);
 
         $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion($this->pdo));
-        $this->assertSame(28, SchemaMigrator::SCHEMA_VERSION);
+        $this->assertGreaterThanOrEqual(28, SchemaMigrator::SCHEMA_VERSION, 'Der Schritt kam mit 28; spätere Pakete erhöhen weiter');
         $this->assertNotNull(AltbestandV072::einstellung($this->pdo, 'migration_dsgvo_nachfuehrung'));
         $alle = implode("\n", $schritte);
         $this->assertStringContainsString('2 früher anonymisierte bzw. gelöschte Kontakt(e) nachgezogen', $alle);
@@ -188,7 +188,7 @@ class DsgvoNachfuehrungTest extends TestCase {
         $vorher = $this->stand();
         $this->zurueckAufVersion26();
         $zweiter = SchemaMigrator::run($this->pdo);
-        $this->assertSame(['settings.schema_version auf 28 gesetzt (vorher 26)'], $zweiter);
+        $this->assertSame(['settings.schema_version auf ' . SchemaMigrator::SCHEMA_VERSION . ' gesetzt (vorher 26)'], $zweiter);
         $this->assertEquals($vorher, $this->stand());
     }
 

@@ -374,4 +374,165 @@ class HorseMediaTest extends FunctionalTestCase {
         $this->assertSame(200, $seite->statusCode);
         $this->assertStringNotContainsString('/js/horse-gallery.js', $seite->body);
     }
+
+    // --- Metadaten (Audit M21) und Bildadresse (Audit M14) -----------------
+
+    /** @return string[] Dateinamen in storage/horses, inklusive versteckter Temp-Dateien. */
+    private function ablage(): array {
+        $namen = @scandir(\App\Helper\HorseImagePath::dir()) ?: [];
+        return array_values(array_diff($namen, ['.', '..']));
+    }
+
+    private function dateiZuWert(string $wert): string {
+        return \App\Helper\HorseImagePath::dir() . '/' . basename($wert);
+    }
+
+    /**
+     * Der Kern von M21: Ein Handyfoto verriet per EXIF-GPS den Hof. Nach dem
+     * Upload liegt weder in der Ablage noch in der Auslieferung etwas davon -
+     * und die Ausrichtung bleibt, sonst läge das Hochformat quer. In der
+     * Ablage entsteht genau EINE Datei: keine Rohfassung, kein Temp-Rest.
+     */
+    public function testHochgeladeneFotosVerlierenIhreStandortdaten(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Geheimhof ' . uniqid());
+        $vorher = $this->ablage();
+
+        $antwort = $this->medienUpload($admin, $pferd, 'handy.jpg', \Tests\Support\BildFixtures::jpeg(6), 'image/jpeg');
+        $this->assertSame('/admin/horses/edit?id=' . $pferd . '&media=media_added', (string)$antwort->location(), "Body: {$antwort->body}");
+
+        $stmt = Database::getInstance()->prepare("SELECT id, file_name FROM horse_media WHERE horse_id = ?");
+        $stmt->execute([$pferd]);
+        $medium = $stmt->fetch();
+        $abgelegt = (string)file_get_contents($this->dateiZuWert((string)$medium['file_name']));
+        $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, $abgelegt);
+        $this->assertSame(6, \App\Service\BildMetadaten::orientierung($abgelegt), 'Die Ausrichtung bleibt');
+
+        $auslieferung = $admin->get('/media/horse-media?id=' . (int)$medium['id']);
+        $this->assertSame(200, $auslieferung->statusCode);
+        $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, $auslieferung->body);
+        $this->assertSame(6, \App\Service\BildMetadaten::orientierung($auslieferung->body));
+
+        $this->assertSame(
+            [basename((string)$medium['file_name'])],
+            array_values(array_diff($this->ablage(), $vorher)),
+            'Genau eine neue Datei - keine Rohkopie, kein Temp-Rest'
+        );
+    }
+
+    /** Derselbe Schutz beim Foto im Anlegeformular - es gibt nur EINE Ablagestelle. */
+    public function testAuchDasFotoBeimAnlegenVerliertSeineStandortdaten(): void {
+        $admin = $this->authenticatedClient();
+        $name = 'Anlegefoto ' . uniqid();
+        $vorher = $this->ablage();
+
+        $form = $admin->get('/admin/horses/create');
+        $antwort = $admin->postFile(
+            '/admin/horses/store',
+            ['csrf_token' => $form->formField('csrf_token') ?? '', 'name' => $name, 'is_published' => '1'],
+            'horse_image',
+            'handy.jpg',
+            \Tests\Support\BildFixtures::jpeg(6),
+            'image/jpeg'
+        );
+        $this->assertSame('/admin/horses', parse_url((string)$antwort->location(), PHP_URL_PATH), "Body: {$antwort->body}");
+
+        $stmt = Database::getInstance()->prepare('SELECT id, image_url FROM horses WHERE name = ?');
+        $stmt->execute([$name]);
+        $zeile = $stmt->fetch();
+        $this->aufraeumen[] = (int)$zeile['id'];
+        $this->assertNotEmpty($zeile['image_url'], 'Das Foto muss angenommen werden');
+        $datei = $this->dateiZuWert((string)$zeile['image_url']);
+        try {
+            $abgelegt = (string)file_get_contents($datei);
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, $abgelegt);
+            $this->assertSame(6, \App\Service\BildMetadaten::orientierung($abgelegt));
+            $this->assertSame([basename($datei)], array_values(array_diff($this->ablage(), $vorher)));
+        } finally {
+            @unlink($datei);
+        }
+    }
+
+    /** GIF ist in der Galerie erlaubt und trägt XMP als Anwendungsblock. */
+    public function testEinGifVerliertKommentarUndXmp(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Gifhengst ' . uniqid());
+
+        $antwort = $this->medienUpload($admin, $pferd, 'bild.gif', \Tests\Support\BildFixtures::gif(), 'image/gif');
+        $this->assertSame('/admin/horses/edit?id=' . $pferd . '&media=media_added', (string)$antwort->location(), "Body: {$antwort->body}");
+
+        $stmt = Database::getInstance()->prepare("SELECT file_name FROM horse_media WHERE horse_id = ?");
+        $stmt->execute([$pferd]);
+        $abgelegt = (string)file_get_contents($this->dateiZuWert((string)$stmt->fetchColumn()));
+        $this->assertStringStartsWith('GIF89a', $abgelegt);
+        $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, $abgelegt);
+        $this->assertStringContainsString('NETSCAPE2.0', $abgelegt, 'Die Animation bleibt');
+    }
+
+    /**
+     * Fail-closed: Was der Parser nicht lesen kann, kann er nicht bereinigen
+     * - also wird es gar nicht erst abgelegt.
+     */
+    public function testEinStrukturellKaputtesJpegWirdAbgelehnt(): void {
+        $admin = $this->authenticatedClient();
+        $pferd = $this->pferdAnlegen($admin, 'Kaputtfoto ' . uniqid());
+        $vorher = $this->ablage();
+
+        $antwort = $this->medienUpload($admin, $pferd, 'kaputt.jpg', \Tests\Support\BildFixtures::unlesbaresJpeg(), 'image/jpeg');
+
+        $this->assertSame('/admin/horses/edit?id=' . $pferd . '&media=media_invalid', (string)$antwort->location(), "Body: {$antwort->body}");
+        $this->assertSame(0, $this->medienZeilen($pferd));
+        $this->assertSame([], array_values(array_diff($this->ablage(), $vorher)), 'Nichts abgelegt');
+    }
+
+    /**
+     * M14: Die Adresse wechselt mit dem Foto - in Katalog, Detailseite und
+     * Verwaltungsliste. Vorher hing sie nur an der Pferde-ID, und Browser
+     * zeigten nach einem Wechsel bis zu einem Jahr das alte Foto.
+     */
+    public function testHauptbildwechselAendertDieBildadresse(): void {
+        $admin = $this->authenticatedClient();
+        $name = 'Wechselbild ' . uniqid();
+        $pferd = $this->pferdAnlegen($admin, $name);
+        $this->bildHochladen($admin, $pferd);
+        $zweites = $this->bildHochladen($admin, $pferd);
+
+        $db = Database::getInstance();
+        $wert = static function () use ($db, $pferd): string {
+            $stmt = $db->prepare('SELECT image_url FROM horses WHERE id = ?');
+            $stmt->execute([$pferd]);
+            return (string)$stmt->fetchColumn();
+        };
+        $alt = \App\Helper\MediaUrl::version($wert());
+
+        $seiten = fn(): array => [
+            'Katalog' => $this->newClient()->get('/katalog?search=' . urlencode($name))->body,
+            'Detailseite' => $this->newClient()->get('/horse?id=' . $pferd)->body,
+            'Verwaltung' => $admin->get('/admin/horses?search=' . urlencode($name))->body,
+        ];
+        foreach ($seiten() as $wo => $html) {
+            $this->assertMatchesRegularExpression(
+                '#/media/horse-image\?id=' . $pferd . '(&amp;groesse=\w+)?&amp;v=' . $alt . '"#',
+                $html,
+                "{$wo}: versionierte Adresse fehlt"
+            );
+        }
+
+        $seite = $admin->get('/admin/horses/edit?id=' . $pferd);
+        $admin->post('/admin/horses/media/main', [
+            'csrf_token' => $seite->formField('csrf_token') ?? '',
+            'horse_id' => (string)$pferd,
+            'media_id' => (string)$zweites,
+        ]);
+        $neu = \App\Helper\MediaUrl::version($wert());
+        $this->assertNotSame($alt, $neu);
+
+        // Nur die Hauptbildadresse zählt: Das frühere Hauptbild steht auf der
+        // Detailseite jetzt in der Galerie - mit SEINER (alten) Version, zu Recht.
+        $hauptbild = static fn(string $v): string => '#/media/horse-image\\?id=' . $pferd . '(&amp;groesse=\\w+)?&amp;v=' . $v . '"#';
+        foreach ($seiten() as $wo => $html) {
+            $this->assertMatchesRegularExpression($hauptbild($neu), $html, "{$wo}: neue Version fehlt");
+            $this->assertDoesNotMatchRegularExpression($hauptbild($alt), $html, "{$wo}: alte Adresse steht noch da");
+        }
+    }
 }

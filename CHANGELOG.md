@@ -28,6 +28,49 @@ Breaking Changes sind jederzeit möglich).
   Das gilt unabhängig vom Inhalt des Volumes; eine eingeschleuste `.htaccess`
   im Volume kann keinen PHP-Handler mehr einschalten. Ein Test hält die
   Endungsliste von Konfiguration und `public/uploads/.htaccess` gleich.
+- **Fotos verraten nicht mehr, wo sie aufgenommen wurden** (Audit M21).
+  Hochgeladene Pferdefotos und das Verbandslogo wurden bisher unverändert
+  gespeichert und an jeden Besucher ausgeliefert, samt GPS-Position,
+  Aufnahmezeit, Kameramodell und Seriennummer. Damit ließ sich zum Beispiel
+  die Hofadresse eines Besitzers ablesen, dessen Kontakt gar nicht öffentlich
+  ist. Der Kern entfernt beim Upload jetzt EXIF-, XMP- und IPTC-Daten,
+  Kommentare, eingebettete Vorschaubilder und angehängte Daten wie
+  Bewegungsfotos und HDR-Zusatzbilder aus JPEG, PNG, WebP und GIF, bevor die
+  Datei abgelegt wird. Farbprofil und Ausrichtung bleiben erhalten. GD ist
+  dafür nicht nötig (neue Klasse `App\Service\BildMetadaten`). Uploads,
+  deren Dateiaufbau sich nicht lesen lässt, werden abgelehnt; beim Logo
+  bleibt dann das bisherige.
+
+  **Betreiber:** Das Update (`SCHEMA_VERSION` 29) bereinigt einmalig auch
+  alle vorhandenen Fotos in `storage/horses` und im Altort
+  `public/uploads/horses` sowie das Logo. Die Originale werden dabei
+  umgeschrieben – **vorher eine Sicherung ziehen**. Im Web arbeitet der
+  Schritt höchstens 20 Sekunden je Aufruf und setzt beim nächsten Versuch
+  (nach 15 Minuten) hinter dem gemerkten Stand fort; schneller geht es mit
+  `php database/migrate.php`, das ohne Zeitgrenze läuft. Nicht lesbare
+  Altdateien bleiben unverändert und stehen im Fehlerprotokoll
+  (`BildMetadaten: nicht lesbar …`). **Sicherungen und
+  Datenmigrations-Archive von vor dem Update enthalten die Metadaten
+  weiterhin**; nach dem Zurückspielen solcher Dateien den Marker
+  `migration_bildmetadaten_entfernen` in `settings` löschen und
+  `php database/migrate.php` ausführen. Vorschaubilder gedrehter oder
+  umgeschriebener Fotos werden verworfen und neu erzeugt.
+
+- **Gewechselte oder depublizierte Hauptbilder blieben bis zu einem Jahr im
+  Cache** (Audit M14). Die Bildadresse hing nur an der Pferde-ID, wurde aber
+  ein Jahr lang als `public` zwischengespeichert. Nach einem Wechsel des
+  Hauptbilds sahen Besucher und Redakteure weiter das alte Foto; hinter einem
+  CDN oder Proxy-Cache blieb das Foto eines depublizierten Pferds sogar für
+  jeden abrufbar. Die Adressen tragen jetzt eine Version (`&v=…`), die sich
+  mit dem Foto ändert. Ein Jahr lang cacht nur noch der Browser, und nur bei
+  passender Version. Gemeinsame Zwischenspeicher fragen nach spätestens fünf
+  Minuten wieder nach (`s-maxage=300`), Adressen ohne Version gelten fünf
+  Minuten.
+
+  **Betreiber:** Ein vorgeschalteter Cache muss `s-maxage` beachten; Regeln,
+  die eine feste Edge-TTL erzwingen, heben den Schutz auf (siehe
+  `docs/security.md`). Proxies fragen häufiger nach (304 über PHP), und alle
+  Browser laden die Fotos nach dem Update einmal neu.
 
 - **Zusammenführen von Kontakten konnte private Kontaktdaten veröffentlichen**
   (Audit M9). War der behaltene Kontakt für die Veröffentlichung seiner
@@ -468,6 +511,23 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Bestätigung eines veralteten Bildes mit 304** (Audit N50). Bei einer
+  bedingten Anfrage genügte ein passendes `If-Modified-Since`, auch wenn das
+  mitgesendete ETag nicht passte. Zeigte die Adresse wieder auf eine ältere
+  Datei, behielt der Browser das falsche Bild. Jetzt entscheidet wie in
+  RFC 9110 vorgesehen das ETag, wenn eines gesendet wird. ETag-Listen,
+  schwache ETags (`W/`) und `*` werden erkannt.
+
+- **Halb geschriebene Vorschaubilder** (Audit N80). Vorschaubilder entstehen
+  jetzt in einer temporären Datei und werden erst vollständig an ihren Platz
+  verschoben. Bereits abgeschnittene oder leere Vorschaubilder werden
+  erkannt und neu erzeugt.
+
+- **Gedrehte Vorschaubilder** (Audit N81). Hochformatfotos von Handys und
+  Kameras lagen in Katalog, Detailseite, Verwaltungsliste und Galerie quer,
+  sobald die Vorschaubilder eingeschaltet waren. Die Vorschau berücksichtigt
+  jetzt die gespeicherte Ausrichtung des Fotos.
+
 - **Eine DSGVO-Aktion auf einen nicht mehr vorhandenen Kontakt meldete
   Erfolg** und schloss die Anfrage ab (Audit M11). Jetzt erscheint eine
   Fehlermeldung, und die Anfrage bleibt offen. Scheitert eine DSGVO-Aktion,
@@ -849,6 +909,17 @@ Breaking Changes sind jederzeit möglich).
   Gast behandelt.
 
 ### Geändert
+
+- **Bildadressen tragen eine Version** (Audit M14). `image_url` in
+  `/api/horses` und die Adressen aus `App\Helper\MediaUrl` enden jetzt auf
+  `&v=<12 hex>`. Behandeln Sie die Adresse als undurchsichtig.
+  `MediaUrl::horseMediaImage()` nimmt optional den Dateinamen als dritten
+  Parameter und liefert dann ebenfalls eine versionierte Adresse; neu sind
+  `MediaUrl::version()` und `MediaUrl::versionPasst()`. Für Addons, die Fotos
+  am Upload vorbei ablegen (Importe), gibt es
+  `App\Service\BildMetadaten::bestandBereinigen($pdo)`, und
+  `App\Helper\AtomicFile` hat `ersetzen()` (Inhalt von einem Schreiber, mit
+  optionalem Prüfer) und `resteEntfernen()` dazubekommen.
 
 - **Neue Hooks `contact.anonymized` und `contact.erased` für Addons**
   (Audit N45). `contact.anonymized(int $contactId, array $vorher)` feuert

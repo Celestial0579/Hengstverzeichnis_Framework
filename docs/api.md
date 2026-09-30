@@ -150,7 +150,7 @@ curl -H "Authorization: Bearer hv_..." \
       "status": "active",
       "is_deceased": false,
       "death_year": null,
-      "image_url": "/media/horse-image?id=42",
+      "image_url": "/media/horse-image?id=42&v=3f2a9c1b7d4e",
       "breeding_station": "Gestüt Musterhof",
       "sire": { "name": "Quantensprung", "ueln": "DE002TESTM02" },
       "dam": null,
@@ -162,6 +162,11 @@ curl -H "Authorization: Bearer hv_..." \
   "meta": { "page": 1, "per_page": 25, "total_pages": 1, "total": 1 }
 }
 ```
+
+`image_url` ist eine undurchsichtige Adresse. Sie trägt eine Version
+(`&v=…`), die sich mit dem Foto ändert; unter ihr darf ein Browser das Bild
+lange zwischenspeichern. Die Adresse bitte unverändert übernehmen und nicht
+aus der ID nachbauen.
 
 ## `GET /api/horses/show?ueln=...`
 

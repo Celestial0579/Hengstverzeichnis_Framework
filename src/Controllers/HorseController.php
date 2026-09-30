@@ -1020,45 +1020,22 @@ class HorseController extends BaseController {
     }
 
     /**
-     * Helper to validate and save uploaded horse image
+     * Foto beim Anlegen eines Pferds.
+     *
+     * Eigene Positivliste (JPEG, PNG, WebP - kein GIF als Hauptbild beim
+     * Anlegen, wie bisher), aber EINE Ablage- und Bereinigungsstelle:
+     * HorseMedia::speichereUpload() entfernt Metadaten vor der Ablage
+     * (Audit M21) und schreibt atomar nach storage/horses (#366).
      */
     private function handleImageUpload(?array $file): ?string {
-        if (!$file || $file['error'] !== UPLOAD_ERR_OK || $file['size'] === 0) {
+        if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || ($file['size'] ?? 0) === 0) {
             return null;
         }
 
-        // Max 5MB
-        if ($file['size'] > 5 * 1024 * 1024) {
-            return null;
-        }
-
-        // Validate MIME type
-        $allowedMimeTypes = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-        $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mime = $finfo->file($file['tmp_name']);
-
-        if (!isset($allowedMimeTypes[$mime])) {
-            return null;
-        }
-
-        $ext = $allowedMimeTypes[$mime];
-        // Außerhalb des Webroots (#366): Im Webroot lieferte der Webserver
-        // jedes Foto direkt aus, ohne die Sichtbarkeitsprüfung des
-        // MediaControllers. Der zurückgegebene Spaltenwert bleibt unverändert -
-        // er ist eine Kennung, keine Adresse (siehe HorseImagePath).
-        $uploadDir = \App\Helper\HorseImagePath::dir() . '/';
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
-        }
-
-        $filename = 'horse_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
-        $targetPath = $uploadDir . $filename;
-
-        if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-            return '/uploads/horses/' . $filename;
-        }
-
-        return null;
+        return \App\Service\HorseMedia::speichereUpload(
+            $file,
+            ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp']
+        );
     }
 
     /**

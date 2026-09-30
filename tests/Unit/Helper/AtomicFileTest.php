@@ -105,4 +105,75 @@ class AtomicFileTest extends TestCase {
     public function testVerzeichnisFehlt(): void {
         $this->assertFalse(AtomicFile::write($this->dir . '/gibt-es-nicht/db_config.php', 'x'));
     }
+
+    // --- ersetzen(): der Inhalt kommt von einem Schreiber (Audit N80/M21) ---
+
+    public function testErsetzenMitErfolgreichemSchreiberUndRechten0644(): void {
+        $ziel = $this->dir . '/vorschau.jpg';
+        file_put_contents($ziel, 'alt');
+
+        $ok = AtomicFile::ersetzen($ziel, static fn(string $tmp): bool => file_put_contents($tmp, "neu\xFF\xD9") !== false);
+
+        $this->assertTrue($ok);
+        $this->assertSame("neu\xFF\xD9", file_get_contents($ziel));
+        clearstatcache();
+        $this->assertSame(0644, fileperms($ziel) & 0777);
+        $this->assertSame([], $this->tempReste());
+    }
+
+    public function testErsetzenSchreiberMitFalseLaesstZielUndKeineResteZurueck(): void {
+        $ziel = $this->dir . '/vorschau.jpg';
+        file_put_contents($ziel, 'alt');
+
+        $ok = AtomicFile::ersetzen($ziel, static function (string $tmp): bool {
+            file_put_contents($tmp, 'halb');
+            return false;
+        });
+
+        $this->assertFalse($ok);
+        $this->assertSame('alt', file_get_contents($ziel));
+        $this->assertSame([], $this->tempReste());
+    }
+
+    public function testErsetzenLeereDateiGiltAlsFehlschlag(): void {
+        $ziel = $this->dir . '/vorschau.jpg';
+
+        $this->assertFalse(AtomicFile::ersetzen($ziel, static fn(string $tmp): bool => true));
+        $this->assertFileDoesNotExist($ziel);
+        $this->assertSame([], $this->tempReste());
+    }
+
+    public function testErsetzenPrueferMitFalseLaesstZielUnveraendert(): void {
+        $ziel = $this->dir . '/vorschau.jpg';
+        file_put_contents($ziel, "alt\xFF\xD9");
+        $eoi = static fn(string $pfad): bool => str_ends_with((string)file_get_contents($pfad), "\xFF\xD9");
+
+        $ok = AtomicFile::ersetzen($ziel, static fn(string $tmp): bool => file_put_contents($tmp, "\xFF\xD8abgeschnitten") !== false, $eoi);
+
+        $this->assertFalse($ok);
+        $this->assertSame("alt\xFF\xD9", file_get_contents($ziel));
+        $this->assertSame([], $this->tempReste());
+    }
+
+    public function testErsetzenOhnePrueferAkzeptiertInhaltOhneDateiende(): void {
+        // Der Original-Fall: ein JPEG ohne EOI ist erlaubt, nur Vorschauen
+        // muessen vollstaendig sein.
+        $ziel = $this->dir . '/original.jpg';
+
+        $this->assertTrue(AtomicFile::ersetzen($ziel, static fn(string $tmp): bool => file_put_contents($tmp, "\xFF\xD8ohne-ende") !== false));
+        $this->assertSame("\xFF\xD8ohne-ende", file_get_contents($ziel));
+    }
+
+    public function testResteEntfernenRaeumtNurDieTempDateienDesZiels(): void {
+        $ziel = $this->dir . '/bild.jpg';
+        file_put_contents($ziel, 'x');
+        file_put_contents($this->dir . '/.bild.jpg.0123456789abcdef.tmp', 'rest');
+        file_put_contents($this->dir . '/.anderes.jpg.0123456789abcdef.tmp', 'fremd');
+
+        AtomicFile::resteEntfernen($ziel);
+
+        $this->assertFileExists($ziel);
+        $this->assertFileDoesNotExist($this->dir . '/.bild.jpg.0123456789abcdef.tmp');
+        $this->assertFileExists($this->dir . '/.anderes.jpg.0123456789abcdef.tmp');
+    }
 }

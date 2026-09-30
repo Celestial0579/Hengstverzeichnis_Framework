@@ -118,4 +118,51 @@ class BrandingLogoUploadTest extends FunctionalTestCase {
             }
         }
     }
+
+    /**
+     * Audit M21: Das Logo liegt öffentlich im Webroot. Ein als Foto
+     * entstandenes Logo trug GPS, Kamera und Aufnahmezeit - jetzt nicht mehr.
+     * Ein Aufbau, den der Parser nicht lesen kann, wird abgelehnt, das
+     * bisherige Logo bleibt.
+     */
+    public function testEinLogoMitExifWirdBereinigtAbgelegt(): void {
+        $admin = $this->authenticatedClient();
+        $felder = $this->aktuelleFelder();
+
+        try {
+            $antwort = $admin->postFile(
+                '/admin/settings',
+                ['csrf_token' => $this->csrfTokenFrom($admin, '/admin/settings')] + $felder,
+                'logo_file',
+                'logo.jpg',
+                \Tests\Support\BildFixtures::jpeg(1),
+                'image/jpeg'
+            );
+            $this->assertSame('/admin/settings?success=1', $antwort->location(), "Body: {$antwort->body}");
+            $logo = (string)$this->siteLogo();
+            $this->assertMatchesRegularExpression('#^/uploads/branding/logo_\d+_[0-9a-f]{8}\.jpg$#', $logo);
+            $inhalt = (string)file_get_contents(dirname(__DIR__, 2) . '/public' . $logo);
+            $this->assertStringStartsWith("\xFF\xD8", $inhalt);
+            $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, $inhalt);
+            $this->assertSame([], $this->brandingDateien('.*.tmp'), 'Kein Temp-Rest im Webroot');
+
+            $kaputt = $admin->postFile(
+                '/admin/settings',
+                ['csrf_token' => $this->csrfTokenFrom($admin, '/admin/settings')] + $felder,
+                'logo_file',
+                'kaputt.jpg',
+                \Tests\Support\BildFixtures::unlesbaresJpeg(),
+                'image/jpeg'
+            );
+            $this->assertSame('/admin/settings?error=logo_type', $kaputt->location(), "Body: {$kaputt->body}");
+            $this->assertSame($logo, $this->siteLogo(), 'Das bisherige Logo bleibt');
+        } finally {
+            $logo = $this->siteLogo();
+            $admin->post('/admin/settings', ['csrf_token' => $this->csrfTokenFrom($admin, '/admin/settings'), 'remove_logo' => '1'] + $felder);
+            $this->assertNull($this->siteLogo());
+            if ($logo !== null) {
+                $this->assertFileDoesNotExist(dirname(__DIR__, 2) . '/public' . $logo);
+            }
+        }
+    }
 }

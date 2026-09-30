@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 28; // 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 29; // 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -81,6 +81,18 @@ final class SchemaMigrator {
 
     /** Nur für Tests verkürzbar, siehe setzeSperreWartezeitFuerTests(). */
     private static ?int $sperreWartezeit = null;
+
+    /**
+     * Zeitbudget des Bildschritts `bildmetadaten_entfernen` je Lauf auf dem
+     * Web-Weg, in Sekunden (Audit M21, Entscheidung D22 B). Der Schritt liest
+     * und schreibt jedes Foto einmal; auf großen Beständen sprengte ein
+     * einziger Lauf das Zeitlimit des Requests. Nach dem Budget meldet er
+     * sich offen, der Cursor merkt sich die Stelle.
+     */
+    private const BILD_BUDGET_SEKUNDEN = 20.0;
+
+    /** @var array{0: ?float}|null Nur für Tests, siehe setzeBildBudgetFuerTests(). */
+    private static ?array $bildBudget = null;
 
     /**
      * Der Stand, mit dem der Gast-Seed persons.view für die öffentliche
@@ -328,6 +340,31 @@ final class SchemaMigrator {
      */
     public static function setzeSperreWartezeitFuerTests(int $sekunden): void {
         self::$sperreWartezeit = $sekunden < 0 ? null : $sekunden;
+    }
+
+    /**
+     * @internal Nur für Tests: Zeitbudget des Bildschritts in Sekunden (null
+     * = ohne Grenze); setzeBildBudgetFuerTests(false) stellt den Standard
+     * wieder her.
+     */
+    public static function setzeBildBudgetFuerTests(float|false|null $sekunden): void {
+        self::$bildBudget = $sekunden === false ? null : [$sekunden];
+    }
+
+    /**
+     * Auf der CLI (`php database/migrate.php`) ohne Grenze - dort wartet der
+     * Betreiber auf das Ergebnis. Im Web höchstens 20 s bzw. die Hälfte von
+     * max_execution_time.
+     */
+    private static function bildBudget(): ?float {
+        if (self::$bildBudget !== null) {
+            return self::$bildBudget[0];
+        }
+        if (PHP_SAPI === 'cli') {
+            return null;
+        }
+        $limit = (int)ini_get('max_execution_time');
+        return $limit > 0 ? min(self::BILD_BUDGET_SEKUNDEN, max(1.0, $limit / 2)) : self::BILD_BUDGET_SEKUNDEN;
     }
 
     /** Liegt für DIESES Ziel ein Status vor, dessen Wartefrist noch läuft? */
@@ -3325,6 +3362,78 @@ final class SchemaMigrator {
                     . 'und trägt nicht den Anonymnamen (bitte unter /admin/gdpr prüfen)',
                     $z['uebersprungen']
                 );
+            }
+            return $meldungen;
+        });
+
+        // 7. Metadaten der Bestandsfotos entfernen (Audit M21, N81;
+        // SCHEMA_VERSION 29). Keine DDL - der Sprung ist trotzdem nötig, sonst
+        // liefe der Schritt auf Bestandsinstallationen wegen des Kurzschlusses
+        // (#213) nie. Nach 366 und 339: dann liegen alle Fotos dort, wo
+        // HorseImagePath sie sucht (den Webroot-Rückfall eingeschlossen).
+        //
+        // Neue Uploads werden seit Audit M21 bereinigt abgelegt; die schon
+        // vorhandenen trugen weiter GPS, Kamera und Aufnahmezeit und wurden an
+        // jeden Besucher ausgeliefert. Umgeschrieben wird atomar und nur nach
+        // bestandener Maßprüfung (BildMetadaten::bereinigeDatei()); was der
+        // Parser nicht lesen kann, bleibt unverändert und steht im
+        // Fehlerprotokoll. Vorschaubilder umgeschriebener oder gedrehter
+        // Fotos werden verworfen (N81: sie lagen quer).
+        //
+        // Laufzeit (Entscheidung D22 B): Im Web mit Zeitbudget; ist es
+        // erschöpft oder scheitert ein Schreiben, meldet sich der Schritt
+        // offen ($offen, Audit N76) und setzt beim nächsten Lauf hinter dem
+        // Cursor `bildmetadaten_cursor` fort. Parallele Läufe serialisiert die
+        // Migrationssperre (N75); eine eigene Schrittsperre braucht es nicht.
+        // Ein erzwungener Wiederlauf (Marker gelöscht) ist unschädlich:
+        // bereinigen() ist idempotent, saubere Dateien werden nicht neu
+        // geschrieben.
+        //
+        // Das Verbandslogo (public/uploads/branding) liegt öffentlich im
+        // Webroot und geht mit.
+        $dataStep('bildmetadaten_entfernen', function (callable $vermerke, callable $offen) use ($pdo, $tabelleExistiert): ?array {
+            if (!$tabelleExistiert('horses') || !$tabelleExistiert('horse_media')) {
+                return null; // Setup-Fall.
+            }
+
+            $e = BildMetadaten::bestandBereinigen($pdo, 'bildmetadaten_cursor', self::bildBudget());
+
+            $logo = 'unveraendert';
+            $stmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = 'site_logo'");
+            $stmt->execute();
+            $logoWert = (string)$stmt->fetchColumn();
+            if (str_starts_with($logoWert, '/uploads/branding/')) {
+                $name = basename($logoWert);
+                $logoPfad = dirname(__DIR__, 2) . '/public/uploads/branding/' . $name;
+                if ($name !== '' && is_file($logoPfad) && !is_link($logoPfad)) {
+                    $logo = BildMetadaten::bereinigeDatei($logoPfad);
+                    if ($logo === 'unlesbar' || $logo === 'schreibfehler') {
+                        error_log('BildMetadaten: Verbandslogo ' . $logo . ', Metadaten NICHT entfernt: ' . $logoWert);
+                    }
+                }
+            }
+
+            $zusammenfassung = sprintf(
+                'Bildmetadaten (Audit M21): %d Foto(s) bereinigt, %d nicht lesbar (unverändert, siehe Fehlerprotokoll)',
+                $e['bereinigt'],
+                count($e['unlesbar'])
+            );
+            if ($e['fehler'] !== [] || $logo === 'schreibfehler') {
+                return $offen($zusammenfassung . sprintf(
+                    ' - %d Datei(en) nicht schreibbar (Rechte prüfen) - nächster Versuch automatisch in 15 Minuten oder sofort per php database/migrate.php',
+                    count($e['fehler']) + ($logo === 'schreibfehler' ? 1 : 0)
+                ));
+            }
+            if (!$e['vollstaendig']) {
+                return $offen($zusammenfassung . ' bis zum Zeitlimit - Fortsetzung automatisch in 15 Minuten oder sofort per php database/migrate.php');
+            }
+
+            $meldungen = [];
+            if ($e['bereinigt'] > 0 || $e['unlesbar'] !== []) {
+                $meldungen[] = $zusammenfassung;
+            }
+            if ($logo === 'bereinigt') {
+                $meldungen[] = 'Bildmetadaten (Audit M21): Verbandslogo bereinigt';
             }
             return $meldungen;
         });

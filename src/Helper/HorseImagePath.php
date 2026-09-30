@@ -53,6 +53,50 @@ final class HorseImagePath {
         return self::$legacyDirOverride ?? dirname(__DIR__, 2) . '/public/uploads/horses';
     }
 
+    /** Endungen, die als Pferdefoto gelten - eine Positivliste. */
+    public const ENDUNGEN = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+    /**
+     * Die Datei zu einem Spaltenwert (`horses.image_url`,
+     * `horse_media.file_name`), oder null.
+     *
+     * Erst die Ablage außerhalb des Webroots, dann der alte Ort darin (#366).
+     * Nur der basename() zählt, die Endung muss auf der Positivliste stehen,
+     * und realpath() plus Präfixprüfung verhindert, dass ein Symlink in der
+     * Ablage auf eine beliebige Datei des Systems zeigt.
+     *
+     * Der Wert stammt aus der eigenen Datenbank, aber genau darauf hat sich
+     * schon manche Anwendung verlassen, bevor ein CSV-Import oder eine
+     * Altdatenübernahme dort etwas anderes hineinschrieb. Auslieferung
+     * (MediaController) und Bestandsbereinigung (BildMetadaten) fragen hier.
+     */
+    public static function datei(string $spaltenwert): ?string {
+        $name = basename(parse_url($spaltenwert, PHP_URL_PATH) ?? '');
+        if ($name === '' || $name === '.' || $name === '..') {
+            return null;
+        }
+        if (!in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), self::ENDUNGEN, true)) {
+            return null;
+        }
+
+        foreach ([self::dir(), self::legacyDir()] as $kandidat) {
+            $basis = realpath($kandidat);
+            if ($basis === false) {
+                continue;
+            }
+            $voll = realpath($basis . '/' . $name);
+            if ($voll === false || !is_file($voll)) {
+                continue;
+            }
+            if (!str_starts_with($voll, $basis . DIRECTORY_SEPARATOR)) {
+                continue;
+            }
+            return $voll;
+        }
+
+        return null;
+    }
+
     /**
      * Die Ablagen des abgelösten Addons `galerie` (#339).
      *

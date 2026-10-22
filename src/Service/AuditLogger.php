@@ -325,6 +325,92 @@ class AuditLogger {
         return $namen;
     }
 
+    /** Zeilen je Abschnitt in kontaktNamenAusProtokollMenge(). */
+    private const PROTOKOLL_ABSCHNITT = 2000;
+
+    /**
+     * kontaktNamenAusProtokoll() für viele Kontakte auf einmal - für die
+     * Papierkorb-Charge (bis 500 Kontakte). Je Kontakt ein eigener Abruf
+     * bedeutete je Kontakt einen Scan über die Kontakt-Kategorien von
+     * audit_logs: `details` ist TEXT, die LIKE-Muster mit führendem `%`
+     * können keinen Index nutzen.
+     *
+     * Hier gibt es EINEN Durchgang in Abschnitten (Schlüsselfolge über id):
+     * Die SQL-Vorfilterung nimmt alle Einträge in Kennungsform, PHP liest die
+     * Zahlen heraus und prüft nur die Kontakte, deren Kennung darunter ist.
+     * Entschieden wird wie bisher mit kennungsMuster() - das Ergebnis ist
+     * dasselbe wie mit kontaktNamenAusProtokoll() je Kontakt.
+     *
+     * @param array<int, array{person: int[], station: int[]}> $jeKontakt Kontakt-ID => alte Kennungen
+     * @return array<int, string[]> Kontakt-ID => Namen
+     */
+    public static function kontaktNamenAusProtokollMenge(\PDO $db, array $jeKontakt): array {
+        $ergebnis = [];
+        $nachKennung = ['kontakt' => [], 'person' => [], 'station' => []];
+        foreach ($jeKontakt as $id => $alt) {
+            $id = (int)$id;
+            $ergebnis[$id] = [];
+            $nachKennung['kontakt'][$id][] = $id;
+            foreach (self::kennungen($alt['person'] ?? []) as $p) {
+                $nachKennung['person'][$p][] = $id;
+            }
+            foreach (self::kennungen($alt['station'] ?? []) as $s) {
+                $nachKennung['station'][$s][] = $id;
+            }
+        }
+        if ($ergebnis === []) {
+            return [];
+        }
+
+        // Dieselben Formate wie in kontaktEintraege(), nur ohne Kennung.
+        $stmt = $db->prepare(
+            "SELECT id, category, details FROM audit_logs
+             WHERE id > ?
+               AND (
+                    (category = 'contacts' AND (details LIKE 'Kontakt ID %' OR details LIKE 'Quelle ID %' OR details LIKE '%-> Ziel ID %'))
+                 OR (category = 'matches' AND details LIKE 'contact %')
+                 OR (category = 'persons' AND (details LIKE 'Person ID %' OR details LIKE 'Quelle ID %' OR details LIKE '%-> Ziel ID %'))
+                 OR (category IN ('breeding_stations', 'stations') AND details LIKE 'Deckstation ID %')
+               )
+             ORDER BY id
+             LIMIT " . self::PROTOKOLL_ABSCHNITT
+        );
+        $letzte = 0;
+        do {
+            $stmt->execute([$letzte]);
+            $zeilen = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($zeilen as $zeile) {
+                $letzte = (int)$zeile['id'];
+                $kategorie = (string)$zeile['category'];
+                $details = (string)$zeile['details'];
+                $art = match ($kategorie) {
+                    'contacts', 'matches' => 'kontakt',
+                    'persons' => 'person',
+                    default => 'station',
+                };
+                // Kandidaten: jede Zahl im Text, die eine gesuchte Kennung
+                // ist. Eine Obermenge - kennungsMuster() entscheidet.
+                preg_match_all('/\d+/', $details, $zahlen);
+                $kandidaten = [];
+                foreach (array_unique($zahlen[0]) as $zahl) {
+                    foreach ($nachKennung[$art][(int)$zahl] ?? [] as $kontaktId) {
+                        $kandidaten[$kontaktId] = true;
+                    }
+                }
+                foreach (array_keys($kandidaten) as $kontaktId) {
+                    $alt = $jeKontakt[$kontaktId];
+                    foreach (self::kennungsMuster($kategorie, $kontaktId, $alt['person'] ?? [], $alt['station'] ?? []) as $muster) {
+                        if (preg_match($muster['regex'], $details, $treffer) && $muster['name']) {
+                            $ergebnis[$kontaktId][] = trim($treffer[2]);
+                        }
+                    }
+                }
+            }
+        } while (count($zeilen) === self::PROTOKOLL_ABSCHNITT);
+
+        return $ergebnis;
+    }
+
     /**
      * Maskiert Einmalcodes ("Anmeldecode 123456") und E-Mail-Adressen in
      * allen Einträgen der Kategorie `email` (Audit N17, Entscheidung D18) -

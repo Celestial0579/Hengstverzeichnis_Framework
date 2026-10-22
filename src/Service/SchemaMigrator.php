@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 32; // 32: Hauptbild-Backfill 339b (Audit M40/N69); 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 33; // 33: idx_horses_created für /api/stats; 32: Hauptbild-Backfill 339b (Audit M40/N69); 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -1396,6 +1396,12 @@ final class SchemaMigrator {
         // der horses-Tabelle je Lauf zurück.
         $addIndex('horses', 'idx_horses_sire_unlinked', '`deleted_at`, `sire_id`');
         $addIndex('horses', 'idx_horses_dam_unlinked', '`deleted_at`, `dam_id`');
+
+        // 26b. Zeitreihen von /api/stats (SCHEMA_VERSION 33): horses.created
+        // und horses.published zählen über einen created_at-Bereich. Ohne
+        // Index lief jeder Abruf als Full Scan über horses; deleted_at und
+        // is_published im Index machen die Abfrage zum reinen Indexzugriff.
+        $addIndex('horses', 'idx_horses_created', '`created_at`, `deleted_at`, `is_published`');
 
         // 27. Kastrationsdatum (#239, SCHEMA_VERSION 2): echtes Sachdatum -
         // die Deckeinsatz-Historie eines Wallachs endet dort. Fachlich nur bei

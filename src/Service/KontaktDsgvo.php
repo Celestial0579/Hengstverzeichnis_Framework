@@ -90,6 +90,13 @@ final class KontaktDsgvo {
     /** Die Aktionen im gdpr-Protokoll, an denen der Bestand DSGVO-Fälle erkennt (#135). */
     private const GDPR_AKTIONEN = ['DSGVO: Person anonymisiert', 'DSGVO: Person endgültig gelöscht'];
 
+    /**
+     * Antwort von altTabellen() für die Dauer eines loeschen()-Aufrufs.
+     *
+     * @var array<string, string>|null
+     */
+    private static ?array $altTabellenFest = null;
+
     private function __construct() {}
 
     /**
@@ -162,6 +169,22 @@ final class KontaktDsgvo {
      * @return array{kontakte: array<int, array<string, mixed>>, bereinigt: array<string, int>}
      */
     public static function loeschen(PDO $db, array $ids, string $anlass, ?int $mindestTage = null): array {
+        // Die Alttabellen ändern sich während einer Charge nicht - einmal
+        // nachschlagen statt je Kontakt mehrfach in information_schema.
+        $vorher = self::$altTabellenFest;
+        self::$altTabellenFest = self::altTabellen($db);
+        try {
+            return self::chargeLoeschen($db, $ids, $anlass, $mindestTage);
+        } finally {
+            self::$altTabellenFest = $vorher;
+        }
+    }
+
+    /**
+     * @param int[] $ids
+     * @return array{kontakte: array<int, array<string, mixed>>, bereinigt: array<string, int>}
+     */
+    private static function chargeLoeschen(PDO $db, array $ids, string $anlass, ?int $mindestTage): array {
         if (!in_array($anlass, [self::DSGVO, self::PAPIERKORB], true)) {
             throw new \InvalidArgumentException("Unbekannter Anlass: {$anlass}");
         }
@@ -193,10 +216,13 @@ final class KontaktDsgvo {
 
         // Vor dem DELETE lesen: contact_id_map fällt per CASCADE mit.
         $alt = self::altKennungen($db, $gesperrt);
+        // Ein Durchgang über das Protokoll für die ganze Charge statt einer
+        // je Kontakt.
+        $protokollNamen = AuditLogger::kontaktNamenAusProtokollMenge($db, $alt);
         $namenJe = [];
         $alleNamen = [];
         foreach ($gesperrt as $id) {
-            $namenJe[$id] = self::bekannteNamen($db, $id, $alt[$id], $kontakte[$id]);
+            $namenJe[$id] = self::bekannteNamen($db, $id, $alt[$id], $kontakte[$id], $protokollNamen[$id] ?? []);
             array_push($alleNamen, ...$namenJe[$id]);
         }
 
@@ -302,9 +328,11 @@ final class KontaktDsgvo {
      *
      * @param array{person: int[], station: int[]} $alt
      * @param array<string, mixed>|null $kontakt die Zeile aus contacts, falls schon gelesen
+     * @param string[]|null $protokollNamen die Namen aus dem Protokoll, falls schon
+     *        für eine ganze Charge gelesen (AuditLogger::kontaktNamenAusProtokollMenge())
      * @return string[]
      */
-    public static function bekannteNamen(PDO $db, int $id, array $alt, ?array $kontakt = null): array {
+    public static function bekannteNamen(PDO $db, int $id, array $alt, ?array $kontakt = null, ?array $protokollNamen = null): array {
         $namen = [];
         if ($kontakt !== null) {
             $namen[] = (string)($kontakt['name'] ?? '');
@@ -316,7 +344,7 @@ final class KontaktDsgvo {
         foreach (self::altzeilen($db, $alt) as $zeile) {
             $namen[] = (string)($zeile['felder']['name'] ?? '');
         }
-        array_push($namen, ...AuditLogger::kontaktNamenAusProtokoll($db, $id, $alt['person'], $alt['station']));
+        array_push($namen, ...($protokollNamen ?? AuditLogger::kontaktNamenAusProtokoll($db, $id, $alt['person'], $alt['station'])));
 
         $sauber = [];
         foreach ($namen as $name) {
@@ -347,9 +375,16 @@ final class KontaktDsgvo {
     /**
      * Welche Alttabellen gibt es? Auf Neuinstallationen keine.
      *
+     * Während loeschen() steht die Antwort fest ($altTabellenFest); sonst
+     * wird jedes Mal nachgeschlagen - Migration und Rückweg legen die
+     * Tabellen an bzw. benennen sie um.
+     *
      * @return array<string, string> old_type => Tabelle
      */
     public static function altTabellen(PDO $db): array {
+        if (self::$altTabellenFest !== null) {
+            return self::$altTabellenFest;
+        }
         try {
             $vorhanden = $db->query(
                 "SELECT TABLE_NAME FROM information_schema.TABLES

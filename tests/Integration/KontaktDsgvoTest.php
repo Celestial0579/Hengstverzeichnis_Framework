@@ -277,6 +277,40 @@ class KontaktDsgvoTest extends TestCase {
         $this->assertSame(0, AuditLogger::kontaktPseudonymisieren($this->pdo, 5, [5], [12], [$name], ['erika@example.com']), 'Idempotent');
     }
 
+    /**
+     * Die Papierkorb-Charge liest die Protokollnamen in einem Durchgang
+     * (kontaktNamenAusProtokollMenge) statt je Kontakt. Das Ergebnis muss je
+     * Kontakt dasselbe sein - inklusive "5 trifft nicht 55" und der
+     * Kennungen aus dem Altbestand.
+     */
+    public function testMengenabfrageLiefertDieselbenNamenWieDieEinzelabfrage(): void {
+        $this->protokoll('contacts', 'Kontakt ID 5: Erika Einzig');
+        $this->protokoll('contacts', 'Kontakt ID 55: Anderer Mensch');
+        $this->protokoll('contacts', 'Quelle ID 5 (Erika Früher) -> Ziel ID 55 (Anderer Mensch): 1 Zuordnung(en) umgehängt');
+        $this->protokoll('persons', 'Person ID 7: Alte Person');
+        $this->protokoll('breeding_stations', 'Deckstation ID 12: Erika Hof');
+        $this->protokoll('breeding_stations', 'Deckstation ID 120: Nachbarhof');
+        $this->protokoll('matches', 'contact 5/55: different (Notiz)');
+        $this->protokoll('horses', 'Pferd ID 5: Erika Einzig');
+
+        $jeKontakt = [
+            5 => ['person' => [7], 'station' => [12]],
+            55 => ['person' => [], 'station' => []],
+            9 => ['person' => [], 'station' => [120]],
+        ];
+        $menge = AuditLogger::kontaktNamenAusProtokollMenge($this->pdo, $jeKontakt);
+
+        foreach ($jeKontakt as $id => $alt) {
+            $this->assertSame(
+                AuditLogger::kontaktNamenAusProtokoll($this->pdo, $id, $alt['person'], $alt['station']),
+                $menge[$id],
+                "Kontakt {$id}"
+            );
+        }
+        $this->assertEqualsCanonicalizing(['Erika Einzig', 'Erika Früher', 'Alte Person', 'Erika Hof'], $menge[5]);
+        $this->assertSame([], AuditLogger::kontaktNamenAusProtokollMenge($this->pdo, []));
+    }
+
     public function testMailProtokollWirdMaskiert(): void {
         $code = $this->protokoll('email', 'Empfänger: max@verein.de, Betreff: Anmeldecode 483920 - Verband');
         $antwort = $this->protokoll('email', 'Empfänger: a@b.de, Antwort: 550 5.1.1 <a@b.de>: Recipient address rejected');

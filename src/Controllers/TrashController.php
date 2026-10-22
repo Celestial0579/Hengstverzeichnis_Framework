@@ -385,6 +385,11 @@ class TrashController extends BaseController {
             $this->renderForbidden("CSRF-Sicherheits-Token ungültig oder abgelaufen.");
         }
 
+        // Ein grosser Papierkorb läuft in Chargen mit je einer Transaktion;
+        // brach PHP mittendrin nach max_execution_time ab, blieb er halb
+        // geleert und die laufende Charge wurde zurückgerollt.
+        \App\Helper\LongRunning::allow();
+
         $isAdmin = $this->isAdmin();
         $db = Database::getInstance();
 

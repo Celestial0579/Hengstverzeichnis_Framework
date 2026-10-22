@@ -1528,6 +1528,32 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- **Papierkorb leeren: ein Protokoll-Durchgang je Charge.** Für jeden
+  gelöschten Kontakt suchte die Bereinigung die Namen im Audit-Log einzeln
+  (ein Scan über die Kontakt-Kategorien je Kontakt, `details` ist nicht
+  indizierbar) und fragte `information_schema` nach den Alttabellen. Bei 500
+  Kontakten je Charge lief das in die Zeitgrenze – mit Zeilensperren auf
+  `contacts`. Jetzt liest eine Charge das Protokoll einmal in Abschnitten,
+  die Alttabellen einmal; das Leeren hebt zudem das Zeitlimit auf.
+
+- **Katalog: Vorschlagslisten begrenzt, Personenliste nur einmal.** Die
+  Listen für Züchter/Besitzer und Deckstationen hatten kein `LIMIT`, und die
+  Personenliste stand zweimal im Markup (bei 10.000 Kontakten rund 1,8 MB je
+  Seitenaufruf). Beide Felder teilen sich jetzt eine Liste (`person_list`),
+  jede Liste hat höchstens 1.000 Einträge. Die Felder bleiben Freitext.
+
+- **Dubletten-Assistent (`/admin/matches`): Suchfeld statt Komplettliste.**
+  Die manuelle Auswahl gab je Platzhalter den gesamten Pferdebestand als
+  Auswahlliste aus – bis zu 50-mal pro Seite. Sie nutzt jetzt die
+  Pferdesuche (`/admin/horses/search`). Der Endpunkt kennt dafür den Filter
+  `elternteil=sire|dam`: geschlechtsfremde Pferde fallen heraus, Pferde ohne
+  Geschlechtsangabe bleiben wählbar.
+
+- **Index für die `/api/stats`-Zeitreihen** (`idx_horses_created`,
+  `SCHEMA_VERSION` 33). `horses.created` und `horses.published` liefen als
+  Full Scan über `horses`.
+
+
 - **Bildadressen tragen eine Version** (Audit M14). `image_url` in
   `/api/horses` und die Adressen aus `App\Helper\MediaUrl` enden jetzt auf
   `&v=<12 hex>`. Behandeln Sie die Adresse als undurchsichtig.

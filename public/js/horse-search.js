@@ -63,6 +63,11 @@
             if (feld.dataset.rolle) {
                 params.set('rolle', feld.dataset.rolle);
             }
+            // data-elternteil: sire | dam - wie data-geschlecht, aber Pferde
+            // ohne Geschlechtsangabe bleiben wählbar (Match-Assistent).
+            if (feld.dataset.elternteil) {
+                params.set('elternteil', feld.dataset.elternteil);
+            }
             if (feld.dataset.nurMitFarbe === '1') {
                 params.set('nur_mit_farbe', '1');
             }

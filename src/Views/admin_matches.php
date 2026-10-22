@@ -2,7 +2,6 @@
 // src/Views/admin_matches.php
 /**
  * @var array $unlinkedMatches Platzhalter der aktuellen Seite (#215, 50 je Seite)
- * @var array $allHorses
  * @var array $sexMismatches Bestehende Eltern-Verknüpfungen mit unpassendem Geschlecht (#166)
  * @var int $matchPage Aktuelle Seite (1-basiert)
  * @var int $matchTotalPages Gesamtzahl Seiten
@@ -187,23 +186,20 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
                                 <input type="hidden" name="csrf_token" value="<?= App\Router::generateCsrfToken() ?>">
                                 <input type="hidden" name="child_id" value="<?= $match['child_id'] ?>">
                                 <input type="hidden" name="parent_type" value="<?= $match['parent_type'] ?>">
-                                <select name="parent_horse_id" class="form-control" required style="width: auto; padding: 0.3rem 0.5rem; font-size: 0.85rem;">
-                                    <option value="">-- Manuell wählen --</option>
-                                    <?php foreach ($allHorses as $candidate): ?>
-                                        <?php if ($candidate['id'] == $match['child_id']) continue; ?>
-                                        <?php
-                                        // Geschlechtsfremde Kandidaten je Rolle ausblenden (#167);
-                                        // NULL (unbekannt) bleibt wählbar. Serverseitig prüft
-                                        // linkMatch() zusätzlich.
-                                        $wrongSex = $match['parent_type'] === 'sire'
-                                            ? in_array($candidate['sex'] ?? null, ['mare', 'gelding'], true)
-                                            : in_array($candidate['sex'] ?? null, ['stallion', 'gelding'], true);
-                                        if ($wrongSex) continue;
-                                        ?>
-                                        <option value="<?= $candidate['id'] ?>">
-                                            <?= htmlspecialchars($candidate['name']) ?> <?= $candidate['ueln'] ? '[' . htmlspecialchars($candidate['ueln']) . ']' : '' ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                <?php
+                                // Suchfeld statt Komplettliste: Je Platzhalter stand hier der
+                                // GESAMTE Pferdebestand als <option> - 50 Platzhalter x 10.000
+                                // Pferde = 500.000 Optionen auf einer Seite. Geschlechtsfremde
+                                // Kandidaten filtert der Endpunkt (elternteil, #167), NULL bleibt
+                                // wählbar; serverseitig prüft linkMatch() zusätzlich.
+                                $auswahlId = 'manuell-' . (int)$match['child_id'] . '-' . htmlspecialchars($match['parent_type']);
+                                ?>
+                                <input type="search" class="form-control hv-pferdesuche" data-ziel="<?= $auswahlId ?>"
+                                       data-elternteil="<?= htmlspecialchars($match['parent_type']) ?>"
+                                       placeholder="Pferd suchen …" aria-label="Pferd suchen" autocomplete="off"
+                                       style="width: auto; padding: 0.3rem 0.5rem; font-size: 0.85rem;">
+                                <select name="parent_horse_id" id="<?= $auswahlId ?>" class="form-control" required style="width: auto; padding: 0.3rem 0.5rem; font-size: 0.85rem;">
+                                    <option value="">-- erst suchen --</option>
                                 </select>
                                 <button type="submit" class="btn btn-secondary" style="padding: 0.3rem 0.8rem; font-size: 0.85rem;">Manuell Verknüpfen</button>
                             </form>
@@ -361,3 +357,5 @@ $matchTotal = (int)($matchTotal ?? count($unlinkedMatches));
     </div>
 </div>
 <?php endif; ?>
+
+<script defer src="/js/horse-search.js"></script>

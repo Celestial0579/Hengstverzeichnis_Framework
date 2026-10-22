@@ -1455,11 +1455,9 @@ class HorseController extends BaseController {
         $unlinkedMatches = \App\Service\MatchSuggestionFinder::findAll($perPage, ($matchPage - 1) * $perPage);
 
         $db = Database::getInstance();
-        // Nur noch die Felder, die das manuelle Auswahl-Dropdown der View
-        // tatsächlich braucht (#215): die frühere Abfrage lud hier eine zweite
-        // Vollkopie der horses-Tabelle mit allen Match-Spalten, obwohl
-        // findAll() die Kandidaten-Daten bereits selbst ermittelt.
-        $allHorses = $db->query("SELECT id, name, ueln, sex FROM horses WHERE deleted_at IS NULL ORDER BY name ASC")->fetchAll();
+        // Die manuelle Auswahl sucht über /admin/horses/search - hier wird
+        // kein Pferdebestand mehr geladen (vorher je Seitenaufruf komplett,
+        // in der View je Platzhalter erneut ausgegeben).
 
         // Datenqualitäts-Report (#166): bestehende Verknüpfungen, deren Elternteil
         // ein unpassendes Geschlecht trägt - entstanden, bevor es das Geschlechtsfeld
@@ -1489,7 +1487,6 @@ class HorseController extends BaseController {
         $this->render('admin_matches', [
             'title' => 'Dubletten: Blutlinien und Kontakte',
             'unlinkedMatches' => $unlinkedMatches,
-            'allHorses' => $allHorses,
             'sexMismatches' => $sexMismatches,
             'matchPage' => $matchPage,
             'matchTotalPages' => $matchTotalPages,

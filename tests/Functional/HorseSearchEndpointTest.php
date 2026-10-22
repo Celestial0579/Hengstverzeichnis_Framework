@@ -127,7 +127,32 @@ class HorseSearchEndpointTest extends FunctionalTestCase {
         }
     }
 
-    public function testOhneAnmeldungKeineTreffer(): void {
+    /**
+     * `elternteil` für den Match-Assistenten: geschlechtsfremde Pferde fallen
+     * heraus, Pferde ohne Geschlechtsangabe bleiben wählbar (#167) - anders
+     * als bei `geschlecht`, das NULL ausschliesst.
+     */
+    public function testElternteilfilterLaesstUnbekanntesGeschlechtZu(): void {
+        $this->seedHorse('Elternfilter Hengst', 'DE-TEST-E1', 2013, 'stallion', 'falb');
+        $this->seedHorse('Elternfilter Stute', 'DE-TEST-E2', 2014, 'mare', 'falb');
+        $this->seedHorse('Elternfilter Wallach', 'DE-TEST-E3', 2014, 'gelding', 'falb');
+        $unbekannt = $this->seedHorse('Elternfilter Unbekannt', 'DE-TEST-E4', 2012, 'stallion', 'falb');
+        Database::getInstance()->prepare('UPDATE horses SET sex = NULL WHERE id = ?')->execute([$unbekannt]);
+        $admin = $this->authenticatedClient();
+
+        $vater = implode(' | ', array_column(json_decode($admin->get(self::PFAD . '?q=Elternfilter&elternteil=sire')->body, true), 'label'));
+        $this->assertStringContainsString('Elternfilter Hengst', $vater);
+        $this->assertStringContainsString('Elternfilter Unbekannt', $vater);
+        $this->assertStringNotContainsString('Elternfilter Stute', $vater);
+        $this->assertStringNotContainsString('Elternfilter Wallach', $vater);
+
+        $mutter = implode(' | ', array_column(json_decode($admin->get(self::PFAD . '?q=Elternfilter&elternteil=dam')->body, true), 'label'));
+        $this->assertStringContainsString('Elternfilter Stute', $mutter);
+        $this->assertStringContainsString('Elternfilter Unbekannt', $mutter);
+        $this->assertStringNotContainsString('Elternfilter Hengst', $mutter);
+    }
+
+        public function testOhneAnmeldungKeineTreffer(): void {
         $this->seedHorse('Geheimpferd', 'DE-TEST-6', 2015, 'mare', 'braun');
 
         $antwort = $this->newClient()->get(self::PFAD . '?q=Geheim');

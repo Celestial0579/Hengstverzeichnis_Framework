@@ -225,6 +225,9 @@ final class BackupService {
         // geworfen.
         $uploadsFehler = null;
         $archivArt = 'Uploads-Archiv';
+        // Die Art, deren Archiv in diesem Lauf scheiterte - sie rotiert
+        // nicht (siehe Schritt 4).
+        $fehlArt = null;
         $pflicht = self::archivNamen($pflichtVerzeichnisse);
         if (self::includeUploads($settings)) {
             $uploadsFile = null;
@@ -243,6 +246,7 @@ final class BackupService {
                 );
             } catch (\Throwable $e) {
                 $uploadsFehler = $e;
+                $fehlArt = 'uploads-';
             } finally {
                 if ($uploadsFile !== null) {
                     self::tempDateiEntfernen($uploadsFile);
@@ -266,6 +270,7 @@ final class BackupService {
             } catch (\Throwable $e) {
                 $uploadsFehler = $e;
                 $archivArt = 'Addon-Daten-Archiv';
+                $fehlArt = 'addondaten-';
             } finally {
                 if ($addonFile !== null) {
                     self::tempDateiEntfernen($addonFile);
@@ -287,11 +292,14 @@ final class BackupService {
         // ein bereits erfolgreich hochgeladenes Backup gilt unabhängig davon
         // als Erfolg (Datensicherheit erreicht), ein Rotationsfehler wird nur
         // protokolliert, nicht als Gesamtfehler des Laufs gewertet. Auch nach
-        // 'partial': Der neue Dump ist verifiziert am Ziel, und für die Art
-        // 'uploads-' kam kein neues Objekt hinzu - dort wird nichts
-        // zusätzlich gelöscht.
+        // 'partial' für den Dump, der verifiziert am Ziel liegt - aber NICHT
+        // für die gescheiterte Art: Bei WebDAV/FTPS kann ein abgebrochener
+        // Upload ein Fragment hinterlassen (nicht exklusiver Lauf oder
+        // gescheitertes Aufräumen in hochladen()). Es zählte als neuestes
+        // Objekt und verdrängte das älteste intakte Archiv; nach wenigen
+        // solchen Nächten bestünde die Aufbewahrung nur noch aus Fragmenten.
         try {
-            self::applyRetention($client, $settings);
+            self::applyRetention($client, $settings, $fehlArt === null ? [] : [$fehlArt]);
         } catch (\Throwable $e) {
             AuditLogger::log('Backup-Aufbewahrungsrotation fehlgeschlagen', 'settings', $e->getMessage());
         }
@@ -311,7 +319,9 @@ final class BackupService {
      * zählte es als neuestes und verdrängte ein intaktes. Deshalb wird der
      * eigene, gerade erzeugte Schlüssel best effort wieder gelöscht (Audit
      * N65), aber nur, wenn dieser Lauf exklusiv ist (siehe run()). Ein
-     * S3-PUT ist atomar, dort entfällt der Schritt.
+     * S3-PUT ist atomar, dort entfällt der Schritt. Scheitert auch das
+     * Aufräumen, steht es im Audit-Log - das Fragment liegt dann am Ziel,
+     * und nur dort fällt es sonst erst beim Zurückspielen auf.
      */
     private static function hochladen(BackupTarget $client, string $key, string $file, string $contentType, bool $exklusiv): void {
         try {
@@ -320,8 +330,13 @@ final class BackupService {
             if ($exklusiv && ($client instanceof WebDavClient || $client instanceof FtpsClient)) {
                 try {
                     $client->deleteObject($key);
-                } catch (\Throwable $ignoriert) {
+                } catch (\Throwable $aufraeumen) {
                     // Best effort - die eigentliche Ursache ist $e.
+                    AuditLogger::log(
+                        'Backup: abgebrochenes Objekt am Ziel nicht entfernt',
+                        'settings',
+                        $key . ': ' . $aufraeumen->getMessage()
+                    );
                 }
             }
             throw $e;
@@ -338,12 +353,14 @@ final class BackupService {
      * deaktiviert ist (es kommen dann schlicht keine neuen hinzu).
      *
      * @param array<string, string> $settings
+     * @param string[] $auslassen Arten, die dieser Lauf nicht rotiert - die,
+     *        deren Upload gerade gescheitert ist (siehe lauf()).
      */
-    private static function applyRetention(BackupTarget $client, array $settings): void {
+    private static function applyRetention(BackupTarget $client, array $settings, array $auslassen = []): void {
         $keepCount = max(1, (int)($settings['backup_retention_count'] ?? self::DEFAULT_RETENTION_COUNT));
         $objects = $client->listObjects(self::OBJECT_PREFIX);
 
-        foreach (['backup-', 'uploads-', 'addondaten-'] as $kindPrefix) {
+        foreach (array_diff(['backup-', 'uploads-', 'addondaten-'], $auslassen) as $kindPrefix) {
             // listObjects() liefert aufsteigend nach Schlüssel sortiert - durch
             // das "<Art>-<ISO-Zeitstempel>"-Namensschema entspricht das je Art
             // der chronologischen Reihenfolge, älteste zuerst.

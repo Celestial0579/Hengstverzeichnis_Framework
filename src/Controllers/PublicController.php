@@ -237,7 +237,10 @@ class PublicController extends BaseController {
                     dam.name as linked_dam_name, h.dam_name as unlinked_dam_name
                 {$joinSql}
                 WHERE {$whereSql}
-                ORDER BY h.name ASC
+                -- h.id als Tiebreaker: Gleichnamige Pferde hätten sonst keine
+                -- feste Reihenfolge, und LIMIT/OFFSET lieferte sie beim
+                -- Nachladen doppelt oder gar nicht.
+                ORDER BY h.name ASC, h.id ASC
                 LIMIT ? OFFSET ?
             ";
 

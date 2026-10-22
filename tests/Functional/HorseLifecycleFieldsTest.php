@@ -129,12 +129,14 @@ class HorseLifecycleFieldsTest extends FunctionalTestCase {
             'name' => $outOfRangeName,
             'height_cm' => '66000',
             'death_year' => '66000',
+            'birth_year' => '66000',
         ]);
         $this->assertSame('/admin/horses?success=created', $response->location(), 'Out-of-Range-Werte dürfen keinen DB-Fehler auslösen');
         $stmt->execute([$idByName($outOfRangeName)]);
         $row = $stmt->fetch();
         $this->assertNull($row['height_cm'], 'Stockmaß außerhalb 50-250 muss zu NULL werden');
         $this->assertNull($row['death_year'], 'Todesjahr außerhalb 1600-Folgejahr muss zu NULL werden');
+        $this->assertNull($row['birth_year'], 'Geburtsjahr außerhalb 1600-Folgejahr muss zu NULL werden');
         $this->assertSame(0, (int)$row['is_deceased'], 'Ein verworfenes Todesjahr darf nicht als verstorben zählen');
 
         // 4. Update-Pfad: birth_date entfernen lässt birth_year direkt

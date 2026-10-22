@@ -176,7 +176,7 @@ class ApiController extends JsonApiController {
             {$bau->joinSql()}
             {$bau->personAggregateJoin()}
             WHERE {$whereSql}
-            ORDER BY h.name ASC
+            ORDER BY h.name ASC, h.id ASC
             {$limitSql}
         ");
         $paramIndex = 1;

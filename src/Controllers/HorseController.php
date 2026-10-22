@@ -103,7 +103,7 @@ class HorseController extends BaseController {
             SELECT h.id, h.name, h.ueln, h.birth_year, h.status, h.is_deceased, h.is_published, h.image_url
             {$joinSql}
             WHERE {$whereSql}
-            ORDER BY h.name ASC
+            ORDER BY h.name ASC, h.id ASC
             LIMIT ? OFFSET ?
         ");
         $index = 1;
@@ -419,7 +419,10 @@ class HorseController extends BaseController {
         // Nummern leben in horse_registrations); das Feld bleibt aus
         // Abwärtskompatibilität beschreibbar (z. B. Skript-POSTs), sonst NULL.
         $foreign_ueln = trim($_POST['foreign_ueln'] ?? '') ?: null;
-        $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
+        // Bereich wie death_year (1600 bis Folgejahr): Die Spalte ist SMALLINT
+        // UNSIGNED, ein Wert ausserhalb liefe erst nach dem Bild-Upload in
+        // einen DB-Fehler (HTTP 500, verwaiste Datei).
+        $birth_year = $this->jahrAusEingabe($_POST['birth_year'] ?? '');
         // Geburtsdatum (#188) ist führend: wenn gesetzt, wird birth_year daraus
         // abgeleitet und ein abweichend übermitteltes Jahr ignoriert.
         $birth_date = $this->parseDate($_POST['birth_date'] ?? '');
@@ -716,7 +719,7 @@ class HorseController extends BaseController {
         // übermittelt" und lässt den Bestandswert im UPDATE unten (CASE)
         // unangetastet; ein übermittelter Leerstring löscht weiterhin bewusst.
         $foreign_ueln = array_key_exists('foreign_ueln', $_POST) ? trim($_POST['foreign_ueln']) : null;
-        $birth_year = !empty($_POST['birth_year']) ? (int)$_POST['birth_year'] : null;
+        $birth_year = $this->jahrAusEingabe($_POST['birth_year'] ?? '');
         // Geburtsdatum (#188) ist führend, siehe store().
         $birth_date = $this->parseDate($_POST['birth_date'] ?? '');
         if ($birth_date !== null) {
@@ -955,7 +958,7 @@ class HorseController extends BaseController {
     }
 
     /**
-     * Jahresangabe (#188, Todesjahr) aus dem Formular: Ganzzahl im selben
+     * Jahresangabe (#188, Geburts- und Todesjahr) aus dem Formular: Ganzzahl im selben
      * Bereich wie der CSV-Import (1600 bis Folgejahr), sonst NULL - gleiche
      * Begründung wie bei parseHeightCm().
      */

@@ -365,6 +365,14 @@ try {
     // 7. Marker und Schema-Stand zurücksetzen, damit ein erneuter
     //    Migrationslauf die Übernahme wieder ausführt.
     $pdo->exec("DELETE FROM settings WHERE setting_key LIKE 'migration\\_336\\_%'");
+    // Auch #412: Der Schritt hält eine reine Indextatsache in einem
+    // Einmal-Marker fest. Mit horse_persons.contact_id ist eben auch der
+    // breite Index idx_horse_persons_contact (contact_id, horse_id)
+    // verschwunden; 336_fremdschluessel legt ihn beim erneuten Lauf
+    // einspaltig an. Bliebe der Marker stehen, übersprünge der Schritt die
+    // Verbreiterung - der Index bliebe dauerhaft schmal, obwohl die
+    // Installation sich als aktuell meldet.
+    $pdo->exec("DELETE FROM settings WHERE setting_key = 'migration_412_horse_persons_contact_deckend'");
     $pdo->exec("DELETE FROM settings WHERE setting_key = 'schema_migration_status'");
     $pdo->prepare("UPDATE settings SET setting_value = '9' WHERE setting_key = 'schema_version'")->execute();
 } catch (\Throwable $e) {

@@ -51,3 +51,7 @@ storage/horses/*
 # naechsten Commit falsch, und zwar unbemerkt.
 /KERN-SHA256SUMS.txt
 /ABGELOESTE-DATEIEN.txt
+
+# Lokale Claude-Code-Dateien (Freigaben, ggf. mit Geheimnissen)
+.claude/settings.local.json
+CLAUDE.local.md

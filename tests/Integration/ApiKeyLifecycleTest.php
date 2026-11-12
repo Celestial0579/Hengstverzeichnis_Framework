@@ -95,6 +95,31 @@ class ApiKeyLifecycleTest extends TestCase {
         );
     }
 
+    /**
+     * Ein gelöschtes oder deaktiviertes Konto nimmt seine Schlüssel mit:
+     * authenticate() verlangt `deleted_at IS NULL AND deactivated_at IS NULL`.
+     * Ohne diesen Test fiele eine Umstellung der Abfrage (etwa ein JOIN ohne
+     * die beiden Bedingungen) nicht auf - der Schlüssel eines entfernten
+     * Mitarbeiters gälte dann bis zu seinem Ablaufdatum weiter.
+     */
+    public function testKeyOfADeletedOrDeactivatedAccountIsRejected(): void {
+        $erstellt = ApiKey::create(4711, 'Kontoende', null);
+        $this->assertTrue($erstellt['ok']);
+        $this->assertNotNull(ApiKey::authenticate($erstellt['token']));
+
+        self::$db->exec("UPDATE users SET deactivated_at = NOW() WHERE id = 4711");
+        $this->assertNull(ApiKey::authenticate($erstellt['token']), 'Deaktiviertes Konto: Schlüssel abgelehnt.');
+
+        self::$db->exec("UPDATE users SET deactivated_at = NULL, deleted_at = NOW() WHERE id = 4711");
+        $this->assertNull(ApiKey::authenticate($erstellt['token']), 'Gelöschtes Konto (Papierkorb): Schlüssel abgelehnt.');
+
+        self::$db->exec("UPDATE users SET deleted_at = NULL WHERE id = 4711");
+        $this->assertNotNull(
+            ApiKey::authenticate($erstellt['token']),
+            'Wiederhergestellt: Der Schlüssel war nur gesperrt, nicht widerrufen.'
+        );
+    }
+
     // ---- #340: Pflicht-Ablaufdatum ------------------------------------
 
     public function testExpiredKeyIsRejectedEvenThoughItIsNotRevoked(): void {

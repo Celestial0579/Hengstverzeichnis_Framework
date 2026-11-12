@@ -741,8 +741,10 @@ nicht öffentlich sind (Audit M21). Seitdem gilt:
   (auch im Papierkorb) und das Verbandslogo. Im Web läuft der Schritt
   höchstens 20 Sekunden je Aufruf und setzt danach hinter dem Cursor
   `bildmetadaten_cursor` fort; `php database/migrate.php` läuft ohne
-  Zeitgrenze. Nicht lesbare Dateien bleiben unverändert und stehen je Datei
-  im Fehlerprotokoll (`BildMetadaten: nicht lesbar …`).
+  Zeitgrenze. Der Cursor nennt Tabelle und Primärschlüssel (`m:1234` für
+  `horse_media`, `h:567` für `horses`); jede Charge liest damit nur die
+  nächsten Zeilen (#508). Nicht lesbare Dateien bleiben unverändert und
+  stehen je Datei im Fehlerprotokoll (`BildMetadaten: nicht lesbar …`).
 - **Was der Schutz nicht erreicht:** Sicherungen von vor dem Update, ein
   manuell zurückgespieltes altes `uploads`-Archiv und Importe über das Addon
   `datenmigration` bringen Rohdateien zurück. Danach entweder

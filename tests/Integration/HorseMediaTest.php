@@ -21,6 +21,8 @@ use PHPUnit\Framework\TestCase;
  */
 class HorseMediaTest extends TestCase {
 
+    use \Tests\Support\Zeilenzugriffe;
+
     private static PDO $db;
     private int $horseId;
     private string $tmp;
@@ -65,6 +67,7 @@ class HorseMediaTest extends TestCase {
     }
 
     protected function tearDown(): void {
+        HorseMedia::ohneDateinamenSpaltenFuerTests(false);
         HorseImagePath::overrideForTests(null, null);
         foreach (['/horses', '/legacy', ''] as $unter) {
             foreach (glob($this->tmp . $unter . '/{,.}*', GLOB_BRACE) ?: [] as $datei) {
@@ -447,5 +450,135 @@ class HorseMediaTest extends TestCase {
 
         $this->assertSame(0, HorseMedia::verwaisteDateienEntfernen(['../x', '.', '', '..', '/uploads/horses/..']));
         $this->assertFileExists($this->tmp . '/x.jpg');
+    }
+
+    // --- #507: Referenzpruefung ueber die generierten Dateinamen-Spalten ----
+
+    /**
+     * Die Spalten tragen den Dateinamen - ohne Pfad, Query und Fragment - und
+     * sind unsichtbar: `SELECT *` liefert sie nicht. Daran haengt, dass
+     * Sicherung und Datenexport (DatabaseDumper baut seine INSERT-Zeilen aus
+     * `SELECT *`) von ihnen nichts merken.
+     */
+    public function testDieDateinamenSpaltenSindGeneriertUndUnsichtbar(): void {
+        $this->setzeBildUrl('https://alt.example/pfad/Haupt.jpg?v=3#oben');
+        $this->zeile('uploads/horses/galerie.png?x=1', 10);
+        $this->zeile('https://vimeo.com/1', 20, 0, 'video');
+
+        $this->assertSame(
+            'Haupt.jpg',
+            self::$db->query("SELECT image_basename FROM horses WHERE id = {$this->horseId}")->fetchColumn()
+        );
+        $this->assertSame(
+            ['galerie.png', null],
+            self::$db->query('SELECT file_basename FROM horse_media ORDER BY sort_order')->fetchAll(PDO::FETCH_COLUMN)
+        );
+
+        $pferd = self::$db->query("SELECT * FROM horses WHERE id = {$this->horseId}")->fetch(PDO::FETCH_ASSOC);
+        $medium = self::$db->query('SELECT * FROM horse_media LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+        foreach (['image_basename', 'name_soundex', 'name_prefix3'] as $spalte) {
+            $this->assertArrayNotHasKey($spalte, $pferd, "{$spalte} darf in SELECT * nicht auftauchen");
+        }
+        $this->assertArrayNotHasKey('file_basename', $medium);
+        $this->assertArrayHasKey('image_url', $pferd);
+
+        foreach ([['horses', 'image_basename'], ['horse_media', 'file_basename']] as [$tabelle, $spalte]) {
+            $extra = (string)self::$db->query("SHOW COLUMNS FROM `{$tabelle}` LIKE '{$spalte}'")->fetch(PDO::FETCH_ASSOC)['Extra'];
+            $this->assertStringContainsStringIgnoringCase('VIRTUAL', $extra, "{$tabelle}.{$spalte}");
+            $this->assertStringContainsStringIgnoringCase('INVISIBLE', $extra, "{$tabelle}.{$spalte}");
+        }
+    }
+
+    /**
+     * Der Kern von #507: Vor dem Loeschen EINER Datei las die Pruefung
+     * `horse_media` und `horses` vollstaendig. Gemessen wird an den
+     * Zeilenzugriffen der Verbindung (Handler_read_*) - mit der Gegenprobe
+     * ueber die bisherige Abfrage, damit der Test nicht nur deshalb gruen
+     * ist, weil die Messung nichts sieht.
+     */
+    public function testDieReferenzpruefungLiestNichtMehrDenGanzenBestand(): void {
+        $bestand = 600;
+        $this->bestandMitBildern($bestand);
+        $leer = self::zeilenzugriffeLeer(self::$db);
+
+        $pruefen = function (): int {
+            $this->datei('frei.jpg');
+            return self::zeilenzugriffeVon(self::$db, function (): void {
+                $this->assertSame(1, HorseMedia::verwaisteDateienEntfernen([
+                    '/uploads/horses/frei.jpg', '/uploads/horses/bestand_17.jpg', '/uploads/horses/galerie_23.jpg',
+                ]));
+            });
+        };
+
+        $mitIndex = $pruefen() - $leer;
+
+        HorseMedia::ohneDateinamenSpaltenFuerTests(true);
+        $ohneIndex = $pruefen() - $leer;
+
+        $this->assertLessThan(100, $mitIndex, "Ueber die Suchspalten: {$mitIndex} Zeilenzugriffe bei {$bestand} Pferden");
+        $this->assertGreaterThanOrEqual(
+            2 * $bestand,
+            $ohneIndex,
+            "Gegenprobe: Die bisherige Abfrage liest beide Tabellen ganz ({$ohneIndex} Zeilenzugriffe)"
+        );
+    }
+
+    /**
+     * Fehlen die Spalten wirklich (Tabelle aus einem aelteren Teilarchiv
+     * zurueckgespielt, Migration noch nicht gelaufen), darf die Pruefung
+     * weder scheitern noch "nicht referenziert" melden: Sie faellt auf die
+     * bisherige Abfrage zurueck. Danach holt die Migration die Spalte samt
+     * Index nach.
+     */
+    public function testOhneDieSpaltenLaeuftDieBisherigeAbfrageUndDieMigrationHoltSieNach(): void {
+        self::$db->exec('ALTER TABLE horse_media DROP COLUMN file_basename');
+        try {
+            $this->assertSame(0, self::$db->query("SHOW COLUMNS FROM horse_media LIKE 'file_basename'")->rowCount());
+
+            $this->datei('geteilt.jpg');
+            $this->datei('frei.jpg');
+            self::$db->exec("INSERT INTO horses (name, image_url, deleted_at) VALUES ('Im Papierkorb', 'uploads/horses/geteilt.jpg', NOW())");
+            $this->zeile('/uploads/horses/noch_da.jpg', 10);
+            $this->datei('noch_da.jpg');
+
+            $this->assertSame(1, HorseMedia::verwaisteDateienEntfernen([
+                '/uploads/horses/geteilt.jpg', '/uploads/horses/frei.jpg', '/uploads/horses/noch_da.jpg',
+            ]));
+            $this->assertFileExists(HorseImagePath::dir() . '/geteilt.jpg', 'Referenz in abweichender Schreibweise zaehlt weiter');
+            $this->assertFileExists(HorseImagePath::dir() . '/noch_da.jpg');
+            $this->assertFileDoesNotExist(HorseImagePath::dir() . '/frei.jpg');
+        } finally {
+            HorseMedia::ohneDateinamenSpaltenFuerTests(false);
+            self::$db->exec(
+                "UPDATE settings SET setting_value = '" . (\App\Service\SchemaMigrator::SCHEMA_VERSION - 1)
+                . "' WHERE setting_key = 'schema_version'"
+            );
+            $schritte = \App\Service\SchemaMigrator::run(self::$db);
+        }
+
+        $this->assertContains('Spalte horse_media.file_basename ergänzt (generiert, unsichtbar)', $schritte);
+        $this->assertContains('Index horse_media.idx_horse_media_file_basename angelegt', $schritte);
+        $this->assertSame(
+            'noch_da.jpg',
+            self::$db->query("SELECT file_basename FROM horse_media WHERE file_name = '/uploads/horses/noch_da.jpg'")->fetchColumn()
+        );
+    }
+
+    /** Pferde mit Katalogfoto und je einer weiteren Bildzeile, ohne Dateien. */
+    private function bestandMitBildern(int $anzahl): void {
+        $pferde = [];
+        for ($i = 1; $i <= $anzahl; $i++) {
+            $pferde[] = "('Bestand {$i}', '/uploads/horses/bestand_{$i}.jpg')";
+        }
+        self::$db->exec('INSERT INTO horses (name, image_url) VALUES ' . implode(', ', $pferde));
+
+        self::$db->exec(
+            "INSERT INTO horse_media (horse_id, type, file_name, sort_order)
+             SELECT id, 'image', CONCAT('/uploads/horses/galerie_', SUBSTRING_INDEX(name, ' ', -1), '.jpg'), 10
+               FROM horses WHERE name LIKE 'Bestand %'"
+        );
+        // Frische Statistik: Ohne sie haelt der Optimierer die Tabellen noch
+        // fuer leer und waehlt den Zugriffsweg danach.
+        self::$db->query('ANALYZE TABLE horses, horse_media')->fetchAll();
     }
 }

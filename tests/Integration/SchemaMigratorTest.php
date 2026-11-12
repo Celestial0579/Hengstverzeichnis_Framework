@@ -25,6 +25,8 @@ use PHPUnit\Framework\TestCase;
  */
 class SchemaMigratorTest extends TestCase {
 
+    use \Tests\Support\Zeilenzugriffe;
+
     /**
      * Name der Wegwerf-Datenbank. Ueber HV_TEST_DB_PREFIX umstellbar, damit
      * die Suite auch mit einem Datenbank-Benutzer laeuft, der nur auf einem
@@ -192,6 +194,39 @@ class SchemaMigratorTest extends TestCase {
         $this->assertContains(
             sprintf('settings.schema_version auf %d gesetzt (vorher 0)', SchemaMigrator::SCHEMA_VERSION),
             $steps
+        );
+
+        // Suchspalten (#507, #509, SCHEMA_VERSION 34): generiert, unsichtbar
+        // und indiziert - auch auf einem Bestand, der `image_url` und
+        // `horse_media` erst in diesem Lauf bekommen hat.
+        $suchspalten = [
+            ['horses', 'name_soundex', 'idx_horses_name_soundex'],
+            ['horses', 'name_prefix3', 'idx_horses_name_prefix3'],
+            ['horses', 'image_basename', 'idx_horses_image_basename'],
+            ['horse_media', 'file_basename', 'idx_horse_media_file_basename'],
+        ];
+        foreach ($suchspalten as [$tabelle, $spalte, $index]) {
+            $this->assertContains("Spalte {$tabelle}.{$spalte} ergänzt (generiert, unsichtbar)", $steps);
+            $this->assertContains("Index {$tabelle}.{$index} angelegt", $steps);
+            $extra = (string)self::$pdo->query("SHOW COLUMNS FROM `{$tabelle}` LIKE '{$spalte}'")->fetch(PDO::FETCH_ASSOC)['Extra'];
+            $this->assertStringContainsStringIgnoringCase('INVISIBLE', $extra, "{$tabelle}.{$spalte}");
+            $this->assertSame(
+                [$spalte],
+                array_column(self::$pdo->query("SHOW INDEX FROM `{$tabelle}` WHERE Key_name = '{$index}'")->fetchAll(PDO::FETCH_ASSOC), 'Column_name')
+            );
+        }
+        $this->assertSame(
+            ['Leg', 1],
+            array_map(
+                static fn($w) => is_numeric($w) ? (int)$w : $w,
+                self::$pdo->query("SELECT name_prefix3, name_soundex = SOUNDEX(name) FROM horses WHERE name = 'Legacy Aktiv'")->fetch(PDO::FETCH_NUM)
+            ),
+            'Die Suchspalten tragen auch für Bestandszeilen ihren Wert'
+        );
+        $this->assertArrayNotHasKey(
+            'name_soundex',
+            self::$pdo->query("SELECT * FROM horses WHERE name = 'Legacy Aktiv'")->fetch(PDO::FETCH_ASSOC),
+            'Unsichtbar: Sicherung und Export (SELECT *) sehen die Spalten nicht'
         );
 
         // Rechte-Seeds (Audit M22/N18): group_permissions entstand in diesem
@@ -669,15 +704,17 @@ class SchemaMigratorTest extends TestCase {
     public function testBildschrittSetztHinterDemCursorFort(): void {
         [$dir, $alt, $protokoll] = $this->bildAblageAnlegen();
         try {
+            $ids = [];
             foreach (['a', 'b', 'c'] as $n) {
                 file_put_contents($dir . "/horse_9_{$n}.jpg", \Tests\Support\BildFixtures::jpeg(1));
-                $this->pferdMitBild("/uploads/horses/horse_9_{$n}.jpg");
+                $ids[$n] = $this->pferdMitBild("/uploads/horses/horse_9_{$n}.jpg");
             }
             $roh = (string)file_get_contents($dir . '/horse_9_a.jpg');
 
-            // 1. Wiederaufnahme ab gesetztem Cursor.
+            // 1. Wiederaufnahme ab gesetztem Cursor. Er nennt Quelle und
+            //    Primärschlüssel (#508): `h` = horses.image_url.
             self::$pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('bildmetadaten_cursor', ?)")
-                ->execute(['/uploads/horses/horse_9_a.jpg']);
+                ->execute(['h:' . $ids['a']]);
             $schritte = $this->bildSchrittLaufenLassen();
             $this->assertSame($roh, file_get_contents($dir . '/horse_9_a.jpg'), 'Vor dem Cursor: nicht angefasst');
             $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_b.jpg'));
@@ -693,7 +730,7 @@ class SchemaMigratorTest extends TestCase {
             $this->assertNotEmpty(array_filter($schritte, static fn(string $z): bool => str_contains($z, 'bis zum Zeitlimit')));
             $this->assertSame(SchemaMigrator::SCHEMA_VERSION - 1, SchemaMigrator::storedVersion(self::$pdo), 'Offen: kein Versionsstempel');
             $this->assertNull(self::einstellung('migration_bildmetadaten_entfernen'));
-            $this->assertSame('/uploads/horses/horse_9_a.jpg', self::einstellung('bildmetadaten_cursor'));
+            $this->assertSame('h:' . $ids['a'], self::einstellung('bildmetadaten_cursor'));
             $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_a.jpg'));
             $this->assertStringContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . '/horse_9_b.jpg'));
 
@@ -706,6 +743,114 @@ class SchemaMigratorTest extends TestCase {
             $this->assertNull(self::einstellung('bildmetadaten_cursor'));
         } finally {
             SchemaMigrator::setzeBildBudgetFuerTests(false);
+            $this->bildAblageAufraeumen($dir, $alt, $protokoll);
+        }
+    }
+
+    /**
+     * Bis #508 trug der Cursor einen Dateinamen. Steht nach dem Update noch
+     * so einer da (ein Lauf war unterbrochen), beginnt der Schritt von vorn:
+     * Bereinigte Dateien bleiben unverändert, es geht also nichts verloren -
+     * und nichts wird übersprungen.
+     */
+    #[Depends('testBildschrittSetztHinterDemCursorFort')]
+    public function testEinCursorImAltenFormatBeginntVonVorn(): void {
+        [$dir, $alt, $protokoll] = $this->bildAblageAnlegen();
+        try {
+            foreach (['a', 'b', 'c'] as $n) {
+                file_put_contents($dir . "/horse_8_{$n}.jpg", \Tests\Support\BildFixtures::jpeg(1));
+                $this->pferdMitBild("/uploads/horses/horse_8_{$n}.jpg");
+            }
+            self::$pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('bildmetadaten_cursor', ?)")
+                ->execute(['/uploads/horses/horse_8_b.jpg']);
+
+            $schritte = $this->bildSchrittLaufenLassen();
+
+            $this->assertContains('Bildmetadaten (Audit M21): 3 Foto(s) bereinigt, 0 nicht lesbar (unverändert, siehe Fehlerprotokoll)', $schritte);
+            foreach (['a', 'b', 'c'] as $n) {
+                $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . "/horse_8_{$n}.jpg"));
+            }
+            $this->assertNull(self::einstellung('bildmetadaten_cursor'));
+        } finally {
+            $this->bildAblageAufraeumen($dir, $alt, $protokoll);
+        }
+    }
+
+    /**
+     * Die Reihenfolge der Quellen und was "doppelt" heißt (#508): erst die
+     * Bildzeilen, dann die Katalogfotos ohne eigene Bildzeile. Das Hauptbild
+     * steht in beiden Tabellen und kommt einmal dran; dieselbe Datei an einem
+     * zweiten Pferd ebenfalls. `A.jpg` und `a.jpg` sind dagegen zwei Dateien.
+     */
+    #[Depends('testEinCursorImAltenFormatBeginntVonVorn')]
+    public function testBildschrittNimmtJedeDateiEinmal(): void {
+        [$dir, $alt, $protokoll] = $this->bildAblageAnlegen();
+        try {
+            foreach (['haupt', 'galerie', 'Gross', 'gross'] as $n) {
+                file_put_contents($dir . "/horse_7_{$n}.jpg", \Tests\Support\BildFixtures::jpeg(1));
+            }
+            $eins = $this->pferdMitBild('/uploads/horses/horse_7_haupt.jpg');
+            $this->medium($eins, '/uploads/horses/horse_7_haupt.jpg');
+            self::$pdo->prepare("INSERT INTO horse_media (horse_id, type, file_name, sort_order) VALUES (?, 'image', ?, 20)")
+                ->execute([$eins, '/uploads/horses/horse_7_galerie.jpg']);
+            self::$pdo->prepare("INSERT INTO horse_media (horse_id, type, video_url, sort_order) VALUES (?, 'video', 'https://vimeo.com/1', 30)")
+                ->execute([$eins]);
+            // Dieselbe Datei an einem zweiten Pferd, ohne Bildzeile.
+            $this->pferdMitBild('/uploads/horses/horse_7_haupt.jpg');
+            // Groß-/Kleinschreibung: Bildzeile und Katalogfoto meinen zwei Dateien.
+            $drei = $this->pferdMitBild('/uploads/horses/horse_7_gross.jpg');
+            $this->medium($drei, '/uploads/horses/horse_7_Gross.jpg');
+
+            $e = \App\Service\BildMetadaten::bestandBereinigen(self::$pdo);
+
+            $this->assertSame(4, $e['bereinigt'], 'haupt, galerie, Gross und gross - je einmal');
+            $this->assertSame(0, $e['unveraendert'], 'Keine Datei wurde ein zweites Mal gelesen');
+            $this->assertTrue($e['vollstaendig']);
+            foreach (['haupt', 'galerie', 'Gross', 'gross'] as $n) {
+                $this->assertStringNotContainsString(\Tests\Support\BildFixtures::GEHEIM, (string)file_get_contents($dir . "/horse_7_{$n}.jpg"));
+            }
+        } finally {
+            $this->bildAblageAufraeumen($dir, $alt, $protokoll);
+        }
+    }
+
+    /**
+     * Der Kern von #508: Um die nächsten 200 Dateien zu finden, las der
+     * Schritt je Charge beide Tabellen ganz, entfernte Doppelte und sortierte
+     * alles. Jetzt liest eine Charge die nächsten Zeilen über den
+     * Primärschlüssel - gleich viele, egal wie groß der Bestand ist.
+     *
+     * Mit Zeitbudget 0 fasst der Lauf eine Datei an und sieht dann nach, ob
+     * noch etwas übrig ist: zwei Chargenabfragen. Die alte Fassung hätte
+     * dafür mehr als das Vierfache des Bestands gelesen.
+     */
+    #[Depends('testBildschrittNimmtJedeDateiEinmal')]
+    public function testBildschrittLiestJeChargeNurDieNaechstenZeilen(): void {
+        [$dir, $alt, $protokoll] = $this->bildAblageAnlegen();
+        try {
+            $bestand = 4000;
+            for ($von = 1; $von <= $bestand; $von += 500) {
+                $zeilen = [];
+                for ($i = $von; $i < $von + 500; $i++) {
+                    $zeilen[] = "('Bildpferd {$i}', '/uploads/horses/bestand_{$i}.jpg')";
+                }
+                self::$pdo->exec('INSERT INTO horses (name, image_url) VALUES ' . implode(', ', $zeilen));
+            }
+            self::$pdo->query('ANALYZE TABLE horses, horse_media')->fetchAll();
+
+            $leer = self::zeilenzugriffeLeer(self::$pdo);
+            $e = null;
+            $zugriffe = self::zeilenzugriffeVon(self::$pdo, static function () use (&$e): void {
+                $e = \App\Service\BildMetadaten::bestandBereinigen(self::$pdo, null, 0.0);
+            }) - $leer;
+
+            $this->assertFalse($e['vollstaendig'], 'Zeitbudget 0: nach der ersten Datei ist noch etwas übrig');
+            $this->assertLessThan(
+                $bestand,
+                $zugriffe,
+                "Zwei Chargen bei {$bestand} Fotos: {$zugriffe} Zeilenzugriffe"
+            );
+        } finally {
             $this->bildAblageAufraeumen($dir, $alt, $protokoll);
         }
     }

@@ -59,6 +59,24 @@ final class BildMetadaten {
     /** Alle so viele Dateien schreibt bestandBereinigen() den Cursor. */
     private const CURSOR_TAKT = 25;
 
+    /**
+     * Die Quellen von bestandBereinigen() in der Reihenfolge, in der sie
+     * durchlaufen werden: `m` = Bildzeilen in horse_media, `h` = Katalogfotos
+     * in horses.image_url, die keine eigene Medienzeile haben. Der Cursor
+     * nennt Quelle und Primärschlüssel (`m:1234`).
+     */
+    private const BESTAND_QUELLEN = ['m', 'h'];
+
+    /** Zeilen je Abfrage von bestandBereinigen(). */
+    private const BESTAND_CHARGE = 200;
+
+    /**
+     * So viele Spaltenwerte merkt sich ein Lauf, um eine Datei nicht zweimal
+     * anzufassen. Darüber hinaus wird nicht mehr gemerkt - eine doppelt
+     * genannte Datei kostet dann ein zweites Lesen, mehr nicht.
+     */
+    private const BESTAND_GEMERKT_MAX = 50000;
+
     private function __construct() {}
 
     // ------------------------------------------------------------------
@@ -158,21 +176,40 @@ final class BildMetadaten {
      * `datenmigration` nach einem Import, Zurückspielen alter Sicherungen).
      *
      * Erfasst werden horses.image_url und horse_media.file_name (Bilder),
-     * auch von Pferden im Papierkorb - der kann wiederherstellen. Das UNION
-     * nimmt die Datei, die Haupt- und Galeriebild zugleich ist
-     * (syncMainImage), nur einmal. Eine fehlende Datei wird still
-     * übersprungen.
+     * auch von Pferden im Papierkorb - der kann wiederherstellen. Eine
+     * fehlende Datei wird still übersprungen.
+     *
+     * DURCHLAUF ÜBER DIE PRIMÄRSCHLÜSSEL (#508). Erst die Bildzeilen aus
+     * horse_media, dann die Katalogfotos aus horses - je in Chargen
+     * `WHERE id > ? ORDER BY id LIMIT …`. Jede Charge ist ein Bereichszugriff
+     * auf den Primärschlüssel und kostet gleich viel, egal wie groß der
+     * Bestand ist. Bis dahin lief der Cursor über den sortierten Dateinamen
+     * einer UNION beider Tabellen: Um 200 Zeilen zu liefern, las die
+     * Datenbank je Charge beide Tabellen ganz, entfernte Doppelte und
+     * sortierte alles - bei 80.000 Dateien 400-mal, und nach jeder
+     * Unterbrechung durch das Zeitbudget wieder.
+     *
+     * Die Datei, die Haupt- und Galeriebild zugleich ist (syncMainImage -
+     * also jedes Hauptbild), kommt nur einmal dran: Die zweite Quelle lässt
+     * Katalogfotos aus, zu denen das Pferd eine Bildzeile mit demselben Wert
+     * hat. Verglichen wird binär; `A.jpg` und `a.jpg` sind zwei Dateien. Was
+     * sonst doppelt genannt ist (dieselbe Datei an zwei Pferden), fasst ein
+     * Lauf nur einmal an.
      *
      * Die Vorschaubilder einer Datei gehen mit, wenn sie umgeschrieben wurde
      * oder eine Ausrichtung ungleich 1 trägt - auch wenn sie selbst nicht
      * lesbar war: Vorschauen aus der Zeit vor Audit N81 liegen gedreht.
      *
-     * $cursorSchluessel: settings-Schlüssel für die Wiederaufnahme. Er steht
-     * für "alles bis hierher ist erledigt" und wird alle 25 Dateien und beim
+     * $cursorSchluessel: settings-Schlüssel für die Wiederaufnahme. Der Wert
+     * nennt Quelle und Primärschlüssel (`m:1234`, `h:567`) und steht für
+     * "alles bis hierher ist erledigt". Er wird alle 25 Dateien und beim
      * Abbruch geschrieben, nach einem vollständigen fehlerfreien Durchlauf
      * gelöscht. Nach einem Schreibfehler rückt er nicht mehr vor - der
      * nächste Lauf nimmt die Datei erneut, die übrigen sind dann schon sauber
      * und kosten nur das Lesen. null = ohne Wiederaufnahme, ein Durchlauf.
+     * Ein Wert in anderer Form (der Cursor trug bis #508 einen Dateinamen)
+     * gilt als "von vorn": Das ist sicher, weil bereinigte Dateien
+     * unverändert bleiben.
      *
      * $zeitbudget: Sekunden, nach denen der Lauf hinter der aktuellen Datei
      * anhält (vollstaendig = false). null = ohne Grenze.
@@ -194,37 +231,30 @@ final class BildMetadaten {
             'vollstaendig' => true,
         ];
 
-        $cursor = $cursorSchluessel === null ? '' : self::cursorLesen($pdo, $cursorSchluessel);
+        // $cursor: alles bis hierher ist erledigt. $position: bis hierher
+        // gelesen - nach einem Schreibfehler läuft sie dem Cursor davon.
+        $cursor = self::cursorZerlegen($cursorSchluessel === null ? '' : self::cursorLesen($pdo, $cursorSchluessel));
+        $position = $cursor;
         $cursorFest = false;   // nach einem Schreibfehler rückt er nicht mehr vor
         $start = microtime(true);
         $seitDemSchreiben = 0;
-        $position = $cursor;
+        $gemerkt = [];
 
-        // Binär vergleichen und sortieren: Unter einer _ci-Kollation wären
-        // 'A.jpg' und 'a.jpg' gleich (das UNION nähme nur eine), und der
-        // Cursor-Vergleich folgte einer anderen Ordnung als PHP.
-        $stmt = $pdo->prepare(
-            "SELECT w FROM (
-                 SELECT CAST(image_url AS BINARY) AS w FROM horses
-                  WHERE image_url IS NOT NULL AND image_url <> ''
-                 UNION
-                 SELECT CAST(file_name AS BINARY) FROM horse_media
-                  WHERE type = 'image' AND file_name IS NOT NULL AND file_name <> ''
-             ) t WHERE w > CAST(? AS BINARY) ORDER BY w LIMIT 200"
-        );
+        $abfragen = self::bestandsAbfragen($pdo);
 
         while (true) {
-            $stmt->execute([$position]);
-            $werte = $stmt->fetchAll(PDO::FETCH_COLUMN);
-            if ($werte === []) {
+            $charge = self::bestandsCharge($abfragen, $position);
+            if ($charge === []) {
                 break;
             }
 
-            foreach ($werte as $wert) {
-                $wert = (string)$wert;
-                $position = $wert;
+            foreach ($charge as [$quelle, $id, $wert]) {
+                $position = [$quelle, $id];
 
-                $pfad = HorseImagePath::datei($wert);
+                $pfad = isset($gemerkt[$wert]) ? null : HorseImagePath::datei($wert);
+                if (count($gemerkt) < self::BESTAND_GEMERKT_MAX) {
+                    $gemerkt[$wert] = true;
+                }
                 if ($pfad !== null) {
                     $bytes = @file_get_contents($pfad);
                     $status = self::bereinigeDatei($pfad);
@@ -251,25 +281,23 @@ final class BildMetadaten {
                 }
 
                 if (!$cursorFest) {
-                    $cursor = $wert;
+                    $cursor = $position;
                     if ($cursorSchluessel !== null && ++$seitDemSchreiben >= self::CURSOR_TAKT) {
-                        self::cursorSchreiben($pdo, $cursorSchluessel, $cursor);
+                        self::cursorSchreiben($pdo, $cursorSchluessel, self::cursorText($cursor));
                         $seitDemSchreiben = 0;
                     }
                 }
 
                 if ($zeitbudget !== null && microtime(true) - $start >= $zeitbudget) {
                     // Noch etwas übrig? Sonst ist der Lauf trotzdem fertig.
-                    $stmt->execute([$position]);
-                    if ($stmt->fetchColumn() !== false) {
-                        $stmt->closeCursor();
+                    $rest = $position;
+                    if (self::bestandsCharge($abfragen, $rest) !== []) {
                         $ergebnis['vollstaendig'] = false;
                         if ($cursorSchluessel !== null) {
-                            self::cursorSchreiben($pdo, $cursorSchluessel, $cursor);
+                            self::cursorSchreiben($pdo, $cursorSchluessel, self::cursorText($cursor));
                         }
                         return $ergebnis;
                     }
-                    $stmt->closeCursor();
                     break 2;
                 }
             }
@@ -279,11 +307,88 @@ final class BildMetadaten {
             if ($ergebnis['fehler'] === []) {
                 $pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([$cursorSchluessel]);
             } else {
-                self::cursorSchreiben($pdo, $cursorSchluessel, $cursor);
+                self::cursorSchreiben($pdo, $cursorSchluessel, self::cursorText($cursor));
             }
         }
 
         return $ergebnis;
+    }
+
+    /**
+     * Die Chargenabfragen von bestandBereinigen(), je Quelle eine. Beide
+     * laufen als Bereich über den Primärschlüssel.
+     *
+     * @return array<string, \PDOStatement>
+     */
+    private static function bestandsAbfragen(PDO $pdo): array {
+        $limit = self::BESTAND_CHARGE;
+
+        return [
+            'm' => $pdo->prepare(
+                "SELECT id, file_name FROM horse_media
+                  WHERE id > ? AND type = 'image' AND file_name IS NOT NULL AND file_name <> ''
+                  ORDER BY id LIMIT {$limit}"
+            ),
+            // Ohne die Katalogfotos, die das Pferd auch als Bildzeile führt -
+            // die hat die erste Quelle schon geliefert. Der Unterabfrage
+            // genügt idx_horse_media_horse (horse_id führt).
+            'h' => $pdo->prepare(
+                "SELECT h.id, h.image_url FROM horses h
+                  WHERE h.id > ? AND h.image_url IS NOT NULL AND h.image_url <> ''
+                    AND NOT EXISTS (
+                        SELECT 1 FROM horse_media m
+                         WHERE m.horse_id = h.id AND m.type = 'image' AND m.file_name IS NOT NULL
+                           AND CAST(m.file_name AS BINARY) = CAST(h.image_url AS BINARY)
+                    )
+                  ORDER BY h.id LIMIT {$limit}"
+            ),
+        ];
+    }
+
+    /**
+     * Die nächste Charge hinter $position. Ist eine Quelle erschöpft, geht es
+     * am Anfang der nächsten weiter; $position wird dabei mitgeführt.
+     *
+     * @param array<string, \PDOStatement> $abfragen
+     * @param array{0: string, 1: int} $position
+     * @return list<array{0: string, 1: int, 2: string}> Quelle, ID, Spaltenwert
+     */
+    private static function bestandsCharge(array $abfragen, array &$position): array {
+        while (true) {
+            [$quelle, $nachId] = $position;
+            $stmt = $abfragen[$quelle];
+            $stmt->execute([$nachId]);
+            $zeilen = $stmt->fetchAll(PDO::FETCH_NUM);
+            if ($zeilen !== []) {
+                return array_map(
+                    static fn(array $z): array => [$quelle, (int)$z[0], (string)$z[1]],
+                    $zeilen
+                );
+            }
+
+            $naechste = array_search($quelle, self::BESTAND_QUELLEN, true) + 1;
+            if (!isset(self::BESTAND_QUELLEN[$naechste])) {
+                return [];
+            }
+            $position = [self::BESTAND_QUELLEN[$naechste], 0];
+        }
+    }
+
+    /**
+     * @return array{0: string, 1: int} Quelle und ID; der Anfang, wenn der
+     *   Wert leer ist oder eine andere Form hat (bis #508: ein Dateiname)
+     */
+    private static function cursorZerlegen(string $wert): array {
+        if (preg_match('/^([a-z]):(\d{1,18})$/D', $wert, $m) === 1 && in_array($m[1], self::BESTAND_QUELLEN, true)) {
+            return [$m[1], (int)$m[2]];
+        }
+
+        return [self::BESTAND_QUELLEN[0], 0];
+    }
+
+    /** @param array{0: string, 1: int} $cursor */
+    private static function cursorText(array $cursor): string {
+        return $cursor[0] . ':' . $cursor[1];
     }
 
     // ------------------------------------------------------------------

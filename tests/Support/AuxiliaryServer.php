@@ -111,6 +111,19 @@ class AuxiliaryServer {
         $this->waitUntilReady();
     }
 
+    /**
+     * Was der Server bisher auf stdout und stderr geschrieben hat - darunter
+     * alles, was die App per error_log() protokolliert. Leer, solange er
+     * nicht läuft.
+     */
+    public function log(): string {
+        if ($this->logFile === null || !is_file($this->logFile)) {
+            return '';
+        }
+        clearstatcache(true, $this->logFile);
+        return (string)file_get_contents($this->logFile);
+    }
+
     public function stop(): void {
         if ($this->process !== null) {
             proc_terminate($this->process);

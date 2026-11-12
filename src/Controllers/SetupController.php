@@ -440,27 +440,19 @@ class SetupController extends BaseController {
         bool $overwriteDb, bool $writeDbConfigFile, array $errorRenderExtra = [],
         bool $startSession = false, ?string $baseUrl = null
     ): void {
-        // Build PDO Options including SSL if enabled
-        $pdoOptions = [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
-        ];
-
-        if ($dbSsl) {
-            if (defined('PDO::MYSQL_ATTR_SSL_CA') && !empty($dbSslCa)) {
-                $pdoOptions[PDO::MYSQL_ATTR_SSL_CA] = $dbSslCa;
-            }
-            if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
-                $pdoOptions[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = $dbSslVerify;
-            }
-        }
-
         // Test Database Connection (Connect to MySQL server first)
         // Derselbe DSN-Helfer wie im laufenden Betrieb - auch für einen
         // Unix-Socket als Host (Audit N55).
         $dsnWithoutDb = Database::buildDsn($dbHost, $dbPort, null);
         try {
+            // Die TLS-Optionen baut dieselbe Stelle wie im laufenden Betrieb
+            // (#520). Im try, weil sie eine verlangte, aber nicht einschaltbare
+            // Zertifikatsprüfung als PDOException meldet.
+            $pdoOptions = Database::tlsOptionen($dbSsl, $dbSslCa, $dbSslVerify) + [
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES   => false,
+            ];
             $testPdo = new PDO($dsnWithoutDb, $dbUser, $dbPass, $pdoOptions);
 
             if ($overwriteDb) {

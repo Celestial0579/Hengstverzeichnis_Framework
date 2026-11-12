@@ -6,7 +6,7 @@
 # --no-dev: Die Testsuite gehoert nicht ins Auslieferungs-Image.
 # --classmap-authoritative: schaltet den PSR-4-Fallback ab, damit Klassen aus
 #   einer abgeloesten Bibliotheksfassung nicht auf Zuruf ladbar bleiben.
-FROM composer:2@sha256:d8f6343d3fae98107426bc49163ccad46ef85aabd4a27d80a74401fab4aba332 AS deps
+FROM composer:2@sha256:ca11f643d7791ebdd90a34fc20caf11380d434007ae539a9ea75cd9212e13dca AS deps
 WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --optimize-autoloader --classmap-authoritative \
@@ -15,7 +15,7 @@ RUN composer install --no-dev --optimize-autoloader --classmap-authoritative \
 # Base-Image per Digest festgenagelt (Supply-Chain-Härtung, OpenSSF Scorecard
 # "Pinned-Dependencies"). Der Tag bleibt lesbar dran; Dependabot (docker) hält
 # den Digest aktuell, Diun meldet neue Tags weiterhin.
-FROM php:8.5-apache@sha256:609de4eac65a03f20975441c9c3f313811d785575f0d02413c630753ab5c5532
+FROM php:8.5-apache@sha256:08af36df144462d84c7f16190557eec06cb9f656882685610b712a15eec54d46
 
 # ftp: für App\Service\FtpsClient (#93, FTPS als Backup-Ziel) - das
 # FTP-Protokoll selbst lässt sich anders als S3/WebDAV nicht über PHP-Streams

@@ -673,7 +673,10 @@ dafür bereits sofort informiert. Registriert sich analog zu
   `HorseController::matches()`/`calculateSuggestions()` extrahiert -
   unverändertes Verhalten, reine Verschiebung, damit sowohl die Admin-
   Match-Seite als auch der Digest exakt dieselbe Anzahl offener Vorschläge
-  sehen.
+  sehen. Die Vorauswahl der Kandidaten läuft seit #509 über Indizes
+  (`ueln`, `foreign_ueln`, `name` und die generierten Spalten
+  `name_soundex`/`name_prefix3`, siehe [database.md](database.md)); ohne
+  die Spalten fällt sie auf die Abfrage ohne Index zurück.
 - Inhalt bewusst auf zwei Punkte beschränkt (siehe Issue): Anzahl offener
   Match-Vorschläge sowie Anzahl Papierkorb-Einträge, die sich der
   30-Tage-Löschfrist nähern (Warnfenster: 23-30 Tage seit `deleted_at`, bevor

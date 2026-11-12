@@ -33,6 +33,8 @@ use PHPUnit\Framework\TestCase;
  */
 class MatchSuggestionFinderTest extends TestCase {
 
+    use \Tests\Support\Zeilenzugriffe;
+
     private static PDO $db;
 
     public static function setUpBeforeClass(): void {
@@ -65,6 +67,10 @@ class MatchSuggestionFinderTest extends TestCase {
 
     protected function setUp(): void {
         self::$db->exec("DELETE FROM horses");
+    }
+
+    protected function tearDown(): void {
+        MatchSuggestionFinder::ohneSuchspaltenFuerTests(false);
     }
 
     private function insertHorse(array $overrides = []): int {
@@ -325,5 +331,182 @@ class MatchSuggestionFinderTest extends TestCase {
         $this->assertTrue($vorschlaege["{$kind}/{$jung}"]['blockiert'] ?? false);
         $this->assertArrayHasKey("{$kind2}/{$alt}", $vorschlaege);
         $this->assertArrayNotHasKey('blockiert', $vorschlaege["{$kind2}/{$alt}"]);
+    }
+
+    // --- #509: Vorfilter über Indizes ---------------------------------------
+
+    /**
+     * Kandidat und Kind, die sich nur über EINEN Arm des Vorfilters finden.
+     * Farbe, Deckstation und Altersabstand stimmen überein, damit auch ein
+     * kurzer Namens-Treffer über die Anzeigeschwelle kommt - sonst sähe man
+     * dem Ergebnis nicht an, ob der Arm das Paar gefunden hat.
+     *
+     * @return int ID des Kindes
+     */
+    private function paar(string $kandidat, string $geschlecht, string $platzhalter, array $kandidatExtra = [], array $kindExtra = []): int {
+        $this->insertHorse(array_merge([
+            'name' => $kandidat, 'sex' => $geschlecht, 'birth_year' => 2000,
+            'color' => 'Falbe', 'breeding_station' => 'Hof Arm',
+        ], $kandidatExtra));
+
+        $rolle = $geschlecht === 'stallion' ? 'sire' : 'dam';
+        return $this->insertHorse(array_merge([
+            'name' => 'Nachkomme von ' . $platzhalter, "{$rolle}_name" => $platzhalter, 'birth_year' => 2010,
+            'color' => 'Falbe', 'breeding_station' => 'Hof Arm',
+        ], $kindExtra));
+    }
+
+    /**
+     * Der Vorfilter läuft seit #509 über die generierten Suchspalten und ist
+     * dafür in Arme zerlegt, die je einen Index nutzen. Ohne die Spalten läuft
+     * die Fassung aus #215. Beide müssen dieselben Platzhalter zählen und
+     * dieselben Vorschläge liefern - hier an dem Bestand des Orakel-Tests und
+     * an den Fällen, in denen sich die Zerlegung der Präfixprüfung irren
+     * könnte.
+     */
+    public function testIndexwegUndRueckfallLiefernDasselbe(): void {
+        $this->insertFixture();
+
+        $kinder = [
+            // Nur das Klangbild stimmt: "Tho…" und "Tor…" beginnen verschieden.
+            'klangbild' => $this->paar('Torsten', 'stallion', 'Thorsten'),
+            // Der Kandidat ist kürzer als drei Zeichen und der Anfang des Platzhalters.
+            'kurzerKandidat' => $this->paar('Bo', 'stallion', 'Bon'),
+            // Der Platzhalter ist kürzer als drei Zeichen und der Anfang des Kandidaten.
+            'kurzerPlatzhalter' => $this->paar('Ali', 'mare', 'Al'),
+            // Beide einbuchstabig und gleich.
+            'einZeichen' => $this->paar('X', 'stallion', 'X'),
+            // Groß-/Kleinschreibung und Sonderzeichen folgen der Kollation der Spalte.
+            'kollation' => $this->paar('ØYVIND', 'stallion', 'øyvind'),
+        ];
+        // Ausländische UELN, ohne jede Namensangabe.
+        $this->insertHorse(['name' => 'Fremdstute', 'sex' => 'mare', 'foreign_ueln' => 'NOR 123']);
+        $kinder['fremdUeln'] = $this->insertHorse(['name' => 'Fremdstute Kind', 'dam_ueln' => 'NOR 123']);
+        // Ein gelöschter Kandidat zählt nicht - "Xanadu Kind" bleibt ohne Vorschlag.
+        $this->insertHorse(['name' => 'Xanadu', 'sex' => 'stallion', 'deleted_at' => '2026-01-01 00:00:00']);
+        // Jokerzeichen sind Namensbestandteil: "A_" passt nicht auf "Abc".
+        $this->insertHorse(['name' => 'A_', 'sex' => 'stallion']);
+        $joker = $this->insertHorse(['name' => 'Nachkomme von Abc', 'sire_name' => 'Abc']);
+
+        $lauf = fn(): array => [
+            'zahl' => MatchSuggestionFinder::countOpen(),
+            'alle' => $this->keyedByPlaceholder(MatchSuggestionFinder::findAll()),
+            'seite' => MatchSuggestionFinder::findAll(4, 2),
+        ];
+
+        $mitIndex = $lauf();
+        MatchSuggestionFinder::ohneSuchspaltenFuerTests(true);
+        $ohneIndex = $lauf();
+        MatchSuggestionFinder::ohneSuchspaltenFuerTests(false);
+
+        $this->assertSame($ohneIndex['zahl'], $mitIndex['zahl'], 'countOpen()');
+        $this->assertSame($ohneIndex['alle'], $mitIndex['alle'], 'findAll()');
+        $this->assertSame($ohneIndex['seite'], $mitIndex['seite'], 'findAll() mit LIMIT/OFFSET');
+
+        // Und nicht nur "beide gleich", sondern auch richtig: Jeder Arm hat
+        // sein Paar gefunden.
+        $erwartet = [
+            'klangbild' => ['sire', 'Torsten'],
+            'kurzerKandidat' => ['sire', 'Bo'],
+            'kurzerPlatzhalter' => ['dam', 'Ali'],
+            'einZeichen' => ['sire', 'X'],
+            'kollation' => ['sire', 'ØYVIND'],
+            'fremdUeln' => ['dam', 'Fremdstute'],
+        ];
+        foreach ($erwartet as $fall => [$rolle, $name]) {
+            $schluessel = $rolle . ':' . $kinder[$fall];
+            $this->assertArrayHasKey($schluessel, $mitIndex['alle'], "Kein Vorschlag im Fall '{$fall}'");
+            $this->assertContains(
+                $name,
+                array_map(static fn(array $v): string => (string)$v['horse']['name'], $mitIndex['alle'][$schluessel]['suggestions']),
+                "Fall '{$fall}'"
+            );
+        }
+        $this->assertArrayNotHasKey('sire:' . $joker, $mitIndex['alle']);
+
+        // Ein Kandidat ohne Namen ist der "Anfang" jedes Platzhalters - er
+        // macht jeden benannten Platzhalter zu einem mit Kandidaten, auch den
+        // zu "Abc", der bisher keinen hatte. Auch das müssen beide Wege
+        // gleich sehen.
+        $zahlVorher = $mitIndex['zahl'];
+        $this->insertHorse(['name' => '']);
+        $mitIndex = $lauf();
+        MatchSuggestionFinder::ohneSuchspaltenFuerTests(true);
+        $ohneIndex = $lauf();
+        $this->assertSame($ohneIndex, $mitIndex, 'Mit namenlosem Kandidaten');
+        $this->assertGreaterThan($zahlVorher, $mitIndex['zahl']);
+    }
+
+    /**
+     * Der Kern von #509: Je Platzhalter las der Vorfilter alle Pferde. Bei
+     * 40 Platzhaltern und 400 Kandidaten sind das rund 16.000 Zeilen je
+     * Zählung - über die Suchspalten ein paar Indexeinstiege je Platzhalter.
+     * Gemessen an den Zeilenzugriffen der Verbindung, mit dem Rückfall als
+     * Gegenprobe.
+     */
+    public function testDerVorfilterLiestNichtMehrAllePferdeJePlatzhalter(): void {
+        $kandidaten = 400;
+        $platzhalter = 40;
+
+        $silben = ['Ba', 'De', 'Fi', 'Go', 'Hu', 'Ka', 'Le', 'Mi', 'No', 'Pu', 'Ra', 'Se', 'Ti', 'Vo', 'Wu', 'Ja', 'Ke', 'Li', 'Mo', 'Nu'];
+        $zeilen = [];
+        for ($i = 0; $i < $kandidaten; $i++) {
+            $name = $silben[$i % 20] . strtolower($silben[intdiv($i, 20) % 20]) . 'r ' . $i;
+            $zeilen[] = '(' . self::$db->quote($name) . ", 'stallion', NULL)";
+        }
+        // Platzhalter, zu denen es keinen Kandidaten gibt: Dann muss jeder Arm
+        // bis zum Ende suchen - der ungünstigste Fall für den Vorfilter.
+        for ($i = 0; $i < $platzhalter; $i++) {
+            $zeilen[] = '(' . self::$db->quote('Kind ' . $i) . ', NULL, ' . self::$db->quote('Zzyq ' . $i) . ')';
+        }
+        self::$db->exec('INSERT INTO horses (name, sex, sire_name) VALUES ' . implode(', ', $zeilen));
+        self::$db->query('ANALYZE TABLE horses')->fetchAll();
+
+        $leer = self::zeilenzugriffeLeer(self::$db);
+        $zaehlen = fn(): int => self::zeilenzugriffeVon(self::$db, function (): void {
+            $this->assertSame(0, MatchSuggestionFinder::countOpen());
+        }) - $leer;
+
+        $mitIndex = $zaehlen();
+        MatchSuggestionFinder::ohneSuchspaltenFuerTests(true);
+        $ohneIndex = $zaehlen();
+
+        $this->assertGreaterThanOrEqual(
+            $platzhalter * $kandidaten,
+            $ohneIndex,
+            "Gegenprobe: Der Rückfall liest je Platzhalter alle Pferde ({$ohneIndex} Zeilenzugriffe)"
+        );
+        $this->assertLessThan(
+            intdiv($ohneIndex, 5),
+            $mitIndex,
+            "Über die Suchspalten: {$mitIndex} Zeilenzugriffe, ohne sie {$ohneIndex}"
+        );
+    }
+
+    /**
+     * Die Suchspalten folgen dem Namen von selbst - auch nach einem UPDATE,
+     * das an jedem Schreibweg der Anwendung vorbeigeht. Das ist der Grund,
+     * warum sie generiert sind und nicht gepflegt.
+     */
+    public function testDieSuchspaltenFolgenDemNamen(): void {
+        $id = $this->insertHorse(['name' => 'Thorsten']);
+        $lesen = fn(): array => self::$db->query(
+            "SELECT name_soundex = SOUNDEX(name) AS klang, name_prefix3 FROM horses WHERE id = {$id}"
+        )->fetch(PDO::FETCH_ASSOC);
+
+        $this->assertSame(['klang' => 1, 'name_prefix3' => 'Tho'], array_map(
+            static fn($w) => is_numeric($w) ? (int)$w : $w,
+            $lesen()
+        ));
+
+        self::$db->exec("UPDATE horses SET name = 'Åse' WHERE id = {$id}");
+        $this->assertSame(['klang' => 1, 'name_prefix3' => 'Åse'], array_map(
+            static fn($w) => is_numeric($w) ? (int)$w : $w,
+            $lesen()
+        ));
+
+        $zeile = self::$db->query("SELECT * FROM horses WHERE id = {$id}")->fetch(PDO::FETCH_ASSOC);
+        $this->assertArrayNotHasKey('name_soundex', $zeile, 'Unsichtbar: nicht in SELECT *');
+        $this->assertArrayNotHasKey('name_prefix3', $zeile);
     }
 }

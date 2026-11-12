@@ -127,6 +127,48 @@ Zentrale Entität: ein Pferd (i. d. R. Hengst, Modell ist aber generisch).
   Die Adresse eines Kontos im Papierkorb gilt als vergeben — der
   `UNIQUE`-Index auf `email` zählt es mit (Audit N52).
 
+### Generierte Suchspalten (`horses`, `horse_media`)
+
+Seit `SCHEMA_VERSION` 34 (#507, #509) tragen zwei Tabellen Spalten, die die
+Datenbank selbst aus einer anderen Spalte berechnet:
+
+| Spalte | Ausdruck | Wofür |
+|---|---|---|
+| `horses.name_soundex` | `SOUNDEX(name)` | Dubletten-Vorauswahl: gleiches Klangbild |
+| `horses.name_prefix3` | `LEFT(name, 3)` | Dubletten-Vorauswahl: gleicher Namensanfang |
+| `horses.image_basename` | Dateiname aus `image_url` | Referenzprüfung vor dem Löschen einer Bilddatei |
+| `horse_media.file_basename` | Dateiname aus `file_name` | dieselbe Prüfung |
+
+„Dateiname" heißt: ohne Pfad, Query und Fragment — das, was die Auslieferung
+tatsächlich auflöst (`HorseImagePath::datei()`).
+
+**Warum generiert:** Die Abfragen verglichen bisher eine Funktion auf der
+Spalte (`SOUNDEX(p.name) = …`, `SUBSTRING_INDEX(…) IN (…)`). Darauf greift
+kein Index, jede Prüfung las die ganze Tabelle. Eine generierte Spalte lässt
+sich indizieren und kann nicht veralten — eine gewöhnliche Spalte müsste jeder
+Schreibweg nachführen, auch CSV-Import, Zusammenführen und Direktimporte.
+
+**Warum unsichtbar (`INVISIBLE`):** `SELECT *` liefert die Spalten nicht.
+`DatabaseDumper` baut seine `INSERT`-Zeilen aus `SELECT *`; eine sichtbare
+generierte Spalte stünde dort mit Wert, und das Zurückspielen scheiterte.
+So bleiben Sicherung, Export und jeder Code, der eine Zeile liest und wieder
+schreibt, unberührt. Wer die Spalten braucht, nennt sie beim Namen — und
+schreibt nie in sie.
+
+**Nur auf MariaDB.** MySQL kennt unsichtbare Spalten erst ab 8.0.23 und
+schreibt sie in `SHOW CREATE TABLE` als `/*!80023 INVISIBLE */`. Solche
+Kommentare weist der Dump-Prüfer des Addons `datenmigration` ab; eine Instanz
+auf MySQL könnte ihren eigenen Export nicht mehr einspielen. In `schema.sql`
+stehen die Spalten deshalb in `/*M!100303 … */` (führt nur MariaDB aus), und
+der Migrator legt sie nur auf MariaDB an. Auf MySQL laufen die Abfragen auf
+dem bisherigen Weg ohne Index.
+
+**Regel für künftige generierte Spalten:** immer `VIRTUAL INVISIBLE` und nur
+auf MariaDB, in `schema.sql` wie im Migrator (Schritt 26c zeigt das Muster).
+Abfragen, die sie nutzen, brauchen einen Rückfall für den Fall, dass sie
+fehlen (SQLSTATE `42S22`): zwischen Update und Migration, nach dem
+Zurückspielen einer älteren Tabelle und auf MySQL.
+
 ### `horse_registrations`
 Weitere Lebensnummern / Registriernummern je Pferd (#246):
 Doppel-/Mehrfachregistrierung in mehreren Zuchtbüchern plus
@@ -253,7 +295,9 @@ Hauptbild wechseln.
 Dateien: Das Löschen eines Bilds und das endgültige Löschen eines Pferds
 entfernen die Datei samt Vorschaubildern, sobald kein Medium und kein Pferd
 (auch keines im Papierkorb) sie mehr über den Dateinamen referenziert
-(`HorseMedia::verwaisteDateienEntfernen()`, Audit N59/N68). Ein
+(`HorseMedia::verwaisteDateienEntfernen()`, Audit N59/N68). Gefragt wird über
+die generierten Spalten `file_basename` und `horses.image_basename` (siehe
+„Generierte Suchspalten"). Ein
 `horses.image_url` ohne Medienzeile (Bestand aus v0.8 ohne Addon `galerie`)
 holt der Datenschritt `339b_hauptbild_backfill` nach, und HorseMedia übernimmt
 es vor jeder Medienaktion selbst (Audit M40).

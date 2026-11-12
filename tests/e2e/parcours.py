@@ -600,10 +600,17 @@ def run():
         ids = {}
         def phase_daten():
             c = csrf["v"]
-            # KLICK-NACHWEIS: eine Person komplett per echtem Formular-Klick anlegen
+            # Personen und Deckstationen sind seit #336 EINE Kontaktliste
+            # (/admin/contacts). Dieser Abschnitt schickte bis #511 weiter an
+            # /admin/persons/store und /admin/breeding-stations/store - Routen,
+            # die es seither nicht mehr gibt - und verknüpfte das Hauptpferd
+            # über persons[…][person_id], das der Kern seit v0.9.0 nicht mehr
+            # annimmt. Angelegt wurde davon nichts; aufgefallen ist es nicht,
+            # weil die Phase nur Screenshots macht.
+            # KLICK-NACHWEIS: einen Kontakt komplett per echtem Formular-Klick anlegen
             try:
-                page.goto(BASE + "/admin/persons/create", wait_until="domcontentloaded", timeout=30000)
-                audit_clickable(page, "persons-create-form")
+                page.goto(BASE + "/admin/contacts/create", wait_until="domcontentloaded", timeout=30000)
+                audit_clickable(page, "contacts-create-form")
                 page.fill('[name="name"]', "Klicknachweis Person")
                 if page.query_selector('[name="contact_info"]'):
                     page.fill('[name="contact_info"]', "klick@example.org")
@@ -611,32 +618,39 @@ def run():
                     page.check('[name="is_published"]')
                 page.click('form button[type="submit"], form input[type="submit"]')
                 page.wait_for_load_state("domcontentloaded", timeout=30000)
-                ok = "success" in page.url or "personen" in page.url.lower()
+                ok = "success" in page.url or "contacts" in page.url.lower()
                 counter[0]+=1; nn=f"{counter[0]:03d}"
                 page.screenshot(path=os.path.join(OUT, f"{nn}-klicknachweis-person.png"), full_page=True, timeout=15000)
-                index.append((nn, f"{nn}-klicknachweis-person.png", "/admin/persons/create → store",
+                index.append((nn, f"{nn}-klicknachweis-person.png", "/admin/contacts/create → store",
                               "KLICK-NACHWEIS: Person per echtem Formular-Klick angelegt",
                               "Button geklickt ✓" if ok else f"geklickt, Ergebnis: {page.url}"))
                 log(f"  Klick-Nachweis Person: {'OK' if ok else 'unklar'} ({page.url})")
             except Exception as e:
                 log(f"  Klick-Nachweis Person Fehler: {e}")
-            # Personen
+            # Personen (als Kontakte)
             for pname, role in [("Züchterin Andrea Nord", "breeder"), ("Besitzer Bernd Süd", "owner")]:
-                post(page, "/admin/persons/store",
-                     {"csrf_token": c, "name": pname, "contact_info": pname.split()[-1] + "@example.org",
-                      "is_published": "1"})
-            ids["breeder"] = find_id(page, "/admin/persons", "Züchterin Andrea Nord")
-            ids["owner"] = find_id(page, "/admin/persons", "Besitzer Bernd Süd")
-            shot(page, "admin-personen", "Personenverwaltung mit Datensätzen", "/admin/persons")
+                d = {"csrf_token": c, "name": pname, "contact_info": pname.split()[-1] + "@example.org",
+                     "is_published": "1"}
+                if role == "breeder":
+                    d["is_breeder"] = "1"
+                post(page, "/admin/contacts/store", d)
+            ids["breeder"] = find_id(page, "/admin/contacts", "Züchterin Andrea Nord")
+            ids["owner"] = find_id(page, "/admin/contacts", "Besitzer Bernd Süd")
+            shot(page, "admin-personen", "Kontaktverwaltung mit Personen", "/admin/contacts")
 
-            # Deckstation (veröffentlicht, mit Mail -> Deckanfrage)
-            post(page, "/admin/breeding-stations/store",
+            # Deckstation (veröffentlicht, mit Mail -> Deckanfrage). contact_public:
+            # Die Adresse einer Station ist eine Geschäftsadresse und soll
+            # öffentlich erscheinen - seit #336 ist das keine Vorgabe mehr.
+            post(page, "/admin/contacts/store",
                  {"csrf_token": c, "name": "Gestüt Nordlicht", "contact_person": "A. Nord",
                   "address": "Weideweg 1\n24000 Kiel", "phone": "0431 12345",
                   "email": "deckstation@dev.firestrike.de", "website": "https://gestuet-nordlicht.example.org",
-                  "is_published": "1"})
-            ids["station"] = find_id(page, "/admin/breeding-stations", "Gestüt Nordlicht")
-            shot(page, "admin-stationen", "Deckstationsverwaltung", "/admin/breeding-stations")
+                  "is_published": "1", "contact_public": "1"})
+            ids["station"] = find_id(page, "/admin/contacts", "Gestüt Nordlicht")
+            shot(page, "admin-stationen", "Kontaktverwaltung mit Deckstation", "/admin/contacts")
+            for schluessel in ("breeder", "owner", "station"):
+                if not ids.get(schluessel):
+                    log(f"  WARNUNG: Kontakt '{schluessel}' nicht angelegt - das Hauptpferd bleibt ohne diese Zuordnung")
 
             # Stammbaum mit gemeinsamem Vorfahren (COI > 0):
             #  Urvater -> Vater, Urvater -> Mutter, (Vater x Mutter) -> Hauptpferd
@@ -657,9 +671,9 @@ def run():
                   "description": "Vorführpferd des Testlaufs mit vollständigem Stammbaum.",
                   "sire_id": str(ids["vater"] or ""), "dam_id": str(ids["mutter"] or ""),
                   "breeding_station_id": str(ids["station"] or ""),
-                  "persons[0][person_id]": str(ids["breeder"] or ""), "persons[0][role]": "breeder",
-                  "persons[1][person_id]": str(ids["owner"] or ""), "persons[1][role]": "owner",
-                  "persons[1][breeding_station_id]": str(ids["station"] or "")}
+                  "persons[0][contact_id]": str(ids["breeder"] or ""), "persons[0][role]": "breeder",
+                  "persons[1][contact_id]": str(ids["owner"] or ""), "persons[1][role]": "owner",
+                  "persons[1][station_contact_id]": str(ids["station"] or "")}
             post(page, "/admin/horses/store", hd)
             ids["haupt"] = find_id(page, "/admin/horses", "Hengst Nordstern")
             # ein zweites veröffentlichtes Pferd ohne Verwandtschaft (Katalog-Vielfalt)
@@ -1256,7 +1270,7 @@ def run():
                 ("dark-hengst-detail", f"/horse?id={hid}" if hid else "/katalog"),
                 ("dark-login", "/login"),
                 ("dark-admin-dashboard", "/admin"), ("dark-admin-logs", "/admin/logs"),
-                ("dark-admin-personen", "/admin/persons"), ("dark-admin-gdpr", "/admin/gdpr"),
+                ("dark-admin-personen", "/admin/contacts"), ("dark-admin-gdpr", "/admin/gdpr"),
                 ("dark-api-keys", "/api-keys"), ("dark-admin-system", "/admin/system-settings"),
                 ("dark-admin-trash", "/admin/trash"), ("dark-admin-backups", "/admin/backups"),
                 ("dark-admin-digest", "/admin/digest"), ("dark-admin-mail", "/admin/mail-settings"),

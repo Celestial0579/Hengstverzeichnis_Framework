@@ -538,22 +538,7 @@ final class HorseMedia {
 
         $entfernt = 0;
         try {
-            $db = Database::getInstance();
-            $benutzt = [];
-            foreach (array_chunk(array_keys($namen), 500) as $teil) {
-                $p = implode(',', array_fill(0, count($teil), '?'));
-                $stmt = $db->prepare(
-                    'SELECT ' . self::sqlDateiname('file_name') . ' FROM horse_media
-                     WHERE file_name IS NOT NULL AND ' . self::sqlDateiname('file_name') . " IN ({$p})
-                     UNION
-                     SELECT " . self::sqlDateiname('image_url') . ' FROM horses
-                     WHERE image_url IS NOT NULL AND ' . self::sqlDateiname('image_url') . " IN ({$p})"
-                );
-                $stmt->execute([...$teil, ...$teil]);
-                foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $name) {
-                    $benutzt[(string)$name] = true;
-                }
-            }
+            $benutzt = self::referenzierteDateinamen(Database::getInstance(), array_map('strval', array_keys($namen)));
 
             // Die Suche nach Resten abgebrochener Schreibvorgaenge kostet je
             // Datei einen Verzeichnisdurchlauf. Beim Leeren eines grossen
@@ -573,6 +558,85 @@ final class HorseMedia {
         }
 
         return $entfernt;
+    }
+
+    /**
+     * true, sobald feststeht, dass die generierten Dateinamen-Spalten fehlen -
+     * dann spart sich jede weitere Prüfung dieses Prozesses den Fehlversuch.
+     */
+    private static bool $dateinamenSpaltenFehlen = false;
+
+    /**
+     * Welche der Dateinamen referenziert noch ein Medium oder ein Pferd (auch
+     * eines im Papierkorb)?
+     *
+     * Gefragt wird über die generierten Spalten `horse_media.file_basename`
+     * und `horses.image_basename` (#507, SCHEMA_VERSION 34). Sie tragen genau
+     * den Ausdruck aus sqlDateiname() und sind indiziert: Die Prüfung liest
+     * je Dateiname ein paar Indexeinträge. Vorher stand der Ausdruck in der
+     * WHERE-Klausel beider Tabellen, und jede einzelne Medien-Löschung las
+     * `horse_media` und `horses` vollständig.
+     *
+     * An der Aussage ändert sich nichts: Verglichen wird weiterhin der
+     * Dateiname, nicht der Spaltenwert - `uploads/horses/x.jpg` zählt neben
+     * `/uploads/horses/x.jpg` als dieselbe Referenz.
+     *
+     * Fehlen die Spalten (Migration noch nicht gelaufen, Tabelle aus einem
+     * älteren Teilarchiv zurückgespielt, Datenbankserver ohne unsichtbare
+     * Spalten), läuft die bisherige Abfrage. Sie ist langsamer, aber
+     * gleichwertig - eine Referenz zu übersehen hieße, eine noch gebrauchte
+     * Datei zu löschen.
+     *
+     * @param list<string> $namen
+     * @return array<string, true> Dateiname => true
+     */
+    private static function referenzierteDateinamen(PDO $db, array $namen): array {
+        $benutzt = [];
+        foreach (array_chunk($namen, 500) as $teil) {
+            $p = implode(',', array_fill(0, count($teil), '?'));
+            $stmt = null;
+
+            if (!self::$dateinamenSpaltenFehlen) {
+                try {
+                    $stmt = $db->prepare(
+                        "SELECT file_basename FROM horse_media WHERE file_basename IN ({$p})
+                         UNION ALL
+                         SELECT image_basename FROM horses WHERE image_basename IN ({$p})"
+                    );
+                    $stmt->execute([...$teil, ...$teil]);
+                } catch (\PDOException $e) {
+                    // 42S22 = unbekannte Spalte. Alles andere ist ein echter
+                    // Fehler und geht an den Aufrufer - der löscht dann nichts.
+                    if ($e->getCode() !== '42S22') {
+                        throw $e;
+                    }
+                    self::$dateinamenSpaltenFehlen = true;
+                    $stmt = null;
+                }
+            }
+
+            if ($stmt === null) {
+                $stmt = $db->prepare(
+                    'SELECT ' . self::sqlDateiname('file_name') . ' FROM horse_media
+                     WHERE file_name IS NOT NULL AND ' . self::sqlDateiname('file_name') . " IN ({$p})
+                     UNION
+                     SELECT " . self::sqlDateiname('image_url') . ' FROM horses
+                     WHERE image_url IS NOT NULL AND ' . self::sqlDateiname('image_url') . " IN ({$p})"
+                );
+                $stmt->execute([...$teil, ...$teil]);
+            }
+
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $name) {
+                $benutzt[(string)$name] = true;
+            }
+        }
+
+        return $benutzt;
+    }
+
+    /** Nur für Tests: erzwingt die bisherige Abfrage bzw. hebt das wieder auf. */
+    public static function ohneDateinamenSpaltenFuerTests(bool $ohne): void {
+        self::$dateinamenSpaltenFehlen = $ohne;
     }
 
     /** @return bool ob ein Original entfernt wurde */

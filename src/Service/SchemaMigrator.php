@@ -42,7 +42,7 @@ final class SchemaMigrator {
      * Migrationsschritt ist idempotent, ein Erhöhen der Version lässt also
      * gefahrlos alle Schritte erneut laufen.
      */
-    public const SCHEMA_VERSION = 33; // 33: idx_horses_created für /api/stats; 32: Hauptbild-Backfill 339b (Audit M40/N69); 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
+    public const SCHEMA_VERSION = 34; // 34: generierte Suchspalten horses.name_soundex/name_prefix3/image_basename und horse_media.file_basename samt Indizes (#507, #509); 33: idx_horses_created für /api/stats; 32: Hauptbild-Backfill 339b (Audit M40/N69); 31: Schutzdateien unter public/uploads (Audit N19); 30: Wiederfreigabe-Vermerk plugins.pending_reason/pending_marker (Audit N63); 29: Metadaten der Bestandsfotos entfernen (Audit M21/N81); 28: DSGVO-Nachführung des Bestands (Audit M11/M23/N45/N17); 27: idx_horses_color/idx_horses_breed um is_published erweitert (Audit N12)
 
     /**
      * Wie lange ein Lauf auf die Migrationssperre eines anderen Prozesses
@@ -1402,6 +1402,92 @@ final class SchemaMigrator {
         // Index lief jeder Abruf als Full Scan über horses; deleted_at und
         // is_published im Index machen die Abfrage zum reinen Indexzugriff.
         $addIndex('horses', 'idx_horses_created', '`created_at`, `deleted_at`, `is_published`');
+
+        // 26c. Abgeleitete Suchschlüssel als generierte, unsichtbare Spalten
+        // (#507, #509, SCHEMA_VERSION 34). Begründung - warum generiert und
+        // warum unsichtbar - bei den Spalten in database/schema.sql.
+        //
+        // Die Dubletten-Vorauswahl (MatchSuggestionFinder) und die
+        // Referenzprüfung der Bilddateien (HorseMedia) verglichen Funktionen
+        // auf Spalten und lasen dafür je Prüfung die ganze Tabelle. Beide
+        // fragen jetzt diese Spalten; fehlen sie, fallen sie auf die
+        // bisherige Abfrage zurück.
+        //
+        // NUR AUF MARIADB. MySQL kennt unsichtbare Spalten erst ab 8.0.23
+        // und schreibt sie in `SHOW CREATE TABLE` als `/*!80023 INVISIBLE */`.
+        // Solche Kommentare weist der Dump-Prüfer des Addons `datenmigration`
+        // ab (zu Recht: darin lässt sich beliebiges SQL verstecken) - eine
+        // Instanz auf MySQL könnte ihren eigenen Export nicht mehr
+        // einspielen. Dort bleibt es beim bisherigen, langsameren Weg, in
+        // database/schema.sql wie hier.
+        //
+        // Ein Syntaxfehler (1064, MariaDB vor 10.3.3) ist ebenfalls kein
+        // Abbruch. Jeder andere Fehler (Sperre, voller Datenträger,
+        // abgelehnter Ausdruck) schlägt wie bei $addColumn durch: Der Stand
+        // wird dann nicht gestempelt, der nächste Lauf wiederholt den Schritt
+        // (#309).
+        $istMariaDb = null;
+        $generierteSpalte = function (string $table, string $column, string $typ, string $ausdruck) use ($pdo, &$performed, &$istMariaDb): bool {
+            if ($istMariaDb === null) {
+                try {
+                    $istMariaDb = stripos((string)$pdo->query('SELECT VERSION()')->fetchColumn(), 'mariadb') !== false;
+                } catch (\Throwable $e) {
+                    $istMariaDb = false;
+                }
+            }
+            if (!$istMariaDb) {
+                return false;
+            }
+            try {
+                $stmt = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE " . $pdo->quote($column));
+            } catch (\Throwable $e) {
+                return false; // Tabelle existiert noch nicht (Setup-/Restore-Fall)
+            }
+            if (!$stmt) {
+                return false;
+            }
+            if ($stmt->rowCount() !== 0) {
+                return true; // Spalte ist schon da - idempotenter No-Op
+            }
+            try {
+                $pdo->exec(
+                    "ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$typ} "
+                    . "GENERATED ALWAYS AS ({$ausdruck}) VIRTUAL INVISIBLE"
+                );
+            } catch (\PDOException $e) {
+                if ((int)($e->errorInfo[1] ?? 0) !== 1064) {
+                    throw $e;
+                }
+                error_log("SchemaMigrator: {$table}.{$column} nicht angelegt - der Datenbankserver kennt keine "
+                    . 'unsichtbaren generierten Spalten (MariaDB ab 10.3.3): ' . $e->getMessage());
+                $performed[] = "Suchspalte {$table}.{$column} übersprungen: Der Datenbankserver kennt keine "
+                    . 'unsichtbaren generierten Spalten (MariaDB ab 10.3.3) - die betroffenen Abfragen laufen '
+                    . 'weiter ohne Index';
+                return false;
+            }
+            $performed[] = "Spalte {$table}.{$column} ergänzt (generiert, unsichtbar)";
+            return true;
+        };
+
+        // Derselbe Ausdruck wie HorseMedia::sqlDateiname() - der Dateiname
+        // ohne Pfad, Query und Fragment.
+        $dateiname = static fn(string $spalte): string
+            => "SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(`{$spalte}`, '#', 1), '?', 1), '/', -1)";
+
+        if ($generierteSpalte('horses', 'name_soundex', 'VARCHAR(100)', 'SOUNDEX(`name`)')) {
+            $addIndex('horses', 'idx_horses_name_soundex', '`name_soundex`');
+        }
+        if ($generierteSpalte('horses', 'name_prefix3', 'VARCHAR(3)', 'LEFT(`name`, 3)')) {
+            $addIndex('horses', 'idx_horses_name_prefix3', '`name_prefix3`');
+        }
+        // 191 Zeichen: Der Schlüssel passt so auch in Tabellen mit altem
+        // Zeilenformat (767 Byte); Dateinamen sind weit kürzer.
+        if ($generierteSpalte('horses', 'image_basename', 'VARCHAR(255)', $dateiname('image_url'))) {
+            $addIndex('horses', 'idx_horses_image_basename', '`image_basename`(191)');
+        }
+        if ($generierteSpalte('horse_media', 'file_basename', 'VARCHAR(255)', $dateiname('file_name'))) {
+            $addIndex('horse_media', 'idx_horse_media_file_basename', '`file_basename`(191)');
+        }
 
         // 27. Kastrationsdatum (#239, SCHEMA_VERSION 2): echtes Sachdatum -
         // die Deckeinsatz-Historie eines Wallachs endet dort. Fachlich nur bei

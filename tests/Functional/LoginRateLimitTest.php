@@ -109,6 +109,43 @@ class LoginRateLimitTest extends FunctionalTestCase {
         );
     }
 
+    /**
+     * Unter der Bremse bringt auch die Fehlseite nach falschem Passwort eine
+     * frische Aufgabe mit. Vorher fehlte das Feld dort: Der nächste Versuch -
+     * auch mit richtigem Passwort - scheiterte an "Sicherheitsabfrage nötig",
+     * obwohl gerade eine gelöst war.
+     */
+    public function testFehlseiteUnterDerBremseBringtEineNeueAufgabe(): void {
+        $admin = $this->authenticatedClient();
+        $konto = $this->angemeldetOhneFaktor($admin, 'bremse2');
+        $this->zaehlerMerken();
+        $kontoKey = 'uid:' . $konto['id'];
+        self::kontoweiteFehlversucheSetzen($kontoKey, \App\Controllers\AuthController::KONTO_BREMSE_AB);
+
+        $client = $this->newClient();
+        $gate = $this->anmelden($client, $konto['username'], $konto['passwort']);
+        $this->waitForMinimumSolveTime();
+        $vertippt = $this->anmelden($client, $konto['username'], 'falsches-Passwort-1!', [
+            'captcha' => (string)$this->solveCaptcha($gate),
+            'login_captcha' => '1',
+        ], $gate);
+
+        $this->assertNull($vertippt->location());
+        $this->assertStringContainsString(
+            htmlspecialchars(\App\I18n\Translator::t('auth.invalid_credentials')),
+            $vertippt->body
+        );
+        $this->assertStringContainsString('name="captcha"', $vertippt->body, 'Frische Aufgabe auf der Fehlseite.');
+        $this->assertStringContainsString('value="' . $konto['username'] . '"', $vertippt->body);
+
+        $this->waitForMinimumSolveTime();
+        $angemeldet = $this->anmelden($client, $konto['username'], $konto['passwort'], [
+            'captcha' => (string)$this->solveCaptcha($vertippt),
+            'login_captcha' => '1',
+        ], $vertippt);
+        $this->assertSame(302, $angemeldet->statusCode, "Body: {$angemeldet->body}");
+    }
+
     /** Eine unbekannte Kennung bekommt dieselbe Bremse - kein Orakel für Konten. */
     public function testKontoweiteBremseVerraetKeineKonten(): void {
         $this->authenticatedClient();

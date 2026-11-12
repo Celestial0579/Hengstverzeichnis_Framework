@@ -131,6 +131,12 @@ class AuthController extends BaseController {
             self::KONTO_BREMSE_AB,
             self::KONTO_BREMSE_FENSTER
         );
+        // Greift die Bremse, braucht JEDE Fehlseite dieses Requests eine
+        // frische Aufgabe: verify() hat die gelöste gerade entwertet, und ohne
+        // neues Feld scheiterte der nächste Versuch - auch mit richtigem
+        // Passwort - an "Sicherheitsabfrage nötig" und kostete erneut eine
+        // login_ip-Buchung.
+        $bremseAktiv = $kontoRes === null;
         if ($kontoRes === null) {
             $captcha = \App\Security\Captcha::verify($this->settings, 'login', $_POST);
             if ($captcha !== \App\Security\Captcha::OK) {
@@ -198,10 +204,7 @@ class AuthController extends BaseController {
                 // Passwortprüfung: Dritte können so weder abfragen, ob es ein
                 // unbestätigtes Konto gibt, noch Mail auslösen.
                 EmailVerification::erneutSenden($user);
-                $this->render('login', [
-                    'title' => \App\I18n\Translator::t('meta.title_login_failed'),
-                    'error' => \App\I18n\Translator::t('auth.email_not_verified')
-                ]);
+                $this->loginFehlerseite('auth.email_not_verified', $kennung, $bremseAktiv);
                 return;
             }
             // Den eigenen Konto|IP-Zähler zurücksetzen.
@@ -215,10 +218,24 @@ class AuthController extends BaseController {
 
         // Fehlschlag: Alle Buchungen bleiben stehen - sie SIND die
         // Fehlversuche.
-        $this->render('login', [
+        $this->loginFehlerseite('auth.invalid_credentials', $kennung, $bremseAktiv);
+    }
+
+    /**
+     * Fehlseite der Anmeldung nach geprüftem Passwort. Unter der kontoweiten
+     * Bremse mit frischer Aufgabe (siehe loginSubmit()) - ein Helfer, damit
+     * kein künftiger Ausgang sie vergisst.
+     */
+    private function loginFehlerseite(string $textKey, string $kennung, bool $mitAufgabe): void {
+        $felder = [
             'title' => \App\I18n\Translator::t('meta.title_login_failed'),
-            'error' => \App\I18n\Translator::t('auth.invalid_credentials')
-        ]);
+            'error' => \App\I18n\Translator::t($textKey),
+        ];
+        if ($mitAufgabe) {
+            $felder['captchaField'] = \App\Security\Captcha::renderField($this->settings, 'login');
+            $felder['kennung'] = $kennung;
+        }
+        $this->render('login', $felder);
     }
 
     /** Fehlversuche je Client-IP (bei IPv6 je /64) im Fenster. */

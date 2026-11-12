@@ -687,6 +687,46 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Ein gescheitertes Uploads-Archiv verdrängte intakte Archive aus der
+  Aufbewahrung.** Nach einem Teilfehler lief die Rotation trotzdem für alle
+  Arten. Bei WebDAV/FTPS kann ein abgebrochener Upload ein Fragment am Ziel
+  hinterlassen – es zählte als neuestes Objekt und verdrängte das älteste
+  intakte Archiv; nach wenigen solchen Läufen bestand die Aufbewahrung nur
+  noch aus Fragmenten. Die gescheiterte Art rotiert jetzt in diesem Lauf
+  nicht, die Dumps weiterhin. Scheitert das Aufräumen des Fragments, steht
+  das im Audit-Log.
+
+- **Anmeldung unter der kontoweiten Bremse: Fehlseite ohne neue
+  Sicherheitsabfrage.** Nach gelöster Aufgabe und vertipptem Passwort fehlte
+  auf der Fehlseite das Aufgabenfeld. Der nächste Versuch scheiterte dann auch
+  mit richtigem Passwort an „zusätzliche Sicherheitsabfrage nötig“ und kostete
+  erneut eine Buchung im IP-Zähler. Jede Fehlseite unter der Bremse bringt
+  jetzt eine frische Aufgabe und die Kennung mit, auch die Meldung
+  „E-Mail-Adresse nicht bestätigt“.
+
+- **Geburtsjahr ohne Bereichsprüfung.** Ein Geburtsjahr außerhalb von 1600
+  bis zum Folgejahr (etwa `66000`) lief im Pferdeformular erst nach dem
+  Bild-Upload in einen Datenbankfehler (HTTP 500, verwaiste Bilddatei). Es
+  wird jetzt wie Todesjahr und Stockmaß zu „leer“.
+
+- **Gleichnamige Pferde doppelt oder gar nicht im Katalog.** Katalog, API und
+  Pferdeliste der Verwaltung sortierten seitenweise nur nach dem Namen;
+  gleichnamige Pferde hatten keine feste Reihenfolge, und beim Blättern oder
+  Nachladen tauchte eines auf zwei Seiten auf, ein anderes auf keiner. Die
+  Kennung ist jetzt zweites Sortierkriterium.
+
+- **Nach `database/rollback-336.php` blieb der Index
+  `idx_horse_persons_contact` dauerhaft einspaltig.** Der Rückweg setzte den
+  Marker von Schritt #412 nicht zurück; der erneute Lauf legte den Index
+  schmal an und übersprang die Verbreiterung. Der Rückweg entfernt den Marker
+  jetzt mit.
+
+- **Datenbank-Mindestversion dokumentiert.** Die Migration braucht
+  MariaDB ab 10.5.2 (`RENAME INDEX`) bzw. MySQL ab 8.0 (`REGEXP_REPLACE`);
+  bisher stand nur „MySQL/MariaDB“ in der Dokumentation. Auf älteren Servern
+  brach das Update mitten im Lauf ab. README und `docs/README.md` nennen die
+  Grenze jetzt.
+
 - **Hauptfoto aus v0.8 ging ohne Galerie-Addon bei der nächsten
   Medienaktion verloren** (#339, Audit M40). Die Übernahme der Galerie in den
   Kern legte für ein vorhandenes Pferdefoto (`horses.image_url`) nur dann eine

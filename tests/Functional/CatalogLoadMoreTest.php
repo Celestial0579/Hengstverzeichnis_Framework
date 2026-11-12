@@ -88,6 +88,31 @@ class CatalogLoadMoreTest extends FunctionalTestCase {
     }
 
     /**
+     * Gleichnamige Pferde: Sortiert wurde nur nach dem Namen, ihre Reihenfolge
+     * war also nicht festgelegt, und LIMIT/OFFSET durfte ein Pferd auf beiden
+     * Seiten liefern - und ein anderes auf keiner. Mit h.id als Tiebreaker
+     * ergeben beide Seiten zusammen genau den Bestand.
+     */
+    public function testGleichnamigePferdeErscheinenGenauEinmal(): void {
+        $db = Database::getInstance();
+        $placeholders = implode(',', array_fill(0, count($this->seededHorseIds), '?'));
+        $db->prepare("UPDATE horses SET name = ? WHERE id IN ({$placeholders})")
+            ->execute(array_merge([$this->marker . ' Gleich'], $this->seededHorseIds));
+
+        $ids = [];
+        foreach ([1, 2] as $page) {
+            $data = $this->ajax(['search' => $this->marker, 'page' => $page, 'append' => 1]);
+            preg_match_all('/\/horse\?id=(\d+)/', $data['cards_html'], $m);
+            $ids = array_merge($ids, array_map('intval', array_unique($m[1])));
+        }
+
+        sort($ids);
+        $erwartet = $this->seededHorseIds;
+        sort($erwartet);
+        $this->assertSame($erwartet, $ids, 'Jedes gleichnamige Pferd genau einmal über beide Seiten.');
+    }
+
+    /**
      * Beim Anhängen darf die Seiten-Navigation nicht mitkommen; ohne das Flag
      * muss sie weiterhin da sein, weil sie ohne JavaScript der einzige Weg ist.
      */

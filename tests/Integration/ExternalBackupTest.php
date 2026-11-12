@@ -419,6 +419,44 @@ class ExternalBackupTest extends TestCase {
     }
 
     /**
+     * Nach einem Teilfehler rotiert die gescheiterte Art nicht. Bei WebDAV
+     * oder FTPS kann ein abgebrochener Upload ein Fragment hinterlassen; es
+     * zählte als neuestes Objekt und verdrängte das älteste intakte Archiv.
+     * Die Dumps rotieren weiter, der neue liegt ja verifiziert am Ziel.
+     */
+    public function testTeilfehlerRotiertDieGescheiterteArtNicht(): void {
+        $this->prepareFakeUploadsDir();
+        $dir = end($this->wegwerfVerzeichnisse);
+        file_put_contents($dir . '/horses/' . str_repeat('h', 120) . '.jpg', 'bild');
+        $this->configureBackup(['backup_include_uploads' => '1', 'backup_retention_count' => '1']);
+
+        foreach ([
+            'backup-2020-01-01_000000.sql.gz',
+            'uploads-2020-01-01_000000.tar.gz',
+            'uploads-2021-01-01_000000.tar.gz',
+        ] as $existingKey) {
+            file_put_contents(FakeS3Server::storageDir() . '/test-bucket__backups~' . $existingKey, 'altes-backup');
+        }
+
+        try {
+            BackupService::run();
+            $this->fail('Erwartete RuntimeException beim Uploads-Archiv.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Uploads-Archiv', $e->getMessage());
+        }
+
+        $remainingKeys = array_map(
+            fn($path) => str_replace('~', '/', substr(basename($path), strlen('test-bucket__'))),
+            glob(FakeS3Server::storageDir() . '/test-bucket__backups~*')
+        );
+
+        $this->assertNotContains('backups/backup-2020-01-01_000000.sql.gz', $remainingKeys, 'Dumps rotieren weiter');
+        $this->assertContains('backups/uploads-2020-01-01_000000.tar.gz', $remainingKeys);
+        $this->assertContains('backups/uploads-2021-01-01_000000.tar.gz', $remainingKeys);
+        $this->assertSame('partial', $this->setting('backup_last_status'));
+    }
+
+    /**
      * Audit N65: Ein Fehler beim Erstellen des Dumps landet im Status - und
      * die Verbindung ist danach sauber (keine offene Transaktion, alte
      * Zeitzone), sonst würde nicht einmal der Status gespeichert.

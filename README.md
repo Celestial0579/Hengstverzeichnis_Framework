@@ -47,6 +47,12 @@ Klassisches Shared-Hosting ohne Docker nutzt stattdessen das bereinigte
 Source-Zip aus den [Releases](../../releases) (siehe
 [docs/releasing.md](docs/releasing.md) und Variante B unten).
 
+**Datenbank:** MariaDB **ab 10.5.2** oder MySQL **ab 8.0**. Die
+Schemamigration nutzt `ALTER TABLE … RENAME INDEX` (MariaDB 10.5.2) und
+`REGEXP_REPLACE` (MySQL 8.0); auf älteren Servern bricht sie mitten im Lauf
+ab. Geprüft wird in der CI gegen MariaDB 11 – bei Shared-Hostern lohnt vor
+der Installation ein Blick auf die angebotene Version.
+
 ## Bereits umgesetzt
 
 - Öffentlich zugängliches Verzeichnis mit Suche, Filtern (u. a. nach Geschlecht

@@ -36,5 +36,5 @@ Composer und kein npm. Zusätzlich wird Composer für die PHPUnit-Testsuite in
 Entwicklung und CI benötigt) – bewusst schlank gehalten, um auf einfachem
 Shared-Hosting genauso lauffähig zu sein wie in Docker.
 
-**Tech-Stack:** PHP 8.5, MySQL/MariaDB (PDO), Apache, reines HTML/CSS/JS
+**Tech-Stack:** PHP 8.5, MariaDB ≥ 10.5.2 oder MySQL ≥ 8.0 (PDO; CI: MariaDB 11), Apache, reines HTML/CSS/JS
 (kein Frontend-Framework), Docker/Docker Compose für den Betrieb.

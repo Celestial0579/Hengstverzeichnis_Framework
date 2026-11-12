@@ -141,6 +141,14 @@ class Rollback336Test extends TestCase {
         SchemaMigrator::run($this->pdo);
         $this->assertSame(SchemaMigrator::SCHEMA_VERSION, SchemaMigrator::storedVersion($this->pdo));
         $this->assertTrue(AltbestandV072::tabelleExistiert($this->pdo, 'persons_pre_contacts'));
+
+        // #412 läuft erneut: Der Rückweg nimmt dessen Marker mit, sonst
+        // bliebe der Index nach 336_fremdschluessel einspaltig.
+        $spalten = $this->pdo->query(
+            "SHOW INDEX FROM horse_persons WHERE Key_name = 'idx_horse_persons_contact'"
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        usort($spalten, static fn($a, $b) => (int)$a['Seq_in_index'] <=> (int)$b['Seq_in_index']);
+        $this->assertSame(['contact_id', 'horse_id'], array_column($spalten, 'Column_name'));
     }
 
     public function testPferdeWerdenBeiErneutemAufrufNichtDoppeltUmgerechnet(): void {

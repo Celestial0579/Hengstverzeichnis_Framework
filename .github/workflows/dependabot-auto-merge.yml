@@ -13,7 +13,15 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.actor == 'dependabot[bot]'
+    # BEIDES pruefen. github.actor ist, wer das Ereignis ausgeloest hat - das
+    # kann Dependabot auch an einem FREMDEN PR sein: Ein Fork laesst seinen
+    # eigenen Dependabot auf einen Branch pushen, zu dem bereits ein PR gegen
+    # dieses Repository offen ist ("Confused Deputy"). Der PR-Autor laesst
+    # sich so nicht unterschieben. Bisher hielt das allein
+    # dependabot/fetch-metadata ab (prueft den Autor selbst und liefert sonst
+    # keine Metadaten, worauf die Allowlist unten ablehnt) - die Schranke
+    # soll aber nicht an den Interna einer fremden Action haengen.
+    if: github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: write        # 'gh pr merge --auto' aktiviert Auto-Merge am PR

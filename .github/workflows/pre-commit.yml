@@ -84,9 +84,9 @@ jobs:
         # pip lehnt jedes Paket ab, dessen Hash nicht in der Datei steht, und
         # verlangt, dass ALLE Abhaengigkeiten aufgefuehrt sind.
         #
-        # Neu erzeugen nach jeder Versionsaenderung:
-        #   pip-compile --generate-hashes --strip-extras \
-        #       .github/pre-commit-requirements.in
+        # Neu erzeugen nach jeder Versionsaenderung: Der Aufruf (samt der
+        # Schonfrist von 7 Tagen) steht im Kopf von
+        # .github/pre-commit-requirements.in.
         run: |
           pip install --disable-pip-version-check --require-hashes \
               -r .github/pre-commit-requirements.txt

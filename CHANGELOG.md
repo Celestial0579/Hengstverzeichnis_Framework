@@ -652,7 +652,8 @@ Breaking Changes sind jederzeit möglich).
     4.6.0 → 4.7.0 – jeweils per Commit-SHA.
   - ESLint 10.8.0 → 10.14.0 (`.pre-commit-config.yaml`); das Semgrep-Image
     der CI von einem Stand aus dem Juli auf 1.183.0.
-  - E2E-Nachtlauf (`tests/e2e/helpers`): `python:3.12-slim` 3.12.13 → 3.12.16,
+  - E2E-Nachtlauf (`tests/e2e`): Browser-Image `unclecode/crawl4ai`
+    0.9.2 → 0.9.5, `python:3.12-slim` 3.12.13 → 3.12.16,
     `mailpit` auf 1.33.0, `cryptography` 50.0.0 → 50.0.2, `pycparser` 3.12,
     `wsgidav` 4.3.5 → 4.4.0 (härtet u. a. das XML-Parsing und schließt ein
     Wettlauffenster beim `PUT` unter Sperre), `json5` 0.17.3, `markupsafe`

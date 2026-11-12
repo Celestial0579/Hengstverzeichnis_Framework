@@ -34,6 +34,16 @@ Breaking Changes sind jederzeit möglich).
     Durchsicht nicht – der Passkey-Serializer registriert keinen
     `DataUriNormalizer` und kennt keine Datei-Typen, den Metadatendienst
     verwendet der Kern nicht –, die Pakete liegen aber im Anmeldepfad.
+  - Die übrigen Laufzeitpakete aus dem Unterbau der Passkey-Bibliothek auf
+    dem aktuellen Stand ihrer Linie: die Symfony-Komponenten `clock`,
+    `property-access`, `property-info`, `string`, `type-info` und `uid`
+    (8.1.9 bis 8.1.11), die Polyfills (1.43), `deprecation-contracts` 3.8.1,
+    `phpdocumentor/reflection-common` 2.2.1 und `type-resolver` 2.1.0,
+    `phpstan/phpdoc-parser` 2.4.1, `webmozart/assert` 2.5.0. Kein
+    Hauptversionssprung, kein neues Paket. Zurückgestellt sind nur
+    `doctrine/deprecations` 1.2.0 und `paragonie/constant_time_encoding`
+    3.1.4: Beide sind jünger als die Schonfrist von 7 Tagen, die für
+    Dependabot gilt.
 
   **Für Betreiber:** Wirksam wird das erst mit einem neuen Image. Das
   veröffentlichte `:latest` (0.9.0) enthält noch PHP 8.5.9. Wer aus dem

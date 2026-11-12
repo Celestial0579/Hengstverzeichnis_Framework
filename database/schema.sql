@@ -343,7 +343,11 @@ CREATE TABLE IF NOT EXISTS `horses` (
     INDEX `idx_horses_breed` (`breed`, `deleted_at`, `is_published`),
     -- Blutlinien-Vorfilter des MatchSuggestionFinder (#215)
     INDEX `idx_horses_sire_unlinked` (`deleted_at`, `sire_id`),
-    INDEX `idx_horses_dam_unlinked` (`deleted_at`, `dam_id`)
+    INDEX `idx_horses_dam_unlinked` (`deleted_at`, `dam_id`),
+    -- Zeitreihen von /api/stats (horses.created/horses.published): Bereich
+    -- über created_at, deleted_at/is_published aus dem Index - ohne ihn ein
+    -- Full Scan je Abruf.
+    INDEX `idx_horses_created` (`created_at`, `deleted_at`, `is_published`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Zuordnung Pferd <-> Kontakt (Besitzhistorie & Rollen)

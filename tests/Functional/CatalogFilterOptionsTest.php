@@ -171,27 +171,27 @@ class CatalogFilterOptionsTest extends FunctionalTestCase {
         $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'breeder')")
             ->execute([$pferd, $kontakt]);
 
-        foreach (['breeder_list', 'owner_list'] as $liste) {
+        foreach (['person_list'] as $liste) {
             $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), $liste),
                 "Unveröffentlicht: darf nicht in {$liste} stehen.");
         }
 
         $db->prepare('UPDATE contacts SET is_published = 1 WHERE id = ?')->execute([$kontakt]);
         $rumpf = $this->katalogSeite();
-        foreach (['breeder_list', 'owner_list'] as $liste) {
+        foreach (['person_list'] as $liste) {
             $this->assertContains($name, $this->datalistWerte($rumpf, $liste),
                 "Veröffentlicht: muss in {$liste} stehen.");
         }
 
         $db->prepare('UPDATE horses SET is_published = 0 WHERE id = ?')->execute([$pferd]);
-        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'breeder_list'),
+        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'),
             'Ein zurückgezogenes Pferd nimmt den Vorschlag mit.');
 
         // Die Zuordnung selbst löschen: derselbe Effekt, anderer Weg.
         $db->prepare('UPDATE horses SET is_published = 1 WHERE id = ?')->execute([$pferd]);
-        $this->assertContains($name, $this->datalistWerte($this->katalogSeite(), 'breeder_list'));
+        $this->assertContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'));
         $db->prepare('DELETE FROM horse_persons WHERE horse_id = ?')->execute([$pferd]);
-        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'breeder_list'),
+        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'),
             'Ohne Zuordnung zu einem veröffentlichten Pferd kein Vorschlag.');
     }
 
@@ -212,18 +212,18 @@ class CatalogFilterOptionsTest extends FunctionalTestCase {
         $db->prepare("INSERT INTO horse_persons (horse_id, contact_id, role) VALUES (?, ?, 'owner')")
             ->execute([$pferd, $kontakt]);
 
-        $this->assertContains($name, $this->datalistWerte($this->katalogSeite(), 'owner_list'),
+        $this->assertContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'),
             'Vorbedingung: der Name muss zunächst dastehen.');
 
         $db->prepare('UPDATE contacts SET is_published = 0 WHERE id = ?')->execute([$kontakt]);
-        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'owner_list'),
+        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'),
             'Sofort, ohne jede Wartezeit.');
 
         // Und der Papierkorb-Weg, der andere Grund für dasselbe Ergebnis.
         $db->prepare('UPDATE contacts SET is_published = 1 WHERE id = ?')->execute([$kontakt]);
-        $this->assertContains($name, $this->datalistWerte($this->katalogSeite(), 'owner_list'));
+        $this->assertContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'));
         $db->prepare('UPDATE contacts SET deleted_at = NOW() WHERE id = ?')->execute([$kontakt]);
-        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'owner_list'),
+        $this->assertNotContains($name, $this->datalistWerte($this->katalogSeite(), 'person_list'),
             'Ein Kontakt im Papierkorb wird nicht mehr vorgeschlagen.');
     }
 
@@ -299,7 +299,7 @@ class CatalogFilterOptionsTest extends FunctionalTestCase {
             $rumpf = $this->katalogSeite();
             $this->assertSame([], $this->farbWerte($rumpf));
             $this->assertSame([], $this->datalistWerte($rumpf, 'breed_list'));
-            $this->assertSame([], $this->datalistWerte($rumpf, 'breeder_list'));
+            $this->assertSame([], $this->datalistWerte($rumpf, 'person_list'));
             $this->assertSame([], $this->datalistWerte($rumpf, 'station_list'));
             foreach (["Farbe-liste-{$u}", "Rasse-liste-{$u}", "Listenperson {$u}"] as $wert) {
                 $this->assertStringNotContainsString($wert, $rumpf);

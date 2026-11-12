@@ -141,8 +141,10 @@ class CatalogContactVisibilityTest extends FunctionalTestCase {
             foreach ([$this->station, $this->zuechter, $this->besitzer] as $name) {
                 $this->assertStringContainsString($name, $rumpf, "Vorbedingung: {$name} auf der Karte");
             }
-            $this->assertContains($this->zuechter, $this->datalist($rumpf, 'breeder_list') ?? []);
-            $this->assertContains($this->besitzer, $this->datalist($rumpf, 'owner_list') ?? []);
+            $this->assertContains($this->zuechter, $this->datalist($rumpf, 'person_list') ?? []);
+            $this->assertContains($this->besitzer, $this->datalist($rumpf, 'person_list') ?? []);
+            $this->assertSame(1, substr_count($rumpf, '<datalist id="person_list">'), 'Personenliste nur einmal ausgegeben');
+            $this->assertSame(2, substr_count($rumpf, 'list="person_list"'), 'Züchter- und Besitzerfeld teilen sie');
             $this->assertContains($this->station, $this->datalist($rumpf, 'station_list') ?? []);
 
             // (2) Nur horses.view.
@@ -152,8 +154,7 @@ class CatalogContactVisibilityTest extends FunctionalTestCase {
             foreach ($this->namen() as $name) {
                 $this->assertStringNotContainsString($name, $rumpf, "{$name} darf ohne contacts.view nicht erscheinen");
             }
-            $this->assertNull($this->datalist($rumpf, 'breeder_list'), 'Kein Züchterfeld ohne contacts.view');
-            $this->assertNull($this->datalist($rumpf, 'owner_list'), 'Kein Besitzerfeld ohne contacts.view');
+            $this->assertNull($this->datalist($rumpf, 'person_list'), 'Kein Züchter- und Besitzerfeld ohne contacts.view');
             $this->assertSame([], $this->datalist($rumpf, 'station_list'), 'Das Stationsfeld bleibt, seine Liste ist leer');
             $this->assertStringNotContainsString('catalog-contact-filter-note', $rumpf, 'Ohne Kontaktfilter kein Hinweis');
             $this->assertStringContainsString($this->freitext, $this->seite(['q_name' => "{$this->marke} Freitext"]),

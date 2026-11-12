@@ -420,6 +420,7 @@ class PublicController extends BaseController {
                 JOIN horses h ON h.breeding_station_id = c.id AND h.deleted_at IS NULL AND h.is_published = 1
                 WHERE c.deleted_at IS NULL AND c.is_published = 1
                 ORDER BY c.name ASC
+                LIMIT " . self::FILTERVORSCHLAG_LIMIT . "
             ")->fetchAll(\PDO::FETCH_COLUMN);
             $persons = $db->query("
                 SELECT DISTINCT c.name
@@ -428,6 +429,7 @@ class PublicController extends BaseController {
                 JOIN horses h ON h.id = hp.horse_id AND h.deleted_at IS NULL AND h.is_published = 1
                 WHERE c.deleted_at IS NULL AND c.is_published = 1
                 ORDER BY c.name ASC
+                LIMIT " . self::FILTERVORSCHLAG_LIMIT . "
             ")->fetchAll(\PDO::FETCH_COLUMN);
         }
 
@@ -738,6 +740,15 @@ class PublicController extends BaseController {
      * den Katalog.
      */
     private const MAX_PFERDE_JE_KONTAKT = 200;
+
+    /**
+     * Obergrenze je Vorschlagsliste (Deckstationen, Personen) im Katalog.
+     * Ohne LIMIT wurde jeder passende Kontakt zu einem <option> - bei 10.000
+     * Kontakten rund 1,8 MB Markup je Seitenaufruf, die jeder Besucher auch
+     * mobil parsen musste. Die Felder bleiben Freitext; die Liste ist nur
+     * eine Eingabehilfe.
+     */
+    private const FILTERVORSCHLAG_LIMIT = 1000;
 
     /**
      * Öffentliche Kontaktseite (#336) - die eine Seite, die

@@ -46,7 +46,7 @@ class HorseSearchController extends BaseController {
     private const MIN_ZEICHEN = 2;
 
     /**
-     * GET /admin/horses/search?q=...&geschlecht=...&rolle=...&nur_mit_farbe=1
+     * GET /admin/horses/search?q=...&geschlecht=...&elternteil=sire|dam&rolle=...&nur_mit_farbe=1
      *
      * Antwort: [{"id": 42, "label": "Rogar S (DE1, 2010)"}, ...]
      */
@@ -99,6 +99,16 @@ class HorseSearchController extends BaseController {
         if (in_array($geschlecht, ['stallion', 'mare', 'gelding'], true)) {
             $bedingungen[] = 'h.sex = ?';
             $werte[] = $geschlecht;
+        }
+
+        // Filter `elternteil`: wie `geschlecht`, aber Pferde ohne
+        // Geschlechtsangabe bleiben wählbar - dieselbe Regel wie im
+        // Pferdeformular und in linkMatch() (#167). Für den Match-Assistenten,
+        // dessen Altbestand oft kein Geschlecht trägt.
+        $elternteil = (string)($_GET['elternteil'] ?? '');
+        if (in_array($elternteil, ['sire', 'dam'], true)) {
+            $bedingungen[] = '(h.sex IS NULL OR h.sex = ?)';
+            $werte[] = $elternteil === 'sire' ? 'stallion' : 'mare';
         }
 
         // Filter `rolle`: schränkt auf Pferde ein, die überhaupt eine

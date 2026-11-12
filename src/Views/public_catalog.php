@@ -90,8 +90,9 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
                 <!-- Züchter -->
                 <div class="form-group">
                     <label for="filter-q-breeder" style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.breeder')) ?></label>
-                    <input type="text" id="filter-q-breeder" name="q_breeder" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.breeder_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_breeder'] ?? '') ?>" list="breeder_list">
-                    <datalist id="breeder_list">
+                    <input type="text" id="filter-q-breeder" name="q_breeder" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.breeder_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_breeder'] ?? '') ?>" list="person_list">
+                    <?php /* Eine Liste für Züchter UND Besitzer - inhaltsgleich, vorher zweimal ausgegeben. */ ?>
+                    <datalist id="person_list">
                         <?php foreach ($persons as $p): ?>
                             <option value="<?= htmlspecialchars($p) ?>">
                         <?php endforeach; ?>
@@ -101,12 +102,7 @@ $hasActiveFilters = !empty(array_filter($filters ?? [], fn($v) => $v !== '' && $
                 <!-- Besitzer -->
                 <div class="form-group">
                     <label for="filter-q-owner" style="font-size: 0.85rem; font-weight: bold;"><?= htmlspecialchars(App\I18n\Translator::t('field.owner')) ?></label>
-                    <input type="text" id="filter-q-owner" name="q_owner" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.owner_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_owner'] ?? '') ?>" list="owner_list">
-                    <datalist id="owner_list">
-                        <?php foreach ($persons as $p): ?>
-                            <option value="<?= htmlspecialchars($p) ?>">
-                        <?php endforeach; ?>
-                    </datalist>
+                    <input type="text" id="filter-q-owner" name="q_owner" class="form-control filter-field" style="padding: 0.5rem;" placeholder="<?= htmlspecialchars(App\I18n\Translator::t('catalog.owner_placeholder')) ?>" value="<?= htmlspecialchars($filters['q_owner'] ?? '') ?>" list="person_list">
                 </div>
                 <?php endif; ?>
 

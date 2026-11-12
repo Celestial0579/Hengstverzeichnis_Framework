@@ -15,6 +15,11 @@
 // Jede vollständig empfangene Nachricht landet als Datei im Ablageverzeichnis,
 // damit ein Test den tatsächlichen Inhalt prüfen kann statt nur den
 // Rückgabewert von send().
+//
+// Jede angenommene VERBINDUNG hinterlässt dort ebenfalls eine Datei
+// (verbindung-000001.txt …). Ob drei Mails über eine Verbindung gingen oder
+// über drei, sieht man den Nachrichten selbst nicht an - genau das prüft
+// MailerSitzungTest (Mailer::inEinerSitzung()).
 
 $storageDir = getenv('FAKE_SMTP_STORAGE_DIR');
 $certFile = getenv('FAKE_SMTP_CERT');
@@ -63,14 +68,16 @@ $readLine = static function ($socket): ?string {
 };
 
 $received = 0;
+$connected = 0;
 
-// Eine Verbindung nach der anderen - der Mailer baut je Empfänger eine eigene
-// auf, und die Tests laufen ohnehin seriell.
+// Eine Verbindung nach der anderen - die Tests laufen seriell. Solange eine
+// Verbindung offen ist (Mailer::inEinerSitzung()), wartet jede weitere.
 while (true) {
     $conn = @stream_socket_accept($server, -1);
     if ($conn === false) {
         continue;
     }
+    file_put_contents(sprintf('%s/verbindung-%06d.txt', rtrim($storageDir, '/'), ++$connected), date('c') . "\n");
 
     stream_set_timeout($conn, 10);
     fwrite($conn, "220 fake-smtp bereit\r\n");
@@ -129,6 +136,13 @@ while (true) {
                     fwrite($conn, "550 5.1.1 <{$m[1]}>: Empfaenger unbekannt\r\n");
                     continue;
                 }
+                // Local-Part "trennt": Der Server legt ohne Antwort auf -
+                // so sieht ein Abriss mitten im Dialog aus (Zeitgrenze des
+                // Servers, Netz weg).
+                if (str_starts_with(strtolower($m[1]), 'trennt@')) {
+                    fclose($conn);
+                    continue 2;
+                }
                 $rcpt[] = $m[1];
             }
             fwrite($conn, "250 OK\r\n");
@@ -160,6 +174,16 @@ while (true) {
             $from = '';
             $rcpt = [];
             fwrite($conn, "250 Angenommen\r\n");
+            continue;
+        }
+
+        if ($command === 'RSET') {
+            // Verwirft, was aus einer angefangenen Nachricht nachhängt - ohne
+            // das trüge die nächste Mail derselben Verbindung den Absender
+            // der abgelehnten.
+            $from = '';
+            $rcpt = [];
+            fwrite($conn, "250 OK\r\n");
             continue;
         }
 

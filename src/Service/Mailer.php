@@ -295,6 +295,117 @@ class Mailer {
     }
 
     /**
+     * Offene SMTP-Verbindung, solange inEinerSitzung() läuft.
+     *
+     * @var resource|null
+     */
+    private $sitzungSocket = null;
+
+    /** Tiefe verschachtelter inEinerSitzung()-Aufrufe; 0 = jede Mail baut ihre eigene Verbindung auf. */
+    private int $sitzungTiefe = 0;
+
+    /** In der laufenden Sitzung in Folge gescheiterte Verbindungsaufbauten. */
+    private int $sitzungVerbindungsfehler = 0;
+
+    /**
+     * Nach so vielen in Folge gescheiterten Verbindungsaufbauten gibt eine
+     * Sitzung auf, siehe inEinerSitzung().
+     */
+    private const SITZUNG_MAX_VERBINDUNGSFEHLER = 2;
+
+    /**
+     * Versendet mehrere Mails über EINE SMTP-Verbindung
+     * ([Addons #223](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/223)).
+     *
+     *     $mailer->inEinerSitzung(function (Mailer $m) use ($konten): void {
+     *         foreach ($konten as $k) {
+     *             $m->sendWelcomeEmail($k['email'], $k['name'], $k['passwort']);
+     *         }
+     *     });
+     *
+     * WOZU. Ohne die Klammer baut jede Mail ihre eigene Sitzung auf:
+     * TCP-Verbindung, STARTTLS mit vollem Handshake, AUTH LOGIN, QUIT - rund
+     * elf Wortwechsel mit dem Server je Empfänger. Hundert Zugangsdaten-Mails
+     * nach einer Kontenanlage waren hundert Verbindungen in einer Anfrage:
+     * gegen einen entfernten Server rund eine Minute, und viele Anbieter
+     * begrenzen Verbindungen je Minute weit darunter. Dann lief jeder weitere
+     * Aufbau in die Zeitgrenze, und die Anfrage starb, bevor sie melden
+     * konnte, welche Mails fehlen.
+     *
+     * In der Klammer bleibt die Verbindung nach der ersten Mail offen; jede
+     * weitere kostet nur noch RSET, MAIL FROM, RCPT TO und DATA. An den Mails
+     * selbst ändert sich nichts - alle send…()-Methoden arbeiten wie sonst,
+     * auch das Protokoll schreibt je Mail seinen Eintrag.
+     *
+     * WAS BEI EINEM FEHLER PASSIERT. Lehnt der Server eine einzelne Mail ab
+     * (unbekannter Empfänger), bleibt die Verbindung für die nächste
+     * bestehen. Reißt sie ab, baut die nächste Mail eine neue auf. Scheitert
+     * aber der AUFBAU zweimal hintereinander, gibt die Sitzung auf: Jede
+     * weitere Mail schlägt dann sofort fehl, statt je 15 Sekunden auf einen
+     * Server zu warten, der nicht antwortet. Der Aufrufer bekommt für jede
+     * Mail wie gewohnt true oder false und meldet, was fehlt.
+     *
+     * Verschachtelt ist unschädlich: Die äußerste Klammer hält die Verbindung
+     * und schließt sie. Ohne SMTP (Treiber `mail`) ist die Klammer wirkungslos.
+     *
+     * @template T
+     * @param callable(self): T $versand
+     * @return T
+     */
+    public function inEinerSitzung(callable $versand): mixed {
+        $this->sitzungTiefe++;
+        try {
+            return $versand($this);
+        } finally {
+            if (--$this->sitzungTiefe === 0) {
+                $this->smtpSitzungBeenden();
+                $this->sitzungVerbindungsfehler = 0;
+            }
+        }
+    }
+
+    public function __destruct() {
+        // Nur für den Fall, dass eine Sitzung nicht über inEinerSitzung()
+        // geendet hat - die Verbindung soll nicht bis zum Prozessende hängen.
+        $this->smtpSitzungBeenden();
+    }
+
+    /** Beendet eine offene Sitzungsverbindung ordentlich. */
+    private function smtpSitzungBeenden(): void {
+        if (is_resource($this->sitzungSocket)) {
+            $this->smtpKommando($this->sitzungSocket, 'QUIT');
+            @fclose($this->sitzungSocket);
+        }
+        $this->sitzungSocket = null;
+    }
+
+    /**
+     * Liest eine (ggf. mehrzeilige) Serverantwort.
+     *
+     * @param resource $socket
+     */
+    private function smtpLesen($socket): string {
+        $response = '';
+        while ($line = fgets($socket, 512)) {
+            $response .= $line;
+            if (isset($line[3]) && $line[3] === ' ') {
+                break;
+            }
+        }
+        return $response;
+    }
+
+    /**
+     * Sendet ein Kommando und liest die Antwort.
+     *
+     * @param resource $socket
+     */
+    private function smtpKommando($socket, string $command): string {
+        @fputs($socket, $command . "\r\n");
+        return $this->smtpLesen($socket);
+    }
+
+    /**
      * Ultra-secure SMTP client with enforced SSL or TLS
      */
     private function sendViaSmtp(string $toEmail, string $subject, string $htmlBody, string $textBody, string $fromEmail, string $fromName): bool {
@@ -318,6 +429,74 @@ class Mailer {
             return false;
         }
 
+        $inSitzung = $this->sitzungTiefe > 0;
+
+        // Eine offene Sitzungsverbindung wiederverwenden. RSET stellt sicher,
+        // dass der Server noch da ist und nichts aus einer abgelehnten Mail
+        // nachhängt - antwortet er nicht mit 250, wird neu verbunden.
+        $socket = null;
+        if ($inSitzung && is_resource($this->sitzungSocket)) {
+            if (substr($this->smtpKommando($this->sitzungSocket, 'RSET'), 0, 3) === '250') {
+                $socket = $this->sitzungSocket;
+            } else {
+                @fclose($this->sitzungSocket);
+                $this->sitzungSocket = null;
+            }
+        }
+
+        if ($socket === null) {
+            if ($inSitzung && $this->sitzungVerbindungsfehler >= self::SITZUNG_MAX_VERBINDUNGSFEHLER) {
+                // Nicht noch einmal 15 Sekunden auf denselben Server warten.
+                AuditLogger::log(
+                    'SMTP Fehler: Abbruch bei Verbindung',
+                    'email',
+                    $this->protokollDetails($toEmail, [
+                        'Host' => "{$host}:{$port}",
+                        'Antwort' => 'nicht versucht - der Verbindungsaufbau ist in dieser Sitzung bereits '
+                            . self::SITZUNG_MAX_VERBINDUNGSFEHLER . '-mal gescheitert',
+                    ]),
+                    null,
+                    'SYSTEM'
+                );
+                return false;
+            }
+
+            $socket = $this->smtpVerbinden($host, $port, $encryption, $user, (string)$rawPass, $toEmail);
+            if ($socket === null) {
+                if ($inSitzung) {
+                    $this->sitzungVerbindungsfehler++;
+                }
+                return false;
+            }
+            $this->sitzungVerbindungsfehler = 0;
+            if ($inSitzung) {
+                $this->sitzungSocket = $socket;
+            }
+        }
+
+        [$success, $verbindungSteht] = $this->smtpNachricht($socket, $toEmail, $subject, $htmlBody, $textBody, $fromEmail, $fromName, $host, $port);
+
+        if (!$inSitzung) {
+            if ($verbindungSteht) {
+                $this->smtpKommando($socket, 'QUIT');
+                fclose($socket);
+            }
+        } elseif (!$verbindungSteht) {
+            // smtpNachricht() hat die Verbindung bereits geschlossen.
+            $this->sitzungSocket = null;
+        }
+
+        return $success;
+    }
+
+    /**
+     * Baut die Verbindung auf: Begrüßung, EHLO, bei `tls` STARTTLS mit
+     * geprüftem Zertifikat, AUTH LOGIN. Jeder Abbruch steht mit Schritt und
+     * Serverantwort im Protokoll (smtpAbbruch()).
+     *
+     * @return resource|null Die angemeldete Verbindung, null nach einem Abbruch
+     */
+    private function smtpVerbinden(string $host, int $port, string $encryption, string $user, string $rawPass, string $toEmail) {
         // Decrypt password if encrypted
         $pass = Crypto::decrypt($rawPass);
 
@@ -339,89 +518,103 @@ class Mailer {
         }
 
         if (!$socket) {
-            return $this->smtpAbbruch(null, 'Verbindung', "{$errno}: {$errstr}", $toEmail, $host, $port);
+            $this->smtpAbbruch(null, 'Verbindung', "{$errno}: {$errstr}", $toEmail, $host, $port);
+            return null;
         }
 
         stream_set_timeout($socket, $timeout);
 
-        // Helper to read server response
-        $readResponse = function() use ($socket) {
-            $response = '';
-            while ($line = fgets($socket, 512)) {
-                $response .= $line;
-                if (isset($line[3]) && $line[3] === ' ') {
-                    break;
-                }
-            }
-            return $response;
-        };
-
-        // Helper to send SMTP command
-        $sendCommand = function(string $command) use ($socket, $readResponse) {
-            fputs($socket, $command . "\r\n");
-            return $readResponse();
-        };
-
-        $greeting = $readResponse();
+        $greeting = $this->smtpLesen($socket);
         if (substr($greeting, 0, 3) !== '220') {
-            return $this->smtpAbbruch($socket, 'Begrüßung', $greeting, $toEmail, $host, $port);
+            $this->smtpAbbruch($socket, 'Begrüßung', $greeting, $toEmail, $host, $port);
+            return null;
         }
 
         // EHLO
-        $ehlo = $sendCommand("EHLO " . gethostname());
+        $ehlo = $this->smtpKommando($socket, "EHLO " . gethostname());
         if (substr($ehlo, 0, 3) !== '250') {
-            return $this->smtpAbbruch($socket, 'EHLO', $ehlo, $toEmail, $host, $port);
+            $this->smtpAbbruch($socket, 'EHLO', $ehlo, $toEmail, $host, $port);
+            return null;
         }
 
         // Handle STARTTLS for TLS encryption
         if ($encryption === 'tls') {
-            $startTls = $sendCommand("STARTTLS");
+            $startTls = $this->smtpKommando($socket, "STARTTLS");
             if (substr($startTls, 0, 3) !== '220') {
-                return $this->smtpAbbruch($socket, 'STARTTLS', $startTls, $toEmail, $host, $port);
+                $this->smtpAbbruch($socket, 'STARTTLS', $startTls, $toEmail, $host, $port);
+                return null;
             }
 
             error_clear_last();
             $cryptoResult = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT | STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT);
             if (!$cryptoResult) {
-                return $this->smtpAbbruch($socket, 'TLS-Handshake', (string)(error_get_last()['message'] ?? 'TLS-Aushandlung fehlgeschlagen'), $toEmail, $host, $port);
+                $this->smtpAbbruch($socket, 'TLS-Handshake', (string)(error_get_last()['message'] ?? 'TLS-Aushandlung fehlgeschlagen'), $toEmail, $host, $port);
+                return null;
             }
 
             // Re-EHLO after TLS handshake
-            $sendCommand("EHLO " . gethostname());
+            $this->smtpKommando($socket, "EHLO " . gethostname());
         }
 
         // AUTH LOGIN
-        $authRes = $sendCommand("AUTH LOGIN");
+        $authRes = $this->smtpKommando($socket, "AUTH LOGIN");
         if (substr($authRes, 0, 3) !== '334') {
-            return $this->smtpAbbruch($socket, 'AUTH LOGIN', $authRes, $toEmail, $host, $port);
+            $this->smtpAbbruch($socket, 'AUTH LOGIN', $authRes, $toEmail, $host, $port);
+            return null;
         }
 
-        $userRes = $sendCommand(base64_encode($user));
+        $userRes = $this->smtpKommando($socket, base64_encode($user));
         if (substr($userRes, 0, 3) !== '334') {
-            return $this->smtpAbbruch($socket, 'Benutzer', $userRes, $toEmail, $host, $port);
+            $this->smtpAbbruch($socket, 'Benutzer', $userRes, $toEmail, $host, $port);
+            return null;
         }
 
-        $passRes = $sendCommand(base64_encode($pass));
+        $passRes = $this->smtpKommando($socket, base64_encode((string)$pass));
         if (substr($passRes, 0, 3) !== '235') {
-            return $this->smtpAbbruch($socket, 'Passwort', $passRes, $toEmail, $host, $port);
+            $this->smtpAbbruch($socket, 'Passwort', $passRes, $toEmail, $host, $port);
+            return null;
         }
+
+        return $socket;
+    }
+
+    /**
+     * Übergibt EINE Nachricht über eine angemeldete Verbindung: MAIL FROM,
+     * RCPT TO, DATA.
+     *
+     * Der zweite Rückgabewert sagt, ob die Verbindung danach noch steht. Sie
+     * steht, wenn die Nachricht angenommen wurde - und in einer Sitzung auch
+     * dann, wenn der Server sie mit einer ordentlichen Antwort abgelehnt hat
+     * (4xx/5xx, etwa ein unbekannter Empfänger): Der Dialog ist dann nicht
+     * gestört, die nächste Mail räumt mit RSET auf. In allen anderen Fällen
+     * ist sie geschlossen.
+     *
+     * @param resource $socket
+     * @return array{0: bool, 1: bool} Erfolg, Verbindung steht noch
+     */
+    private function smtpNachricht($socket, string $toEmail, string $subject, string $htmlBody, string $textBody, string $fromEmail, string $fromName, string $host, int $port): array {
+        $abbruch = function (string $schritt, string $antwort) use ($socket, $toEmail, $host, $port): array {
+            $offenLassen = $this->sitzungTiefe > 0 && preg_match('/^[45]\d\d[ -]/', $antwort) === 1;
+            $this->smtpAbbruch($offenLassen ? null : $socket, $schritt, $antwort, $toEmail, $host, $port);
+            return [false, $offenLassen];
+        };
 
         // MAIL FROM
-        $mailFromRes = $sendCommand("MAIL FROM:<{$fromEmail}>");
+        $mailFromRes = $this->smtpKommando($socket, "MAIL FROM:<{$fromEmail}>");
         if (substr($mailFromRes, 0, 3) !== '250') {
-            return $this->smtpAbbruch($socket, 'MAIL FROM', $mailFromRes, $toEmail, $host, $port);
+            return $abbruch('MAIL FROM', $mailFromRes);
         }
 
         // RCPT TO
-        $rcptToRes = $sendCommand("RCPT TO:<{$toEmail}>");
+        $rcptToRes = $this->smtpKommando($socket, "RCPT TO:<{$toEmail}>");
         if (substr($rcptToRes, 0, 3) !== '250') {
-            return $this->smtpAbbruch($socket, 'RCPT TO', $rcptToRes, $toEmail, $host, $port);
+            return $abbruch('RCPT TO', $rcptToRes);
         }
 
         // DATA
-        $dataRes = $sendCommand("DATA");
+        $dataRes = $this->smtpKommando($socket, "DATA");
         if (substr($dataRes, 0, 3) !== '354') {
-            return $this->smtpAbbruch($socket, 'DATA', $dataRes, $toEmail, $host, $port);
+            return $abbruch('DATA', $dataRes);
         }
 
         // Construct MIME Message
@@ -447,20 +640,25 @@ class Mailer {
 
         $body .= "--{$boundary}--\r\n.\r\n";
 
-        fputs($socket, $body);
-        $sendRes = $readResponse();
-
-        $sendCommand("QUIT");
-        fclose($socket);
+        @fputs($socket, $body);
+        $sendRes = $this->smtpLesen($socket);
 
         $success = (substr($sendRes, 0, 3) === '250');
         if ($success) {
             AuditLogger::log("E-Mail versendet (SMTP)", "email", $this->protokollDetails($toEmail), null, "SYSTEM");
-        } else {
-            AuditLogger::log("SMTP Fehler: E-Mail abgelehnt", "email", $this->protokollDetails($toEmail, ['Antwort' => $sendRes]), null, "SYSTEM");
+            return [true, true];
         }
 
-        return $success;
+        AuditLogger::log("SMTP Fehler: E-Mail abgelehnt", "email", $this->protokollDetails($toEmail, ['Antwort' => $sendRes]), null, "SYSTEM");
+
+        // Eine ordentliche Ablehnung lässt den Dialog intakt; bleibt die
+        // Antwort aus, weiß niemand, in welchem Zustand der Server ist.
+        if (preg_match('/^[45]\d\d[ -]/', $sendRes) === 1) {
+            return [false, true];
+        }
+        @fclose($socket);
+
+        return [false, false];
     }
 
     /**

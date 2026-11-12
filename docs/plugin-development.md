@@ -1381,6 +1381,47 @@ laufende Konstante: Die gehört noch zum alten Stand.
 Die Liste ist eng und namentlich. Ein Muster (`galerie*`) stünde dort nicht:
 Es träfe eines Tages ein Addon, an das niemand gedacht hat.
 
+## E-Mails versenden (`App\Service\Mailer`)
+
+Ein Addon verschickt Mail über den Mailer des Kerns: `send()` für eigene
+Texte, die fertigen `send…()`-Methoden für die Mails des Kerns (etwa
+`sendWelcomeEmail()` für Zugangsdaten). Der Mailer erzwingt TLS, prüft das
+Zertifikat und schreibt jede Mail ins Protokoll — ohne Adresse und ohne
+Betreff.
+
+**Mehrere Mails in einem Vorgang gehören in eine Sitzung.** Jede einzelne
+Mail baut sonst ihre eigene Verbindung auf: TCP, STARTTLS mit vollem
+Handshake, Anmeldung, Abbau. Bei hundert Empfängern sind das hundert
+Verbindungen in einer Anfrage — rund eine Minute gegen einen entfernten
+Server, und viele Anbieter begrenzen Verbindungen je Minute weit darunter.
+
+```php
+use App\Service\Mailer;
+
+$mailer = new Mailer();
+$gescheitert = $mailer->inEinerSitzung(function (Mailer $m) use ($konten): array {
+    $gescheitert = [];
+    foreach ($konten as $konto) {
+        if (!$m->sendWelcomeEmail($konto['email'], $konto['name'], $konto['passwort'])) {
+            $gescheitert[] = $konto['name'];
+        }
+    }
+    return $gescheitert;
+});
+```
+
+In der Klammer bleibt die Verbindung offen; jede Mail liefert wie gewohnt
+`true` oder `false`. Lehnt der Server eine einzelne Mail ab, geht es mit der
+nächsten über dieselbe Verbindung weiter. Scheitert der Verbindungsaufbau
+zweimal hintereinander, schlagen die übrigen Mails der Sitzung sofort fehl,
+statt je 15 Sekunden auf einen Server zu warten, der nicht antwortet —
+melden Sie dem Benutzer, welche Mails fehlen.
+
+`inEinerSitzung()` gibt es seit der Fassung nach v0.9.0. Ein Addon, das auch
+auf einem älteren Kern laufen soll, fragt mit
+`method_exists($mailer, 'inEinerSitzung')` nach und verschickt sonst wie
+bisher.
+
 ## Protokollieren (#352)
 
 **Jede schreibende Aktion eines Addons gehört ins Protokoll.** Das ist keine

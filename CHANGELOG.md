@@ -629,6 +629,25 @@ Breaking Changes sind jederzeit möglich).
   Klartext noch verschlüsselt protokolliert. Eine Umleitung über ein
   fremdes Mail-Relay wird damit nachvollziehbar.
 
+- **CI-Werkzeuge aktualisiert, Stau bei den Dependabot-Updates aufgelöst.**
+  Betroffen war nur die CI, nicht die ausgelieferte Anwendung.
+  - `.github/pre-commit-requirements.txt`: `virtualenv` 21.7.4 → 21.14.13 und
+    `filelock` 3.32.3 → 4.2.1. Damit sind die 31 offenen Dependabot-Meldungen
+    des Repositories (11 davon „hoch“) erledigt, und Scorecard
+    „Vulnerabilities“ steht nicht mehr auf 0. Alle Hashes sind gegen PyPI
+    geprüft.
+  - CodeQL-Actions 4.38.1 → 4.39.3. Dependabot hob `init`, `autobuild` und
+    `analyze` einzeln; seit 4.38.2 bricht CodeQL bei gemischten Versionen ab.
+    Die drei PRs vom 06.10. blieben deshalb rot und offen, und zusammen mit
+    zwei weiteren war die Grenze von fünf offenen Action-PRs erreicht. Die
+    CodeQL-Actions steigen jetzt als Gruppe (`.github/dependabot.yml`).
+  - `harden-runner` 2.21.0 → 2.22.3, `setup-php` 2.37.2 → 2.40.0,
+    `setup-python` und `setup-node` 7.0.0 → 7.1.0, `upload-artifact`
+    7.0.1 → 7.0.2, `scorecard-action` 2.4.4 → 2.5.0 – jeweils per Commit-SHA,
+    keine Version jünger als die Schonfrist von 7 Tagen.
+  - Dependabot erfasst jetzt auch `docker-compose.yml` (Ökosystem
+    `docker-compose`); der MariaDB-Digest dort war nie nachgezogen worden.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte

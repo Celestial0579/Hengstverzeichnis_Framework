@@ -613,6 +613,14 @@ eine Spur (OWASP A09). Registriert sind ein `set_exception_handler` und eine
 `error_log()` - bewusst nicht in die Datenbank, weil genau sie der Ausfall
 sein kann - und liefern eine schlichte 500-Seite ohne Details.
 
+**Gescheiterter Verbindungsaufbau zur Datenbank** (#521): Den Fall behandelt
+`Database::getInstance()` selbst, weil er im Produktivbetrieb in einem `die()`
+endet und damit an beiden Handlern vorbeiläuft. Die Ursache steht in jeder
+Umgebung im Fehlerprotokoll (`Datenbank-Verbindung fehlgeschlagen: …`, mit
+Benutzer und Host, ohne Passwort), die Antwort trägt `503`, ein
+Kommandozeilen-Prozess endet mit Exit-Code 1. Der Besucher sieht weiterhin nur
+den allgemeinen Satz. Zuvor: kein Protokolleintrag, HTTP 200, Exit-Code 0.
+
 ## Security-Header & CSP (`config/config.php`)
 
 Global gesetzt (nicht optional pro Route): `X-Content-Type-Options: nosniff`,

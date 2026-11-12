@@ -1113,6 +1113,47 @@ oben. Der frühere Weg (`CREATE TABLE IF NOT EXISTS` direkt in `register()`)
 ist überholt: Er führte das DDL bei **jedem** Request aus (Addons-Issue #75)
 und soll in neuen Plugins nicht mehr verwendet werden.
 
+### Eigene Datenbankverbindung (#519)
+
+`Database::getInstance()` ist die eine, geteilte Verbindung der Anfrage: Über
+sie laufen Seitenaufbau, Audit-Log und die Sperren von `DbLock`. Für fast
+alles ist sie die richtige. Zwei Dinge gehören nicht auf sie:
+
+- **Sitzungszustand verstellen** — `SET FOREIGN_KEY_CHECKS = 0`, `SET NAMES`,
+  `SET time_zone`, wie es ein eingespielter Dump tut. Der Zustand bliebe an
+  der geteilten Verbindung hängen.
+- **Anweisungen, die die Verbindung kosten können** — ein zu großes Paket
+  (1153) oder „server has gone away“ (2006) beendet die Verbindung, und die
+  geteilte lässt sich in der laufenden Anfrage nicht neu aufbauen.
+
+Dafür gibt es `Database::neueVerbindung()`:
+
+```php
+$db = \App\Database::neueVerbindung([
+    \Pdo\Mysql::ATTR_MULTI_STATEMENTS => false, // weitere PDO-Optionen, optional
+]);
+```
+
+Die Verbindung hat dieselben Einstellungen wie die geteilte: Zugangsdaten,
+TLS (`DB_SSL`, `DB_SSL_CA`, `DB_SSL_VERIFY`), Ausnahmen als Fehlermodus,
+assoziative Zeilen, echte Prepared Statements und die Sitzungs-Zeitzone von
+PHP. Sie gehört dem Aufrufer und endet, wenn er sie loslässt. Anders als bei
+`getInstance()`:
+
+- Es läuft **keine Schema-Migration**.
+- Ein Fehlschlag ist immer eine `PDOException`, auch im Produktivbetrieb — das
+  Addon entscheidet, was daraus wird.
+- Zusätzliche Optionen ergänzen oder überschreiben die Grundoptionen. Die
+  TLS-Einstellungen der Instanz lassen sich darüber nicht ändern, und
+  `PDO::ATTR_PERSISTENT` wird abgelehnt.
+
+Die Verbindung nicht selbst nachbauen (`new PDO(…)` mit `DB_HOST` und den
+übrigen Konstanten): Ein Nachbau kennt die TLS-Einstellungen und die
+Zeitzonenregel des Kerns nur zum Zeitpunkt des Abschreibens.
+
+Ein Addon, das auch auf älteren Kernen laufen soll, fragt vorher
+`method_exists(\App\Database::class, 'neueVerbindung')`.
+
 ## Gemeinsame Pferdesuche (#341)
 
 Sieben Addons brachten bis v0.7 je eine eigene Pferdesuche mit — eigene

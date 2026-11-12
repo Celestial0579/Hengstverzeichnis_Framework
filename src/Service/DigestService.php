@@ -86,13 +86,19 @@ final class DigestService {
         $mailer = new Mailer();
         $sentCount = 0;
         $failedRecipients = [];
-        foreach ($recipients as $recipientEmail) {
-            if ($mailer->sendAdminDigest($recipientEmail, $matchSuggestionCount, $expiringTrashCount, $pendingDeactivations)) {
-                $sentCount++;
-            } else {
-                $failedRecipients[] = $recipientEmail;
+        // Eine SMTP-Verbindung für alle Empfänger statt einer je Mail
+        // (Mailer::inEinerSitzung()).
+        $mailer->inEinerSitzung(function (Mailer $m) use (
+            $recipients, $matchSuggestionCount, $expiringTrashCount, $pendingDeactivations, &$sentCount, &$failedRecipients
+        ): void {
+            foreach ($recipients as $recipientEmail) {
+                if ($m->sendAdminDigest($recipientEmail, $matchSuggestionCount, $expiringTrashCount, $pendingDeactivations)) {
+                    $sentCount++;
+                } else {
+                    $failedRecipients[] = $recipientEmail;
+                }
             }
-        }
+        });
 
         if ($sentCount === 0) {
             $message = 'Versand an keinen der Empfänger erfolgreich (E-Mail-Konfiguration prüfen).';

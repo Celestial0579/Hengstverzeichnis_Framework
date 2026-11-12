@@ -1528,6 +1528,21 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- **Mehrere Mails über eine SMTP-Verbindung: `Mailer::inEinerSitzung()`**
+  ([Addons #223](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/223)).
+  Jede Mail baute ihre eigene Verbindung auf – TCP, STARTTLS, Anmeldung,
+  Abbau. Wer viele Mails in einem Vorgang verschickt, klammert sie jetzt:
+  Die Verbindung bleibt offen, jede weitere Mail kostet nur noch die
+  Übergabe. Lehnt der Server eine einzelne Mail ab, bleibt die Verbindung
+  bestehen; scheitert der Aufbau zweimal in Folge, schlagen die übrigen
+  Mails sofort fehl, statt je 15 Sekunden abzuwarten. Der Digest nutzt die
+  Klammer bereits. An einzelnen Mails ändert sich nichts.
+
+  **Für Addons:** `inEinerSitzung(callable $versand)` reicht den Mailer
+  hinein und den Rückgabewert heraus; alle `send…()`-Methoden arbeiten darin
+  wie sonst. Beispiel in `docs/plugin-development.md`, Abschnitt „E-Mails
+  versenden".
+
 - **Papierkorb leeren: ein Protokoll-Durchgang je Charge.** Für jeden
   gelöschten Kontakt suchte die Bereinigung die Namen im Audit-Log einzeln
   (ein Scan über die Kontakt-Kategorien je Kontakt, `details` ist nicht

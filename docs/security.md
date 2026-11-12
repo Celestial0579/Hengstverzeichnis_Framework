@@ -783,6 +783,15 @@ Eigener minimaler SMTP-Client (kein PHPMailer/Symfony-Mailer-Abhängigkeit).
 Zertifikatsprüfung (`verify_peer`/`verify_peer_name`) ist aktiv,
 selbstsignierte Zertifikate werden abgelehnt. STARTTLS erzwingt TLS 1.2/1.3.
 
+Mehrere Mails eines Vorgangs gehen über **eine** Verbindung, wenn der
+Aufrufer sie in `Mailer::inEinerSitzung()` klammert (Digest; Addons, siehe
+[plugin-development.md](plugin-development.md)). Verschlüsselung,
+Zertifikatsprüfung und Anmeldung geschehen dabei einmal beim Aufbau und
+genauso wie für eine einzelne Mail; das Protokoll schreibt weiterhin je Mail
+einen Eintrag. Nach zwei in Folge gescheiterten Verbindungsaufbauten gibt
+eine Sitzung auf – die übrigen Mails schlagen sofort fehl und stehen einzeln
+im Protokoll.
+
 ## Host-Header-Validierung und feste Stamm-URL (`src/Security/TrustedHost.php`, `src/Security/BaseUrl.php`)
 
 Absolute URLs in ausgehenden Mails (u. a. der Passwort-Reset-Link) dürfen nie

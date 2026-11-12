@@ -76,9 +76,20 @@ class FakeSmtpServer {
     }
 
     public static function clear(): void {
-        foreach (glob(self::storageDir() . '/mail-*.txt') ?: [] as $file) {
+        foreach (array_merge(
+            glob(self::storageDir() . '/mail-*.txt') ?: [],
+            glob(self::storageDir() . '/verbindung-*.txt') ?: []
+        ) as $file) {
             @unlink($file);
         }
+    }
+
+    /**
+     * Wie viele Verbindungen der Server seit dem letzten clear() angenommen
+     * hat - auch solche, über die keine Nachricht kam.
+     */
+    public static function connections(): int {
+        return count(glob(self::storageDir() . '/verbindung-*.txt') ?: []);
     }
 
     /**

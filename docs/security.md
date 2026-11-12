@@ -741,8 +741,10 @@ nicht öffentlich sind (Audit M21). Seitdem gilt:
   (auch im Papierkorb) und das Verbandslogo. Im Web läuft der Schritt
   höchstens 20 Sekunden je Aufruf und setzt danach hinter dem Cursor
   `bildmetadaten_cursor` fort; `php database/migrate.php` läuft ohne
-  Zeitgrenze. Nicht lesbare Dateien bleiben unverändert und stehen je Datei
-  im Fehlerprotokoll (`BildMetadaten: nicht lesbar …`).
+  Zeitgrenze. Der Cursor nennt Tabelle und Primärschlüssel (`m:1234` für
+  `horse_media`, `h:567` für `horses`); jede Charge liest damit nur die
+  nächsten Zeilen (#508). Nicht lesbare Dateien bleiben unverändert und
+  stehen je Datei im Fehlerprotokoll (`BildMetadaten: nicht lesbar …`).
 - **Was der Schutz nicht erreicht:** Sicherungen von vor dem Update, ein
   manuell zurückgespieltes altes `uploads`-Archiv und Importe über das Addon
   `datenmigration` bringen Rohdateien zurück. Danach entweder
@@ -780,6 +782,15 @@ Eigener minimaler SMTP-Client (kein PHPMailer/Symfony-Mailer-Abhängigkeit).
 `ssl` oder `tls` sein, sonst wird der Versand abgelehnt und geloggt).
 Zertifikatsprüfung (`verify_peer`/`verify_peer_name`) ist aktiv,
 selbstsignierte Zertifikate werden abgelehnt. STARTTLS erzwingt TLS 1.2/1.3.
+
+Mehrere Mails eines Vorgangs gehen über **eine** Verbindung, wenn der
+Aufrufer sie in `Mailer::inEinerSitzung()` klammert (Digest; Addons, siehe
+[plugin-development.md](plugin-development.md)). Verschlüsselung,
+Zertifikatsprüfung und Anmeldung geschehen dabei einmal beim Aufbau und
+genauso wie für eine einzelne Mail; das Protokoll schreibt weiterhin je Mail
+einen Eintrag. Nach zwei in Folge gescheiterten Verbindungsaufbauten gibt
+eine Sitzung auf – die übrigen Mails schlagen sofort fehl und stehen einzeln
+im Protokoll.
 
 ## Host-Header-Validierung und feste Stamm-URL (`src/Security/TrustedHost.php`, `src/Security/BaseUrl.php`)
 

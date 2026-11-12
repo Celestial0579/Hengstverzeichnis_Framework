@@ -320,6 +320,40 @@ CREATE TABLE IF NOT EXISTS `horses` (
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted_at` DATETIME NULL DEFAULT NULL,
+    -- Abgeleitete Suchschlüssel (#507, #509, SCHEMA_VERSION 34).
+    --
+    -- WARUM GENERIERT. Die Dubletten-Vorauswahl (MatchSuggestionFinder)
+    -- verglich `SOUNDEX(name)` und `LEFT(name, 3)`, die Referenzprüfung vor
+    -- dem Löschen einer Bilddatei (HorseMedia) den Dateinamen aus
+    -- `image_url` - jeweils als Funktion auf der Spalte. Darauf greift kein
+    -- Index: Jede Prüfung las die ganze Tabelle. Eine generierte Spalte trägt
+    -- denselben Ausdruck als Wert, lässt sich indizieren und kann nicht
+    -- veralten - anders als eine Spalte, die jeder Schreibweg selbst
+    -- nachführen müsste (CSV-Import, Zusammenführen, Direktimporte).
+    --
+    -- WARUM UNSICHTBAR. `SELECT *` liefert die Spalten nicht. Sicherung und
+    -- Datenexport (DatabaseDumper) bauen ihre INSERT-Zeilen aus `SELECT *`;
+    -- eine sichtbare generierte Spalte stünde dort mit Wert, und der
+    -- Rückweg scheiterte an "value specified for generated column". So
+    -- bleiben Dump, Restore und jeder Code, der eine Zeile liest und wieder
+    -- schreibt, unberührt. Wer die Spalten braucht, nennt sie beim Namen.
+    --
+    -- `image_basename` ist derselbe Ausdruck wie HorseMedia::sqlDateiname():
+    -- der Dateiname ohne Pfad, Query und Fragment - das, was die Auslieferung
+    -- tatsächlich auflöst (HorseImagePath::datei()).
+    --
+    -- WARUM IN `/*M!100303 … */`. Das ist ein Kommentar, den nur MariaDB (ab
+    -- 10.3.3, der ersten Fassung mit unsichtbaren Spalten) ausführt; MySQL
+    -- überliest ihn. Dort schriebe `SHOW CREATE TABLE` die Spalten als
+    -- `/*!80023 INVISIBLE */` - eine Form, die der Dump-Prüfer des Addons
+    -- `datenmigration` zu Recht abweist. Auf MySQL gibt es die Spalten
+    -- deshalb nicht, und die Abfragen laufen dort auf dem bisherigen Weg
+    -- (siehe SchemaMigrator, Schritt 26c).
+    /*M!100303
+    `name_soundex` VARCHAR(100) GENERATED ALWAYS AS (SOUNDEX(`name`)) VIRTUAL INVISIBLE,
+    `name_prefix3` VARCHAR(3) GENERATED ALWAYS AS (LEFT(`name`, 3)) VIRTUAL INVISIBLE,
+    `image_basename` VARCHAR(255) GENERATED ALWAYS AS (SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(`image_url`, '#', 1), '?', 1), '/', -1)) VIRTUAL INVISIBLE,
+    */
     FOREIGN KEY (`sire_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
     FOREIGN KEY (`dam_id`) REFERENCES `horses`(`id`) ON DELETE SET NULL,
     -- Zeigt seit #336 auf `contacts`. Der Spaltenname bleibt: Die Aussage
@@ -348,6 +382,15 @@ CREATE TABLE IF NOT EXISTS `horses` (
     -- über created_at, deleted_at/is_published aus dem Index - ohne ihn ein
     -- Full Scan je Abruf.
     INDEX `idx_horses_created` (`created_at`, `deleted_at`, `is_published`)
+    -- Vorauswahl der Dubletten-Vorschläge über Klangbild und Namensanfang
+    -- (#509) und Referenzprüfung der Bilddateien (#507), siehe oben bei den
+    -- generierten Spalten. Der Dateiname ist auf 191 Zeichen begrenzt, damit
+    -- der Schlüssel auch in Tabellen mit altem Zeilenformat (767 Byte) passt.
+    /*M!100303 ,
+    INDEX `idx_horses_name_soundex` (`name_soundex`),
+    INDEX `idx_horses_name_prefix3` (`name_prefix3`),
+    INDEX `idx_horses_image_basename` (`image_basename`(191))
+    */
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Zuordnung Pferd <-> Kontakt (Besitzhistorie & Rollen)
@@ -471,6 +514,13 @@ CREATE TABLE IF NOT EXISTS `horse_media` (
     `is_main` TINYINT(1) NOT NULL DEFAULT 0,
     `sort_order` INT NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Der Dateiname aus `file_name`, generiert und unsichtbar (#507,
+    -- SCHEMA_VERSION 34), nur auf MariaDB - Begründung bei
+    -- `horses.image_basename`.
+    /*M!100303
+    `file_basename` VARCHAR(255) GENERATED ALWAYS AS (SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(`file_name`, '#', 1), '?', 1), '/', -1)) VIRTUAL INVISIBLE,
+    INDEX `idx_horse_media_file_basename` (`file_basename`(191)),
+    */
     INDEX `idx_horse_media_horse` (`horse_id`, `sort_order`, `id`),
     FOREIGN KEY (`horse_id`) REFERENCES `horses`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

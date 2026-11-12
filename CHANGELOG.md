@@ -1528,6 +1528,21 @@ Breaking Changes sind jederzeit möglich).
 
 ### Geändert
 
+- **Mehrere Mails über eine SMTP-Verbindung: `Mailer::inEinerSitzung()`**
+  ([Addons #223](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/223)).
+  Jede Mail baute ihre eigene Verbindung auf – TCP, STARTTLS, Anmeldung,
+  Abbau. Wer viele Mails in einem Vorgang verschickt, klammert sie jetzt:
+  Die Verbindung bleibt offen, jede weitere Mail kostet nur noch die
+  Übergabe. Lehnt der Server eine einzelne Mail ab, bleibt die Verbindung
+  bestehen; scheitert der Aufbau zweimal in Folge, schlagen die übrigen
+  Mails sofort fehl, statt je 15 Sekunden abzuwarten. Der Digest nutzt die
+  Klammer bereits. An einzelnen Mails ändert sich nichts.
+
+  **Für Addons:** `inEinerSitzung(callable $versand)` reicht den Mailer
+  hinein und den Rückgabewert heraus; alle `send…()`-Methoden arbeiten darin
+  wie sonst. Beispiel in `docs/plugin-development.md`, Abschnitt „E-Mails
+  versenden".
+
 - **Papierkorb leeren: ein Protokoll-Durchgang je Charge.** Für jeden
   gelöschten Kontakt suchte die Bereinigung die Namen im Audit-Log einzeln
   (ein Scan über die Kontakt-Kategorien je Kontakt, `details` ist nicht
@@ -1552,6 +1567,47 @@ Breaking Changes sind jederzeit möglich).
 - **Index für die `/api/stats`-Zeitreihen** (`idx_horses_created`,
   `SCHEMA_VERSION` 33). `horses.created` und `horses.published` liefen als
   Full Scan über `horses`.
+
+- **Bilder löschen: Referenzprüfung über einen Index** (#507,
+  `SCHEMA_VERSION` 34). Bevor der Kern eine Bilddatei entfernt, prüft er, ob
+  ein Medium oder ein Pferd sie noch führt. Der Dateiname stand dafür als
+  SQL-Ausdruck in der `WHERE`-Klausel: Jede einzelne Medien-Löschung las
+  `horse_media` und `horses` vollständig, das Leeren des Papierkorbs je
+  Charge mehrfach. `horse_media.file_basename` und `horses.image_basename`
+  tragen den Dateinamen jetzt als generierte, indizierte Spalte. Verglichen
+  wird weiterhin der Dateiname, nicht der Spaltenwert –
+  `uploads/horses/x.jpg` zählt neben `/uploads/horses/x.jpg` als dieselbe
+  Referenz.
+
+- **Dubletten-Assistent: Vorauswahl über Indizes** (#509, `SCHEMA_VERSION`
+  34). Die Vorauswahl der Kandidaten verglich `SOUNDEX(name)` und
+  `LEFT(name, 3)` in einem ODER – je Platzhalter las die Datenbank alle
+  Pferde, dreimal je Aufruf von `/admin/matches` und bei jedem Digest-Lauf.
+  Bei 10.000 Pferden mit vielen offenen Elternangaben waren das zweistellige
+  Sekunden. Sie läuft jetzt über `ueln`, `foreign_ueln`, `name` und die neuen
+  generierten Spalten `horses.name_soundex` und `horses.name_prefix3`: ein
+  paar Indexzugriffe je Platzhalter. Gefunden werden dieselben Paare, mit
+  einer Ausnahme: `%` und `_` in einem Namen wirkten bisher als Jokerzeichen
+  (ein Pferd namens „A_" passte auf jeden Platzhalter mit A) und zählen jetzt
+  als das, was dasteht.
+
+- **Metadaten der Bestandsfotos: Durchlauf über die Primärschlüssel** (#508).
+  Der Bestandsschritt aus `SCHEMA_VERSION` 29 suchte die nächsten 200 Dateien
+  über den sortierten Dateinamen einer `UNION` beider Tabellen – je Charge
+  las und sortierte die Datenbank den ganzen Bestand, nach jeder
+  Unterbrechung durch das Zeitlimit erneut. Er läuft jetzt erst über
+  `horse_media`, dann über `horses`, je über den Primärschlüssel. Der Cursor
+  `bildmetadaten_cursor` nennt Tabelle und ID (`m:1234`); steht nach dem
+  Update noch ein Cursor im alten Format da, beginnt der Schritt von vorn –
+  bereinigte Dateien bleiben dabei unverändert.
+
+  **Für Betreiber und Addons:** Die vier neuen Spalten sind unsichtbar
+  (`INVISIBLE`). `SELECT *` liefert sie nicht, Sicherung und Datenexport
+  bleiben, wie sie waren; geschrieben wird in sie nie. Es gibt sie nur auf
+  MariaDB. Auf MySQL legt weder die Neuinstallation noch das Update sie an –
+  dort schriebe der Server sie in einer Form in den Export, die das Addon
+  `datenmigration` beim Einspielen abweist –, und die drei Abfragen laufen
+  wie bisher. An den Mindestfassungen ändert sich nichts.
 
 
 - **Bildadressen tragen eine Version** (Audit M14). `image_url` in

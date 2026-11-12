@@ -7,12 +7,43 @@ updates:
     cooldown:
       default-days: 7
 
+  # Compose-Dateien sind ein EIGENES Oekosystem: "docker" oben erfasst das
+  # Dockerfile, aber nicht docker-compose.yml. Der dort per Digest
+  # festgenagelte mariadb-Stand blieb deshalb vom 08.08. bis in den November
+  # 2026 stehen (11.8.8 statt 11.8.9, 24 behobene CVEs).
+  #
+  # Nicht in der Auto-Merge-Allowlist (workflows/dependabot-auto-merge.yml):
+  # Ein neuer Datenbankstand in der ausgelieferten Compose-Datei wartet auf
+  # ein manuelles Review.
+  #
+  # KEIN Oekosystem erfasst die Service-Images in Workflows (tests.yml) und
+  # security/compose.scan.yml. Deren mariadb-Digest beim Compose-Update von
+  # Hand mitziehen, sonst testet die CI gegen einen anderen Stand, als die
+  # Compose-Datei ausliefert.
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
+    # init, autobuild, analyze und upload-sarif muessen GEMEINSAM steigen.
+    # Einzeln gehoben bricht CodeQL ab ("Loaded a configuration file for
+    # version X, but running version Y"); die drei Einzel-PRs konnten nie
+    # gruen werden und blieben wochenlang offen. Zusammen mit upload-sarif
+    # und setup-node war die Standardgrenze von fuenf offenen PRs erreicht;
+    # fuer harden-runner, setup-php und andere kam in dieser Zeit kein
+    # Update mehr.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   # Deckt Laufzeit UND Entwicklung ab: Seit #353 steht web-auth/webauthn-lib
   # unter require (samt transitiver Pakete, ausgeliefert als vendor/ in Zip und

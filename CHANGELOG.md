@@ -629,6 +629,49 @@ Breaking Changes sind jederzeit möglich).
   Klartext noch verschlüsselt protokolliert. Eine Umleitung über ein
   fremdes Mail-Relay wird damit nachvollziehbar.
 
+- **CI-Werkzeuge aktualisiert, Stau bei den Dependabot-Updates aufgelöst.**
+  Betroffen war nur die CI, nicht die ausgelieferte Anwendung.
+  - `.github/pre-commit-requirements.txt`: `pre-commit` 4.6.2 → 4.7.0,
+    `virtualenv` 21.7.4 → 21.15.5, `filelock` 3.32.3 → 4.2.9, dazu
+    `python-discovery` 1.9.4, `platformdirs` 4.14.5, `nodeenv` 1.12.0,
+    `identify` 2.6.20, `distlib` 0.4.4 und neu `packaging` 26.3. Damit sind
+    die 31 offenen Dependabot-Meldungen des Repositories (11 davon „hoch“)
+    erledigt, und Scorecard „Vulnerabilities“ steht nicht mehr auf 0. Erzeugt
+    mit `pip-compile`, alle Hashes zusätzlich gegen PyPI geprüft. Der
+    Aufruf in `pre-commit-requirements.in` trägt jetzt
+    `--uploaded-prior-to=P7D`: dieselbe Schonfrist von 7 Tagen, die für
+    Dependabot gilt.
+  - CodeQL-Actions 4.38.1 → 4.39.3. Dependabot hob `init`, `autobuild` und
+    `analyze` einzeln; seit 4.38.2 bricht CodeQL bei gemischten Versionen ab.
+    Die drei PRs vom 06.10. blieben deshalb rot und offen, und zusammen mit
+    zwei weiteren war die Grenze von fünf offenen Action-PRs erreicht. Die
+    CodeQL-Actions steigen jetzt als Gruppe (`.github/dependabot.yml`).
+  - `harden-runner` 2.21.0 → 2.22.3, `setup-php` 2.37.2 → 2.40.0,
+    `setup-python` und `setup-node` 7.0.0 → 7.1.0, `upload-artifact`
+    7.0.1 → 7.0.2, `scorecard-action` 2.4.4 → 2.5.0, `docker/login-action`
+    4.6.0 → 4.7.0 – jeweils per Commit-SHA.
+  - ESLint 10.8.0 → 10.14.0 (`.pre-commit-config.yaml`); das Semgrep-Image
+    der CI von einem Stand aus dem Juli auf 1.183.0.
+  - E2E-Nachtlauf (`tests/e2e`): Browser-Image `unclecode/crawl4ai`
+    0.9.2 → 0.9.5, `python:3.12-slim` 3.12.13 → 3.12.16,
+    `mailpit` auf 1.33.0, `cryptography` 50.0.0 → 50.0.2, `pycparser` 3.12,
+    `wsgidav` 4.3.5 → 4.4.0 (härtet u. a. das XML-Parsing und schließt ein
+    Wettlauffenster beim `PUT` unter Sperre), `json5` 0.17.3, `markupsafe`
+    3.0.4, `more_itertools` 11.2.1. `passlib` und `bcrypt` entfallen: `wsgidav`
+    braucht sie seit 4.4.0 nicht mehr. Diese Umgebung läuft nicht in der
+    PR-CI; geprüft ist, dass sich beide Paketlisten für das Helfer-Image
+    (CPython 3.12) mit Hash-Prüfung auflösen lassen.
+  - Dependabot erfasst jetzt auch `docker-compose.yml` (Ökosystem
+    `docker-compose`); der MariaDB-Digest dort war nie nachgezogen worden.
+  - Zurückgestellt, weil jünger als 7 Tage: `harden-runner` 2.22.4,
+    `docker/login-action` 4.8.0, `softprops/action-gh-release` 3.0.4,
+    Semgrep 1.184.0, `mailpit` 1.33.1 sowie `virtualenv` 21.15.6, `filelock`
+    4.2.10 und `python-discovery` 1.9.5.
+  - **Kein Update möglich:** `minio/minio` und `minio/mc`, das S3-Ziel des
+    E2E-Nachtlaufs. Das Upstream-Projekt ist archiviert, die Images sind von
+    Docker Hub entfernt. Der festgenagelte Stand lässt sich auf einem frischen
+    Host nicht mehr ziehen; hier braucht es einen Ersatz, kein Update.
+
 ### Entfernt
 
 - **Spalte `contacts.membership_status`** (#395). Seit v0.9.0 (#349) zeigte

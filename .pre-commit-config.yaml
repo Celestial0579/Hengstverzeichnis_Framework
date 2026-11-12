@@ -20,7 +20,7 @@ repos:
     # (SC2086 & Co.) liegen alle bei warning oder hoeher.
     args: ["--severity=warning"]
 - repo: https://github.com/pre-commit/mirrors-eslint
-  rev: v10.8.0
+  rev: v10.14.0
   hooks:
   - id: eslint
 - repo: https://github.com/pre-commit/pre-commit-hooks

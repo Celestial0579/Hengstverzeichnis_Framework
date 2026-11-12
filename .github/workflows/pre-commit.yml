@@ -37,7 +37,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: audit
 
@@ -49,18 +49,18 @@ jobs:
           fetch-depth: 0
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2 (2.37.2)
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2 (2.40.0)
         with:
           php-version: "8.5"
           coverage: none
 
       - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
       - name: Setup Node (fuer eslint)
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
 
@@ -84,9 +84,9 @@ jobs:
         # pip lehnt jedes Paket ab, dessen Hash nicht in der Datei steht, und
         # verlangt, dass ALLE Abhaengigkeiten aufgefuehrt sind.
         #
-        # Neu erzeugen nach jeder Versionsaenderung:
-        #   pip-compile --generate-hashes --strip-extras \
-        #       .github/pre-commit-requirements.in
+        # Neu erzeugen nach jeder Versionsaenderung: Der Aufruf (samt der
+        # Schonfrist von 7 Tagen) steht im Kopf von
+        # .github/pre-commit-requirements.in.
         run: |
           pip install --disable-pip-version-check --require-hashes \
               -r .github/pre-commit-requirements.txt

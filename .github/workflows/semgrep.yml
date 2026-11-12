@@ -40,14 +40,15 @@ jobs:
       # Per Digest festgenagelt (Supply-Chain-Härtung). Achtung: Dependabot
       # (docker) erfasst nur Dockerfile/Compose, NICHT container:-Images in
       # Workflows — dieser Digest wird also manuell/periodisch nachgezogen.
-      image: semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8
+      # Stand: 1.183.0 (2026-10-29).
+      image: semgrep/semgrep:1.183.0@sha256:2e45517a85e13a9cca14a2a00df6bb48affd66b8ebfae1b0991cd57578362fb0
     permissions:
       contents: read
       security-events: write
       actions: read
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: audit
 
@@ -59,7 +60,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: semgrep-results.sarif
 

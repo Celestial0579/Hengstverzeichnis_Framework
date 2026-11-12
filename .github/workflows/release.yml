@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
         with:
           egress-policy: audit
 
@@ -131,7 +131,7 @@ jobs:
       # dann eines Tages gegen eine andere Sprachversion als der Rest des
       # Projekts. Dieselbe Pinnung wie in tests.yml und pre-commit.yml.
       - name: PHP bereitstellen
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2 (2.37.2)
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2 (2.40.0)
         with:
           php-version: '8.5'
           coverage: none
@@ -201,7 +201,7 @@ jobs:
             type=raw,value=latest,enable=${{ steps.version.outputs.is_latest == 'true' }}
 
       - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

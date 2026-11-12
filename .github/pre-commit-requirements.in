@@ -1,3 +1,8 @@
 # Eingabe fuer pip-compile. Neu erzeugen nach jeder Versionsaenderung:
-#   pip-compile --generate-hashes --strip-extras .github/pre-commit-requirements.in
-pre-commit==4.6.2
+#   pip-compile --generate-hashes --strip-extras --upgrade \
+#       --pip-args='--uploaded-prior-to=P7D' .github/pre-commit-requirements.in
+#
+# --uploaded-prior-to=P7D (pip >= 26) laesst Fassungen aus, die juenger als
+# 7 Tage sind - dieselbe Schonfrist wie `cooldown` in .github/dependabot.yml.
+# Ohne den Schalter nimmt pip-compile auch eine Fassung von heute.
+pre-commit==4.7.0

@@ -35,7 +35,7 @@ docker run --rm --name "${NS}-parcours" --network "$E2E_NET" --user root \
   -e FTPS_HOST=e2e-ftps -e FTPS_PORT=21 -e FTPS_USER=testftp -e FTPS_PW=ftps-e2e-testpass \
   -e SMTP_HOST=e2e-mail -e SMTP_PORT=1025 -e SMTP_USER=e2e-admin@example.com -e SMTP_PW=none \
   -v "$OUT":/out -v "$E2E_DIR/parcours.py":/parcours.py:ro \
-  --shm-size=512m --entrypoint python unclecode/crawl4ai:0.9.2 /parcours.py
+  --shm-size=512m --entrypoint python unclecode/crawl4ai:0.9.5 /parcours.py
 RC=$?
 
 LOG="$OUT/lauf.log"

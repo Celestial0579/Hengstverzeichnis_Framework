@@ -4,14 +4,14 @@
 # ../wsgidav/requirements.txt.
 cffi==2.1.1 \
     --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf
-cryptography==50.0.0 \
-    --hash=sha256:82148ec5bddac30b51a5b3c1945075f896fa022cb93f8e4a01e9f6ee95292c5f
+cryptography==50.0.2 \
+    --hash=sha256:9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079
 pyasynchat==1.0.5 \
     --hash=sha256:35b7859515693e479e8d95ebe9f32cbf4d6312ab7599ced39fc24699e51de46f
 pyasyncore==1.0.5 \
     --hash=sha256:269bbc5252671827387636822841a1fb721ec6e858b23a3e12cf92eb1f97da2a
-pycparser==3.0 \
-    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+pycparser==3.12 \
+    --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e
 pyftpdlib==2.2.0 \
     --hash=sha256:4ba0642078792df63dd3b2e9c8f838f2a3ecf428c7518d5921c0530d53512acf
 pyopenssl==26.4.0 \

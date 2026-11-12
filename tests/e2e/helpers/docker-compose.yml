@@ -39,8 +39,8 @@ services:
   # SAN auf 'e2e-mail' lautet - der App-Container vertraut ihm). Der Mailer der
   # App verbietet Klartext-SMTP und prüft den Peer, deshalb TLS + Cert.
   mailpit:
-    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: latest 2026-08
-    image: axllent/mailpit:latest@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a
+    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: v1.33.0 (2026-10-31)
+    image: axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"

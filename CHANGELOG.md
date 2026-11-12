@@ -10,6 +10,38 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
+- **Basis-Images und Laufzeit-Abhängigkeiten auf dem Stand der
+  Sicherheitsupdates.** Die per Digest festgenagelten Images waren zehn bis
+  vierzehn Wochen alt, und zwei Laufzeitpakete hatten offene Advisories:
+  - `php:8.5-apache`: PHP 8.5.10 → 8.5.12. Dazwischen liegt 8.5.11 mit elf
+    CVE-markierten Korrekturen, unter anderem in der TLS-Hostnamenprüfung
+    (CVE-2026-91769, CVE-2026-91767), im HTTP-Stream-Wrapper (CVE-2026-91766,
+    CVE-2026-93682) und in MySQLnd (CVE-2025-1218) – also in den Wegen, über
+    die der Kern Sicherungsziele, SMTP, OIDC und die Datenbank anspricht.
+    Dazu die Debian-Sicherheitsupdates des Basis-Images seit Ende August.
+  - `mariadb:11` in `docker-compose.yml`: 11.8.8 → 11.8.9, das laut
+    Versionshinweisen 24 CVEs behebt (zwei davon mit CVSS 9.9). Der Digest
+    stand seit dem Festnageln am 08.08. unverändert: Dependabots
+    `docker`-Ökosystem erfasst das Dockerfile, aber keine Compose-Dateien.
+  - `composer:2` (nur Bau-Stufe): 2.10.3 → 2.11.2. Dazwischen liegen mehrere
+    Sicherheitskorrekturen, unter anderem GHSA-c968-33g3-wh7p (Paketnamen
+    konnten das `vendor/`-Verzeichnis verlassen) und GHSA-jhfp-4ppm-crmm
+    (Befehlsausführung über eine Transportoption aus `composer.lock`).
+  - `symfony/serializer` 8.1.7 → 8.1.11 (CVE-2026-118515, CVE-2026-121623,
+    CVE-2026-122053) und `web-auth/webauthn-lib` 5.3.9 → 5.3.12 (drei
+    Advisories niedriger Schwere in 5.3.10, strengere Prüfung der
+    Passkey-Antworten in 5.3.11). Der Kern nutzt die betroffenen Teile nach
+    Durchsicht nicht – der Passkey-Serializer registriert keinen
+    `DataUriNormalizer` und kennt keine Datei-Typen, den Metadatendienst
+    verwendet der Kern nicht –, die Pakete liegen aber im Anmeldepfad.
+
+  **Für Betreiber:** Wirksam wird das erst mit einem neuen Image. Das
+  veröffentlichte `:latest` (0.9.0) enthält noch PHP 8.5.9. Wer aus dem
+  Quellbaum baut: `docker compose build --pull && docker compose up -d`. Wer
+  die mitgelieferte `docker-compose.yml` nutzt, holt mit `docker compose pull
+  db && docker compose up -d db` das neue MariaDB-Image; die Daten im Volume
+  `db_data` bleiben dabei erhalten.
+
 - **Veröffentlichungs-Veto ließ sich durch einen abgebrochenen
   Speichervorgang umgehen** (Audit N49). Beim Speichern eines Pferds wurde
   `is_published = 1` festgeschrieben, bevor die Addons über

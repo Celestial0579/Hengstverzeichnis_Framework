@@ -8,6 +8,22 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.1-beta.1] – 2026-11-15
+
+Erste Vorabversion der 0.9.1. Sie sammelt alles seit 0.9.0: Sicherheits- und
+Abhängigkeitsupdates, Reparaturen aus den Prüfungen von September bis November
+und die Performance-Befunde #507 bis #509.
+
+**Schema-Änderung in einer Patch-Version:** `SCHEMA_VERSION` steigt von 20 auf
+34. Die Migration läuft beim ersten Request nach dem Update von selbst. Neu
+sind unter anderem vier generierte, unsichtbare Suchspalten mit Index
+(`horses.name_soundex`, `name_prefix3`, `image_basename`,
+`horse_media.file_basename`); sie entstehen nur auf MariaDB, ohne sie laufen
+die bisherigen Abfragen weiter. Ein Schema-Stand lässt sich nicht
+zurückrollen: vor dem Update sichern (das In-Place-Update tut das selbst).
+
+Keine Anpassung an den Addons nötig: Die Kern-Linie bleibt 0.9.
+
 ### Sicherheit
 
 - **Basis-Images und Laufzeit-Abhängigkeiten auf dem Stand der

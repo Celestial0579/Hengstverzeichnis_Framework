@@ -40,7 +40,7 @@ services:
   # App verbietet Klartext-SMTP und prüft den Peer, deshalb TLS + Cert.
   mailpit:
     # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: v1.33.0 (2026-10-31)
-    image: axllent/mailpit:v1.33.0@sha256:9b3a463be15354c0f0eba91697d80e3e0d8a5623ef0e627cacc836bc17fd5231
+    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
       MP_SMTP_AUTH_ALLOW_INSECURE: "true"

@@ -12,7 +12,7 @@ Der Parcours (`parcours.py`, im Playwright-Image `unclecode/crawl4ai`) fährt
 gegen eine frisch aus dem Repo-`Dockerfile` gebaute Instanz:
 
 - Ersteinrichtung (Env-Provisionierung) inkl. 2FA
-- **Addon-Store**: alle 15 Addons installiert (harte Gegenprüfung: real in
+- **Addon-Store**: alle Addons der Liste `SLUGS` installiert (harte Gegenprüfung: real in
   `/admin/plugins`) und aktiviert
 - Stammdaten über die UI, alle öffentlichen/Auth-/Admin-/Addon-Ansichten,
   Katalog-**Filter + Reset**, API mit Bearer-Key

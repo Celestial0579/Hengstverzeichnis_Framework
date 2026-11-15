@@ -520,9 +520,11 @@ def run():
                 shot(page, slug, desc, url)
 
         # ---- Phase: Addon-Store --------------------------------------------
-        SLUGS = ["besucherstatistik","inzuchtkoeffizient","statistik-dashboard","katalog-export",
+        # Nur Addons, die es im Addons-Repo gibt: galerie ist Kernmodul (#339),
+        # besucherstatistik entfallen (#531).
+        SLUGS = ["inzuchtkoeffizient","statistik-dashboard","katalog-export",
                  "pedigree-export","qr-code","zuchtschau-ergebnisse","deckanfrage","verkaufsboerse",
-                 "genealogie-vergleich","farbvererbung","anpaarungs-empfehlung","galerie",
+                 "genealogie-vergleich","farbvererbung","anpaarungs-empfehlung",
                  "gesundheitstests","merkliste"]
 
         def phase_store():
@@ -592,7 +594,7 @@ def run():
                 vst = f"{real}/{len(SLUGS)} Addons real installiert — FEHLER: unvollständig"
             index.append((n, fn, "/admin/plugins", "Verifikation: real installierte Addons", vst))
             log(f"{n} plugins-verifiziert: {vst}")
-            shot(page, "plugins-aktiv", "Plugin-Verwaltung: alle 15 Addons aktiv", "/admin/plugins")
+            shot(page, "plugins-aktiv", f"Plugin-Verwaltung: alle {len(SLUGS)} Addons aktiv", "/admin/plugins")
             shot(page, "admin-dashboard-voll", "Admin-Dashboard mit Plugin-Kacheln", "/admin")
             shot(page, "groups-mit-plugins", "Berechtigungsmatrix mit Plugin-Modulen", "/admin/groups")
 
@@ -700,22 +702,23 @@ def run():
             post(page, "/admin/import/horses/commit", {"csrf_token": c, "is_published": "1"})
             log(f"  CSV-Import commit ausgeführt (preview-status {st})")
 
-            # Galerie: Bild-Upload zum Hauptpferd
+            # Medien (Kern, #339): Bild-Upload zum Hauptpferd
             if ids.get("haupt"):
                 png = base64.b64decode(
                     "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAADdOtwvAAAARUlEQVR4nO3PMQ0AMAwDsPBHhQ"
                     "z9k7ZQSXsg8AJ2vXwFAAA=")  # klein, valide? sicherheitshalber echt erzeugen
                 # zuverlässiges PNG per Playwright-Canvas gibt es nicht; nutze eingebettetes
                 mp = {"csrf_token": c, "horse_id": str(ids["haupt"]), "caption": "Testfoto Nordstern",
-                      "image": {"name": "foto.png", "mimeType": "image/png", "buffer": png}}
-                st, _ = post(page, "/plugin/galerie/verwaltung/store", None, multipart=mp)
-                log(f"  Galerie-Upload status {st}")
+                      "media_image": {"name": "foto.png", "mimeType": "image/png", "buffer": png}}
+                st, _ = post(page, "/admin/horses/media/add", None, multipart=mp)
+                log(f"  Medien-Upload status {st}")
                 # Video-Fallback (immer erlaubt)
-                post(page, "/plugin/galerie/verwaltung/store",
+                post(page, "/admin/horses/media/add",
                      {"csrf_token": c, "horse_id": str(ids["haupt"]),
                       "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
                       "caption": "Vorführvideo"})
-                shot(page, "galerie-verwaltung", "Galerie-Verwaltung", "/plugin/galerie/verwaltung")
+                shot(page, "pferd-medien", "Pferd bearbeiten mit Medien (Kern)",
+                     f"/admin/horses/edit?id={ids['haupt']}")
 
                 # Gesundheitstest mit PDF
                 pdf = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\nxref\n0 4\n0000000000 65535 f \ntrailer<</Root 1 0 R/Size 4>>\nstartxref\n0\n%%EOF"
@@ -769,7 +772,6 @@ def run():
 
             # Addon-Ansichten (Admin-Sicht, alle Rechte)
             addon_urls = [
-                ("addon-besucherstatistik", "/plugin/besucherstatistik/statistik", "Besucherstatistik"),
                 ("addon-statistik-dashboard", "/plugin/statistik-dashboard/statistik", "Statistik-Dashboard"),
                 ("addon-katalog-export", "/plugin/katalog-export/formular", "Katalog-Export (Formular)"),
                 ("addon-farbvererbung", "/plugin/farbvererbung/rechner", "Farbvererbungsrechner"),

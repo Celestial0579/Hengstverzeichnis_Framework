@@ -329,6 +329,60 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         $this->assertSame('/login', $client->get('/admin')->location());
     }
 
+    /** @return array<string, array{0: string}> */
+    public static function fehlendeSitzungswerte(): array {
+        return [
+            'ohne nonce' => ['entra_sso_nonce'],
+            'ohne PKCE-Verifier' => ['entra_sso_pkce_verifier'],
+        ];
+    }
+
+    /**
+     * #535: Der state stimmt, in der Sitzung fehlt aber nonce oder Verifier,
+     * wie bei einem Flow, der vor dem Update begonnen hat. Der Callback
+     * bricht vor dem Code-Tausch ab, auch bei einem sonst gültigen Code.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('fehlendeSitzungswerte')]
+    public function testGueltigerStateOhneNonceOderVerifierInDerSitzungMeldetNiemandenAn(string $schluessel): void {
+        $this->authenticatedClient();
+        $client = $this->ssoClient();
+        $flow = $this->flowStarten($client);
+
+        $this->sitzungswertEntfernen($client, $schluessel);
+
+        $callback = $client->get('/auth/entra/callback?code=' . urlencode(self::gebunden('fake-auth-code', $flow))
+            . '&state=' . urlencode((string)$flow['state']));
+        $this->assertNull($callback->location(), 'Ohne nonce oder Verifier in der Sitzung keine Anmeldung.');
+        $this->assertStringContainsString('(Sitzung)', $callback->body, 'Abbruch an der Sitzungsprüfung, nicht erst am Token.');
+        $this->assertSame('/login', $client->get('/admin')->location());
+    }
+
+    /**
+     * Entfernt einen Wert aus der Sitzungsdatei des Clients (Muster wie in
+     * HorseImageDeliveryTest::rotationZuruecksetzen()).
+     */
+    private function sitzungswertEntfernen(HttpClient $client, string $schluessel): void {
+        $jar = (new \ReflectionProperty($client, 'cookieJar'))->getValue($client);
+        $sid = null;
+        foreach (file((string)$jar) ?: [] as $zeile) {
+            $felder = explode("\t", trim($zeile));
+            if (count($felder) === 7 && str_contains($felder[5], 'SESSID')) {
+                $sid = $felder[6];
+            }
+        }
+        $pfad = (session_save_path() ?: sys_get_temp_dir());
+        $pfad = substr($pfad, (int)strrpos($pfad, ';') + (str_contains($pfad, ';') ? 1 : 0));
+        $datei = $pfad . '/sess_' . $sid;
+        if ($sid === null || !is_file($datei) || !is_writable($datei)) {
+            $this->markTestSkipped("Sitzungsdatei nicht erreichbar ({$datei}) - anderer Session-Handler?");
+        }
+        $inhalt = (string)file_get_contents($datei);
+        $neu = preg_replace('/' . preg_quote($schluessel, '/') . '\|s:\d+:"[^"]*";/', '', $inhalt, 1, $ersetzt);
+        $this->assertSame(1, $ersetzt, "{$schluessel} nicht in der Sitzung gefunden");
+        $this->assertStringContainsString('entra_sso_state|', (string)$neu, 'Der state muss in der Sitzung bleiben.');
+        file_put_contents($datei, $neu);
+    }
+
     public function testTamperedStateIsRejected(): void {
         $client = $this->ssoClient();
 

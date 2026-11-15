@@ -27,6 +27,23 @@ updates:
     cooldown:
       default-days: 7
 
+  # Die Helfer des E2E-Nachtlaufs (mailpit, S3-Ziel) - ein eigener Eintrag,
+  # weil Dependabot Compose-Dateien nicht rekursiv sucht (#517). Ohne ihn
+  # blieben die dort per Digest festgenagelten Images stehen, bis jemand von
+  # Hand nachsah; beim S3-Ziel fiel so nicht auf, dass das Image von Docker
+  # Hub verschwunden war (#516).
+  #
+  # Weiterhin von KEINEM Oekosystem erfasst und von Hand zu pflegen:
+  #   - das Semgrep-Image in workflows/semgrep.yml (container.image),
+  #   - die Images in tests/e2e/run.sh und tests/e2e/spinup.sh
+  #     (unclecode/crawl4ai, curlimages/curl).
+  - package-ecosystem: "docker-compose"
+    directory: "/tests/e2e/helpers"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

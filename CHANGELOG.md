@@ -8,6 +8,24 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.1] – 2026-11-15
+
+**Die erste Fassung der 0.9.1 ohne Vorabsuffix.** Was in `v0.9.1-beta.1` und
+`v0.9.1-beta.2` entstanden ist, gilt ab hier als freigegeben. Die Abschnitte
+darunter beschreiben es im Einzelnen. Neu gegenüber `v0.9.1-beta.2` ist der
+Punkt in diesem Abschnitt.
+
+> **Für Betreiber, die von 0.9.0 kommen:** `SCHEMA_VERSION` steigt von 20 auf
+> 34. Die Migration läuft beim ersten Request nach dem Update von selbst, ein
+> Schema-Stand lässt sich aber nicht zurückrollen: vor dem Update sichern (das
+> In-Place-Update tut das selbst). `DB_SSL=true` ohne `DB_SSL_CA` verschlüsselt
+> jetzt wirklich (GHSA-jpw7-6m4r-v92q); gegen einen Server ohne TLS gibt es
+> einen Verbindungsfehler statt Klartext. Für SSO muss der Identity-Provider
+> PKCE für vertrauliche Clients zulassen (Entra ID, Keycloak und Authentik tun
+> das ab Werk).
+
+Keine Anpassung an den Addons nötig: Die Kern-Linie bleibt 0.9.
+
 ### Sicherheit
 
 - **SSO-Login (OIDC/Entra): PKCE und nonce gegen eingeschleuste Codes**

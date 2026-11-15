@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/e2e/spinup.sh  —  "aufbau" des E2E-Nachtlaufs.
 #
-# Fährt die REINE Umgebung hoch: Wegwerf-Backup-Ziele (MinIO/WebDAV/FTPS),
+# Fährt die REINE Umgebung hoch: Wegwerf-Backup-Ziele (S3/WebDAV/FTPS),
 # mailpit (statt echtem Mailserver) und die App aus dem Repo-Dockerfile. Es
 # wird hier NICHTS fachlich geprüft - scheitert etwas, gilt der Lauf als
 # "nicht geprüft" (der devhost-tests-Läufer wertet einen aufbau-Fehler so).
@@ -30,15 +30,19 @@ fi
 # 3. Helfer hoch
 docker compose -p "${NS}-helpers" -f "$E2E_DIR/helpers/docker-compose.yml" up -d --build
 
-# 4. MinIO abwarten + Bucket anlegen
-echo "[e2e-aufbau] MinIO/Bucket..."
+# 4. S3-Ziel abwarten + Bucket anlegen - über dieselbe S3-Schnittstelle
+#    (SigV4, Pfad-Stil), die auch App\Service\S3Client spricht; kein eigenes
+#    Client-Image (#516). 200 = angelegt, 409 = gibt es schon.
+echo "[e2e-aufbau] S3/Bucket..."
+s3ok=0
 for _ in $(seq 1 30); do
-  if docker run --rm --network "$E2E_NET" --entrypoint sh minio/mc:latest -c \
-      "mc alias set m http://e2e-minio:9000 minioadmin minio-e2e-testpass && mc mb -p m/hengst-backups" >/dev/null 2>&1; then
-    break
-  fi
+  code="$(docker run --rm --network "$E2E_NET" curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 \
+          -s -o /dev/null -w '%{http_code}' -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" \
+          --user e2es3admin:s3-e2e-testpass http://e2e-s3:9000/hengst-backups 2>/dev/null || echo 000)"
+  case "$code" in 200|409) s3ok=1; break ;; esac
   sleep 2
 done
+[[ "$s3ok" == 1 ]] || { echo "[e2e-aufbau] S3-Bucket nicht anlegbar (zuletzt HTTP $code)." >&2; exit 1; }
 
 # 5. App-.env (Auto-Provisionierung + eigene Wegwerf-DB)
 DBPW="e2e-db-$(openssl rand -hex 6)"
@@ -91,7 +95,7 @@ EOF
 echo "[e2e-aufbau] warte auf App..."
 ok=0
 for _ in $(seq 1 40); do
-  code="$(docker run --rm --network "$E2E_NET" curlimages/curl:latest \
+  code="$(docker run --rm --network "$E2E_NET" curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 \
           -s -o /dev/null -w '%{http_code}' http://hvapp/ 2>/dev/null || echo 000)"
   case "$code" in 200|301|302) echo "  App antwortet ($code)"; ok=1; break ;; esac
   sleep 3

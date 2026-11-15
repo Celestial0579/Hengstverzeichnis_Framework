@@ -16,7 +16,7 @@ gegen eine frisch aus dem Repo-`Dockerfile` gebaute Instanz:
   `/admin/plugins`) und aktiviert
 - Stammdaten über die UI, alle öffentlichen/Auth-/Admin-/Addon-Ansichten,
   Katalog-**Filter + Reset**, API mit Bearer-Key
-- **Backups** an echte Ziele: S3 (MinIO), WebDAV (wsgidav), FTPS (pyftpdlib) —
+- **Backups** an echte Ziele: S3 (versitygw), WebDAV (wsgidav), FTPS (pyftpdlib) —
   jeweils mit Gegenprüfung des Erfolgs-Resultats
 - **Mailversand** über mailpit (STARTTLS), Cron
 - **Update-Prüfung** (im Container ist In-Place aus, siehe #158 — geprüft wird,

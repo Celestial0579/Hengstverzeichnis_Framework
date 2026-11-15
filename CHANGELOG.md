@@ -687,6 +687,26 @@ Breaking Changes sind jederzeit möglich).
 
 ### Behoben
 
+- **Gescheiterter Verbindungsaufbau zur Datenbank hinterließ keine Spur**
+  (#521). Im Produktivbetrieb endete der Fall in einem blanken `die()`: kein
+  Eintrag im Fehlerprotokoll, HTTP 200, auf der Kommandozeile Exit-Code 0. Für
+  eine Überwachung, für den Cron-Aufruf von `/cron/run` und für
+  Deploy-Skripte sah die Instanz gesund aus. Jetzt steht die Ursache in jeder
+  Umgebung im Fehlerprotokoll (sie nennt Benutzer und Host, kein Passwort),
+  die Antwort trägt `503`, und ein Kommandozeilen-Prozess endet mit
+  Exit-Code 1. Der Text an den Besucher ist unverändert.
+
+- **TLS zur Datenbank: Deprecation bei jedem Verbindungsaufbau** (#520). Die
+  TLS-Optionen liefen über `PDO::MYSQL_ATTR_SSL_CA` und
+  `PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT`; beide sind seit PHP 8.5 veraltet.
+  Mit `DB_SSL=true` schrieb jede Anfrage eine bis zwei Zeilen ins
+  Fehlerprotokoll, im Entwicklungsmodus stand die Meldung vor der ersten
+  Kopfzeile. Anwendung und Einrichtung bauen die Optionen jetzt an einer
+  Stelle (`Database::tlsOptionen()`) mit den Konstanten aus `Pdo\Mysql`.
+  Kann der PDO-Treiber eine verlangte Zertifikatsprüfung nicht einschalten
+  (`pdo_mysql` ohne `mysqlnd`), scheitert der Verbindungsaufbau, statt die
+  Einstellung still wegzulassen.
+
 - **Ein gescheitertes Uploads-Archiv verdrängte intakte Archive aus der
   Aufbewahrung.** Nach einem Teilfehler lief die Rotation trotzdem für alle
   Arten. Bei WebDAV/FTPS kann ein abgebrochener Upload ein Fragment am Ziel
@@ -1527,6 +1547,18 @@ Breaking Changes sind jederzeit möglich).
   Gast behandelt.
 
 ### Geändert
+
+- **Eigene Datenbankverbindung für Addons: `Database::neueVerbindung()`**
+  (#519). Ein Import oder Rückweg braucht eine Verbindung neben der
+  geteilten: Er verstellt Sitzungsvariablen, und eine abgebrochene Anweisung
+  nähme die geteilte Verbindung für den Rest der Anfrage mit. Der Kern bot
+  dafür nichts an; das Addon `datenmigration` baute DSN, TLS-Optionen und
+  Zeitzone nach. `neueVerbindung(array $zusatzOptionen = [])` liefert jetzt
+  eine weitere Verbindung mit den Einstellungen der Instanz – ohne
+  Schema-Migration und mit einer `PDOException` als Fehlerfall in jeder
+  Umgebung. `getInstance()` baut seine Verbindung über denselben Weg.
+  `PDO::ATTR_PERSISTENT` lehnt die Methode ab. Beschrieben in
+  `docs/plugin-development.md`, Abschnitt „Eigene Datenbankverbindung“.
 
 - **Mehrere Mails über eine SMTP-Verbindung: `Mailer::inEinerSitzung()`**
   ([Addons #223](https://github.com/Celestial0579/Hengstverzeichnis_Addons/issues/223)).

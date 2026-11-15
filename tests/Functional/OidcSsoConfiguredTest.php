@@ -32,8 +32,9 @@ use Tests\Support\HttpClient;
  */
 class OidcSsoConfiguredTest extends FunctionalTestCase {
 
-    private const IDP_PORT = 8768;
-    private const APP_PORT = 8769;
+    // Nicht 8768/8769: Dort lauschen S3- und WebDAV-Fake der Integration-Suite (#528).
+    private const IDP_PORT = 8776;
+    private const APP_PORT = 8777;
     private const TRUST_PORT = 8773;
     private const CLIENT_ID = 'hv-functional-test-client';
 

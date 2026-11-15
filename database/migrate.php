@@ -25,9 +25,9 @@ try {
     // Verbindungsaufbau dort führt die Migration bereits implizit aus
     // (ensureSchemaUpToDate) - dieses Skript könnte danach nur noch "nichts
     // zu tun" melden, statt die tatsächlich durchgeführten Schritte zu zeigen.
-    // DSN aus demselben Helfer wie die Anwendung (Audit N55).
-    $dsn = \App\Database::buildDsn((string)DB_HOST, (string)(defined('DB_PORT') ? DB_PORT : '3306'), (string)DB_NAME);
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    // Dieselbe Verbindung wie die Anwendung - mit DB_SSL, DB_SSL_CA und
+    // DB_SSL_VERIFY, aber ohne deren implizite Migration (GHSA-jpw7-6m4r-v92q).
+    $pdo = \App\Database::neueVerbindung();
 
     $steps = SchemaMigrator::run($pdo);
 

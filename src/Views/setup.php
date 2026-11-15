@@ -112,7 +112,7 @@ $nurHinweis = $nurHinweis ?? false;
                     </label>
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
-                    <label for="db_ssl_ca">Pfad zum CA-Zertifikat (Optional, z. B. <code>/etc/ssl/certs/ca-certificates.crt</code>)</label>
+                    <label for="db_ssl_ca">Pfad zum CA-Zertifikat (Optional; ohne Angabe gilt der Zertifikatsspeicher des Systems)</label>
                     <input type="text" id="db_ssl_ca" name="db_ssl_ca" class="form-control" placeholder="Optionaler Zertifikatspfad" value="<?= htmlspecialchars($old['db_ssl_ca'] ?? '') ?>">
                 </div>
             </div>

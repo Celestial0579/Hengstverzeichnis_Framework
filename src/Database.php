@@ -124,9 +124,25 @@ class Database {
             return [];
         }
 
-        $optionen = [];
-        if ($ca !== '') {
-            $optionen[\Pdo\Mysql::ATTR_SSL_CA] = $ca;
+        // TLS fordert pdo_mysql/mysqlnd NUR an, wenn eine CA-Datei, ein
+        // CA-Verzeichnis, Schlüssel, Zertifikat oder Cipher gesetzt ist
+        // (mysqlnd_conn_data::get_updated_connect_flags()). Der Prüfschalter
+        // allein genügt nicht: Bis GHSA-jpw7-6m4r-v92q lief DB_SSL ohne
+        // DB_SSL_CA deshalb still im Klartext. Ohne eigene CA-Datei gilt
+        // jetzt der Zertifikatsspeicher des Systems - bei abgeschalteter
+        // Prüfung schaltet er nur TLS ein, gelesen wird er dann nicht.
+        $optionen = $ca !== ''
+            ? [\Pdo\Mysql::ATTR_SSL_CA => $ca]
+            : self::zertifikatsspeicher(
+                function_exists('openssl_get_cert_locations') ? openssl_get_cert_locations() : [],
+                static fn(string $name): string => (string)getenv($name)
+            );
+        if ($optionen === []) {
+            throw new PDOException(
+                'DB_SSL ist eingeschaltet, aber es gibt weder DB_SSL_CA noch einen Zertifikatsspeicher '
+                . 'des Systems. Ohne eine dieser Angaben fordert der PDO-Treiber kein TLS an und die '
+                . 'Verbindung liefe unverschlüsselt. DB_SSL_CA auf eine CA-Datei setzen.'
+            );
         }
         if (defined(\Pdo\Mysql::class . '::ATTR_SSL_VERIFY_SERVER_CERT')) {
             $optionen[\Pdo\Mysql::ATTR_SSL_VERIFY_SERVER_CERT] = $verify;
@@ -137,6 +153,52 @@ class Database {
             );
         }
         return $optionen;
+    }
+
+    /**
+     * Der Zertifikatsspeicher des Systems als PDO-Option, in der Reihenfolge,
+     * in der PHP ihn für TLS-Streams selbst sucht: openssl.cafile bzw.
+     * openssl.capath aus der php.ini, dann SSL_CERT_FILE bzw. SSL_CERT_DIR
+     * aus der Umgebung, dann die Voreinstellung von OpenSSL. Leer, wenn
+     * nichts davon existiert.
+     *
+     * @param array<string, string> $orte Ergebnis von openssl_get_cert_locations()
+     * @param callable(string): string $umgebung Liest eine Umgebungsvariable
+     * @return array<int, string>
+     */
+    public static function zertifikatsspeicher(array $orte, callable $umgebung): array {
+        if (!class_exists(\Pdo\Mysql::class)) {
+            return [];
+        }
+        $dateiEnv = (string)($orte['default_cert_file_env'] ?? 'SSL_CERT_FILE');
+        $verzEnv = (string)($orte['default_cert_dir_env'] ?? 'SSL_CERT_DIR');
+        $kandidaten = [
+            [\Pdo\Mysql::ATTR_SSL_CA, (string)($orte['ini_cafile'] ?? '')],
+            [\Pdo\Mysql::ATTR_SSL_CAPATH, (string)($orte['ini_capath'] ?? '')],
+            [\Pdo\Mysql::ATTR_SSL_CA, $dateiEnv !== '' ? $umgebung($dateiEnv) : ''],
+            [\Pdo\Mysql::ATTR_SSL_CAPATH, $verzEnv !== '' ? $umgebung($verzEnv) : ''],
+            [\Pdo\Mysql::ATTR_SSL_CA, (string)($orte['default_cert_file'] ?? '')],
+            [\Pdo\Mysql::ATTR_SSL_CAPATH, (string)($orte['default_cert_dir'] ?? '')],
+        ];
+        foreach ($kandidaten as [$option, $pfad]) {
+            $da = $option === \Pdo\Mysql::ATTR_SSL_CA ? is_file($pfad) && is_readable($pfad) : is_dir($pfad);
+            if ($pfad !== '' && $da) {
+                return [$option => $pfad];
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Ob ein gescheiterter Aufbau zu $host noch über die lokalen Unix-Sockets
+     * versucht wird: nur, wenn der eigene Rechner eingestellt ist
+     * (GHSA-jpw7-6m4r-v92q). Bei jedem anderen Host wechselte der Rückfall
+     * sonst still auf eine lokale Datenbank mit denselben Zugangsdaten - und
+     * an einem gescheiterten TLS-Aufbau vorbei. Ein eingestellter Socket-Pfad
+     * hat ebenfalls keinen Rückfall.
+     */
+    public static function socketRueckfallErlaubt(string $host): bool {
+        return in_array(strtolower($host), ['localhost', '127.0.0.1', '::1', '[::1]'], true);
     }
 
     /**
@@ -180,9 +242,10 @@ class Database {
         try {
             $pdo = new PDO(self::buildDsn($host, $port, $db), DB_USER, DB_PASS, $optionen);
         } catch (PDOException $e) {
-            // Fallback: Versuch über Unix Sockets falls TCP fehlgeschlagen ist
+            // Fallback: Versuch über Unix Sockets falls TCP zum EIGENEN
+            // Rechner fehlgeschlagen ist (siehe socketRueckfallErlaubt()).
             $pdo = null;
-            foreach (self::RUECKFALL_SOCKETS as $sock) {
+            foreach (self::socketRueckfallErlaubt($host) ? self::RUECKFALL_SOCKETS : [] as $sock) {
                 if (!file_exists($sock)) {
                     continue;
                 }

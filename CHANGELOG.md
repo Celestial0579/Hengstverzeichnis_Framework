@@ -8,6 +8,27 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **`DB_SSL` ohne CA-Datei verschlüsselte nicht** (GHSA-jpw7-6m4r-v92q).
+  `pdo_mysql` fordert TLS nur an, wenn eine CA-Datei, ein CA-Verzeichnis,
+  Schlüssel, Zertifikat oder Cipher gesetzt ist; der Prüfschalter allein
+  genügt nicht. Mit `DB_SSL=true` und leerem `DB_SSL_CA` lief die Verbindung
+  deshalb still im Klartext, auch mit `DB_SSL_VERIFY=true`. Ohne CA-Datei gilt
+  jetzt der Zertifikatsspeicher des Systems; gibt es keinen, scheitert der
+  Aufbau mit einer Meldung. Dazu:
+  - `database/migrate.php` und `database/rollback-336.php` verbinden über
+    `Database::neueVerbindung()` und beachten damit `DB_SSL`, `DB_SSL_CA` und
+    `DB_SSL_VERIFY`; bisher verbanden sie sich immer ohne TLS.
+  - Der Rückfall auf lokale Unix-Sockets gilt nur noch, wenn der eigene
+    Rechner eingestellt ist (`localhost`, `127.0.0.1`, `::1`). Bei jedem
+    anderen Host wechselte die Anwendung sonst still auf eine lokale Datenbank
+    mit denselben Zugangsdaten.
+
+  **Für Betreiber:** Wer `DB_SSL=true` gegen einen Server ohne TLS gesetzt
+  hat, bekommt jetzt einen Verbindungsfehler statt einer unverschlüsselten
+  Verbindung.
+
 ## [0.9.1-beta.1] – 2026-11-15
 
 Erste Vorabversion der 0.9.1. Sie sammelt alles seit 0.9.0: Sicherheits- und

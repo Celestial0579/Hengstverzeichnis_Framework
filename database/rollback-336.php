@@ -70,9 +70,9 @@ use App\Service\Maintenance;
 $ernst = in_array('--ich-weiss', $argv, true);
 $verwerfen = in_array('--zuordnungen-verwerfen', $argv, true);
 
-// DSN aus demselben Helfer wie die Anwendung (Audit N55).
-$dsn = \App\Database::buildDsn((string)DB_HOST, (string)(defined('DB_PORT') ? DB_PORT : '3306'), (string)DB_NAME);
-$pdo = new PDO($dsn, DB_USER, DB_PASS, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+// Dieselbe Verbindung wie die Anwendung - mit DB_SSL, DB_SSL_CA und
+// DB_SSL_VERIFY, aber ohne deren implizite Migration (GHSA-jpw7-6m4r-v92q).
+$pdo = \App\Database::neueVerbindung();
 
 $hatTabelle = static function (string $t) use ($pdo): bool {
     return (bool)$pdo->query('SHOW TABLES LIKE ' . $pdo->quote($t))->rowCount();

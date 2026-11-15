@@ -72,6 +72,16 @@ class AuxiliaryServer {
             return;
         }
 
+        // Ein belegter Port ist ein Abbruch, kein stiller Fremdgang (#528):
+        // waitUntilReady() hielte jeden Lauscher für den eigenen Server, und
+        // der Test spräche mit einem fremden Prozess - am 15.11. etwa mit dem
+        // WebDAV-Fake der Integration-Suite, der mit 401 antwortete.
+        $belegt = @fsockopen('127.0.0.1', $this->effektiverPort(), $errno, $errstr, 0.5);
+        if ($belegt !== false) {
+            fclose($belegt);
+            throw new \RuntimeException("Port {$this->effektiverPort()} ist schon belegt - ein anderer Prozess lauscht dort. Zusatz-Testserver nicht gestartet.");
+        }
+
         // Zeitzone dieses Prozesses übernehmen - siehe PhpBuiltInServer,
         // dieselbe Begründung: Test und App teilen sich die Datenbank.
         $cmd = ['php', '-d', 'date.timezone=' . date_default_timezone_get(),
@@ -139,6 +149,11 @@ class AuxiliaryServer {
     private function waitUntilReady(): void {
         $deadline = microtime(true) + 10;
         while (microtime(true) < $deadline) {
+            // Der eigene Prozess muss noch laufen: Scheitert php -S am Port,
+            // beendet er sich, und ein Lauscher dort wäre ein fremder.
+            if ($this->process !== null && !(proc_get_status($this->process)['running'] ?? false)) {
+                throw new \RuntimeException("Zusatz-Testserver auf Port {$this->effektiverPort()} hat sich beendet: " . trim($this->log()));
+            }
             $connection = @fsockopen('127.0.0.1', $this->effektiverPort(), $errno, $errstr, 0.5);
             if ($connection !== false) {
                 fclose($connection);

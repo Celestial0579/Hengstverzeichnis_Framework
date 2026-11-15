@@ -8,6 +8,15 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.1-beta.2] – 2026-11-15
+
+Zweite Vorabversion der 0.9.1. Sie bringt den Fix für GHSA-jpw7-6m4r-v92q:
+`DB_SSL` ohne CA-Datei verschlüsselt jetzt wirklich, die CLI-Skripte beachten
+die TLS-Einstellungen, und der Rückfall auf lokale Sockets gilt nur noch für
+den eigenen Rechner. Wer `DB_SSL=true` gegen einen Server ohne TLS gesetzt
+hat, bekommt nach dem Update einen Verbindungsfehler statt einer
+unverschlüsselten Verbindung. Kein Schema-Schritt gegenüber 0.9.1-beta.1.
+
 ### Sicherheit
 
 - **`DB_SSL` ohne CA-Datei verschlüsselte nicht** (GHSA-jpw7-6m4r-v92q).

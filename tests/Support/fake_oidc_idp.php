@@ -30,6 +30,15 @@
 // ein Wert null ENTFERNT den Schlüssel. So lassen sich fehlende, leere oder
 // unbestätigte Adressen und amr/acr-Nachweise durchspielen.
 //
+// Bindung an einen Flow (GHSA-g8jp-xvcw-m27p): Ein echter Provider merkt
+// sich beim Authorize nonce und code_challenge zum ausgestellten Code. Dieser
+// Fake ist zustandslos, die Tests hängen beides deshalb an den Code an:
+// "<code>~<base64url-JSON {nonce, code_challenge, code_challenge_method}>".
+// Mit Bindung prüft der Token-Endpunkt den code_verifier nach S256 wie ein
+// echter Provider (sonst invalid_grant) und schreibt den nonce ins Token.
+// Ohne Bindung gibt es weder nonce noch PKCE-Prüfung. So verhält sich ein
+// Code aus einem fremden Flow, und die App muss ihn abweisen.
+//
 // Jedes Token trägt standardmäßig `email_verified: true` und
 // `sub: fake-<sha1(email)>` - auch bei der "email:"-Konvention. Ohne das
 // würden seit Audit M19 alle Tokens im generischen Modus abgewiesen, und die
@@ -74,6 +83,22 @@ if ($path === '/application/o/token/' && ($_SERVER['REQUEST_METHOD'] ?? '') === 
     // E-Mail pro Anfrage aus dem Code ableiten (Konvention "email:<adresse>",
     // siehe Kopfkommentar) - alle anderen Codes erhalten FAKE_OIDC_EMAIL.
     $code = (string)$_POST['code'];
+    $bindung = null;
+    $trenner = strrpos($code, '~');
+    if ($trenner !== false) {
+        $bindung = json_decode((string)base64_decode(strtr(substr($code, $trenner + 1), '-_', '+/')), true);
+        $code = substr($code, 0, $trenner);
+        $verifier = (string)($_POST['code_verifier'] ?? '');
+        if (!is_array($bindung)
+            || ($bindung['code_challenge_method'] ?? '') !== 'S256'
+            || $verifier === ''
+            || !hash_equals((string)($bindung['code_challenge'] ?? ''), $b64url(hash('sha256', $verifier, true)))) {
+            http_response_code(400);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'invalid_grant', 'error_description' => 'PKCE verification failed']);
+            return true;
+        }
+    }
     $tokenEmail = str_starts_with($code, 'email:') ? substr($code, strlen('email:')) : $email;
 
     $claims = [
@@ -85,6 +110,9 @@ if ($path === '/application/o/token/' && ($_SERVER['REQUEST_METHOD'] ?? '') === 
         'email' => $tokenEmail,
         'email_verified' => true,
     ];
+    if (is_array($bindung) && is_string($bindung['nonce'] ?? null) && $bindung['nonce'] !== '') {
+        $claims['nonce'] = $bindung['nonce'];
+    }
     if (str_starts_with($code, 'claims:')) {
         $roh = substr($code, strlen('claims:'));
         $extra = json_decode((string)base64_decode(strtr($roh, '-_', '+/')), true);

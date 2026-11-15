@@ -8,6 +8,20 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **SSO-Login (OIDC/Entra): PKCE und nonce gegen eingeschleuste Codes**
+  (GHSA-g8jp-xvcw-m27p, niedrig). Der Code-Flow nutzte nur `state`. Damit
+  ist zwar der Redirect-Endpunkt gegen CSRF geschützt, nicht aber gegen das
+  Einschleusen eines Codes nach RFC 9700, Abschnitt 2.1.1. Wer den
+  Autorisierungscode eines anderen erbeutete, konnte ihn in einem eigenen
+  Flow einlösen und wurde als dieses Konto angemeldet. Lokale zweite Faktoren
+  galten dabei weiter (Audit N9). Jetzt schickt jeder Flow in beiden Modi
+  eine PKCE-`code_challenge` (S256) und einen `nonce` mit. Der Token-Tausch
+  legt den `code_verifier` vor, und das ID-Token muss den `nonce` dieser
+  Session tragen. Login-Versuche, die vor dem Update begonnen haben, müssen
+  einmal neu gestartet werden.
+
 ## [0.9.1-beta.2] – 2026-11-15
 
 Zweite Vorabversion der 0.9.1. Sie bringt den Fix für GHSA-jpw7-6m4r-v92q:

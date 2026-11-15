@@ -19,7 +19,8 @@ namespace App\Security;
  * Discovery-Dokument des konfigurierten Issuers und wird von
  * App\Security\OidcDiscovery gegen genau diesen Issuer geprüft - das
  * TLS-Trust-Modell bleibt also geschlossen. Validiert werden die
- * inhaltlichen Claims: Aussteller, Zielgruppe (Client-ID) und Ablaufzeit.
+ * inhaltlichen Claims: Aussteller, Zielgruppe (Client-ID), Ablaufzeit und
+ * der nonce des Anmeldeversuchs (GHSA-g8jp-xvcw-m27p).
  */
 final class OidcIdToken {
 
@@ -32,7 +33,7 @@ final class OidcIdToken {
      * @throws \RuntimeException wenn das Token strukturell ungültig ist oder
      *                           ein Pflicht-Claim nicht passt (fail-closed)
      */
-    public static function parseAndValidate(string $jwt, string $expectedClientId, string $expectedIssuer, ?int $now = null): array {
+    public static function parseAndValidate(string $jwt, string $expectedClientId, string $expectedIssuer, ?int $now = null, ?string $expectedNonce = null): array {
         $now = $now ?? time();
 
         $parts = explode('.', $jwt);
@@ -65,6 +66,18 @@ final class OidcIdToken {
         $exp = (int)($claims['exp'] ?? 0);
         if ($exp < $now - 60) {
             throw new \RuntimeException('ID-Token ist abgelaufen.');
+        }
+
+        // nonce (OpenID Connect Core 1.0, 3.1.3.7 Nr. 11; GHSA-g8jp-xvcw-m27p):
+        // Das Token muss genau den Einmalwert tragen, den DIESE Session beim
+        // Authorize mitgeschickt hat. Ein Token aus einem fremden Flow, also
+        // ein eingeschleuster Code, scheitert hier, auch wenn der Provider
+        // PKCE nicht durchsetzt.
+        if ($expectedNonce !== null) {
+            $nonce = $claims['nonce'] ?? null;
+            if ($expectedNonce === '' || !is_string($nonce) || !hash_equals($expectedNonce, $nonce)) {
+                throw new \RuntimeException('ID-Token gehört nicht zu diesem Anmeldeversuch (nonce-Claim).');
+            }
         }
 
         return $claims;

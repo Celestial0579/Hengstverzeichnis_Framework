@@ -155,7 +155,32 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         parse_str((string)parse_url($redirect->location() ?? '', PHP_URL_QUERY), $query);
         $state = (string)($query['state'] ?? '');
         $this->assertNotSame('', $state, 'Flow muss einen state liefern.');
-        return $client->get('/auth/entra/callback?code=' . urlencode('email:' . $email) . '&state=' . urlencode($state));
+        return $client->get('/auth/entra/callback?code=' . urlencode(self::gebunden('email:' . $email, $query)) . '&state=' . urlencode($state));
+    }
+
+    /**
+     * Bindet einen Code an den Flow, dessen Authorize-Parameter $query sind
+     * (Konvention "<code>~<base64url-JSON>" des Fake-IdP): Der Token-Endpunkt
+     * prüft dann den code_verifier gegen diese code_challenge und schreibt
+     * diesen nonce ins Token, wie ein echter Provider (GHSA-g8jp-xvcw-m27p).
+     *
+     * @param array<string, mixed> $query
+     */
+    private static function gebunden(string $code, array $query): string {
+        $bindung = [
+            'nonce' => (string)($query['nonce'] ?? ''),
+            'code_challenge' => (string)($query['code_challenge'] ?? ''),
+            'code_challenge_method' => (string)($query['code_challenge_method'] ?? ''),
+        ];
+        return $code . '~' . rtrim(strtr(base64_encode((string)json_encode($bindung)), '+/', '-_'), '=');
+    }
+
+    /** Startet einen Flow und liefert seine Authorize-Parameter. */
+    private function flowStarten(HttpClient $client): array {
+        $redirect = $client->get('/auth/entra');
+        parse_str((string)parse_url($redirect->location() ?? '', PHP_URL_QUERY), $query);
+        $this->assertNotSame('', (string)($query['state'] ?? ''), 'Flow muss einen state liefern.');
+        return $query;
     }
 
     /**
@@ -209,12 +234,17 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         $this->assertSame('openid profile email', $query['scope'] ?? null);
         $state = (string)($query['state'] ?? '');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $state);
+        // GHSA-g8jp-xvcw-m27p: nonce und PKCE (S256) in jedem Flow.
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string)($query['nonce'] ?? ''));
+        $this->assertNotSame($state, $query['nonce'] ?? null, 'nonce und state müssen unabhängig sein.');
+        $this->assertSame('S256', $query['code_challenge_method'] ?? null);
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]{43}$/', (string)($query['code_challenge'] ?? ''));
 
         // 3. Callback mit gültigem state: Code-Tausch gegen den Fake-IdP,
         //    Anmeldung des bestehenden lokalen Kontos.
         //    Der Admin hat TOTP - seit Audit N9 verlangt die Faktorweiche
         //    ihn auch nach SSO, und bis dahin gibt es keine Sitzung.
-        $callback = $client->get('/auth/entra/callback?code=fake-auth-code&state=' . urlencode($state));
+        $callback = $client->get('/auth/entra/callback?code=' . urlencode(self::gebunden('fake-auth-code', $query)) . '&state=' . urlencode($state));
         $this->assertSame(
             '/login/2fa',
             $callback->location(),
@@ -233,6 +263,70 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         $this->assertStringContainsString('iss=' . self::issuer(), $detail);
         $this->assertStringContainsString('sub=fake-', $detail);
         $this->assertStringContainsString('zweiter Faktor: lokal verlangt', $detail);
+    }
+
+    /**
+     * GHSA-g8jp-xvcw-m27p, Kernfall nach RFC 9700, Abschnitt 2.1.1: Ein
+     * Angreifer erbeutet den Code aus dem Flow seines Opfers und löst ihn in
+     * einem eigenen Flow ein. Dessen state passt zu seiner Session, der
+     * Code-Tausch scheitert aber, weil der code_verifier seiner Session nicht
+     * zur code_challenge des Opfers passt.
+     */
+    public function testEingeschleusterCodeAusFremdemFlowMeldetNiemandenAn(): void {
+        $this->authenticatedClient();
+
+        $opfer = $this->ssoClient();
+        $opferFlow = $this->flowStarten($opfer);
+        $erbeuteterCode = self::gebunden('fake-auth-code', $opferFlow);
+
+        $angreifer = $this->ssoClient();
+        $angreiferFlow = $this->flowStarten($angreifer);
+        $this->assertNotSame($opferFlow['code_challenge'], $angreiferFlow['code_challenge']);
+
+        $callback = $angreifer->get('/auth/entra/callback?code=' . urlencode($erbeuteterCode)
+            . '&state=' . urlencode((string)$angreiferFlow['state']));
+        $this->assertNull($callback->location(), 'Ein fremder Code darf weder anmelden noch zum zweiten Faktor führen.');
+        $this->assertSame('/login', $angreifer->get('/admin')->location());
+    }
+
+    /**
+     * Der zweite Riegel, falls ein Provider PKCE nicht durchsetzt: Ein Token
+     * ohne den nonce dieser Session, oder mit einem anderen, wird abgewiesen.
+     *
+     * @return array<string, array{0: array<string, mixed>}>
+     */
+    public static function nonceFaelle(): array {
+        return [
+            'ohne nonce' => [['nonce' => null]],
+            'fremder nonce' => [['nonce' => str_repeat('f', 32)]],
+            'nonce kein String' => [['nonce' => 12345]],
+        ];
+    }
+
+    /** @param array<string, mixed> $claims */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonceFaelle')]
+    public function testTokenOhnePassendenNonceMeldetNiemandenAn(array $claims): void {
+        $this->authenticatedClient();
+        $client = $this->ssoClient();
+
+        $callback = $this->ssoCallbackMitClaims($client, $claims);
+        $this->assertNull($callback->location(), 'Ohne passenden nonce keine Anmeldung.');
+        $this->assertSame('/login', $client->get('/admin')->location());
+    }
+
+    /**
+     * Ein Code ohne Bindung an diesen Flow: Der Provider stellt dann ein Token
+     * ohne nonce aus. Das ist der Normalfall eines Codes, der für einen ganz
+     * anderen Anmeldeversuch ausgestellt wurde.
+     */
+    public function testUngebundenerCodeMeldetNiemandenAn(): void {
+        $this->authenticatedClient();
+        $client = $this->ssoClient();
+        $flow = $this->flowStarten($client);
+
+        $callback = $client->get('/auth/entra/callback?code=fake-auth-code&state=' . urlencode((string)$flow['state']));
+        $this->assertNull($callback->location());
+        $this->assertSame('/login', $client->get('/admin')->location());
     }
 
     public function testTamperedStateIsRejected(): void {
@@ -352,7 +446,7 @@ class OidcSsoConfiguredTest extends FunctionalTestCase {
         $state = (string)($query['state'] ?? '');
         $this->assertNotSame('', $state, 'Flow muss einen state liefern.');
         $code = 'claims:' . rtrim(strtr(base64_encode((string)json_encode($claims)), '+/', '-_'), '=');
-        return $client->get('/auth/entra/callback?code=' . urlencode($code) . '&state=' . urlencode($state));
+        return $client->get('/auth/entra/callback?code=' . urlencode(self::gebunden($code, $query)) . '&state=' . urlencode($state));
     }
 
     private function totpBestaetigen(HttpClient $client): void {

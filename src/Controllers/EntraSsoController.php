@@ -6,6 +6,7 @@ namespace App\Controllers;
 use App\Database;
 use App\Security\OidcDiscovery;
 use App\Security\OidcIdToken;
+use App\Security\OidcPkce;
 
 /**
  * Class EntraSsoController
@@ -38,6 +39,13 @@ use App\Security\OidcIdToken;
  *   allein der Admin (bzw. die Registrierung #83).
  * - CSRF-Schutz des Flows über den state-Parameter (Einmalwert in der
  *   Session, Vergleich per hash_equals).
+ * - Schutz gegen eingeschleuste Autorisierungscodes (RFC 9700, Abschnitt
+ *   2.1.1; GHSA-g8jp-xvcw-m27p), in beiden Modi doppelt: PKCE mit S256
+ *   (App\Security\OidcPkce; der code_verifier bleibt in der Session und
+ *   geht nur an den Token-Endpunkt) und ein nonce, den das ID-Token genau
+ *   so zurückbringen muss. state allein reicht nicht: Ein Angreifer mit
+ *   einem fremden Code startet einfach einen eigenen Flow. state, nonce und
+ *   Verifier verfallen gemeinsam mit dem ersten Callback.
  * - Das ID-Token kommt ausschließlich serverseitig vom Token-Endpunkt (TLS);
  *   Claims (aud/iss/exp) werden geprüft, siehe App\Security\OidcIdToken.
  *   Im generischen Modus wird der beim Redirect per Discovery ermittelte
@@ -166,6 +174,8 @@ class EntraSsoController extends BaseController {
         }
 
         $state = bin2hex(random_bytes(16));
+        $nonce = bin2hex(random_bytes(16));
+        $verifier = OidcPkce::verifier();
 
         $params = [
             'client_id' => self::clientId(),
@@ -173,6 +183,9 @@ class EntraSsoController extends BaseController {
             'redirect_uri' => $this->redirectUri(),
             'scope' => 'openid profile email',
             'state' => $state,
+            'nonce' => $nonce,
+            'code_challenge' => OidcPkce::challenge($verifier),
+            'code_challenge_method' => OidcPkce::METHODE,
         ];
 
         if (self::isGenericMode()) {
@@ -185,7 +198,7 @@ class EntraSsoController extends BaseController {
             }
             // Token-Endpunkt für den Callback festhalten - er stammt aus dem
             // issuer-geprüften Discovery-Dokument, nicht aus Benutzereingaben.
-            $_SESSION['entra_sso_state'] = $state;
+            self::flowMerken($state, $nonce, $verifier);
             $_SESSION['entra_sso_token_endpoint'] = $endpoints['token_endpoint'];
 
             // Endpunkte dürfen bereits Query-Parameter tragen.
@@ -196,8 +209,8 @@ class EntraSsoController extends BaseController {
             exit;
         }
 
-        // ENTRA-Modus: feste Microsoft-Endpunkte, unverändertes Verhalten.
-        $_SESSION['entra_sso_state'] = $state;
+        // ENTRA-Modus: feste Microsoft-Endpunkte.
+        self::flowMerken($state, $nonce, $verifier);
         $params['response_mode'] = 'query';
         $tenant = rawurlencode(self::config('ENTRA_TENANT_ID'));
         header('Location: ' . self::AUTHORITY_BASE . "/{$tenant}/oauth2/v2.0/authorize?" . http_build_query($params));
@@ -216,11 +229,23 @@ class EntraSsoController extends BaseController {
         $providerLabel = self::providerLabel();
 
         $expectedState = (string)($_SESSION['entra_sso_state'] ?? '');
+        $expectedNonce = (string)($_SESSION['entra_sso_nonce'] ?? '');
+        $verifier = (string)($_SESSION['entra_sso_pkce_verifier'] ?? '');
         $sessionTokenEndpoint = (string)($_SESSION['entra_sso_token_endpoint'] ?? '');
-        unset($_SESSION['entra_sso_state'], $_SESSION['entra_sso_token_endpoint']);
+        unset(
+            $_SESSION['entra_sso_state'],
+            $_SESSION['entra_sso_nonce'],
+            $_SESSION['entra_sso_pkce_verifier'],
+            $_SESSION['entra_sso_token_endpoint']
+        );
         $state = (string)($_GET['state'] ?? '');
         if ($expectedState === '' || $state === '' || !hash_equals($expectedState, $state)) {
             $this->failLogin('Ungültiger oder abgelaufener SSO-Anmeldeversuch (state). Bitte erneut versuchen.');
+        }
+        // Fail-closed: Ohne nonce und Verifier aus DIESER Session (etwa ein
+        // Flow, der vor dem Update begann) wird nichts getauscht.
+        if ($expectedNonce === '' || $verifier === '') {
+            $this->failLogin('Ungültiger oder abgelaufener SSO-Anmeldeversuch (Sitzung). Bitte erneut versuchen.');
         }
 
         if (isset($_GET['error'])) {
@@ -247,8 +272,8 @@ class EntraSsoController extends BaseController {
         }
 
         try {
-            $idToken = $this->exchangeCodeForIdToken($code, $tokenUrl);
-            $claims = OidcIdToken::parseAndValidate($idToken, self::clientId(), $expectedIssuer);
+            $idToken = $this->exchangeCodeForIdToken($code, $tokenUrl, $verifier);
+            $claims = OidcIdToken::parseAndValidate($idToken, self::clientId(), $expectedIssuer, expectedNonce: $expectedNonce);
         } catch (\Throwable $e) {
             \App\Service\AuditLogger::log('SSO-Login fehlgeschlagen', 'auth', $e->getMessage());
             $this->failLogin(\App\I18n\Translator::t('auth.sso_failed', ['provider' => $providerLabel]));
@@ -299,9 +324,9 @@ class EntraSsoController extends BaseController {
 
     /**
      * Tauscht den Autorisierungscode am Token-Endpunkt gegen das ID-Token
-     * (serverseitig, mit Client-Secret).
+     * (serverseitig, mit Client-Secret und PKCE-Verifier).
      */
-    private function exchangeCodeForIdToken(string $code, string $tokenUrl): string {
+    private function exchangeCodeForIdToken(string $code, string $tokenUrl, string $verifier): string {
         $ch = curl_init($tokenUrl);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
@@ -314,6 +339,7 @@ class EntraSsoController extends BaseController {
                 'code' => $code,
                 'redirect_uri' => $this->redirectUri(),
                 'scope' => 'openid profile email',
+                'code_verifier' => $verifier,
             ]),
         ]);
         $body = curl_exec($ch);
@@ -330,6 +356,13 @@ class EntraSsoController extends BaseController {
         }
 
         return (string)$data['id_token'];
+    }
+
+    /** Merkt state, nonce und PKCE-Verifier dieses Login-Versuchs in der Session. */
+    private static function flowMerken(string $state, string $nonce, string $verifier): void {
+        $_SESSION['entra_sso_state'] = $state;
+        $_SESSION['entra_sso_nonce'] = $nonce;
+        $_SESSION['entra_sso_pkce_verifier'] = $verifier;
     }
 
     /**

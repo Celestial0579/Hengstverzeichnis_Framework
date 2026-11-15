@@ -893,8 +893,17 @@ Routen `/auth/entra*` nicht erreichbar und der Login-Button erscheint nicht.
   werden abgewiesen und protokolliert.
 - **Flow-Härtung:** `state`-Parameter (Einmalwert in der Session,
   `hash_equals`), Code-Tausch ausschließlich serverseitig mit Client-Secret
-  über TLS; ID-Token-Claims (`aud`/`iss`/`exp`) werden in
-  `App\Security\OidcIdToken` fail-closed validiert. Es findet bewusst keine
+  über TLS; ID-Token-Claims (`aud`/`iss`/`exp`/`nonce`) werden in
+  `App\Security\OidcIdToken` fail-closed validiert.
+- **Kein Einschleusen fremder Codes (RFC 9700, Abschnitt 2.1.1;
+  GHSA-g8jp-xvcw-m27p).** `state` schützt nur den Redirect-Endpunkt gegen
+  CSRF. Ein Angreifer mit einem erbeuteten Code startet einfach einen
+  eigenen Flow. Deshalb gilt in beiden Modi zweierlei: PKCE mit `S256`
+  (`App\Security\OidcPkce`; der `code_verifier` bleibt in der Session und
+  geht nur an den Token-Endpunkt) und ein `nonce`, den das ID-Token genau so
+  zurückbringen muss. Fehlt einer der Werte in der Session, wird nichts
+  getauscht. Der Provider muss PKCE für vertrauliche Clients zulassen;
+  Entra ID, Keycloak und Authentik tun das ab Werk. Es findet bewusst keine
   JWT-Signaturprüfung statt: Das Token stammt immer aus der serverseitigen
   TLS-Verbindung zum Token-Endpunkt — im generischen Modus aus dem
   issuer-geprüften Discovery-Dokument, im ENTRA-Modus von der festen

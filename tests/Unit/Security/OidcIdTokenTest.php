@@ -37,6 +37,45 @@ class OidcIdTokenTest extends TestCase {
         $this->assertSame('user@example.org', $claims['preferred_username']);
     }
 
+    // --- nonce (GHSA-g8jp-xvcw-m27p) ------------------------------------
+
+    public function testPassenderNonceWirdAkzeptiert(): void {
+        $claims = $this->validClaims();
+        $claims['nonce'] = 'abc123';
+        $result = OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::ISSUER, expectedNonce: 'abc123');
+        $this->assertSame('abc123', $result['nonce']);
+    }
+
+    /** @return array<string, array{0: mixed}> */
+    public static function falscheNonces(): array {
+        return [
+            'fehlt' => [null],
+            'anderer Wert' => ['xyz789'],
+            'Präfix' => ['abc'],
+            'kein String' => [123],
+            'Liste' => [['abc123']],
+        ];
+    }
+
+    #[DataProvider('falscheNonces')]
+    public function testFalscherOderFehlenderNonceWirdAbgewiesen(mixed $nonce): void {
+        $claims = $this->validClaims();
+        if ($nonce !== null) {
+            $claims['nonce'] = $nonce;
+        }
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('nonce');
+        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::ISSUER, expectedNonce: 'abc123');
+    }
+
+    /** Ein leerer erwarteter nonce (Session ohne Wert) darf nie als "passt" gelten. */
+    public function testLeererErwarteterNonceLehntImmerAb(): void {
+        $claims = $this->validClaims();
+        $claims['nonce'] = '';
+        $this->expectException(\RuntimeException::class);
+        OidcIdToken::parseAndValidate($this->makeJwt($claims), self::CLIENT_ID, self::ISSUER, expectedNonce: '');
+    }
+
     public function testWrongAudienceIsRejected(): void {
         $claims = $this->validClaims();
         $claims['aud'] = 'andere-app';

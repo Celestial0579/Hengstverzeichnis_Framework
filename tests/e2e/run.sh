@@ -30,7 +30,7 @@ docker run --rm --name "${NS}-parcours" --network "$E2E_NET" --user root \
   -e DO_SETUP=auto \
   -e "PHASES=setup,leer,store,daten,ansichten,gast,filter,api,extern,update,darkmode" \
   -e ADMIN_EMAIL="$ADMIN_EMAIL" -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-  -e MINIO_ENDPOINT=e2e-minio:9000 -e MINIO_KEY=minioadmin -e MINIO_SECRET=minio-e2e-testpass \
+  -e MINIO_ENDPOINT=e2e-s3:9000 -e MINIO_KEY=e2es3admin -e MINIO_SECRET=s3-e2e-testpass \
   -e WEBDAV_URL=http://e2e-webdav:80/ -e WEBDAV_USER=testdav -e WEBDAV_PW=webdav-e2e-testpass \
   -e FTPS_HOST=e2e-ftps -e FTPS_PORT=21 -e FTPS_USER=testftp -e FTPS_PW=ftps-e2e-testpass \
   -e SMTP_HOST=e2e-mail -e SMTP_PORT=1025 -e SMTP_USER=e2e-admin@example.com -e SMTP_PW=none \

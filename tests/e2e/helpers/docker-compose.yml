@@ -7,16 +7,15 @@ networks:
     external: true
 
 services:
-  minio:
-    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: latest 2026-08
-    image: minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-    command: server /data
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minio-e2e-testpass
+  s3:
+    # S3-Ziel (#516): versitygw mit Dateisystem-Backend statt MinIO, dessen
+    # Images (minio/minio, minio/mc) es auf Docker Hub nicht mehr gibt. Per
+    # Digest gepinnt (Scorecard Pinned-Dependencies); v1.10.0 vom 22.10.2026.
+    image: versity/versitygw:v1.10.0@sha256:89cad13cc981986ee284cbafea4613f9533ce6fd5f37a2c96c4c4fb8adb3a316
+    command: ["--access", "e2es3admin", "--secret", "s3-e2e-testpass", "--port", ":9000", "posix", "/tmp"]
     networks:
       e2e:
-        aliases: [e2e-minio]
+        aliases: [e2e-s3]
     restart: unless-stopped
 
   webdav:

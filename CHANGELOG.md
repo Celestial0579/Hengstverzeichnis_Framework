@@ -8,9 +8,11 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
-## [0.9.2-beta.1] – 2026-11-16
+## [0.9.2] – 2026-11-16
 
-Erste Vorabversion der 0.9.2. Das Docker-Image läuft nicht mehr als root
+**Die erste Fassung der 0.9.2 ohne Vorabsuffix.** Was in `v0.9.2-beta.1`
+entstanden ist, gilt ab hier als freigegeben; das veröffentlichte Image hat
+den Rauchtest bestanden. Das Docker-Image läuft nicht mehr als root
 (#538). Port, Volumes und Port-Mapping bleiben, ein Update per
 `docker compose pull && docker compose up -d` genügt. Kein Schema-Schritt
 gegenüber 0.9.1, Kern-Linie bleibt 0.9.

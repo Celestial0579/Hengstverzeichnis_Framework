@@ -118,7 +118,11 @@ docker run --rm --user root \
         chown -R www-data:www-data .
     '
 
+# Mit denselben Einschraenkungen wie docker-compose.yml (#538): keine
+# Capabilities, no-new-privileges, Port 80 ohne root per sysctl.
 docker run -d --name "$CONTAINER" -p "127.0.0.1:${PORT}:80" \
+    --cap-drop ALL --security-opt no-new-privileges:true \
+    --sysctl net.ipv4.ip_unprivileged_port_start=0 \
     -v "$VOL_ALT:/var/www/html/public/uploads" "$IMAGE" >/dev/null
 
 basis="http://127.0.0.1:${PORT}"
@@ -128,6 +132,15 @@ for _ in $(seq 1 30); do
     fi
     sleep 1
 done
+
+# --- #538: kein root-Prozess im Container -----------------------------------
+
+pruefe "Image-Benutzer ist www-data" test "$(docker image inspect -f '{{.Config.User}}' "$IMAGE")" = www-data
+# Alle Prozesse im Container (Apache-Hauptprozess und Worker): keiner als root.
+# Die Liste kommt aus /proc, ps gibt es im Image nicht.
+uids="$(docker exec "$CONTAINER" sh -c 'for p in /proc/[0-9]*; do awk "/^Uid:/ {print \$2}" "$p/status"; done' | sort -u | tr '\n' ' ')"
+pruefe "keine Prozesse als root (UIDs: $uids)" test -n "$uids" -a "${uids#0 }" = "$uids" -a "$uids" != 0
+pruefe "Apache-Hauptprozess ist PID 1" docker exec "$CONTAINER" sh -c 'grep -q apache2 /proc/1/cmdline'
 
 status() {
     curl -s -o "$TMPDIR_SMOKE/body" -D "$TMPDIR_SMOKE/kopf" -w '%{http_code}' "$@" || true

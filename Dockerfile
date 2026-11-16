@@ -164,6 +164,27 @@ RUN chown root:www-data config \
 COPY docker/apache-uploads.conf /etc/apache2/conf-available/zz-uploads.conf
 RUN a2enconf zz-uploads
 
+# Kein root-Prozess im Container (#538). Bisher lief der Apache-Hauptprozess als
+# root und gab nur die Worker an www-data ab; eine Luecke vor dem Rechtewechsel
+# (Apache, Module) haette root im Container bedeutet. Jetzt laeuft ALLES als
+# www-data. Dafuer braucht Apache nur beschreibbare Laufzeitverzeichnisse (PID,
+# Sperrdatei, Logs); das Basis-Image legt sie an, hier wird nur sichergestellt,
+# dass sie www-data gehoeren.
+#
+# Der Port bleibt 80, damit sich fuer Betreiber nichts aendert (Port-Mapping,
+# Reverse-Proxy-Ziele). Ein Nicht-root-Prozess darf Port 80 nur binden, wenn
+# net.ipv4.ip_unprivileged_port_start im Container-Netzwerk-Namensraum <= 80
+# ist; Docker und Podman setzen 0, docker-compose.yml setzt es zusaetzlich
+# ausdruecklich. Auf Hosts ohne diese Einstellung (z. B. Kubernetes ohne
+# securityContext.sysctls) hilft derselbe sysctl.
+#
+# Code, config/ und die Volume-Verzeichnisse behalten ihre Rechte: Die
+# Datenverzeichnisse gehoerten schon www-data, der Code bleibt fuer den
+# Web-Prozess nicht beschreibbar (UPDATE_IN_PLACE=0).
+RUN mkdir -p /var/run/apache2 /var/lock/apache2 /var/log/apache2 \
+    && chown www-data:www-data /var/run/apache2 /var/lock/apache2 /var/log/apache2
+USER www-data
+
 # Pferdefotos nie im Container-Dateisystem (Audit M31). Das ist nur der
 # RÜCKFALL für Betreiber ohne eigenes Volume: Docker legt dann ein ANONYMES
 # Volume an, das ein Neuerstellen (Watchtower, `docker compose down && up`)

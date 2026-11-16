@@ -29,6 +29,24 @@ services:
     build: .
     ports:
       - "8080:80"
+    # Haertung (#538): Das Image laeuft als www-data, nicht als root, und
+    # braucht keine Linux-Capabilities. Deshalb alle abgeben und verhindern,
+    # dass ein Prozess im Container neue Rechte erlangt (setuid-Programme).
+    # Voraussetzung ist ein Image ab dieser Fassung (ab dem Release nach 0.9.2); mit einem
+    # aelteren Image starten Apache-Master (root) und Port 80 nicht mehr.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Port 80 ohne root: erlaubt dem Nicht-root-Prozess, Ports ab 0 zu binden.
+    # Nur im Netzwerk-Namensraum dieses Containers; Docker setzt den Wert
+    # ohnehin, hier steht er ausdruecklich fuer andere Laufzeiten.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    # Bewusst KEIN read_only: Der Setup-Assistent legt config/db_config.php an,
+    # und Apache, Logs und Wartungsmarker schreiben in storage/, var/ und
+    # plugins/. Ein schreibgeschuetztes Wurzeldateisystem braucht dafuer
+    # tmpfs-/Volume-Eintraege und wird hier nicht vorgegeben.
     # In .env dringend APP_URL setzen (siehe .env.example): Ohne feste
     # Stamm-URL verschickt die Instanz keine Passwort-Reset-Mails.
     env_file:

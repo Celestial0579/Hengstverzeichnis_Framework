@@ -8,6 +8,30 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **Docker-Image: kein Prozess läuft mehr als root** (#538, niedrig bis
+  mittel). Bisher lief der Apache-Hauptprozess als root und gab nur die
+  Worker an `www-data` ab. Das Image setzt jetzt `USER www-data`; Apache,
+  PID-Datei, Sperrdatei und Logs gehören `www-data`. Der Code bleibt für den
+  Web-Prozess nicht beschreibbar. `docker-compose.yml` gibt zusätzlich alle
+  Linux-Capabilities ab (`cap_drop: ALL`), setzt `no-new-privileges` und
+  `net.ipv4.ip_unprivileged_port_start=0`, damit der Prozess Port 80 ohne
+  root binden darf.
+
+  **Für Betreiber:** Port, Volumes und Port-Mapping ändern sich nicht, ein
+  Update per `docker compose pull && docker compose up -d` oder Watchtower
+  genügt. Wer den Container mit eigener Konfiguration betreibt (Kubernetes,
+  `docker run`, andere Laufzeiten), braucht zwei Dinge: Der Container-Netzwerk-
+  Namensraum muss Port 80 für Nicht-root erlauben (Docker und Podman tun das
+  ab Werk, sonst `net.ipv4.ip_unprivileged_port_start=0` setzen, in
+  Kubernetes über `securityContext.sysctls`), und eigene Bind-Mounts, in die
+  die Anwendung schreibt, müssen `www-data` (UID 33) gehören. Die neue
+  `docker-compose.yml` verlangt ein Image ab diesem Release. `read_only` ist
+  nicht vorgegeben, weil der Setup-Assistent `config/db_config.php` anlegt.
+  Der Rauchtest (`tests/docker/image-smoke.sh`) prüft jetzt, dass kein Prozess
+  als root läuft.
+
 ## [0.9.1] – 2026-11-15
 
 **Die erste Fassung der 0.9.1 ohne Vorabsuffix.** Was in `v0.9.1-beta.1` und

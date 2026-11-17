@@ -223,6 +223,33 @@ class DockerImageTest extends TestCase {
         $this->assertDoesNotMatchRegularExpression('~^\s+- [\w_]+:/var/www/html/var\s*$~m', $compose, 'Kein Volume auf var/');
     }
 
+    /**
+     * GHSA-58h6-g9mx-7ffr: Ohne DB_ROOT_PASS gibt es kein stilles
+     * Root-Passwort "root" mehr, und der App-Dienst bekommt das
+     * Root-Passwort nicht aus der .env.
+     */
+    public function testComposeRootPasswortOhneRueckfallUndNichtInDerApp(): void {
+        $compose = self::datei('docker-compose.yml');
+        $this->assertMatchesRegularExpression(
+            '~^\s+MARIADB_ROOT_PASSWORD: "\$\{DB_ROOT_PASS:\?[^}]+\}"\s*$~m',
+            $compose,
+            'Ohne DB_ROOT_PASS muss docker compose abbrechen'
+        );
+        $this->assertStringNotContainsString('DB_ROOT_PASS:-', $compose, 'Kein Rückfallwert für das Root-Passwort');
+
+        $start = strpos($compose, "\n  app:\n");
+        $ende = strpos($compose, "\n  db:\n");
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($ende);
+        $app = substr($compose, $start, $ende - $start);
+        $this->assertMatchesRegularExpression('~^    env_file:\n      - \.env\n~m', $app);
+        $this->assertMatchesRegularExpression(
+            '~^    environment:\n(?:      #.*\n)*      DB_ROOT_PASS: ""\s*$~m',
+            $app,
+            'environment hat Vorrang vor env_file: Die App bekommt das Root-Passwort leer'
+        );
+    }
+
     public function testRauchtestLaeuftInDerCi(): void {
         $workflow = self::datei('.github/workflows/tests.yml');
         $this->assertMatchesRegularExpression('~^  docker-image:\n(?:.*\n)*?\s+run: tests/docker/image-smoke\.sh\s*$~m', $workflow);

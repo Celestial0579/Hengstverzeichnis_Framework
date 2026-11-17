@@ -536,7 +536,18 @@ class SetupController extends BaseController {
                 $stmt->execute([$baseUrl, $baseUrl]);
             }
 
-            // Create Admin User (must_change_password = 0 since password was set during setup)
+            // Erster Admin mit must_change_password = 0 - in BEIDEN Wegen.
+            //
+            // Wizard: Der Anfragende hat das Passwort soeben selbst gewählt.
+            //
+            // Umgebung (ADMIN_PASSWORD): Auch dieses Passwort wählt der
+            // Betreiber selbst, und die erste Anmeldung verlangt ohnehin die
+            // Einrichtung des zweiten Faktors. Ein erzwungener Wechsel bräche
+            // die unbeaufsichtigten Wege, die sich mit ADMIN_PASSWORD wiederholt
+            // anmelden (Functional-Suite, E2E-Parcours). Dass der Wert im
+            // Klartext in der .env und in der Container-Umgebung steht, deckt
+            // die README ab: ADMIN_* nach der Einrichtung entfernen und das
+            // Passwort im Profil ändern (GHSA-58h6-g9mx-7ffr).
             $passwordHash = password_hash($password, PASSWORD_DEFAULT);
             $stmt = $testPdo->prepare("INSERT INTO users (username, email, password_hash, must_change_password) VALUES (?, ?, ?, 0)");
             $stmt->execute([$username, $email, $passwordHash]);

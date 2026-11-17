@@ -8,6 +8,22 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- **Docker-Compose: kein Rückfall-Root-Passwort, Root-Passwort nicht mehr im
+  App-Container** (GHSA-58h6-g9mx-7ffr, niedrig). Fehlte `DB_ROOT_PASS`,
+  setzte `docker-compose.yml` bisher still das MariaDB-Root-Passwort `root`.
+  Jetzt bricht `docker compose` mit einer Meldung ab. `./docker-start.sh`
+  erzeugt den Wert wie bisher. Außerdem gab `env_file: .env` das
+  Root-Passwort an den App-Container weiter, obwohl die App es nie liest.
+  Dort kommt es jetzt leer an. Das Beispiel in der README nennt
+  `DB_ROOT_PASS` jetzt. Betreiber mit eigener Compose-Datei ergänzen den Wert
+  in ihrer `.env`. MariaDB wertet das Root-Passwort nur beim ersten Start
+  eines leeren Volumes aus. Wer bisher ohne `DB_ROOT_PASS` lief, hat in der
+  Datenbank deshalb weiter das Root-Passwort `root`. Es lässt sich im
+  db-Container mit `ALTER USER` ändern; denselben Wert dann als
+  `DB_ROOT_PASS` eintragen.
+
 ## [0.9.2] – 2026-11-16
 
 **Die erste Fassung der 0.9.2 ohne Vorabsuffix.** Was in `v0.9.2-beta.1`

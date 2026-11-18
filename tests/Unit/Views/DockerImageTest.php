@@ -223,6 +223,61 @@ class DockerImageTest extends TestCase {
         $this->assertDoesNotMatchRegularExpression('~^\s+- [\w_]+:/var/www/html/var\s*$~m', $compose, 'Kein Volume auf var/');
     }
 
+    /**
+     * GHSA-58h6-g9mx-7ffr: Ohne DB_ROOT_PASS gibt es kein stilles
+     * Root-Passwort "root" mehr, und der App-Dienst bekommt das
+     * Root-Passwort nicht aus der .env.
+     */
+    public function testComposeRootPasswortOhneRueckfallUndNichtInDerApp(): void {
+        $compose = self::datei('docker-compose.yml');
+        $this->assertMatchesRegularExpression(
+            '~^\s+MARIADB_ROOT_PASSWORD: "\$\{DB_ROOT_PASS:\?[^}]+\}"\s*$~m',
+            $compose,
+            'Ohne DB_ROOT_PASS muss docker compose abbrechen'
+        );
+        $this->assertStringNotContainsString('DB_ROOT_PASS:-', $compose, 'Kein Rückfallwert für das Root-Passwort');
+
+        $start = strpos($compose, "\n  app:\n");
+        $ende = strpos($compose, "\n  db:\n");
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($ende);
+        $app = substr($compose, $start, $ende - $start);
+        $this->assertMatchesRegularExpression('~^    env_file:\n      - \.env\n~m', $app);
+        $this->assertMatchesRegularExpression(
+            '~^    environment:\n(?:      #.*\n)*      DB_ROOT_PASS: ""\s*$~m',
+            $app,
+            'environment hat Vorrang vor env_file: Die App bekommt das Root-Passwort leer'
+        );
+    }
+
+    public function testEnvBeispielGibtDbKontenKeinBekanntesPasswort(): void {
+        // GHSA-58h6-g9mx-7ffr: Eine unveränderte Kopie von .env.example darf den
+        // Datenbankkonten kein öffentlich bekanntes Passwort geben. Beide Werte
+        // bleiben leer, damit `${…:?…}` in docker-compose.yml abbricht; bis 0.9.2
+        // standen dort `change-me` (App-Konto) und `change-me-too` (Root).
+        $beispiel = self::datei('.env.example');
+        $start = self::datei('docker-start.sh');
+        foreach (['DB_PASS' => 'change-me', 'DB_ROOT_PASS' => 'change-me-too'] as $name => $alt) {
+            $this->assertMatchesRegularExpression('~^' . $name . '=$~m', $beispiel, "{$name} muss in .env.example leer sein");
+            $this->assertStringNotContainsString("{$name}={$alt}", $beispiel);
+
+            // docker-start.sh füllt beim Anlegen der .env den leeren Wert (und
+            // den früheren Beispielwert) mit einem Zufallswert.
+            $this->assertMatchesRegularExpression(
+                '~^  if grep -Eq \'\^' . $name . '=\(' . preg_quote($alt, '~') . '\)\?\$\' \.env; then\n'
+                    . '    replace_placeholder "' . $name . '" "\$\(random_hex 16\)"$~m',
+                $start,
+                "docker-start.sh muss ein leeres {$name} mit einem Zufallswert füllen"
+            );
+        }
+
+        $this->assertMatchesRegularExpression(
+            '~^\s+MARIADB_PASSWORD: "\$\{DB_PASS:\?[^}]+\}"\s*$~m',
+            self::datei('docker-compose.yml'),
+            'Ohne DB_PASS muss docker compose abbrechen'
+        );
+    }
+
     public function testRauchtestLaeuftInDerCi(): void {
         $workflow = self::datei('.github/workflows/tests.yml');
         $this->assertMatchesRegularExpression('~^  docker-image:\n(?:.*\n)*?\s+run: tests/docker/image-smoke\.sh\s*$~m', $workflow);

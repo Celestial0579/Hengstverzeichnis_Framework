@@ -19,7 +19,7 @@ cd Hengstverzeichnis_Framework
 ```
 
 Das Skript legt beim ersten Aufruf automatisch eine `.env` an (inkl.
-generiertem `DB_PASS`/`APP_KEY`) und startet die Container. Die App ist
+generiertem `DB_PASS`/`DB_ROOT_PASS`/`APP_KEY`) und startet die Container. Die App ist
 danach unter `http://localhost:8080` erreichbar. Details, Alternativen ohne
 Docker sowie die vollautomatische Ersteinrichtung siehe Abschnitt
 [Konfiguration](#konfiguration) unten und [docs/development.md](docs/development.md).
@@ -150,7 +150,7 @@ Sind **alle vier** zusätzlich zur Datenbankverbindung und `APP_KEY` gesetzt, wi
 
 **Sobald eine `ADMIN_*`-Variable gesetzt ist, müssen alle gültig sein** — ebenso die Datenbankverbindung, `SITE_NAME` und `APP_KEY`. Andernfalls zeigt `/setup` eine Fehlerseite (HTTP 503) mit den zu korrigierenden Variablen, aber **kein Formular**. Ein Rückfall auf den Wizard würde sonst dem ersten beliebigen Besucher das Anlegen des Admin-Kontos anbieten.
 
-Empfehlung: Nach der Einrichtung die `ADMIN_*`-Zeilen aus der `.env` entfernen und das Passwort im Profil ändern — die Werte stehen im Klartext in der Datei und in der Container-Umgebung.
+Empfehlung: Nach der Einrichtung die `ADMIN_*`-Zeilen aus der `.env` entfernen, den Container mit `docker compose up -d` neu erstellen und das Passwort im Profil ändern. Die Werte stehen im Klartext in der Datei und in der Container-Umgebung, und die App erzwingt für diesen Admin keinen Passwortwechsel (Begründung bei `SetupController::provision()`).
 
 Ohne `ADMIN_*` (etwa nur `SITE_NAME` oder nur die Datenbankverbindung) zeigt der Wizard nur noch die Abschnitte an, die noch nicht über Env-Variablen feststehen — so kann z. B. nur noch der erste Admin-Account manuell angelegt werden, ohne versehentlich bereits korrekte DB-/Verbandseinstellungen zu überschreiben.
 
@@ -160,7 +160,8 @@ DB_HOST=db
 DB_PORT=3306
 DB_NAME=hengstverzeichnis
 DB_USER=hengst_user
-DB_PASS=change-me
+DB_PASS=<eigener Zufallswert>
+DB_ROOT_PASS=<eigener Zufallswert, nur für den db-Container>
 APP_KEY=<generierter 64-stelliger Hex-Wert>
 APP_ENV=production
 
@@ -169,6 +170,8 @@ ADMIN_USERNAME=verbandsadmin
 ADMIN_EMAIL=admin@example.org
 ADMIN_PASSWORD=<eigenes, starkes Passwort>
 ```
+
+`DB_PASS` und `DB_ROOT_PASS` sind für `docker-compose.yml` Pflicht und brauchen eigene Zufallswerte, etwa aus `openssl rand -hex 16`. In `.env.example` sind sie bewusst leer: `./docker-start.sh` trägt beim Anlegen der `.env` welche ein, wer die Datei von Hand kopiert, setzt sie selbst. Fehlt ein Wert, bricht `docker compose` ab. Früher galt still das Root-Passwort `root`, und eine unveränderte Kopie von `.env.example` setzte `change-me` für das App-Konto und `change-me-too` für Root. Der App-Container bekommt `DB_ROOT_PASS` leer, nur der Dienst `db` erhält den Wert (GHSA-58h6-g9mx-7ffr).
 
 ### Variante B: Ohne Umgebungsvariablen (Setup-Wizard, klassisches Webhosting)
 

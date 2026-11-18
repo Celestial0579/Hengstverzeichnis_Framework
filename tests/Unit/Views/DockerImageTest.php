@@ -250,6 +250,25 @@ class DockerImageTest extends TestCase {
         );
     }
 
+    public function testEnvBeispielGibtRootKeinBekanntesPasswort(): void {
+        // GHSA-58h6-g9mx-7ffr: Eine unveränderte Kopie von .env.example darf
+        // MariaDB-Root kein öffentlich bekanntes Passwort geben. Der Wert bleibt
+        // leer, damit `${DB_ROOT_PASS:?…}` in docker-compose.yml abbricht; bis
+        // 0.9.2 stand dort `change-me-too`.
+        $beispiel = self::datei('.env.example');
+        $this->assertMatchesRegularExpression('~^DB_ROOT_PASS=$~m', $beispiel);
+        $this->assertStringNotContainsString('DB_ROOT_PASS=change-me', $beispiel);
+
+        // docker-start.sh füllt beim Anlegen der .env den leeren Wert (und den
+        // früheren Beispielwert) mit einem Zufallswert.
+        $start = self::datei('docker-start.sh');
+        $this->assertMatchesRegularExpression(
+            '~^  if grep -Eq \'\^DB_ROOT_PASS=\(change-me-too\)\?\$\' \.env; then\n    replace_placeholder "DB_ROOT_PASS" "\$\(random_hex 16\)"$~m',
+            $start,
+            'docker-start.sh muss ein leeres DB_ROOT_PASS mit einem Zufallswert füllen'
+        );
+    }
+
     public function testRauchtestLaeuftInDerCi(): void {
         $workflow = self::datei('.github/workflows/tests.yml');
         $this->assertMatchesRegularExpression('~^  docker-image:\n(?:.*\n)*?\s+run: tests/docker/image-smoke\.sh\s*$~m', $workflow);

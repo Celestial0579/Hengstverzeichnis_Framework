@@ -171,7 +171,7 @@ ADMIN_EMAIL=admin@example.org
 ADMIN_PASSWORD=<eigenes, starkes Passwort>
 ```
 
-`DB_ROOT_PASS` ist für `docker-compose.yml` Pflicht. Fehlt der Wert, bricht `docker compose` ab; früher galt still das Root-Passwort `root`. Der App-Container bekommt `DB_ROOT_PASS` leer, nur der Dienst `db` erhält den Wert (GHSA-58h6-g9mx-7ffr).
+`DB_ROOT_PASS` ist für `docker-compose.yml` Pflicht und braucht einen eigenen Zufallswert, etwa aus `openssl rand -hex 16`. In `.env.example` ist er bewusst leer: `./docker-start.sh` trägt beim Anlegen der `.env` einen ein, wer die Datei von Hand kopiert, setzt ihn selbst. Fehlt der Wert, bricht `docker compose` ab. Früher galt still das Root-Passwort `root`, und eine unveränderte Kopie von `.env.example` setzte `change-me-too`. Der App-Container bekommt `DB_ROOT_PASS` leer, nur der Dienst `db` erhält den Wert (GHSA-58h6-g9mx-7ffr).
 
 ### Variante B: Ohne Umgebungsvariablen (Setup-Wizard, klassisches Webhosting)
 

@@ -8,6 +8,16 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+## [0.9.3] – 2026-11-18
+
+**Sicherheitsfreigabe zu GHSA-58h6-g9mx-7ffr.** Geändert haben sich nur
+`docker-compose.yml`, `.env.example`, `./docker-start.sh` und die Doku, an der
+App selbst nichts. Kein Schema-Schritt gegenüber 0.9.2, Kern-Linie bleibt 0.9.
+Vor dem Update die `.env` prüfen: Fehlt `DB_ROOT_PASS` oder steht dort noch
+`change-me-too`, oder steht `DB_PASS` noch auf `change-me`, die Passwörter wie
+unten beschrieben ändern. Danach genügt
+`docker compose pull && docker compose up -d`.
+
 ### Sicherheit
 
 - **Docker-Compose: keine bekannten Datenbank-Passwörter mehr, Root-Passwort

@@ -10,15 +10,16 @@ Breaking Changes sind jederzeit möglich).
 
 ### Sicherheit
 
-- **Docker-Compose: kein Rückfall-Root-Passwort, Root-Passwort nicht mehr im
-  App-Container** (GHSA-58h6-g9mx-7ffr, niedrig). Fehlte `DB_ROOT_PASS`,
-  setzte `docker-compose.yml` bisher still das MariaDB-Root-Passwort `root`.
-  Jetzt bricht `docker compose` mit einer Meldung ab. Auch `.env.example`
-  lässt `DB_ROOT_PASS` jetzt leer: Eine unveränderte Kopie setzte bisher den
-  öffentlich bekannten Beispielwert `change-me-too` und bricht nun ebenfalls
-  ab. `./docker-start.sh` erzeugt den Wert wie bisher. Außerdem gab
-  `env_file: .env` das Root-Passwort an den App-Container weiter, obwohl die
-  App es nie liest.
+- **Docker-Compose: keine bekannten Datenbank-Passwörter mehr, Root-Passwort
+  nicht mehr im App-Container** (GHSA-58h6-g9mx-7ffr, niedrig). Fehlte
+  `DB_ROOT_PASS`, setzte `docker-compose.yml` bisher still das
+  MariaDB-Root-Passwort `root`. Jetzt bricht `docker compose` mit einer
+  Meldung ab, ebenso ohne `DB_PASS`. Auch `.env.example` lässt `DB_PASS` und
+  `DB_ROOT_PASS` jetzt leer: Eine unveränderte Kopie setzte bisher die
+  öffentlich bekannten Beispielwerte `change-me` (App-Konto) und
+  `change-me-too` (Root) und bricht nun ebenfalls ab. `./docker-start.sh`
+  erzeugt die Werte wie bisher. Außerdem gab `env_file: .env` das
+  Root-Passwort an den App-Container weiter, obwohl die App es nie liest.
   Dort kommt es jetzt leer an. Das Beispiel in der README nennt
   `DB_ROOT_PASS` jetzt. Betreiber mit eigener Compose-Datei ergänzen den Wert
   in ihrer `.env`. MariaDB wertet das Root-Passwort nur beim ersten Start
@@ -26,7 +27,11 @@ Breaking Changes sind jederzeit möglich).
   unveränderten Kopie von `.env.example` lief, hat in der Datenbank deshalb
   weiter das Root-Passwort `root` bzw. `change-me-too`. Es lässt sich im
   db-Container mit `ALTER USER` ändern; denselben Wert dann als
-  `DB_ROOT_PASS` eintragen.
+  `DB_ROOT_PASS` eintragen. Steht in der `.env` noch `DB_PASS=change-me`, hat
+  auch das App-Konto (`DB_USER`, Standard `hengst_user`) dieses Passwort:
+  einen neuen Wert als `DB_PASS` eintragen, ihn im db-Container mit
+  `ALTER USER` setzen und den App-Container mit `docker compose up -d` neu
+  erstellen.
 
 ## [0.9.2] – 2026-11-16
 

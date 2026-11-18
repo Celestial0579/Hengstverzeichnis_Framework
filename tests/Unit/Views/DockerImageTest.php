@@ -250,22 +250,31 @@ class DockerImageTest extends TestCase {
         );
     }
 
-    public function testEnvBeispielGibtRootKeinBekanntesPasswort(): void {
-        // GHSA-58h6-g9mx-7ffr: Eine unveränderte Kopie von .env.example darf
-        // MariaDB-Root kein öffentlich bekanntes Passwort geben. Der Wert bleibt
-        // leer, damit `${DB_ROOT_PASS:?…}` in docker-compose.yml abbricht; bis
-        // 0.9.2 stand dort `change-me-too`.
+    public function testEnvBeispielGibtDbKontenKeinBekanntesPasswort(): void {
+        // GHSA-58h6-g9mx-7ffr: Eine unveränderte Kopie von .env.example darf den
+        // Datenbankkonten kein öffentlich bekanntes Passwort geben. Beide Werte
+        // bleiben leer, damit `${…:?…}` in docker-compose.yml abbricht; bis 0.9.2
+        // standen dort `change-me` (App-Konto) und `change-me-too` (Root).
         $beispiel = self::datei('.env.example');
-        $this->assertMatchesRegularExpression('~^DB_ROOT_PASS=$~m', $beispiel);
-        $this->assertStringNotContainsString('DB_ROOT_PASS=change-me', $beispiel);
-
-        // docker-start.sh füllt beim Anlegen der .env den leeren Wert (und den
-        // früheren Beispielwert) mit einem Zufallswert.
         $start = self::datei('docker-start.sh');
+        foreach (['DB_PASS' => 'change-me', 'DB_ROOT_PASS' => 'change-me-too'] as $name => $alt) {
+            $this->assertMatchesRegularExpression('~^' . $name . '=$~m', $beispiel, "{$name} muss in .env.example leer sein");
+            $this->assertStringNotContainsString("{$name}={$alt}", $beispiel);
+
+            // docker-start.sh füllt beim Anlegen der .env den leeren Wert (und
+            // den früheren Beispielwert) mit einem Zufallswert.
+            $this->assertMatchesRegularExpression(
+                '~^  if grep -Eq \'\^' . $name . '=\(' . preg_quote($alt, '~') . '\)\?\$\' \.env; then\n'
+                    . '    replace_placeholder "' . $name . '" "\$\(random_hex 16\)"$~m',
+                $start,
+                "docker-start.sh muss ein leeres {$name} mit einem Zufallswert füllen"
+            );
+        }
+
         $this->assertMatchesRegularExpression(
-            '~^  if grep -Eq \'\^DB_ROOT_PASS=\(change-me-too\)\?\$\' \.env; then\n    replace_placeholder "DB_ROOT_PASS" "\$\(random_hex 16\)"$~m',
-            $start,
-            'docker-start.sh muss ein leeres DB_ROOT_PASS mit einem Zufallswert füllen'
+            '~^\s+MARIADB_PASSWORD: "\$\{DB_PASS:\?[^}]+\}"\s*$~m',
+            self::datei('docker-compose.yml'),
+            'Ohne DB_PASS muss docker compose abbrechen'
         );
     }
 

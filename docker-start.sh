@@ -40,7 +40,7 @@ random_hex() {
     php -r "echo bin2hex(random_bytes($bytes));"
   else
     error "Weder 'openssl' noch 'php' gefunden, um sichere Zufallswerte zu generieren."
-    error "Bitte APP_KEY/DB_PASS manuell in .env eintragen."
+    error "Bitte APP_KEY/DB_PASS/DB_ROOT_PASS manuell in .env eintragen."
     exit 1
   fi
 }
@@ -60,12 +60,12 @@ ensure_env() {
   info "Keine .env gefunden, erstelle sie aus .env.example ..."
   cp .env.example .env
 
-  if grep -q '^DB_PASS=change-me$' .env; then
+  # .env.example lässt DB_PASS und DB_ROOT_PASS leer, damit eine unveränderte
+  # Kopie in docker-compose.yml abbricht (GHSA-58h6-g9mx-7ffr). Gefüllt werden
+  # die leeren Werte und die früheren Beispielwerte.
+  if grep -Eq '^DB_PASS=(change-me)?$' .env; then
     replace_placeholder "DB_PASS" "$(random_hex 16)"
   fi
-  # .env.example lässt DB_ROOT_PASS leer, damit eine unveränderte Kopie in
-  # docker-compose.yml abbricht (GHSA-58h6-g9mx-7ffr). Gefüllt werden der
-  # leere Wert und der frühere Beispielwert change-me-too.
   if grep -Eq '^DB_ROOT_PASS=(change-me-too)?$' .env; then
     replace_placeholder "DB_ROOT_PASS" "$(random_hex 16)"
   fi

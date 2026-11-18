@@ -140,12 +140,12 @@ services:
     environment:
       # Kein Rueckfallwert (GHSA-58h6-g9mx-7ffr): Frueher wurde ohne
       # DB_ROOT_PASS still das Root-Passwort "root" gesetzt. Jetzt bricht
-      # `docker compose` mit einer Meldung ab. ./docker-start.sh erzeugt den
-      # Wert beim Anlegen der .env.
+      # `docker compose` mit einer Meldung ab, ebenso ohne DB_PASS.
+      # ./docker-start.sh erzeugt beide Werte beim Anlegen der .env.
       MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASS:?DB_ROOT_PASS ist nicht gesetzt - siehe .env.example}"
       MARIADB_DATABASE: ${DB_NAME:-hengstverzeichnis}
       MARIADB_USER: ${DB_USER:-hengst_user}
-      MARIADB_PASSWORD: ${DB_PASS}
+      MARIADB_PASSWORD: "${DB_PASS:?DB_PASS ist nicht gesetzt - siehe .env.example}"
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:

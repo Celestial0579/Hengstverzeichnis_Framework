@@ -37,8 +37,8 @@ cp .env.example .env
 ```
 
 `.env` ausfüllen (mindestens `DB_PASS`, `DB_ROOT_PASS` und `APP_KEY`, siehe
-Hauptteil der [README.md](../README.md)). `DB_ROOT_PASS` ist in
-`.env.example` bewusst leer; ohne eigenen Wert bricht `docker compose` ab:
+Hauptteil der [README.md](../README.md)). `DB_PASS` und `DB_ROOT_PASS` sind
+in `.env.example` bewusst leer; ohne eigene Werte bricht `docker compose` ab:
 
 ```bash
 php -r "echo bin2hex(random_bytes(32)) . PHP_EOL;"   # für APP_KEY

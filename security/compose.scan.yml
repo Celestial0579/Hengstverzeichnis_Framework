@@ -31,7 +31,7 @@ services:
   db:
     image: mariadb:11@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
     environment:
-      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASS:-scan-root}"
+      MARIADB_ROOT_PASSWORD: "${DB_ROOT_PASS:?DB_ROOT_PASS muss gesetzt sein}"
       MARIADB_DATABASE: "${DB_NAME:-hengstverzeichnis}"
       MARIADB_USER: "${DB_USER:-hengst_user}"
       MARIADB_PASSWORD: "${DB_PASS:?DB_PASS muss gesetzt sein}"

@@ -8,6 +8,13 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Sicherheit
+
+- `security/compose.scan.yml`: kein Rückfallwert `scan-root` mehr für das
+  MariaDB-Root-Passwort der Scan-Instanz; `DB_ROOT_PASS` muss gesetzt sein
+  (wie schon `DB_PASS`). `run-security-scan.sh` setzt beides immer auf
+  Zufallswerte, es ändert sich nur der Start der Datei ohne das Skript (#543).
+
 ## [0.9.3] – 2026-11-18
 
 **Sicherheitsfreigabe zu GHSA-58h6-g9mx-7ffr.** Geändert haben sich nur

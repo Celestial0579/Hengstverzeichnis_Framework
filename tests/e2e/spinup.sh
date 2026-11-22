@@ -103,7 +103,16 @@ done
 [[ "$ok" == 1 ]] || { echo "[e2e-aufbau] App nicht erreichbar - Umgebung nicht bereit." >&2; exit 1; }
 
 # 8. Mail-Cert im App-Container vertrauen
-docker cp "$E2E_CERT_DIR/cert.pem" "$APP_CID:/usr/local/share/ca-certificates/e2e-mail.crt" >/dev/null 2>&1 || true
-docker exec "$APP_CID" update-ca-certificates >/dev/null 2>&1 || true
+# Seit #538 laeuft der Container als www-data. update-ca-certificates muss den
+# Vertrauensspeicher unter /etc/ssl/certs schreiben, also ausdruecklich als
+# root (-u 0). Scheitert das, ist die Umgebung nicht bereit: Sonst schlaegt
+# spaeter der SMTP-Test an der Zertifikatspruefung fehl und sieht wie ein
+# App-Fehler aus.
+docker cp "$E2E_CERT_DIR/cert.pem" "$APP_CID:/usr/local/share/ca-certificates/e2e-mail.crt" >/dev/null \
+  || { echo "[e2e-aufbau] Mail-Cert nicht kopierbar - Umgebung nicht bereit." >&2; exit 1; }
+docker exec -u 0 "$APP_CID" update-ca-certificates >/dev/null \
+  || { echo "[e2e-aufbau] update-ca-certificates im App-Container fehlgeschlagen - Umgebung nicht bereit." >&2; exit 1; }
+docker exec "$APP_CID" openssl verify /usr/local/share/ca-certificates/e2e-mail.crt >/dev/null \
+  || { echo "[e2e-aufbau] Mail-Cert im App-Container nicht vertraut - Umgebung nicht bereit." >&2; exit 1; }
 
 echo "[e2e-aufbau] Umgebung bereit."

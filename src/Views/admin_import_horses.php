@@ -85,7 +85,7 @@ $canPublish = $canPublish ?? false;
                     <tbody>
                         <?php foreach ($preview as $entry): ?>
                             <?php $isValid = empty($entry['errors']); ?>
-                            <tr style="border-bottom: 1px solid var(--border-color); <?= $isValid ? '' : 'background-color: rgba(220, 53, 69, 0.08);' ?>">
+                            <tr style="border-bottom: 1px solid var(--border-color); <?= $isValid ? '' : 'background-color: var(--danger-soft-bg);' ?>">
                                 <td style="padding: 0.5rem;"><?= (int)$entry['row'] ?></td>
                                 <td style="padding: 0.5rem;">
                                     <?php if ($isValid): ?>

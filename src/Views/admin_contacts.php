@@ -328,7 +328,7 @@ $spalten = ($canPublish ? 9 : 8) - ($intern ? 0 : 1);
                                 </span>
                             </td>
                             <td style="padding: 0.5rem;">
-                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($k['is_published']) ? '#d4edda' : '#f8d7da' ?>; color: <?= !empty($k['is_published']) ? '#155724' : '#721c24' ?>;">
+                                <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background-color: <?= !empty($k['is_published']) ? 'var(--success-soft-bg)' : 'var(--danger-soft-bg)' ?>; color: <?= !empty($k['is_published']) ? 'var(--success-fg)' : 'var(--danger-fg)' ?>;">
                                     <?= !empty($k['is_published']) ? '🌐 Veröffentlicht' : 'Nicht veröffentlicht' ?>
                                 </span>
                                 <?php

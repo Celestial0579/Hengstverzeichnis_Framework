@@ -30,14 +30,14 @@ $canPublish = $canPublish ?? false;
 
     <?php if ($result !== null): ?>
         <!-- Ergebnis-Ansicht nach abgeschlossenem Import -->
-        <div style="background-color: <?= $result['imported'] > 0 ? '#d4edda' : '#fff3cd' ?>; color: <?= $result['imported'] > 0 ? '#155724' : '#856404' ?>; padding: 1.2rem; border-radius: 6px; margin-bottom: 1rem;">
+        <div style="background-color: <?= $result['imported'] > 0 ? 'var(--success-soft-bg)' : 'var(--warning-soft-bg)' ?>; color: <?= $result['imported'] > 0 ? 'var(--success-fg)' : 'var(--warning-fg)' ?>; padding: 1.2rem; border-radius: 6px; margin-bottom: 1rem;">
             <strong><?= (int)$result['imported'] ?></strong> Pferd(e) erfolgreich importiert.
             <?php if ($result['skipped'] > 0): ?>
                 <br><strong><?= (int)$result['skipped'] ?></strong> Zeile(n) wegen Fehlern übersprungen (siehe vorherige Vorschau).
             <?php endif; ?>
         </div>
         <?php if (!empty($result['notPublished'])): // Audit N49: Addon-Veto je importiertem Pferd ?>
-            <div class="import-nicht-veroeffentlicht" style="background-color: #fff3cd; color: #856404; padding: 1.2rem; border-radius: 6px; margin-bottom: 1rem;">
+            <div class="import-nicht-veroeffentlicht" style="background-color: var(--warning-soft-bg); color: var(--warning-fg); padding: 1.2rem; border-radius: 6px; margin-bottom: 1rem;">
                 <strong><?= count($result['notPublished']) ?></strong> Pferd(e) wurden importiert, aber wegen eines Addon-Einwands nicht veröffentlicht:
                 <ul style="margin: 0.5rem 0 0 1.2rem;">
                     <?php foreach ($result['notPublished'] as $blockiertesPferd): ?>
@@ -85,7 +85,7 @@ $canPublish = $canPublish ?? false;
                     <tbody>
                         <?php foreach ($preview as $entry): ?>
                             <?php $isValid = empty($entry['errors']); ?>
-                            <tr style="border-bottom: 1px solid var(--border-color); <?= $isValid ? '' : 'background-color: rgba(220, 53, 69, 0.08);' ?>">
+                            <tr style="border-bottom: 1px solid var(--border-color); <?= $isValid ? '' : 'background-color: var(--danger-soft-bg);' ?>">
                                 <td style="padding: 0.5rem;"><?= (int)$entry['row'] ?></td>
                                 <td style="padding: 0.5rem;">
                                     <?php if ($isValid): ?>

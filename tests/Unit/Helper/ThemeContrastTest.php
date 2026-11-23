@@ -128,6 +128,33 @@ class ThemeContrastTest extends TestCase {
         );
     }
 
+    /**
+     * Status-Textfarben (#545): --success-fg, --warning-fg und --danger-fg
+     * stehen als Text auf den Seitenflächen (etwa die Statuszeile auf
+     * /admin/digest auf --surface-muted) und als Badge auf ihrer weichen
+     * Fläche. Beides muss in BEIDEN Themes AA erreichen. Die festen
+     * Bootstrap-Töne vorher kamen im Darkmode auf 1,5:1 (#721c24) und
+     * im hellen Theme auf 3,0:1 (#28a745).
+     */
+    public function testStatusTextColorsMeetAaInBothThemes(): void {
+        $root = $this->rootVars();
+        foreach (['hell' => $root, 'dunkel' => array_merge($root, $this->darkVars('manual'))] as $theme => $vars) {
+            foreach (['success', 'warning', 'danger'] as $status) {
+                $fg = $this->resolve($vars, "--{$status}-fg");
+                $this->assertNotNull($fg, "--{$status}-fg ({$theme})");
+                foreach (['--bg-color', '--card-bg', '--surface-muted', "--{$status}-soft-bg"] as $flaeche) {
+                    $bg = $this->resolve($vars, $flaeche);
+                    $this->assertNotNull($bg, "{$flaeche} ({$theme})");
+                    $this->assertGreaterThanOrEqual(
+                        4.5,
+                        ColorContrast::contrastRatio($fg, $bg),
+                        "--{$status}-fg auf {$flaeche} ({$theme})"
+                    );
+                }
+            }
+        }
+    }
+
     public function testDarkThemeFooterAndNavButtonMeetThresholds(): void {
         $root = $this->rootVars();
         $dark = $this->darkVars('manual');

@@ -45,20 +45,20 @@ $lastSentCount = isset($settings['digest_last_sent_count']) ? (int)$settings['di
         </div>
     <?php endif; ?>
 
-    <div style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 1.5rem;">
+    <div style="background: var(--surface-muted); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-color); margin-bottom: 1.5rem;">
         <strong>Letzter Lauf:</strong>
         <?php if ($lastRunAt === null): ?>
             noch nie
         <?php else: ?>
             <?= htmlspecialchars(date('d.m.Y H:i:s', $lastRunAt)) ?>
-            - <span style="color: <?= $lastStatus === 'ok' ? '#28a745' : '#dc3545' ?>; font-weight: bold;">
+            - <span style="color: <?= $lastStatus === 'ok' ? 'var(--success-fg)' : 'var(--danger-fg)' ?>; font-weight: bold;">
                 <?= $lastStatus === 'ok' ? '✓ Erfolgreich' : '✗ Fehlgeschlagen' ?>
             </span>
             <?php if ($lastStatus === 'ok' && $lastSentCount !== null): ?>
                 <span style="color: var(--text-muted);">(<?= $lastSentCount ?> Empfänger benachrichtigt<?= $lastSentCount === 0 ? ', nichts zu berichten' : '' ?>)</span>
             <?php endif; ?>
             <?php if ($lastError !== ''): ?>
-                <div style="color: <?= $lastStatus === 'ok' ? '#856404' : '#721c24' ?>; font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
+                <div style="color: <?= $lastStatus === 'ok' ? 'var(--warning-fg)' : 'var(--danger-fg)' ?>; font-size: 0.85rem; margin-top: 0.3rem;"><?= htmlspecialchars($lastError) ?></div>
             <?php endif; ?>
         <?php endif; ?>
         <br>

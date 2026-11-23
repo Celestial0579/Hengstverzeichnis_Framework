@@ -33,8 +33,8 @@ $stationHorsesGekuerzt = $stationHorsesGekuerzt ?? false;
 // Zuchtstatus seit dem Status-Split (#188) zweiwertig; der Lebensstatus
 // (is_deceased) bekommt in den Listen unten ein eigenes Badge.
 $statusLabels = [
-    'active' => [App\I18n\Translator::t('status.active'), '#d4edda', '#155724'],
-    'inactive' => [App\I18n\Translator::t('status.inactive'), '#f8d7da', '#721c24'],
+    'active' => [App\I18n\Translator::t('status.active'), 'var(--success-soft-bg)', 'var(--success-fg)'],
+    'inactive' => [App\I18n\Translator::t('status.inactive'), 'var(--danger-soft-bg)', 'var(--danger-fg)'],
 ];
 
 // Rollenbeschriftungen wie in der Pferde-Detailseite; unbekannte Rollen

@@ -41,9 +41,9 @@ $currentTarget = $settings['backup_target'] ?? \App\Service\BackupService::TARGE
             <?php
             // 'partial' (Audit N65): Dump gesichert, Uploads-Archiv gescheitert.
             [$statusFarbe, $statusText] = match ($lastStatus) {
-                'ok' => ['#28a745', '✓ Erfolgreich'],
+                'ok' => ['var(--success-fg)', '✓ Erfolgreich'],
                 'partial' => ['var(--warning-fg)', '⚠ Nur Datenbank gesichert - Datei-Archiv (Uploads bzw. Addon-Daten) fehlgeschlagen'],
-                default => ['#dc3545', '✗ Fehlgeschlagen'],
+                default => ['var(--danger-fg)', '✗ Fehlgeschlagen'],
             };
             ?>
             - <span style="color: <?= $statusFarbe ?>; font-weight: bold;">

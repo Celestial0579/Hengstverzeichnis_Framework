@@ -48,7 +48,7 @@ $addonOhneErsatz = \App\Service\UpdateService::addonsBlockingAutoInstall($addonR
     <h2>🔄 Updates</h2>
     <p style="color: var(--text-muted);">
         Installierte Version: <strong><?= htmlspecialchars($currentVersion) ?></strong>
-        <span style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: <?= $updateChannel === 'beta' ? '#fff3cd' : '#e2e3e5' ?>; color: <?= $updateChannel === 'beta' ? '#856404' : '#383d41' ?>;">
+        <span style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; background: <?= $updateChannel === 'beta' ? 'var(--warning-soft-bg)' : '#e2e3e5' ?>; color: <?= $updateChannel === 'beta' ? 'var(--warning-fg)' : '#383d41' ?>;">
             Kanal: <?= $updateChannel === 'beta' ? 'Beta' : 'Stabil' ?>
         </span>
     </p>

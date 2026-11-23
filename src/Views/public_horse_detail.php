@@ -112,7 +112,7 @@ function renderPedigreeGeneration(?array $pedigree, int $depth): void {
             <h1 style="display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.4rem;">
                 <span><?= htmlspecialchars((string)$horse['name']) ?></span>
                 <?php // Zuchtstatus-Badge; seit dem Status-Split (#188) zweiwertig. ?>
-                <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? '#d4edda' : '#f8d7da' ?>; color: <?= $horse['status'] === 'active' ? '#155724' : '#721c24' ?>;">
+                <span style="font-size: 1rem; font-weight: normal; padding: 0.3rem 0.8rem; border-radius: 20px; background-color: <?= $horse['status'] === 'active' ? 'var(--success-soft-bg)' : 'var(--danger-soft-bg)' ?>; color: <?= $horse['status'] === 'active' ? 'var(--success-fg)' : 'var(--danger-fg)' ?>;">
                     <?= htmlspecialchars(App\I18n\Translator::t($horse['status'] === 'active' ? 'status.active' : 'status.inactive')) ?>
                 </span>
                 <?php if (!empty($horse['is_deceased'])): ?>

@@ -136,7 +136,7 @@ services:
   #   restart: unless-stopped
 
   db:
-    image: mariadb:11@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
+    image: mariadb:13@sha256:54f493ea0d60b621a5bff84e5b20100f8b86b6efa6b79158e04756c5194a5e4d
     environment:
       # Kein Rueckfallwert (GHSA-58h6-g9mx-7ffr): Frueher wurde ohne
       # DB_ROOT_PASS still das Root-Passwort "root" gesetzt. Jetzt bricht

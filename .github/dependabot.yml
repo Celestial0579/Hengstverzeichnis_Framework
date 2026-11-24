@@ -20,12 +20,21 @@ updates:
   # security/compose.scan.yml. Deren mariadb-Digest beim Compose-Update von
   # Hand mitziehen, sonst testet die CI gegen einen anderen Stand, als die
   # Compose-Datei ausliefert.
+  #
+  # Major-Spruenge von mariadb schlaegt Dependabot nicht vor: Das Tag `mariadb:13`
+  # ist eine Rolling-Reihe ohne festes Ende der Unterstuetzung, ausgeliefert
+  # wird eine LTS-Reihe (heute 11.8, spaeter 12.3). Ein Wechsel der Reihe
+  # braucht einen Test der Umstellung auf einer Kopie der Daten und die
+  # Digests oben in allen drei Dateien zusammen (#553).
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: "mariadb"
+        update-types: ["version-update:semver-major"]
 
   # Die Helfer des E2E-Nachtlaufs (mailpit, S3-Ziel) - ein eigener Eintrag,
   # weil Dependabot Compose-Dateien nicht rekursiv sucht (#517). Ohne ihn

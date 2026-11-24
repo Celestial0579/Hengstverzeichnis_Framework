@@ -8,6 +8,14 @@ Breaking Changes sind jederzeit möglich).
 
 ## [Unreleased]
 
+### Geändert
+
+- `mariadb:11` in `docker-compose.yml`, `security/compose.scan.yml` und
+  `.github/workflows/tests.yml` zusammen: derselbe MariaDB-Stand 11.8.9, aber
+  der Build des Images vom 20.11.2026 statt dem vom 11.11. Major-Sprünge von
+  mariadb schlägt Dependabot nicht mehr vor: `mariadb:13` ist eine
+  Rolling-Reihe, ausgeliefert bleibt die LTS-Reihe 11.8 (#553).
+
 ### Sicherheit
 
 - `security/compose.scan.yml`: kein Rückfallwert `scan-root` mehr für das

@@ -10,7 +10,7 @@ services:
   s3:
     # S3-Ziel (#516): versitygw mit Dateisystem-Backend statt MinIO, dessen
     # Images (minio/minio, minio/mc) es auf Docker Hub nicht mehr gibt. Per
-    # Digest gepinnt (Scorecard Pinned-Dependencies); v1.10.0 vom 22.10.2026.
+    # Digest gepinnt (Scorecard Pinned-Dependencies); v1.11.0 vom 06.11.2026.
     image: versity/versitygw:v1.11.0@sha256:8319a530d08d537426e2f855bae5280709795dc73a3f0c347973ef915d6343c5
     command: ["--access", "e2es3admin", "--secret", "s3-e2e-testpass", "--port", ":9000", "posix", "/tmp"]
     networks:
@@ -38,7 +38,7 @@ services:
   # SAN auf 'e2e-mail' lautet - der App-Container vertraut ihm). Der Mailer der
   # App verbietet Klartext-SMTP und prüft den Peer, deshalb TLS + Cert.
   mailpit:
-    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: v1.33.0 (2026-10-31)
+    # Per Digest gepinnt (Scorecard Pinned-Dependencies); Stand: v1.33.1 (2026-11-07)
     image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
